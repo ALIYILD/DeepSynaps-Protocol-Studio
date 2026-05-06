@@ -179,6 +179,150 @@ function statusDot(status) {
   return `<span style="width:6px;height:6px;border-radius:50%;background:${c};flex-shrink:0;display:inline-block"></span>`;
 }
 
+// ── Structured ReportPayload preview (handbooks AI draft) ─────────────────────
+// Styling aligned with pages-protocols.js “Structured report preview” card.
+
+function _hbStrengthBadge(s) {
+  const palette = {
+    Strong:           ['#0a5d2c', '#d1f7df'],
+    Moderate:         ['#9b6a00', '#fff2c8'],
+    Limited:          ['#7a3e00', '#fde2cc'],
+    Conflicting:      ['#7a1f1f', '#fbd5d5'],
+    'Evidence pending': ['#475569', '#e2e8f0'],
+  };
+  const key = s || 'Evidence pending';
+  const [c, bg] = palette[key] || palette['Evidence pending'];
+  return `<span style="color:${c};background:${bg};padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px">${esc(key)}</span>`;
+}
+
+function _hbConfidencePill(level) {
+  if (!level) return '';
+  const labels = { high: 'High confidence', medium: 'Medium confidence', low: 'Low confidence', insufficient: 'Insufficient evidence' };
+  const colors = { high: '#0a5d2c', medium: '#9b6a00', low: '#7a3e00', insufficient: '#475569' };
+  const color = colors[level] || '#475569';
+  return `<span style="color:${color};border:1px solid ${color};padding:2px 10px;border-radius:12px;font-size:10px;font-weight:600">${esc(labels[level] || level)}</span>`;
+}
+
+function _hbRenderReportSection(sec, lookup) {
+  const observed = (sec.observed || []).length
+    ? `<ul style="margin:4px 0 0;padding-left:18px">${(sec.observed||[]).map(o => `<li>${esc(o)}</li>`).join('')}</ul>`
+    : `<div style="color:${T.text3};font-style:italic">No findings recorded.</div>`;
+  const interp = (sec.interpretations || []).length
+    ? `<ul style="margin:4px 0 0;padding-left:18px;list-style:none">${(sec.interpretations||[]).map(i => {
+      const cites = (i.evidence_refs||[]).map(r => {
+        const cit = lookup[r];
+        const link = cit?.doi ? `https://doi.org/${cit.doi}` : (cit?.pmid ? `https://pubmed.ncbi.nlm.nih.gov/${cit.pmid}/` : (cit?.url || ''));
+        return link
+          ? `<sup><a href="${esc(link)}" target="_blank" rel="noopener noreferrer" style="color:#1f5fb3;text-decoration:none">[${esc(r)}]</a></sup>`
+          : `<sup style="color:#7a1f1f">[${esc(r)}]</sup>`;
+      }).join(' ');
+      const counter = (i.counter_evidence_refs||[]).length
+        ? ` <span style="color:#7a1f1f;font-size:11px;font-weight:600">Conflicting: ${esc((i.counter_evidence_refs||[]).join(', '))}</span>`
+        : '';
+      return `<li style="margin-bottom:6px">${_hbStrengthBadge(i.evidence_strength || 'Evidence pending')} <span>${esc(i.text)}</span> ${cites}${counter}</li>`;
+    }).join('')}</ul>`
+    : `<div style="color:${T.text3};font-style:italic">No model interpretations.</div>`;
+  const actions = (sec.suggested_actions || []).length
+    ? `<ul style="margin:4px 0 0;padding-left:18px">${(sec.suggested_actions||[]).map(a => {
+      const prefix = a.requires_clinician_review === false ? '' : 'Consider: ';
+      const why = a.rationale ? `<div style="color:${T.text3};font-size:11px;margin-top:2px">Why: ${esc(a.rationale)}</div>` : '';
+      return `<li style="margin-bottom:4px"><span>${esc(prefix)}${esc(a.text)}</span>${why}</li>`;
+    }).join('')}</ul>`
+    : `<div style="color:${T.text3};font-style:italic">No suggested actions.</div>`;
+  const cautions = (sec.cautions||[]).length
+    ? `<ul style="margin:2px 0 0;padding-left:18px;color:#7a3e00">${(sec.cautions||[]).map(c => `<li>${esc(c)}</li>`).join('')}</ul>`
+    : `<div style="color:#7a3e00;font-style:italic;font-size:11px">No cautions identified.</div>`;
+  const limits = (sec.limitations||[]).length
+    ? `<ul style="margin:2px 0 0;padding-left:18px;color:#7a1f1f">${(sec.limitations||[]).map(l => `<li>${esc(l)}</li>`).join('')}</ul>`
+    : `<div style="color:#7a1f1f;font-style:italic;font-size:11px">No limitations recorded.</div>`;
+  return `
+      <section style="border:1px solid ${T.border};border-radius:8px;padding:10px 12px;margin-bottom:10px;background:#ffffff">
+        <header style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+          <h4 style="margin:0;font-size:13px;color:${T.text1}">${esc(sec.title || '')}</h4>
+          ${_hbConfidencePill(sec.confidence)}
+        </header>
+        <div style="border-left:3px solid #1f5fb3;padding:4px 8px;background:#f4f9ff;border-radius:0 6px 6px 0;margin-bottom:6px">
+          <div style="font-size:10px;font-weight:700;color:#1f5fb3;text-transform:uppercase;letter-spacing:0.4px">Observed findings</div>
+          ${observed}
+        </div>
+        <div style="border-left:3px solid #9b6a00;padding:4px 8px;background:#fffaf0;border-radius:0 6px 6px 0;margin-bottom:6px">
+          <div style="font-size:10px;font-weight:700;color:#9b6a00;text-transform:uppercase;letter-spacing:0.4px">Model interpretation</div>
+          ${interp}
+        </div>
+        <div style="border-left:3px solid #0a5d2c;padding:4px 8px;background:#f3fbf6;border-radius:0 6px 6px 0;margin-bottom:6px">
+          <div style="font-size:10px;font-weight:700;color:#0a5d2c;text-transform:uppercase;letter-spacing:0.4px">Suggested actions (decision support)</div>
+          ${actions}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+          <div><div style="font-size:10px;font-weight:700;color:#7a3e00;text-transform:uppercase;letter-spacing:0.4px">Cautions</div>${cautions}</div>
+          <div><div style="font-size:10px;font-weight:700;color:#7a1f1f;text-transform:uppercase;letter-spacing:0.4px">Limitations</div>${limits}</div>
+        </div>
+      </section>`;
+}
+
+function _hbStructuredReportPreviewHtml(dr, audience) {
+  if (!dr || !Array.isArray(dr.sections) || dr.sections.length === 0) return '';
+  const lookup = {};
+  (dr.citations || []).forEach((c) => { if (c && c.citation_id) lookup[c.citation_id] = c; });
+  const sectionsHtml = dr.sections.map((s) => _hbRenderReportSection(s, lookup)).join('');
+  const citeRows = (dr.citations || []).map((c) => {
+    const link = c.doi ? `https://doi.org/${c.doi}` : (c.pmid ? `https://pubmed.ncbi.nlm.nih.gov/${c.pmid}/` : c.url || '');
+    const status = c.status === 'verified'
+      ? `<span style="color:#0a5d2c;background:#d1f7df;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;text-transform:uppercase">verified</span>`
+      : `<span style="color:#7a3e00;background:#fde2cc;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;text-transform:uppercase">unverified</span>`;
+    const lvl = c.evidence_level ? `<span style="margin-left:6px;color:${T.text3};font-size:11px">${esc(c.evidence_level)}</span>` : '';
+    const linkHtml = link ? `<a href="${esc(link)}" target="_blank" rel="noopener noreferrer" style="color:#1f5fb3;text-decoration:none">${esc(link)}</a>`
+      : `<span style="color:#7a1f1f;font-style:italic">${esc(c.raw_text || 'no link')}</span>`;
+    return `<li style="margin-bottom:6px;border-bottom:1px solid ${T.border};padding-bottom:4px">
+        <div><strong>[${esc(c.citation_id)}]</strong> ${esc(c.title || '(untitled)')} ${status}${lvl}</div>
+        <div style="color:${T.text3};font-size:11px">retrieved ${esc(c.retrieved_at || '')}</div>
+        <div style="font-size:11px">${linkHtml}</div>
+      </li>`;
+  }).join('');
+  const aud = audience === 'patient' ? 'patient' : 'clinician';
+  const audienceLabel = aud === 'patient' ? 'Patient view (wording may soften in exports)' : 'Clinician view';
+  const clinActive = aud === 'clinician' ? T.teal : 'transparent';
+  const clinColor = aud === 'clinician' ? '#fff' : T.text2;
+  const patActive = aud === 'patient' ? T.teal : 'transparent';
+  const patColor = aud === 'patient' ? '#fff' : T.text2;
+  const gc = (dr.global_cautions || []).map((x) => `<li>${esc(x)}</li>`).join('');
+  const gl = (dr.global_limitations || []).map((x) => `<li>${esc(x)}</li>`).join('');
+  const disc = dr.decision_support_disclaimer
+    ? `<div style="margin-top:10px;padding:8px 10px;background:rgba(122,62,0,0.06);border:1px solid rgba(122,62,0,0.25);border-radius:${T.rsm};font-size:11px;color:#7a3e00;line-height:1.5">${esc(dr.decision_support_disclaimer)}</div>`
+    : '';
+  return `
+        <div role="region" aria-label="Structured clinical report preview" style="margin-top:20px;padding:18px 18px 14px;border-radius:${T.rmd};background:${T.panel};border:1px solid rgba(31,95,179,0.35)">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+            <div>
+              <div style="font-family:${T.fmono};font-size:10px;font-weight:700;color:#1f5fb3;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Structured clinical report</div>
+              <div style="font-family:${T.fdisp};font-size:17px;font-weight:600;color:${T.text1};line-height:1.2">${esc(dr.title || 'Handbook report payload')}</div>
+            </div>
+            <div style="display:inline-flex;border:1px solid ${T.border};border-radius:14px;overflow:hidden">
+              <button type="button" onclick="window._hbSetReportAudience&&window._hbSetReportAudience('clinician')" style="padding:3px 10px;border:none;background:${clinActive};color:${clinColor};font-size:11px;cursor:pointer;font-family:inherit">Clinician</button>
+              <button type="button" onclick="window._hbSetReportAudience&&window._hbSetReportAudience('patient')" style="padding:3px 10px;border:none;background:${patActive};color:${patColor};font-size:11px;cursor:pointer;font-family:inherit">Patient</button>
+            </div>
+          </div>
+          <p style="margin:0 0 12px;font-size:12px;color:${T.text2};line-height:1.55;border-left:3px solid #1f5fb3;padding-left:12px">
+            Same <strong style="color:${T.text1}">ReportPayload</strong> contract as Protocol Studio and the reports stack (${esc(dr.schema_id || 'deepsynaps.report-payload/v1')}).
+            This block is <strong style="color:${T.text1}">decision-support only</strong> — not a signed handbook, care plan, or substitute for governance review.
+          </p>
+          <div style="font-size:10px;color:${T.text3};font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">${esc(audienceLabel)}</div>
+          <div style="font-size:13px;color:${T.text2};line-height:1.45;margin-bottom:12px">${esc(dr.summary || '')}</div>
+          ${sectionsHtml}
+          ${(gc || gl) ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;font-size:11px">
+            <div><strong style="color:#7a3e00">Global cautions</strong><ul style="margin:4px 0 0;padding-left:18px;color:#7a3e00">${gc || '<li style="font-style:italic">None listed.</li>'}</ul></div>
+            <div><strong style="color:#7a1f1f">Global limitations</strong><ul style="margin:4px 0 0;padding-left:18px;color:#7a1f1f">${gl || '<li style="font-style:italic">None listed.</li>'}</ul></div>
+          </div>` : ''}
+          ${disc}
+          <details style="margin-top:10px"><summary style="cursor:pointer;font-size:12px;color:${T.text2};font-weight:600">Citations (${(dr.citations||[]).length})</summary>
+            <ol style="margin:6px 0 0;padding-left:18px;list-style:none">${citeRows || `<li style="color:${T.text3};font-style:italic">No citations attached.</li>`}</ol>
+          </details>
+          <div style="font-size:10px;color:${T.text3};font-family:${T.fmono};margin-top:10px;border-top:1px solid ${T.border};padding-top:8px">
+            generator: ${esc(dr.generator_version || '')} · generated: ${esc(dr.generated_at || '')}
+          </div>
+        </div>`;
+}
+
 /** In-app editorial / template status — not a legal sign-off. */
 export function curatedHandbookStatus(entry) {
   if (!entry) return { label: '—', color: T.text3, blurb: '' };
@@ -396,6 +540,10 @@ function aiHandbookSection(cond) {
         device ? `Record device serial / lot for ${device.name} per ${device.clearance} traceability.` : 'Record device identifier per clinic SOP.',
       ];
 
+      const dr = gen.detailed_report;
+      const aud = (typeof window !== 'undefined' && window._hbReportAudience) || 'clinician';
+      const structuredHtml = dr ? _hbStructuredReportPreviewHtml(dr, aud) : '';
+
       return `
         ${intro}${selRow}${button}${coverageHint}
         <div role="region" aria-label="AI-assisted handbook draft" style="margin-top:18px;padding:18px 18px 4px;border-radius:${T.rmd};background:${T.bg};border:1px solid rgba(255,181,71,0.35)">
@@ -437,7 +585,7 @@ function aiHandbookSection(cond) {
             <div style="margin:14px 0 14px;padding:10px 12px;background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.32);border-radius:${T.rsm};font-size:11.5px;color:${T.amber};line-height:1.55">
               ${[gen.disclaimers.protocol, gen.disclaimers.governance, gen.disclaimers.off_label].filter(Boolean).map(esc).join('<br/>')}
             </div>` : '<div style="height:8px"></div>'}
-        </div>`;
+        </div>${structuredHtml}`;
     },
   };
 }
@@ -1496,6 +1644,12 @@ export async function pgHandbooks(setTopbar /*, navigate */) {
   };
   window._hbPrint = () => { try { window.print(); } catch (_) { /* noop */ } };
 
+  window._hbReportAudience = window._hbReportAudience || 'clinician';
+  window._hbSetReportAudience = (v) => {
+    window._hbReportAudience = v === 'patient' ? 'patient' : 'clinician';
+    render();
+  };
+
   const _hbLog = (event, note) => {
     api.logAudit({ event, surface: 'handbooks', note: String(note || '').slice(0, 500) }).catch(() => null);
   };
@@ -1683,6 +1837,7 @@ export async function pgHandbooks(setTopbar /*, navigate */) {
       _aiCache[cacheKey] = {
         document: res?.document || res,
         disclaimers: res?.disclaimers,
+        detailed_report: res?.detailed_report,
         modality: sel.modality,
         protoId: sel.protoId,
         deviceId: sel.deviceId,
