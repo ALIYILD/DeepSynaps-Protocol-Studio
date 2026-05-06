@@ -625,7 +625,7 @@ function _renderStep2() {
     }
     html += '<div style="display:flex;gap:8px">'
       + '<button class="btn btn-sm btn-outline" data-uw-action="intake-skip" title="Skip intake form — report may lack clinical context">Skip Intake</button>'
-      + '<button class="btn btn-sm btn-primary"' + (valid ? '' : ' disabled') + ' data-uw-action="mark-intake-complete">Mark Complete &rarr;</button>'
+      + '<button class="btn btn-sm btn-primary" data-uw-action="mark-intake-complete">Mark Complete &rarr;</button>'
       + '</div>';
   } else {
     html += '<span style="font-size:11px;color:var(--green);font-weight:500">&#x2713; Intake locked &amp; saved</span>';
@@ -1164,8 +1164,15 @@ function _handleClick(e) {
       break;
     }
     case 'mark-intake-complete': {
-      const { valid } = _validateIntakeRequired();
+      const { valid, missing } = _validateIntakeRequired();
       if (valid) {
+        _uwIntakeLocked = true;
+        _uwStep = 3;
+        _saveDraft();
+        _rerender();
+      } else {
+        // Show what's missing but still allow advancing
+        showToast('Missing: ' + missing.join(', ') + ' — advancing anyway.', 'info');
         _uwIntakeLocked = true;
         _uwStep = 3;
         _saveDraft();
