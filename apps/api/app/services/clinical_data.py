@@ -10,7 +10,11 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from sqlalchemy.orm import Session
+
+from deepsynaps_generation_engine import build_report_payload_from_handbook_document
+from deepsynaps_render_engine import ReportPayload
 
 # Re-export shim — see docs/adr/0009-registry-packages.md.
 # The CSV-loader primitives that used to live in this module have moved to
@@ -115,6 +119,18 @@ class ClinicalSnapshot:
 class ClinicalDatasetBundle:
     tables: dict[str, list[dict[str, str]]]
     snapshot: ClinicalSnapshot
+
+
+class HandbookGenerateAPIResponse(HandbookGenerateResponse):
+    """Handbook generator response plus a structured clinical report payload."""
+
+    detailed_report: ReportPayload | None = Field(
+        default=None,
+        description=(
+            "Structured ReportPayload (observed / interpretation / suggested actions) "
+            "for reporting exports and downstream renderers."
+        ),
+    )
 
 
 def _split_values(raw_value: str) -> list[str]:
@@ -882,7 +898,7 @@ def generate_protocol_draft_from_clinical_data(
 def generate_handbook_from_clinical_data(
     payload: HandbookGenerateRequest,
     actor: AuthenticatedActor,
-) -> HandbookGenerateResponse:
+) -> HandbookGenerateAPIResponse:
     require_minimum_role(
         actor,
         "clinician",
@@ -962,7 +978,9 @@ def generate_handbook_from_clinical_data(
         ],
         references=[reference for reference in references if reference][:6],
     )
-    return HandbookGenerateResponse(
+    detailed_report = build_report_payload_from_handbook_document(document)
+    return HandbookGenerateAPIResponse(
         document=document,
         disclaimers=standard_disclaimers(include_draft=protocol is None),
+        detailed_report=detailed_report,
     )
