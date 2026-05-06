@@ -34,6 +34,7 @@ from app.persistence.models import (
     WearableAlertFlag,
     WellnessCheckin,
 )
+from app.services.demo_clinic_seed import seed_demo_clinic_digest
 
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
@@ -622,6 +623,25 @@ class TestSections:
             assert top[0]["patient_id"] == home_clinic_patient.id
             assert top[0]["event_count"] >= 3
 
+    def test_sections_can_filter_to_single_surface(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+        home_clinic_patient: Patient,
+    ) -> None:
+        _seed_handled_audits_in_window(inbox=1, wearables=1, target_id=home_clinic_patient.id)
+        until = _dt.now(_tz.utc).isoformat()
+        since = (_dt.now(_tz.utc) - _td(days=1)).isoformat()
+        r = client.get(
+            f"/api/v1/clinician-digest/sections?since={since}&until={until}&surface=wearables_workbench",
+            headers=auth_headers["clinician"],
+        )
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert isinstance(data.get("sections"), list)
+        surfaces = {sx["surface"] for sx in data["sections"]}
+        assert surfaces == {"wearables_workbench"}
+
 
 # ── Events listing ──────────────────────────────────────────────────────────
 
@@ -703,6 +723,61 @@ class TestEvents:
                 assert it["drill_out_url"] is not None
                 assert it["drill_out_url"].startswith("?page=")
 
+
+class TestSummaryFilters:
+    def test_summary_can_filter_by_surface(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+        home_clinic_patient: Patient,
+    ) -> None:
+        _seed_handled_audits_in_window(inbox=2, wearables=1, target_id=home_clinic_patient.id)
+        until = _dt.now(_tz.utc).isoformat()
+        since = (_dt.now(_tz.utc) - _td(days=7)).isoformat()
+
+        all_r = client.get(
+            f"/api/v1/clinician-digest/summary?since={since}&until={until}",
+            headers=auth_headers["clinician"],
+        )
+        assert all_r.status_code == 200, all_r.text
+        all_data = all_r.json()
+
+        inbox_r = client.get(
+            f"/api/v1/clinician-digest/summary?since={since}&until={until}&surface=clinician_inbox",
+            headers=auth_headers["clinician"],
+        )
+        assert inbox_r.status_code == 200, inbox_r.text
+        inbox_data = inbox_r.json()
+
+        assert inbox_data["handled"] <= all_data["handled"]
+        assert inbox_data["by_surface"]["wearables_workbench"]["handled"] == 0
+
+
+class TestDemoClinicSeed:
+    def test_seed_demo_clinic_digest_makes_counts_nonzero(
+        self,
+        client: TestClient,
+        auth_headers: dict,
+    ) -> None:
+        db = SessionLocal()
+        try:
+            seeded = seed_demo_clinic_digest(db)
+            assert seeded["patients"] >= 0
+            assert seeded["audit_events"] > 0
+        finally:
+            db.close()
+
+        r = client.get(
+            "/api/v1/clinician-digest/summary",
+            headers=auth_headers["clinician"],
+        )
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["handled"] > 0
+        assert data["escalated"] > 0
+        assert data["paged"] > 0
+        assert data["open"] > 0
+        assert data["sla_breached"] > 0
 
 # ── Exports ─────────────────────────────────────────────────────────────────
 
