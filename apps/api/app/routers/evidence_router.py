@@ -1690,6 +1690,10 @@ def search_papers(
     year_max: Optional[int] = Query(None, ge=1900, le=2100),
     source: Optional[str] = Query(None, description="EuropePMC source (MED, PMC, PPR, AGR, ETH)."),
     has_abstract: Optional[bool] = Query(None, description="Only papers with a non-trivial abstract."),
+    include_abstract: bool = Query(
+        True,
+        description="Include abstract text in each result (larger payload; disable for list-only views).",
+    ),
     limit: int = Query(20, ge=1, le=200),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> list[PaperOut]:
@@ -1709,6 +1713,13 @@ def search_papers(
             if grade:
                 where.append("i.evidence_grade = ?")
                 params.append(grade)
+        elif grade:
+            where.append(
+                "EXISTS (SELECT 1 FROM paper_indications pi_g "
+                "JOIN indications i_g ON i_g.id = pi_g.indication_id "
+                "WHERE pi_g.paper_id = p.id AND i_g.evidence_grade = ?)"
+            )
+            params.append(grade)
         if oa_only:
             where.append("p.is_oa = 1")
         if modality:
@@ -1756,10 +1767,11 @@ def search_papers(
         q=q, indication=indication, grade=grade, oa_only=oa_only,
         modality=modality, condition=condition, study_design=study_design,
         effect_direction=effect_direction, year_min=year_min, year_max=year_max,
-        source=source, has_abstract=has_abstract, limit=limit,
+        source=source, has_abstract=has_abstract, include_abstract=include_abstract,
+        limit=limit,
         result_count=len(ranked),
     )
-    return [_paper_row_to_out(r) for r in ranked]
+    return [_paper_row_to_out(r, include_abstract=include_abstract) for r in ranked]
 
 
 # ── Stats endpoint ────────────────────────────────────────────────────────────

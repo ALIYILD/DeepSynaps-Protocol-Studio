@@ -53,7 +53,48 @@ For the full **label → handler → API → behavior** grid, see section **Butt
 | `librarySummarizeEvidence` | `POST /api/v1/library/ai/summarize-evidence` | `library_router` |
 | `getResearchExportSummary` | `GET /api/v1/evidence/research/exports/summary` | `evidence_router` / export |
 | `curateLiteraturePaper` | `POST /api/v1/literature/papers/{pmid}/curate` | `literature_router` |
-| `searchEvidencePapers` | `GET /api/v1/evidence/papers` | `evidence_router` (`search_papers` — FTS over ingested SQLite corpus; clinician auth) |
+| `searchEvidencePapers` | `GET /api/v1/evidence/papers` | `evidence_router` (`search_papers` — FTS over ingested SQLite corpus; clinician auth; supports `modality`, `condition`, `grade`, `year_min/max`, `oa_only`, `has_abstract`, `include_abstract`) |
+| `searchResearchPapers` | `GET /api/v1/evidence/research/papers` | Neuromodulation CSV bundle — ranked `ResearchPaperOut[]` (optional “ranked research view” — not SQLite FTS) |
+| `listResearchEvidenceGraph` | `GET /api/v1/evidence/research/evidence-graph` | Bundle graph slices → `ResearchGraphOut` (paper counts, citations, weights, OA counts, years, study types, safety tags) |
+| `searchEvidenceTrials` | `GET /api/v1/evidence/trials` | ClinicalTrials.gov slice from evidence DB |
+| `searchEvidenceDevices` | `GET /api/v1/evidence/devices` | FDA PMA/510k/HDE slice |
+
+## Doctor Search Readiness — live indexed paper search
+
+**Purpose:** A clinician typing queries such as `depression rTMS`, `ASD tDCS`, `ADHD neurofeedback`, `chronic pain TPS`, `Alzheimer TPS`, `anxiety tDCS`, `OCD rTMS` should see **honest** rows when the ingest + API are available.
+
+### Endpoint shapes (doctor-visible contract)
+
+| Layer | Endpoint | Response |
+|-------|----------|----------|
+| **Indexed SQLite FTS** | `GET /api/v1/evidence/papers` | `PaperOut[]`: `id`, `title`, `authors[]`, `year`, `journal`, `pmid`, `doi`, `oa_url`, `europe_pmc_url`, `openalex_id`, `abstract` (when `include_abstract=true`), `modalities[]`, `conditions[]`, `study_design`, `sample_size`, `primary_outcome_measure`, `effect_direction`, `is_oa`, `pub_types[]`, … |
+| **Brokered ingest search** | `POST /api/v1/library/external-search` | `ExternalSearchResponse` with `items[]`: `id`, `title`, `year`, `journal`, `authors` (string), `pmid`, `doi`, `url` (from `oa_url` in DB), `pub_types[]`, provenance fields |
+| **Curated library** | `GET /api/v1/literature` | Curated rows; client-side filter — badge **Curated library** |
+| **Research bundle (optional)** | `GET /api/v1/evidence/research/papers` | `ResearchPaperOut[]` — richer ranking when CSV bundle mounted; shown under **Optional ranked research view** |
+
+### UI behaviour (Evidence Search tab)
+
+- **Source selector:** **All** runs indexed → brokered → curated with **dedupe** by PMID, DOI, id, or title+year. **Evidence DB** runs only `searchEvidencePapers`. **Brokered** runs only `libraryExternalSearch`. **Curated** runs only filtered `listLiterature` snapshot.
+- **Filters (indexed path):** modality token (`tms`, `tdcs`, …), grade A–E (via indications join / EXISTS), year range, OA-only, has-abstract, optional **condition** token matching `conditions_json`.
+- **Cards:** shared `renderEvidenceResultCard` — title, year, journal, authors (first 3 + “+N more”), snippet or **Abstract unavailable from this record**, link row (**Open ↗**, **DOI**, **PubMed**, **Europe PMC**, **OpenAlex** only when identifiers exist) or **No direct link available from this record.**
+- **Expansion note:** “Expanded query terms used for retrieval: …” (transparent synonym OR-groups).
+- **Corpus unavailable:** When `GET /api/v1/evidence/status` reports zero papers, an amber banner explains preview limits; brokered/curated may still run for **All sources**.
+- **Evidence relationship summary:** `listResearchEvidenceGraph` — cards with counts/weights/years/safety tags; **Explore papers** prefills the search box (literature-index summary, not treatment advice).
+- **Trials/devices:** `searchEvidenceTrials` / `searchEvidenceDevices` after a query is entered; honest empty states if the index is missing.
+
+### Manual doctor-demo results (fill during QA)
+
+| Query | Indexed corpus (status) | Source used | # results | Title / authors / year / journal | DOI / PMID / Open / Europe PMC | No-link fallback OK | Graph / explore | Notes / limitations |
+|-------|-------------------------|-------------|-----------|-----------------------------------|----------------------------------|---------------------|-----------------|---------------------|
+| depression rTMS | paste `/evidence/status` | | | | | | | |
+| ASD tDCS | | | | | | | | |
+| ADHD neurofeedback | | | | | | | | |
+| chronic pain TPS | | | | | | | | |
+| Alzheimer TPS | | | | | | | | |
+| anxiety tDCS | | | | | | | | |
+| OCD rTMS | | | | | | | | |
+
+**Reminder:** The corpus size is **not** hard-coded. Counts and availability come from **`GET /api/v1/evidence/status`**.
 
 ## Evidence Search tab — flow trace (Evidence Search Guarantee)
 
