@@ -92,6 +92,13 @@ Backend routers exist for labs (`labs_analyzer_router.py`) and wearables (`weara
 
 ## Preview click-through (agent-run checklist)
 
+Agent verification (non-interactive):
+
+- `cd apps/web && node --test src/pages-biomarkers.test.js` — **pass** (11 tests, Node 22.x).
+- `cd apps/web && npm run build` — **pass** (Vite 7, Node 22.22+).
+
+Manual checklist for tomorrow:
+
 1. Open `?page=biomarkers` — safety region visible; tabs load.
 2. Reference tab — search “alpha” / “HRV”; open marker card; confirm modal; valid sites show topomap.
 3. Patient Workspace — select demo patient; verify labs source line + stale labels; export JSON; open qEEG / MRI shortcut.
