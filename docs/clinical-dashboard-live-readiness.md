@@ -6,6 +6,7 @@ This doc tracks **doctor-demo readiness** for the Clinical Dashboard (“Week vi
 
 - **DEMO BUILD — demo data only, not real patient data.**
 - **Clinical decision support only.** Not autonomous diagnosis, prescribing, dosing, or treatment planning. **Clinician review required.**
+- **Demo framing (tomorrow)**: “This is a controlled preview using synthetic non-PHI data. It supports clinical workflow and decision support only. It does not diagnose, prescribe, triage emergencies, or act autonomously.”
 
 ## Dashboard inventory + button/action matrix (from `pgDash`)
 

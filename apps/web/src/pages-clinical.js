@@ -1492,8 +1492,8 @@ export async function pgDash(setTopbar, navigate) {
     : '';
 
   const _safetyStrip = `<div class="dh2-safety-strip" role="note">
-    <strong>Clinical decision support only.</strong> Not autonomous diagnosis, prescribing, dosing, or treatment planning.
-    Outputs require clinician review and professional judgement.
+    <strong>This is a controlled preview using synthetic non-PHI data.</strong> It supports clinical workflow and decision support only.
+    It does not diagnose, prescribe, triage emergencies, or act autonomously.
     ${(_isDemo || _viteEnableDemo) ? '<span class="dh2-safety-demo"> Demo data / not real patient data.</span>' : ''}
   </div>`;
 
