@@ -8,6 +8,8 @@ import {
   extractNutritionRelevantLabRows,
 } from './nutrition-analyzer-view-model.js';
 
+const CLINICAL_NUTRITION_ANALYZER_ROLES = new Set(['clinician', 'admin', 'clinic-admin', 'supervisor', 'reviewer', 'technician']);
+
 /** Extra navigation targets not always present in biomarker_links */
 const _NUTRITION_EXTRA_HANDOFFS = [
   { label: 'Labs analyzer', page_id: 'labs-analyzer' },
@@ -28,6 +30,19 @@ function esc(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+export function nutritionAnalyzerAllowsRole(role) {
+  return CLINICAL_NUTRITION_ANALYZER_ROLES.has(String(role || '').trim().toLowerCase());
+}
+
+function _renderNutritionAnalyzerRestrictedCard() {
+  return `<div role="region" aria-label="Nutrition analyzer access restricted" style="max-width:560px;margin:48px auto;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);text-align:center">
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px">Clinician workspace</div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
+      Nutrition review is restricted to clinician-facing accounts because it links intake, labs, supplements, and patient-specific annotations that require governed review.
+    </div>
+  </div>`;
 }
 
 function _statusKey(s) {
@@ -841,6 +856,21 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
   const el = document.getElementById('content');
   if (!el) return;
 
+  const demoMode = isDemoSession();
+  if (!demoMode) {
+    let actorRole = null;
+    try {
+      const me = await api.me();
+      actorRole = me?.role || me?.user?.role || null;
+    } catch {
+      actorRole = null;
+    }
+    if (!nutritionAnalyzerAllowsRole(actorRole)) {
+      el.innerHTML = _renderNutritionAnalyzerRestrictedCard();
+      return;
+    }
+  }
+
   let view = 'clinic';
   let summaryCache = null;
   let activePatientId = null;
@@ -1110,6 +1140,7 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
       const pid = ev.currentTarget?.getAttribute?.('data-patient-id') || activePatientId;
       if (!pid) return;
       try { window._selectedPatientId = pid; } catch {}
+      try { window._profilePatientId = pid; } catch {}
       try { navigate?.('patient-profile'); } catch {}
     });
 
@@ -1131,6 +1162,7 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
         const pid = btn.getAttribute('data-patient-id') || activePatientId;
         if (!page) return;
         try { window._selectedPatientId = pid; } catch {}
+        try { window._profilePatientId = pid; } catch {}
         if (page === 'patient-analytics') {
           try { window._paPatientId = pid; } catch {}
         }

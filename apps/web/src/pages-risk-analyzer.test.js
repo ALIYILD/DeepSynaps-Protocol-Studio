@@ -4,6 +4,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  applyRiskAnalyzerPatientContext,
+  canUseRiskAnalyzerWorkspace,
   normalizeRiskWorkspace,
   formatFactorLine,
   flattenAuditForUi,
@@ -81,4 +83,21 @@ test('flattenAuditForUi merges audit_events and items, newest first', () => {
   });
   assert.equal(merged.length, 2);
   assert.equal(merged[0].trigger, 'recompute');
+});
+
+test('canUseRiskAnalyzerWorkspace matches clinician-only backend role gate', () => {
+  assert.equal(canUseRiskAnalyzerWorkspace('clinician'), true);
+  assert.equal(canUseRiskAnalyzerWorkspace('admin'), true);
+  assert.equal(canUseRiskAnalyzerWorkspace('technician'), false);
+  assert.equal(canUseRiskAnalyzerWorkspace('reviewer'), false);
+  assert.equal(canUseRiskAnalyzerWorkspace(''), false);
+  assert.equal(canUseRiskAnalyzerWorkspace('', { allowUnknown: true }), true);
+});
+
+test('applyRiskAnalyzerPatientContext seeds linked workflow patient context', () => {
+  const win = {};
+  applyRiskAnalyzerPatientContext('deeptwin', 'pt-99', win);
+  assert.equal(win._selectedPatientId, 'pt-99');
+  assert.equal(win._profilePatientId, 'pt-99');
+  assert.equal(win._deeptwinPatientId, 'pt-99');
 });

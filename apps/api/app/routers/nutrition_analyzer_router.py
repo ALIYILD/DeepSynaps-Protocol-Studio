@@ -11,7 +11,7 @@ GET  /api/v1/nutrition/analyzer/patient/{patient_id}/audit        — audit even
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -32,6 +32,57 @@ def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session
     exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
     if exists:
         require_patient_owner(actor, clinic_id)
+
+
+def _parse_iso_date(value: str, *, field_name: str) -> str:
+    raw = value.strip()
+    if not raw:
+        raise ApiServiceError(code="invalid_request", message=f"{field_name} is required.", status_code=422)
+    try:
+        date.fromisoformat(raw)
+    except ValueError as exc:
+        raise ApiServiceError(
+            code="invalid_request",
+            message=f"{field_name} must be an ISO date (YYYY-MM-DD).",
+            status_code=422,
+        ) from exc
+    return raw
+
+
+def _parse_optional_iso_temporal(value: str | None, *, field_name: str) -> str | None:
+    if value is None:
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    try:
+        parsed_date = date.fromisoformat(raw)
+        return parsed_date.isoformat()
+    except ValueError:
+        pass
+    try:
+        parsed_dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if parsed_dt.tzinfo is not None:
+            parsed_dt = parsed_dt.astimezone(timezone.utc)
+        parsed_dt = parsed_dt.replace(microsecond=0)
+        return (
+            parsed_dt.isoformat().replace("+00:00", "Z")
+            if parsed_dt.tzinfo is not None
+            else parsed_dt.isoformat()
+        )
+    except ValueError as exc:
+        raise ApiServiceError(
+            code="invalid_request",
+            message=f"{field_name} must be an ISO date or datetime.",
+            status_code=422,
+        ) from exc
+
+
+def _normalize_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    raw = value.strip()
+    return raw or None
 
 
 # core-schema-exempt: minimal router-local diet log request body; not reused outside this router
@@ -133,9 +184,7 @@ def append_diet_log(
 ) -> AckResponse:
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, patient_id, db)
-    day = body.log_day.strip()
-    if not day:
-        raise ApiServiceError(code="invalid_request", message="log_day is required.", status_code=422)
+    day = _parse_iso_date(body.log_day, field_name="log_day")
     nutrition_repo.insert_diet_log(
         db,
         patient_id=patient_id,
@@ -147,7 +196,7 @@ def append_diet_log(
         fat_g=body.fat_g,
         sodium_mg=body.sodium_mg,
         fiber_g=body.fiber_g,
-        notes=body.notes,
+        notes=_normalize_optional_text(body.notes),
     )
     nutrition_repo.append_audit(
         db,
@@ -172,16 +221,38 @@ def append_supplement(
     name = body.name.strip()
     if not name:
         raise ApiServiceError(code="invalid_request", message="name is required.", status_code=422)
+    if len(name) > 255:
+        raise ApiServiceError(
+            code="invalid_request",
+            message="name must be 255 characters or fewer.",
+            status_code=422,
+        )
+    dose = _normalize_optional_text(body.dose)
+    if dose is not None and len(dose) > 120:
+        raise ApiServiceError(
+            code="invalid_request",
+            message="dose must be 120 characters or fewer.",
+            status_code=422,
+        )
+    frequency = _normalize_optional_text(body.frequency)
+    if frequency is not None and len(frequency) > 120:
+        raise ApiServiceError(
+            code="invalid_request",
+            message="frequency must be 120 characters or fewer.",
+            status_code=422,
+        )
+    notes = _normalize_optional_text(body.notes)
+    started_at = _parse_optional_iso_temporal(body.started_at, field_name="started_at")
     nutrition_repo.insert_supplement(
         db,
         patient_id=patient_id,
         clinician_id=actor.actor_id,
         name=name,
-        dose=body.dose,
-        frequency=body.frequency,
+        dose=dose,
+        frequency=frequency,
         active=body.active,
-        notes=body.notes,
-        started_at=body.started_at,
+        notes=notes,
+        started_at=started_at,
     )
     nutrition_repo.append_audit(
         db,
@@ -211,7 +282,7 @@ def append_review_note(
         patient_id=patient_id,
         clinician_id=actor.actor_id,
         event_type="review_note",
-        message=note[:4000],
+        message=note,
     )
     db.commit()
     return AckResponse()

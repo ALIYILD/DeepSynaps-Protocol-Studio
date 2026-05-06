@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
 import { ANALYZER_DEMO_FIXTURES } from './demo-fixtures-analyzers.js';
+import { medicationAnalyzerAllowsRole } from './pages-medication-analyzer.js';
 
 const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -65,4 +66,11 @@ test('demo interaction fixture: labels sample and omits prescriptive med orders'
     /demo|sample/i.test(r.engine_detail || '') && /review|clinician/i.test(r.engine_detail || ''),
     'engine_detail should label demo and review',
   );
+});
+
+test('medication analyzer role gate allows clinician roles and rejects patient role', () => {
+  assert.equal(medicationAnalyzerAllowsRole('clinician'), true);
+  assert.equal(medicationAnalyzerAllowsRole('admin'), true);
+  assert.equal(medicationAnalyzerAllowsRole('patient'), false);
+  assert.equal(medicationAnalyzerAllowsRole('receptionist'), false);
 });

@@ -97,6 +97,7 @@ from app.routers.reports_router import router as reports_router
 from app.routers.documents_router import router as documents_router
 from app.routers.documents_router import patient_docs_router
 from app.routers.recordings_router import router as recordings_router
+from app.routers.audio_analysis_router import router as audio_analysis_router
 from app.routers.protocols_saved_router import router as protocols_saved_router
 from app.routers.protocols_generate_router import router as protocols_generate_router
 from app.routers.protocol_studio_router import router as protocol_studio_router
@@ -467,6 +468,7 @@ app.include_router(reports_router, prefix="/api/v1/reports", tags=["reports"])
 app.include_router(documents_router)
 app.include_router(patient_docs_router)
 app.include_router(recordings_router)
+app.include_router(audio_analysis_router)
 app.include_router(protocols_saved_router)
 app.include_router(protocols_generate_router)
 app.include_router(protocol_studio_router)

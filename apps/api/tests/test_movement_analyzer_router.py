@@ -1,6 +1,7 @@
 """Movement Analyzer router — auth and payload smoke tests."""
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
@@ -8,7 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
-from app.persistence.models import Clinic, Patient, User
+from app.persistence.models import Clinic, MovementAnalyzerAudit, Patient, User
 
 
 def _mint_token(user_id: str, role: str, clinic_id: str | None) -> str:
@@ -102,6 +103,12 @@ def test_movement_analyzer_owner_gets_payload(client: TestClient, seeded: dict):
     assert data.get("schema_version") == "1"
     assert "cross_modal_context" in data
     assert isinstance(data["cross_modal_context"], dict)
+    modalities = data.get("modalities") or {}
+    assert set(modalities.keys()) >= {"bradykinesia", "tremor", "gait", "posture", "monitoring"}
+    assert modalities["bradykinesia"]["score"] is None
+    assert modalities["bradykinesia"]["severity"] is None
+    assert modalities["tremor"]["score"] is None
+    assert modalities["tremor"]["severity"] is None
 
 
 def test_movement_analyzer_idor_other_clinic(client: TestClient, seeded: dict):
@@ -141,6 +148,42 @@ def test_movement_review_ack_audit(client: TestClient, seeded: dict):
     assert aud.status_code == 200
     items = aud.json().get("items") or []
     assert any((it.get("action") == "review_ack") for it in items)
+
+
+def test_movement_review_ack_rejects_whitespace_note(client: TestClient, seeded: dict):
+    pid = seeded["patient_id"]
+    h = _auth(seeded["token_a"])
+    r = client.post(
+        f"/api/v1/movement/analyzer/patient/{pid}/review",
+        headers=h,
+        json={"note": "   "},
+    )
+    assert r.status_code == 422
+
+
+def test_movement_recompute_normalizes_blank_reason_to_manual(client: TestClient, seeded: dict):
+    pid = seeded["patient_id"]
+    h = _auth(seeded["token_a"])
+    r = client.post(
+        f"/api/v1/movement/analyzer/patient/{pid}/recompute",
+        headers=h,
+        json={"reason": "   "},
+    )
+    assert r.status_code == 200, r.text
+
+    db = SessionLocal()
+    try:
+        row = (
+            db.query(MovementAnalyzerAudit)
+            .filter(MovementAnalyzerAudit.patient_id == pid, MovementAnalyzerAudit.action == "recompute")
+            .order_by(MovementAnalyzerAudit.created_at.desc())
+            .first()
+        )
+        assert row is not None
+        detail = json.loads(row.detail_json or "{}")
+        assert detail.get("reason") == "manual"
+    finally:
+        db.close()
 
 
 def test_movement_export_json(client: TestClient, seeded: dict):
