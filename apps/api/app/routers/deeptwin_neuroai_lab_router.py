@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.database import get_db_session
 from app.errors import ApiServiceError
 
 from deeptwin_neuroai_lab.event_timeline import EventTimeline
@@ -28,6 +33,41 @@ from deeptwin_neuroai_lab.simulation_contracts import (
 _log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/deeptwin/neuroai", tags=["deeptwin-neuroai-lab"])
+
+
+def _audit_neuroai_attempt(
+    db: Session | None,
+    actor: AuthenticatedActor,
+    *,
+    action: str,
+    patient_id: str | None,
+    meta: dict[str, Any],
+) -> None:
+    """Persist a minimal audit row — must never block the response."""
+
+    if db is None:
+        return
+    try:
+        from app.repositories.audit import create_audit_event  # noqa: PLC0415
+
+        now = datetime.now(timezone.utc)
+        event_id = (
+            f"neuroai-lab-{action}-{actor.actor_id}-{int(now.timestamp())}-{uuid.uuid4().hex[:8]}"
+        )
+        note = json.dumps(meta, default=str)[:900]
+        create_audit_event(
+            db,
+            event_id=event_id,
+            target_id=(patient_id or actor.actor_id)[:256],
+            target_type="deeptwin_neuroai_lab",
+            action=f"neuroai_lab.{action}",
+            role=str(actor.role),
+            actor_id=actor.actor_id,
+            note=note,
+            created_at=now.isoformat(),
+        )
+    except Exception:  # pragma: no cover — audit failures are non-fatal
+        _log.exception("neuroai_lab audit skipped")
 
 
 class NeuroAiEnvelope(BaseModel):
@@ -89,10 +129,17 @@ def neuroai_status() -> NeuroAiStatusResponse:
 def neuroai_timeline_preview(
     body: TimelinePreviewRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> TimelinePreviewResponse:
     """Return chronological summary — decision-support only."""
 
-    _ = actor  # Reserved for future PHI-aware gates; payload is caller-supplied.
+    _audit_neuroai_attempt(
+        db,
+        actor,
+        action="timeline_preview",
+        patient_id=body.patient_id,
+        meta={"event_count": len(body.events)},
+    )
     tl = EventTimeline(body.events)
     summary = tl.create_patient_timeline_summary(body.patient_id)
     series = tl.produce_dashboard_series()
@@ -103,8 +150,15 @@ def neuroai_timeline_preview(
 def neuroai_features_preview(
     body: FeaturesPreviewRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> FeaturesPreviewResponse:
-    _ = actor
+    _audit_neuroai_attempt(
+        db,
+        actor,
+        action="features_preview",
+        patient_id=None,
+        meta={"event_count": len(body.events)},
+    )
     results: list[dict[str, Any]] = []
     for ev in body.events:
         fx = extract_features(ev)
@@ -132,6 +186,7 @@ def _simulation_allowed(actor: AuthenticatedActor) -> None:
 def neuroai_simulation_preview(
     body: SimulationPreviewRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> SimulationPreviewResponse:
     _simulation_allowed(actor)
     req = DeepTwinSimulationRequest(
@@ -165,4 +220,16 @@ def neuroai_simulation_preview(
             message="Simulation output contained blocked phrases.",
             status_code=500,
         )
+    _audit_neuroai_attempt(
+        db,
+        actor,
+        action="simulation_preview",
+        patient_id=body.patient_id,
+        meta={
+            "baseline_event_count": len(body.baseline_events),
+            "has_proposed_intervention": body.proposed_intervention is not None,
+            "time_horizon_days": body.time_horizon_days,
+            "outcome_domain_count": len(body.outcome_domains),
+        },
+    )
     return SimulationPreviewResponse(result=result.model_dump(mode="json"))

@@ -51,6 +51,10 @@ Deterministic only: pass-through of structured payload keys, simple numeric summ
 - Language scanning rejects prescriptive or diagnostic phrasing in simulation stubs (`risk_flags.py`).
 - API routes under `/api/v1/deeptwin/neuroai/*` label responses as research-only; simulation preview is **blocked** for `guest`/`patient` demo roles.
 
+## Audit trail
+
+POST previews (`timeline`, `features`, `simulation`) emit **best-effort** `audit_events` rows (`target_type=deeptwin_neuroai_lab`) with **counts and flags only** — no raw event payloads — mirroring other routers so SOC review can see attempts without storing PHI blobs.
+
 ## Clinical governance boundaries
 
 NeuroAI Lab is **optional** and **experimental**. Product-facing use should remain limited to **data completeness**, **timeline visualization**, and **clinician-reviewed** interpretation workflows until instruments and audits are aligned.
