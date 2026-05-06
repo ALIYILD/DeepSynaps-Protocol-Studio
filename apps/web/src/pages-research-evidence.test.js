@@ -13,9 +13,18 @@ function read(rel) {
 
 test('Research Evidence page exposes governance banner and live evidence panel', () => {
   const src = read('./pages-research-evidence.js');
-  assert.match(src, /Clinician-reviewed evidence workspace/);
+  assert.match(src, /controlled preview evidence workspace/i);
+  assert.match(src, /Bundled registry rollups are for navigation and preview context/i);
+  assert.match(src, /Live evidence service unavailable/i);
+  assert.match(src, /Live evidence service \(aggregated counts from API\)/);
   assert.match(src, /renderLiveEvidencePanel/);
   assert.match(src, /re-live-evidence-host/);
+});
+
+test('Research Evidence external search uses honest empty and auth messaging', () => {
+  const src = read('./pages-research-evidence.js');
+  assert.match(src, /No verified results found/);
+  assert.match(src, /Sign in as a clinician to run brokered external search/);
 });
 
 test('Bundled evidence dataset does not ship illustrative DOI links for condition drill-down', () => {

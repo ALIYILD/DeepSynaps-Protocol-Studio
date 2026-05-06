@@ -137,7 +137,7 @@ export async function renderLiveEvidencePanel(host, opts = {}) {
     status.textContent = `Could not load indications: ${_esc(e.message || e)}`;
   }
 
-  // Corpus overview — pulls /papers/stats (87k-paper DB summary). Rendered
+  // Corpus overview — pulls /papers/stats (ingested DB summary). Rendered
   // directly under the filter row so admins can see ingest health at a glance.
   // Non-fatal: if the stats endpoint is missing/503, we just skip the panel.
   try {

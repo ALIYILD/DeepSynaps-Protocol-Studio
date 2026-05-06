@@ -118,9 +118,28 @@ function _resGovernanceBanner() {
   return (
     '<div class="ch-card" role="region" aria-label="Evidence governance notice" style="margin-bottom:14px;border-left:3px solid var(--amber);background:rgba(245,158,11,0.06);padding:12px 14px">' +
     '<div style="font-size:12.5px;line-height:1.55;color:var(--text-secondary)">' +
-    '<strong style="color:var(--amber)">Clinician-reviewed evidence workspace.</strong> ' +
-    'This surface supports literature review, grades, and governance — not diagnosis, prescribing, treatment approval, or emergency triage. ' +
-    'Regulatory clearance ≠ efficacy; adjacent-condition evidence ≠ indication-specific suitability; weak or off-label use requires explicit judgement.' +
+    '<strong style="color:var(--amber)">Research Evidence.</strong> ' +
+    'This is a controlled preview evidence workspace. It supports literature review, evidence grading, and governance workflows only. ' +
+    'It does not diagnose, prescribe, approve treatment, triage emergencies, or act autonomously. ' +
+    'Evidence summaries require clinician review against current literature, device labelling, patient suitability, and local policy.' +
+    '</div>' +
+    '<div style="font-size:12.5px;line-height:1.55;color:var(--text-secondary);margin-top:10px">' +
+    'Bundled registry rollups are for navigation and preview context. They are not a substitute for verified primary literature retrieval.' +
+    '</div>' +
+    '<div style="font-size:12.5px;line-height:1.55;color:var(--text-secondary);margin-top:10px">' +
+    'Regulatory clearance is not the same as clinical efficacy, and adjacent-condition evidence does not automatically imply indication-specific suitability.' +
+    '</div></div>'
+  );
+}
+
+/** When live corpus counts are unavailable — honest degraded mode */
+function _resBundledDegradedBanner(stats) {
+  if (stats && stats.live) return '';
+  return (
+    '<div class="ch-card" role="status" aria-live="polite" style="margin-bottom:14px;border-left:3px solid var(--rose);background:rgba(244,63,94,0.06);padding:10px 14px">' +
+    '<div style="font-size:12px;color:var(--text-secondary)">' +
+    '<strong style="color:var(--rose)">Live evidence service unavailable.</strong> ' +
+    'Showing bundled registry approximations for navigation only.' +
     '</div></div>'
   );
 }
@@ -130,24 +149,39 @@ function _resSourceStrip(stats) {
   const demo = _resDemoBuild();
   const apiLive = !!(stats && stats.live);
   const modeLabel = apiLive
-    ? 'Live evidence service (aggregated counts)'
+    ? 'Live evidence service (aggregated counts from API)'
     : 'Bundled registry approximation — connect API + ingest for authoritative totals';
+  const liveBadge = apiLive
+    ? '<span style="margin-left:8px;padding:2px 8px;border-radius:999px;background:rgba(45,212,191,0.18);color:var(--teal);font-size:11px;font-weight:700">Live API</span>'
+    : '<span style="margin-left:8px;padding:2px 8px;border-radius:999px;background:var(--surface-2);color:var(--text-secondary);font-size:11px;font-weight:600">Bundled registry</span>';
   const demoNote = demo
     ? '<span style="margin-left:8px;padding:2px 8px;border-radius:999px;background:rgba(245,158,11,0.15);color:var(--amber);font-size:11px;font-weight:600">Demo / preview build</span>'
     : '';
+  const offlineNote =
+    !apiLive && stats?.evidenceStatusRejected
+      ? '<span style="margin-left:8px;font-size:11px;color:var(--text-tertiary)">Offline fallback</span>'
+      : '';
   return (
     '<div class="ch-card" style="padding:10px 14px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between">' +
     '<div style="font-size:12px;color:var(--text-secondary)">' +
-    '<strong style="color:var(--text-primary)">Source mode:</strong> ' + esc(modeLabel) + demoNote +
+    '<strong style="color:var(--text-primary)">Source mode:</strong> ' + esc(modeLabel) + liveBadge + demoNote + offlineNote +
     '</div>' +
-    '<div style="font-size:11px;color:var(--text-tertiary)">Governance reference: <code style="font-size:10px">docs/protocol-evidence-governance-policy.md</code></div>' +
+    '<div style="font-size:11px;color:var(--text-tertiary);max-width:420px;text-align:right">' +
+    'Evidence grades describe literature summaries in this workspace — not automatic clinical grades. ' +
+    'See <code style="font-size:10px">docs/protocol-evidence-governance-policy.md</code>.' +
+    '</div>' +
     '</div>'
   );
 }
 
-/** Shared header: governance + source strip; optional module shortcuts */
+/** Shared header: governance + degraded notice + source strip; optional module shortcuts */
 function _resWorkspaceHeader(liveEvidence, { shortcuts = false } = {}) {
-  return _resGovernanceBanner() + _resSourceStrip(liveEvidence) + (shortcuts ? _resWorkbenchShortcuts() : '');
+  return (
+    _resGovernanceBanner() +
+    _resBundledDegradedBanner(liveEvidence) +
+    _resSourceStrip(liveEvidence) +
+    (shortcuts ? _resWorkbenchShortcuts() : '')
+  );
 }
 
 /** Quick navigation to linked Clinical OS modules (draft/review contexts only) */
@@ -174,6 +208,10 @@ function _resWorkbenchShortcuts() {
     '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'wearables\')">Biometrics</button>' +
     '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'text-analyzer\')">Text</button>' +
     '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'live-session\')">Virtual Care</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'biomarkers\')">Biomarkers</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'labs-analyzer\')">Labs</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'medication-analyzer\')">Medication</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'nutrition-analyzer\')">Nutrition</button>' +
     (patientOk
       ? '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'patients-v2\')">Patients</button>'
       : '<span style="font-size:11px;color:var(--text-tertiary);align-self:center">Patient roster requires clinician context.</span>') +
@@ -299,8 +337,11 @@ export async function pgResearchEvidence(setTopbar, navigate) {
   const papersBadgeText = liveEvidence.totalPapers
     ? `${fmtK(liveEvidence.totalPapers)} papers indexed`
     : 'Evidence corpus';
+  const papersBadgeTitle = liveEvidence.live
+    ? 'Live evidence index aggregate for this session when API + ingest are connected.'
+    : 'Bundled corpus metadata / fallback — not guaranteed live database totals.';
   setTopbar('Research Evidence',
-    `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--surface-2);color:var(--text-secondary);font-weight:600;border:1px solid var(--border)" title="Aggregate count when API available; otherwise bundled approximation">${esc(papersBadgeText)}</span>`);
+    `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--surface-2);color:var(--text-secondary);font-weight:600;border:1px solid var(--border)" title="${esc(papersBadgeTitle)}">${esc(papersBadgeText)}</span>`);
 
   /* ── tab bar ─────────────────────────────────────────────────────────────── */
   function tabBar() {
@@ -403,21 +444,57 @@ function renderOverview(body, liveEvidence = null) {
   const modalityKpi = modalityKeys.length
     ? modalityKeys.length
     : Object.keys(S.modalityDistribution || {}).length;
+  const kpiUseBundled = !liveEvidence?.live;
+  const kpiPapers = liveEvidence?.totalPapers || EVIDENCE_TOTAL_PAPERS;
+  const kpiTrials = liveEvidence?.totalTrials || EVIDENCE_TOTAL_TRIALS;
+  const kpiMeta = liveEvidence?.totalMetaAnalyses || EVIDENCE_TOTAL_META;
   const kpis = [
-    { val: fmtK(liveEvidence?.totalPapers || EVIDENCE_TOTAL_PAPERS), label: 'Papers (index)', color: 'var(--teal)' },
-    { val: fmtK(liveEvidence?.totalTrials || EVIDENCE_TOTAL_TRIALS), label: 'Clinical Trials', color: 'var(--blue)' },
-    { val: fmtK(liveEvidence?.totalMetaAnalyses || EVIDENCE_TOTAL_META), label: 'Meta-analyses', color: 'var(--violet)' },
-    { val: liveEvidence?.totalConditions || S.totalConditions, label: 'Conditions (registry)', color: 'var(--rose)' },
-    { val: modalityKpi, label: 'Modalities tracked', color: 'var(--amber)' },
+    {
+      val: fmtK(kpiPapers),
+      label: 'Papers (index)',
+      sub: kpiUseBundled ? 'Bundled corpus metadata' : 'Live aggregate when API connected',
+      color: 'var(--teal)',
+    },
+    {
+      val: fmtK(kpiTrials),
+      label: 'Clinical Trials',
+      sub: kpiUseBundled ? 'Bundled rollup' : 'From evidence index',
+      color: 'var(--blue)',
+    },
+    {
+      val: fmtK(kpiMeta),
+      label: 'Meta-analyses',
+      sub: kpiUseBundled ? 'Bundled rollup' : 'From research summary',
+      color: 'var(--violet)',
+    },
+    {
+      val: liveEvidence?.totalConditions || S.totalConditions,
+      label: 'Conditions (registry)',
+      sub: 'Registry scope — not a diagnosis list',
+      color: 'var(--rose)',
+    },
+    {
+      val: modalityKpi,
+      label: 'Modalities tracked',
+      sub: kpiUseBundled ? 'Bundled distribution' : 'Live modality distribution',
+      color: 'var(--amber)',
+    },
   ];
-  let kpiHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">';
+  let kpiHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:12px">';
   for (const k of kpis) {
     kpiHtml += `<div class="ch-card" style="text-align:center;padding:16px 12px">
       <div style="font-size:28px;font-weight:700;color:${k.color};font-variant-numeric:tabular-nums">${k.val}</div>
       <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">${k.label}</div>
+      <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px;line-height:1.35">${esc(k.sub)}</div>
     </div>`;
   }
   kpiHtml += '</div>';
+  kpiHtml +=
+    '<p style="font-size:11px;color:var(--text-tertiary);margin:0 0 18px;line-height:1.45">' +
+    (kpiUseBundled
+      ? 'These KPIs use bundled corpus metadata for orientation — not real-time database totals or verified primary counts.'
+      : 'These KPIs reflect aggregated evidence-service counts when the indexed corpus and API are reachable.') +
+    '</p>';
 
   const quickLinks = [
     {
@@ -468,10 +545,14 @@ function renderOverview(body, liveEvidence = null) {
     '<div style="font-weight:600;margin-bottom:8px">Wearables &amp; passive sensing</div>' +
     '<p style="font-size:13px;color:var(--text-secondary);margin:0 0 10px;line-height:1.5">' +
     'Patient <strong>Devices &amp; Wearables</strong> can surface ranked citations via the same evidence-intelligence layer as this dashboard ' +
-    '(deterministic retrieval over the indexed corpus — typically on the order of <strong>' +
-    fmt(EVIDENCE_TOTAL_PAPERS) +
-    '</strong> works when the evidence database is mounted). ' +
-    'Biometric <em>correlation</em> readouts are associational; use the papers below for mechanistic and clinical context, not autonomous diagnosis.' +
+    (liveEvidence?.live
+      ? '(deterministic retrieval over the indexed corpus — on the order of <strong>' +
+        fmt(liveEvidence.totalPapers || EVIDENCE_TOTAL_PAPERS) +
+        '</strong> papers when the live evidence database matches this aggregate). '
+      : '(the <strong>' +
+        fmt(EVIDENCE_TOTAL_PAPERS) +
+        '</strong> figure is bundled corpus metadata for typical studio scale — not a live query result for this session). ') +
+    'Biometric <em>correlation</em> readouts are associational evidence summaries only — not autonomous diagnosis or treatment guidance.' +
     '</p>' +
     (currentUser && currentUser.role === 'patient'
       ? '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'patient-wearables\')">Open Devices &amp; Wearables</button>'
@@ -490,7 +571,8 @@ function renderOverview(body, liveEvidence = null) {
   /* evidence grade distribution */
   const gd = Object.keys(liveEvidence?.gradeDistribution || {}).length ? liveEvidence.gradeDistribution : S.gradeDistribution;
   const gdMax = Math.max(...Object.values(gd));
-  let gradeHtml = '<div class="ch-card" style="padding:16px;margin-bottom:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Evidence Grade Distribution</div>';
+  let gradeHtml = '<div class="ch-card" style="padding:16px;margin-bottom:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Evidence Grade Distribution</div>' +
+    '<p style="font-size:11px;color:var(--text-tertiary);margin:0 0 12px;line-height:1.45">Grades summarize literature in this workspace (A–E scale). They require clinician review — see governance policy. They are not automatic prescription or treatment grades.</p>';
   for (const [g, cnt] of Object.entries(gd)) {
     gradeHtml += hBar('Grade ' + g, cnt, gdMax, GRADE_CLR[g] || 'var(--teal)');
   }
@@ -532,7 +614,7 @@ function renderOverview(body, liveEvidence = null) {
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px">' +
     yearHtml + gradeHtml + modHtml + tcHtml + jrnlHtml +
     '</div>' +
-    '<p style="font-size:11px;color:var(--text-tertiary);margin-top:12px">Grade and year distributions on this tab use the bundled registry when the live API is unavailable — use <strong>Evidence Search</strong> for PubMed-backed retrieval.</p>';
+    '<p style="font-size:11px;color:var(--text-tertiary);margin-top:12px">Grade and year distributions use bundled registry approximations when the live API is unavailable — use <strong>Evidence Search</strong> for verified primary literature retrieval.</p>';
 }
 
 
@@ -572,6 +654,7 @@ function renderConditions(body, liveEvidence, q, filt, sort, sInput, pills, sort
 
   /* toolbar */
   let html = _resWorkspaceHeader(liveEvidence) +
+    '<p style="font-size:11px;color:var(--text-tertiary);margin:0 0 12px;line-height:1.45">Expand rows for registry context; use Evidence Search for verified primary citations.</p>' +
     `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
     ${sInput('Search conditions...')}
     <div style="display:flex;flex-wrap:wrap;gap:4px">${pills(cats, filt)}</div>
@@ -607,8 +690,8 @@ function renderConditions(body, liveEvidence, q, filt, sort, sInput, pills, sort
     if (expanded) {
       html += `<tr><td colspan="9" style="padding:0 8px 12px 24px;background:var(--surface-1,var(--bg))">
         <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;margin:8px 0">
-          <strong>Illustrative citations removed.</strong> Open <button type="button" class="btn btn-ghost btn-xs" onclick="window._resEvidenceTab='search';window._nav('research-evidence')">Evidence Search</button>
-          for PubMed-linked retrieval, or review bundled counts above as registry approximations — not verified primary citations on this row.
+          Expand rows for registry context; use <button type="button" class="btn btn-ghost btn-xs" onclick="window._resEvidenceTab='search';window._nav('research-evidence')">Evidence Search</button>
+          for verified primary citations. Bundled counts here are navigation aids — not validated DOI or PubMed links for this condition row.
         </div></td></tr>`;
     }
   }
@@ -687,7 +770,10 @@ function renderAssessments(body, liveEvidence, q, filt, sInput, pills) {
    ══════════════════════════════════════════════════════════════════════════════ */
 async function renderProtocols(body, liveEvidence, q, sInput) {
   await _ensureResearchBundleData();
-  let html = _resWorkspaceHeader(liveEvidence) + sInput('Search protocols, devices, modalities...') + '<div style="margin-bottom:16px"></div>';
+  const protoSourceNote = _researchBundleState.loaded
+    ? '<p style="font-size:11px;color:var(--text-tertiary);margin:0 0 12px;line-height:1.45"><span style="padding:2px 8px;border-radius:999px;background:rgba(45,212,191,0.12);color:var(--teal);font-size:10px;font-weight:700;margin-right:8px">Live bundle</span>Protocol templates, coverage, safety, and evidence-graph rows below are served from the neuromodulation research API when available.</p>'
+    : '<p style="font-size:11px;color:var(--text-tertiary);margin:0 0 12px;line-height:1.45"><span style="padding:2px 8px;border-radius:999px;background:var(--surface-2);font-size:10px;font-weight:700;margin-right:8px">Registry fallback</span>Templates and devices use bundled registry data — live coverage/safety panels appear only when the research bundle API returns rows.</p>';
+  let html = _resWorkspaceHeader(liveEvidence) + protoSourceNote + sInput('Search protocols, devices, modalities...') + '<div style="margin-bottom:16px"></div>';
 
   /* ── Section A: Protocol Templates ────────────────────────────────────────── */
   const liveProtoRows = _researchBundleState.loaded
@@ -789,6 +875,7 @@ async function renderProtocols(body, liveEvidence, q, sInput) {
       ].join(' ').toLowerCase().includes(q)))
       .slice(0, 6);
 
+    html += '<p style="font-size:11px;color:var(--text-tertiary);margin:12px 0;line-height:1.45">Panels below are <strong>live bundle</strong> slices from the API — not static registry cards.</p>';
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">';
     html += '<div class="ch-card" style="padding:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Live Coverage Watch</div>' +
       (coverageRows.length
@@ -1025,6 +1112,9 @@ async function renderAdjunctEvidence(body, liveEvidence, q, sInput) {
   await _ensureResearchBundleData();
 
   let html = _resWorkspaceHeader(liveEvidence) +
+    '<p style="font-size:11px;color:var(--text-tertiary);margin:0 0 14px;line-height:1.55;border-left:3px solid var(--cyan,var(--teal));padding-left:12px">' +
+    '<strong style="color:var(--text-secondary)">Adjunct evidence only.</strong> Labs, medications, diet, and biomarker papers here describe modifiers and confounders — not neuromodulation indication suitability by themselves. Adjunct evidence requires clinician review alongside protocol indication, device labelling, and patient factors.' +
+    '</p>' +
     `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px">
     ${sInput('Search labs, medications, supplements, vitamins, and diet evidence...')}
   </div>`;
@@ -1034,7 +1124,7 @@ async function renderAdjunctEvidence(body, liveEvidence, q, sInput) {
   } else {
     html += `<div class="ch-card" style="padding:16px">
       <div style="font-weight:600;font-size:14px;margin-bottom:8px">Adjunct Evidence Unavailable</div>
-      <div style="font-size:12px;color:var(--text-tertiary)">No adjunct evidence bundle is loaded yet for labs, biomarkers, medications, supplements, vitamins, and diet.</div>
+      <div style="font-size:12px;color:var(--text-tertiary)">No live adjunct bundle rows returned from the research API for this session — this is not an empty evidence verdict on adjunct topics. Connect the neuromodulation research ingest or try later.</div>
     </div>`;
   }
 
@@ -1096,6 +1186,12 @@ async function renderEvidenceSearch(body, liveEvidence) {
   if (ovRes.status === 'fulfilled') overview = ovRes.value;
   if (litRes.status === 'fulfilled') curatedLitItems = litRes.value?.items || [];
   conditions = overview?.conditions || [];
+  const libraryAuthNote =
+    ovRes.status === 'rejected' || litRes.status === 'rejected'
+      ? '<div class="ch-card" role="note" style="margin-bottom:14px;padding:12px 14px;border-left:3px solid var(--amber);font-size:12px;color:var(--text-secondary)">' +
+        '<strong>Library overview unavailable.</strong> Sign in as a clinician to load curated library totals, or continue with brokered search when the API is reachable. No evidence record has been changed.' +
+        '</div>'
+      : '';
 
   const condOptions = ['<option value="">— All conditions —</option>']
     .concat(conditions.map(c => '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>'))
@@ -1113,7 +1209,12 @@ async function renderEvidenceSearch(body, liveEvidence) {
       await api.promoteEvidencePaper(paperId);
       window._dsToast?.({ title: 'Promoted to library', body: String(title || '').slice(0, 80), severity: 'success' });
     } catch (e) {
-      window._dsToast?.({ title: 'Promote failed', body: e?.message || 'Unknown error', severity: 'error' });
+      const code = e?.status;
+      let msg = e?.message || 'Unknown error';
+      if (code === 401) msg = 'Sign in as a clinician to promote papers.';
+      if (code === 403) msg = 'Your role cannot promote papers (clinician required).';
+      if (code === 503) msg = 'Evidence index unavailable — promotion cannot complete.';
+      window._dsToast?.({ title: 'Promote failed', body: msg, severity: 'error' });
     }
   };
   window._libExternalSearch = async () => {
@@ -1126,7 +1227,11 @@ async function renderEvidenceSearch(body, liveEvidence) {
     out.innerHTML = spinner();
     try {
       const res = await api.libraryExternalSearch({ q: qv, condition_id: cSel?.value || null, limit: 20 });
-      if (!res?.items?.length) { out.innerHTML = '<div class="ch-empty">No matches in the curated ingest for that query.</div>'; return; }
+      if (!res?.items?.length) {
+        out.innerHTML =
+          '<div class="ch-empty">No verified results found for this query in the indexed corpus. Try broader terms, sign in as a clinician, or confirm the evidence pipeline is ingested.</div>';
+        return;
+      }
       const rowsHtml = res.items.map(r => (
         '<div class="lib-card lib-card--review">' +
           '<div class="lib-card-top">' +
@@ -1159,7 +1264,12 @@ async function renderEvidenceSearch(body, liveEvidence) {
         '<div class="lib-grid">' + rowsHtml + '</div>' +
         '<div id="lib-ai-draft-panel" style="margin-top:16px"></div>';
     } catch (e) {
-      out.innerHTML = '<div class="ch-empty" style="color:var(--red)">External search failed: ' + esc(e?.message || 'service unavailable') + '</div>';
+      const code = e?.status;
+      let msg = e?.message || 'service unavailable';
+      if (code === 401) msg = 'Sign in as a clinician to run brokered external search.';
+      if (code === 403) msg = 'You do not have permission for brokered external search.';
+      if (code === 503) msg = 'External evidence index unavailable — pipeline may not be ingested.';
+      out.innerHTML = '<div class="ch-empty" style="color:var(--red)">External search unavailable: ' + esc(msg) + '</div>';
     }
   };
   window._libAiDraft = async () => {
@@ -1190,7 +1300,14 @@ async function renderEvidenceSearch(body, liveEvidence) {
           '</div>' +
         '</div>';
     } catch (e) {
-      panel.innerHTML = '<div class="ch-empty" style="color:var(--red)">AI draft failed: ' + esc(e?.message || 'chat service unavailable') + '</div>';
+      const code = e?.status;
+      let msg = e?.message || 'chat service unavailable';
+      if (code === 401 || code === 403) msg = 'Sign in as a clinician to generate AI-assisted drafts.';
+      if (code === 503) msg = 'Evidence DB or AI provider unavailable — draft cannot be generated.';
+      if (code === 404) msg = 'Selected papers were not found in the evidence index.';
+      panel.innerHTML =
+        '<div class="ch-empty" style="color:var(--red)">AI-assisted draft unavailable: ' + esc(msg) + '</div>' +
+        '<p style="font-size:11px;color:var(--text-tertiary);margin-top:8px">Drafts cite ingested abstracts only — they are not systematic reviews unless explicitly produced as such elsewhere.</p>';
     }
   };
 
@@ -1223,6 +1340,7 @@ async function renderEvidenceSearch(body, liveEvidence) {
   /* ── HTML ─────────────────────────────────────────────────────────────── */
   let html =
     _resWorkspaceHeader(liveEvidence, { shortcuts: true }) +
+    libraryAuthNote +
     '<div id="re-live-evidence-host" style="margin-bottom:16px"></div>' +
     '<div class="ch-card" style="margin-bottom:16px;padding:14px 16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between">' +
       '<div style="font-size:12px;color:var(--text-secondary)"><strong>Research export summary</strong> — clinician-only; audits on server.</div>' +
@@ -1546,6 +1664,7 @@ async function renderNeedsReview(body, liveEvidence) {
         generatedStamp +
         '<span style="font-size:11px;color:var(--text-tertiary);margin-left:auto">Deduped by PMID across protocols · cap 200</span>' +
       '</div>' +
+      '<p style="font-size:11px;color:var(--text-tertiary);padding:0 16px 8px;margin:0;line-height:1.45">Local verdict log (when shown in-browser) is stored in this browser only via localStorage for UX continuity — it is not a substitute for server audit records.</p>' +
       (!_litQueue.length
         ? '<div class="ch-empty" style="padding:30px 16px">' + emptyLitMsg + '</div>'
         : '<div class="lib-grid">' + _litQueue.map(paperRow).join('') + '</div>') +
