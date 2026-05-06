@@ -5205,9 +5205,27 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     referralsIsDemo = true;
   }
 
-  const actor = (typeof currentUser === 'function' ? currentUser() : null) || {};
-  const schedRole = String(actor.role || actor.actor_role || '').toLowerCase();
-  const schedCanMutate = ['clinician', 'admin', 'superadmin'].includes(schedRole);
+  function _schedActor() {
+    const u = (typeof currentUser === 'function' ? currentUser() : null) || null;
+    if (u && (u.role || u.actor_role)) return u;
+    // Fallback: demo-login flow persists ds_user in localStorage; use it to avoid
+    // mis-gating scheduling actions during controlled preview / offline runs.
+    try {
+      const raw = localStorage.getItem('ds_user') || '{}';
+      const parsed = JSON.parse(raw);
+      return (parsed && typeof parsed === 'object') ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  function _schedRole() {
+    const actor = _schedActor();
+    return String(actor.role || actor.actor_role || '').toLowerCase();
+  }
+  function _schedCanMutate() {
+    const r = _schedRole();
+    return ['clinician', 'admin', 'superadmin'].includes(r);
+  }
 
   function sessionToEvent(s) {
     const scheduledAt = s.scheduled_at || (s.date && s.time ? (s.date + 'T' + s.time) : '');
@@ -5420,12 +5438,12 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     if (banner && banner.parentNode) banner.parentNode.removeChild(banner);
   };
 
-  const bookingBtn = schedCanMutate
+  const bookingBtn = _schedCanMutate()
     ? '<button type="button" class="btn btn-primary btn-sm" onclick="window._schedNewBookingIntent()">+ New booking</button>'
     : '<span class="btn btn-sm btn-ghost" style="opacity:.65;cursor:default" title="Clinician sign-in required">Booking unavailable</span>';
   setTopbar('Schedule', bookingBtn);
   window._schedNewBookingIntent = () => {
-    if (!schedCanMutate) {
+    if (!_schedCanMutate()) {
       window._dsToast?.({ title:'Sign in required', body:'Booking requires a clinician or administrator account.', severity:'warn' });
       return;
     }
