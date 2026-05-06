@@ -1,4 +1,5 @@
 // DeepTwin NeuroAI Lab — research-only UI sections (not diagnostic).
+import { currentUser } from '../auth.js';
 import { escHtml } from './safety.js';
 import { api } from '../api.js';
 
@@ -74,6 +75,10 @@ export function renderNeuroAiLabSection({ patientId, timeline, dataSources }) {
       <p id="dt-neuroai-status" class="dt-muted" style="margin:0 0 12px;font-size:12px;line-height:1.45">
         Loading module status…
       </p>
+      <p id="dt-neuroai-audit-trail" class="dt-muted" style="display:none;margin:0 0 12px;font-size:11px;line-height:1.45;border-left:3px solid rgba(100,140,200,.35);padding-left:10px">
+        Preview attempts may be written to the clinic audit trail as <strong>counts and safety flags only</strong>.
+        Raw multimodal event payloads are not stored in audit notes.
+      </p>
       ${_completenessCard(timeline, dataSources)}
       <div class="dt-src-grid" style="margin-top:12px">
         <div class="card" style="padding:12px 14px;margin:0">
@@ -119,6 +124,12 @@ export function renderNeuroAiLabSection({ patientId, timeline, dataSources }) {
 }
 
 export async function wireNeuroAiLab(patientId, timeline, _dataSources) {
+  const auditTrail = document.getElementById('dt-neuroai-audit-trail');
+  const role = currentUser?.role;
+  if (auditTrail && (role === 'clinician' || role === 'admin')) {
+    auditTrail.style.display = 'block';
+  }
+
   const stEl = document.getElementById('dt-neuroai-status');
   try {
     const st = await api.deeptwinNeuroAiStatus();

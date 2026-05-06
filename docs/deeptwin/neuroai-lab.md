@@ -55,6 +55,18 @@ Deterministic only: pass-through of structured payload keys, simple numeric summ
 
 POST previews (`timeline`, `features`, `simulation`) emit **best-effort** `audit_events` rows (`target_type=deeptwin_neuroai_lab`) with **counts and flags only** — no raw event payloads — mirroring other routers so SOC review can see attempts without storing PHI blobs.
 
+Preview requests are audited using **counts and safety flags only**. Raw multimodal event payloads, free-text clinical comments, evidence narratives, and similar fields from the HTTP body are **not** serialized into `audit_events.note`.
+
+### Audit test coverage
+
+Integration tests in `apps/api/tests/test_deeptwin_neuroai_lab.py` assert that:
+
+- Each preview endpoint creates **exactly one** new `deeptwin_neuroai_lab` audit row per successful call.
+- `target_type` is **`deeptwin_neuroai_lab`** and `action` matches `neuroai_lab.timeline_preview`, `neuroai_lab.features_preview`, or `neuroai_lab.simulation_preview`.
+- Parsed `note` JSON contains only allow-listed keys (`event_count`, or simulation metadata such as `baseline_event_count`, `has_proposed_intervention`, `time_horizon_days`, `outcome_domain_count`).
+- Deliberately injected **dummy secrets** in request payloads (clinical text, filenames, baseline markers, evidence strings) **do not appear** in the persisted audit `note`.
+- If `create_audit_event` raises, the preview endpoint **still returns HTTP 200** (audit is non-blocking).
+
 ## Clinical governance boundaries
 
 NeuroAI Lab is **optional** and **experimental**. Product-facing use should remain limited to **data completeness**, **timeline visualization**, and **clinician-reviewed** interpretation workflows until instruments and audits are aligned.

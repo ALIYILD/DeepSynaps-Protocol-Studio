@@ -51,14 +51,13 @@ def _audit_neuroai_attempt(
         from app.repositories.audit import create_audit_event  # noqa: PLC0415
 
         now = datetime.now(timezone.utc)
-        event_id = (
-            f"neuroai-lab-{action}-{actor.actor_id}-{int(now.timestamp())}-{uuid.uuid4().hex[:8]}"
-        )
+        # audit_events.event_id and target_id are VARCHAR(64) — keep inserts bounded.
+        event_id = f"nlab-{uuid.uuid4().hex}"[:64]
         note = json.dumps(meta, default=str)[:900]
         create_audit_event(
             db,
             event_id=event_id,
-            target_id=(patient_id or actor.actor_id)[:256],
+            target_id=(patient_id or actor.actor_id)[:64],
             target_type="deeptwin_neuroai_lab",
             action=f"neuroai_lab.{action}",
             role=str(actor.role),
