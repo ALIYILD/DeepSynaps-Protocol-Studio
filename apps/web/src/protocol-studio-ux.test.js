@@ -22,18 +22,21 @@ test('pgProtocolHub contains stable testids + safety banner hook', () => {
   assert.ok(hubs.includes('protocol-studio-tab-conditions'));
   assert.ok(hubs.includes('protocol-studio-tab-generate'));
   assert.ok(hubs.includes('protocol-studio-tab-browse'));
+  assert.ok(hubs.includes('protocol-studio-tab-evidence'));
+  assert.ok(hubs.includes('protocol-studio-tab-compare'));
+  assert.ok(hubs.includes('protocol-studio-tab-simulation'));
   assert.ok(hubs.includes('protocol-studio-tab-drafts'));
   assert.ok(hubs.includes('protocol-studio-body'));
 
   // Required safety banner hook
   assert.ok(hubs.includes('protocol-safety-banner'));
+  assert.ok(hubs.includes('protocol-studio-controlled-preview'));
 
-  // Phase-1 wiring: real facade panels + no fake generation
+  // Evidence tab wiring + honest degraded messaging paths
   assert.ok(hubs.includes('protocol-evidence-health'));
   assert.ok(hubs.includes('protocol-evidence-search-panel'));
   assert.ok(hubs.includes('protocol-results-list'));
   assert.ok(hubs.includes('protocol-patient-context-panel'));
-  assert.ok(hubs.includes('Generation engine not enabled'));
 });
 
 test('Protocol Studio messaging does not claim autonomous prescribing', () => {
@@ -49,7 +52,11 @@ test('Protocol Studio API helpers are present in api.js', () => {
   assert.ok(apiJs.includes('protocolStudioEvidenceSearch'));
   assert.ok(apiJs.includes('protocolStudioProtocols'));
   assert.ok(apiJs.includes('protocolStudioProtocol'));
+  assert.ok(apiJs.includes('protocolStudioProtocolDetail'));
   assert.ok(apiJs.includes('protocolStudioPatientContext'));
   assert.ok(apiJs.includes('protocolStudioGenerate'));
+  assert.ok(apiJs.includes('protocolStudioRecommend'));
+  assert.ok(apiJs.includes('protocolStudioSimulate'));
+  assert.ok(apiJs.includes('protocolsSaved'));
 });
 
