@@ -15,7 +15,12 @@ _DEMO_SCHED_TAG = "[DEMO_SCHED]"
 
 
 def _iso(dt: datetime) -> str:
-    return dt.replace(microsecond=0).isoformat()
+    # The clinical_sessions.scheduled_at field is stored as a plain ISO string
+    # and many codepaths (including SQLite filters + check_conflicts) assume
+    # offset-naive datetimes. Normalise demo seed timestamps to UTC but strip
+    # tzinfo to keep comparisons consistent.
+    dt_utc = dt.astimezone(timezone.utc).replace(tzinfo=None, microsecond=0)
+    return dt_utc.isoformat()
 
 
 def _monday_of_week(now: datetime) -> datetime:

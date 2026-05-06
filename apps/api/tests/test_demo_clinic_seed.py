@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -30,10 +30,16 @@ def test_seed_demo_clinic_includes_conflict_pair() -> None:
     db: Session = SessionLocal()
     try:
         seed_demo_clinic(db)
+        # The seed intentionally creates an overlap pair on Thursday 11:00 and 11:15
+        # in the current week window. Recompute that anchor deterministically.
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        anchor = now.replace(hour=12, minute=0, second=0)
+        monday = anchor - timedelta(days=anchor.weekday())  # Mon=0
+        thursday = (monday + timedelta(days=3)).date().isoformat()
         conflicts = check_conflicts(
             db,
             clinician_id="actor-clinician-demo",
-            scheduled_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat()[:10] + "T11:15:00",
+            scheduled_at=thursday + "T11:15:00",
             duration_minutes=30,
             room_id="demo-room-a",
             device_id="demo-device-tdcs",
