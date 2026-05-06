@@ -150,11 +150,13 @@ _DEMO_CLINIC_IDS = {"clinic-demo-default", "clinic-cd-demo"}
 # can keep its drill-out wiring honest.
 SURFACE_DRILL_OUT_PAGE = {
     "patient_messages": "patient-messages",
-    "adherence_events": "adherence-events",
-    "home_program_tasks": "home-program-tasks",
+    # Clinician drill-outs land on clinic-wide hubs (not patient portal pages).
+    "adherence_events": "adherence-hub",
+    "home_program_tasks": "home-tasks-v2",
     "wearables": "patient-wearables",
     "wearables_workbench": "monitor",  # tab=wearables-workbench
-    "adverse_events_hub": "adverse-events-hub",
+    # `adverse-events` routes to the full AE hub when drill-in params exist.
+    "adverse_events_hub": "adverse-events",
     "quality_assurance": "quality-assurance",
     "course_detail": "course-detail",
     "patient_profile": "patient-profile",
@@ -651,7 +653,7 @@ def list_items(
         s = status.strip().lower()
         if s == "unread" or s == "unacknowledged":
             items = [it for it in items if not it.is_acknowledged]
-        elif s == "acknowledged":
+        elif s in ("acknowledged", "reviewed"):
             items = [it for it in items if it.is_acknowledged]
 
     # Group by patient — ordering: items already sorted by recency desc.
@@ -1075,7 +1077,7 @@ def export_csv(
         s = status.strip().lower()
         if s in ("unread", "unacknowledged"):
             items = [it for it in items if not it.is_acknowledged]
-        elif s == "acknowledged":
+        elif s in ("acknowledged", "reviewed"):
             items = [it for it in items if it.is_acknowledged]
 
     any_demo = any(it.is_demo for it in items)

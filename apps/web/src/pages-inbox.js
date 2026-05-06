@@ -34,48 +34,58 @@ import { showToast } from './helpers.js';
 
 const esc = s => (s == null ? '' : String(s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-// ── Demo fallback data (ONLY when isDemoSession() AND inbox GETs failed) ───
-// Real clinician JWT sessions never use this path — failed API → error + Retry.
-const _DEMO_INBOX_ITEMS = [
-  { event_id: 'demo-inbox-1', surface: 'adherence_events', event_type: 'adherence.missed_session', note: 'Patient missed 3rd consecutive NFB session. Protocol requires escalation after 2 consecutive misses.', actor_id: 'system', patient_id: 'demo-pt-samantha-li', created_at: '2026-05-03 08:12', is_acknowledged: false, is_demo: true },
-  { event_id: 'demo-inbox-2', surface: 'wearables', event_type: 'wearable.anomaly_detected', note: 'HRV dropped below baseline by 2.3 SD overnight. Sleep efficiency 52% (norm >85%). Possible autonomic stress response — correlate with patient-reported mood.', actor_id: 'system', patient_id: 'demo-pt-marcus-chen', created_at: '2026-05-03 07:45', is_acknowledged: false, is_demo: true },
-  { event_id: 'demo-inbox-3', surface: 'adverse_events_hub', event_type: 'ae.new_report', note: 'Patient reported persistent headache (4/10) following rTMS session #8. Duration >24h. Grade 1 AE logged.', actor_id: 'system', patient_id: 'demo-pt-elena-vasquez', created_at: '2026-05-03 06:30', is_acknowledged: false, is_demo: true },
-  { event_id: 'demo-inbox-4', surface: 'patient_messages', event_type: 'message.urgent', note: 'Urgent message from patient: "Feeling very dizzy since yesterday, should I continue home exercises?"', actor_id: 'demo-pt-samantha-li', patient_id: 'demo-pt-samantha-li', created_at: '2026-05-02 22:18', is_acknowledged: false, is_demo: true },
-  { event_id: 'demo-inbox-5', surface: 'home_program_tasks', event_type: 'task.overdue', note: 'Home program task "Daily mindfulness breathing (10 min)" overdue by 3 days. Adherence trend declining.', actor_id: 'system', patient_id: 'demo-pt-marcus-chen', created_at: '2026-05-02 18:00', is_acknowledged: true, is_demo: true },
-  { event_id: 'demo-inbox-6', surface: 'wearables_workbench', event_type: 'wearable.threshold_breach', note: 'Cortisol proxy elevated 1.8 SD above 30-day rolling mean. Combined with sleep disruption — flag for clinical review.', actor_id: 'system', patient_id: 'demo-pt-elena-vasquez', created_at: '2026-05-02 14:22', is_acknowledged: true, is_demo: true },
-];
+// Demo-note: The demo queue is provided either by the real backend (seeded audit
+// rows marked DEMO) or by the Netlify preview API shim inside api.js (demo-token
+// sessions). This page must never silently fabricate queue items for real
+// clinician sessions.
 
-function _buildDemoInboxResponse() {
-  const grouped = {};
-  _DEMO_INBOX_ITEMS.forEach(item => {
-    const pid = item.patient_id || '_unassigned';
-    if (!grouped[pid]) {
-      grouped[pid] = { patient_id: pid, patient_name: _demoPatientName(pid), items: [], item_count: 0, unread_count: 0, is_demo: true };
-    }
-    grouped[pid].items.push(item);
-    grouped[pid].item_count++;
-    if (!item.is_acknowledged) grouped[pid].unread_count++;
+const _DEMO_ACK_LS_KEY = 'ds_demo_clinician_inbox_ack_v1';
+
+function _safeJsonParse(s, fallback) {
+  try { return JSON.parse(s); } catch { return fallback; }
+}
+
+function _demoAckedIdsGet() {
+  try {
+    const raw = window?.localStorage?.getItem?.(_DEMO_ACK_LS_KEY);
+    const arr = _safeJsonParse(raw || '[]', []);
+    if (!Array.isArray(arr)) return new Set();
+    return new Set(arr.map(String));
+  } catch {
+    return new Set();
+  }
+}
+
+function _demoAckedIdsSet(ids) {
+  try {
+    const arr = Array.from(ids || []).map(String);
+    window?.localStorage?.setItem?.(_DEMO_ACK_LS_KEY, JSON.stringify(arr.slice(0, 500)));
+  } catch {}
+}
+
+function _applyDemoAckState(items) {
+  const acked = _demoAckedIdsGet();
+  return (items || []).map(it => {
+    if (!it || !it.is_demo) return it;
+    if (acked.has(String(it.event_id))) return { ...it, is_acknowledged: true };
+    return it;
   });
-  return {
-    items: _DEMO_INBOX_ITEMS,
-    grouped: Object.values(grouped),
-    total: _DEMO_INBOX_ITEMS.length,
-    is_demo_view: true,
-  };
 }
 
-function _buildDemoInboxSummary() {
-  return {
-    high_priority_unread: _DEMO_INBOX_ITEMS.filter(i => !i.is_acknowledged).length,
-    last_24h: _DEMO_INBOX_ITEMS.filter(i => i.created_at >= '2026-05-02').length,
-    last_7d: _DEMO_INBOX_ITEMS.length,
-    by_surface: { adherence_events: 1, wearables: 1, adverse_events_hub: 1, patient_messages: 1, home_program_tasks: 1, wearables_workbench: 1 },
-  };
+function _demoAckMark(eventIds) {
+  const acked = _demoAckedIdsGet();
+  (eventIds || []).forEach(id => acked.add(String(id)));
+  _demoAckedIdsSet(acked);
 }
 
-function _demoPatientName(id) {
-  const map = { 'demo-pt-samantha-li': 'Samantha Li', 'demo-pt-marcus-chen': 'Marcus Chen', 'demo-pt-elena-vasquez': 'Elena Vasquez' };
-  return map[id] || id;
+function _inboxShouldKeepPolling() {
+  try {
+    const sp = new URLSearchParams(window.location.search || '');
+    const page = (sp.get('page') || '').trim();
+    return page === 'clinician-inbox' || page === 'inbox';
+  } catch {
+    return true;
+  }
 }
 
 // Module-level state — kept tiny so the inbox can mount/unmount cleanly.
@@ -134,11 +144,11 @@ const SURFACE_LABEL = {
 // drill-out happens client-side via window._nav.
 const SURFACE_DRILL_OUT_PAGE = {
   patient_messages: 'patient-messages',
-  adherence_events: 'adherence-events',
-  home_program_tasks: 'home-program-tasks',
+  adherence_events: 'adherence-hub',
+  home_program_tasks: 'home-tasks-v2',
   wearables: 'patient-wearables',
   wearables_workbench: 'monitor',
-  adverse_events_hub: 'adverse-events-hub',
+  adverse_events_hub: 'adverse-events',
   quality_assurance: 'quality-assurance',
   course_detail: 'course-detail',
   patient_profile: 'patient-profile',
@@ -381,7 +391,7 @@ function renderEmptyState() {
 function renderDemoBanner() {
   return `
     <div style="margin:12px 0;padding:10px 14px;border-radius:10px;background:rgba(245, 158, 11, 0.1);border:1px solid var(--amber);color:var(--amber);font-size:12.5px">
-      <strong>DEMO sample data.</strong> Labels reference synthetic patients. Exports are DEMO-prefixed and are not regulator-submittable.
+      <strong>DEMO sample data (synthetic; non-PHI).</strong> This is a deterministic clinical work queue demo — not an AI diagnostic system, not an emergency triage system. Exports are <strong>DEMO-prefixed</strong> and are not regulator-submittable.
     </div>`;
 }
 
@@ -392,7 +402,7 @@ function renderConnectionBanner(isDemoPreview, loadError) {
     <div role="alert" style="margin:12px 0;padding:10px 14px;border-radius:10px;background:rgba(239,68,68,0.08);border:1px solid var(--red);color:var(--text-secondary);font-size:12.5px;line-height:1.45">
       <strong style="color:var(--red)">${offline ? 'Offline or unreachable API.' : 'Could not refresh inbox.'}</strong>
       ${esc(loadError)}
-      ${isDemoPreview ? '<div style="margin-top:6px;font-size:11px;color:var(--text-tertiary)">Demo preview: labelled sample rows below are synthetic. Production clinicians use a real API session—demo rows never replace live data.</div>' : ''}
+      ${isDemoPreview ? '<div style="margin-top:6px;font-size:11px;color:var(--text-tertiary)">Demo preview: this session is running in offline demo mode (synthetic data; no PHI). Real clinician sessions require a live API.</div>' : ''}
     </div>`;
 }
 
@@ -464,6 +474,7 @@ function renderFilterStrip(state) {
     `<option value="${v}" ${state.filterStatus === v ? 'selected' : ''}>${esc(l)}</option>`,
   ).join('');
   const qVal = esc(state.searchQuery || '');
+  const bulkDisabled = state.selectedIds.size === 0;
   return `
     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin:12px 0">
       <label style="font-size:12px;color:var(--text-secondary);flex:1;min-width:200px">Search
@@ -480,7 +491,7 @@ function renderFilterStrip(state) {
           style="display:block;margin-top:4px;padding:8px 10px;border-radius:6px;background:var(--surface-1);border:1px solid var(--border);color:var(--text-primary);min-width:170px">${statusOpts}</select>
       </label>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-left:auto">
-        <button type="button" id="inbox-bulk-ack-btn" style="padding:8px 14px;border-radius:6px;background:var(--teal);border:none;color:white;font-weight:600;cursor:pointer;font-size:12px">
+        <button type="button" id="inbox-bulk-ack-btn" ${bulkDisabled ? 'disabled' : ''} style="padding:8px 14px;border-radius:6px;background:${bulkDisabled ? 'var(--surface-2)' : 'var(--teal)'};border:1px solid ${bulkDisabled ? 'var(--border)' : 'transparent'};color:${bulkDisabled ? 'var(--text-tertiary)' : 'white'};font-weight:600;cursor:${bulkDisabled ? 'not-allowed' : 'pointer'};font-size:12px">
           Acknowledge selected
         </button>
         <button type="button" id="inbox-export-csv-btn" style="padding:8px 14px;border-radius:6px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-primary);font-size:12px;font-weight:600;cursor:pointer">
@@ -606,6 +617,11 @@ export async function pgClinicianInbox(setTopbar, navigate) {
   if (typeof window !== 'undefined') {
     _inboxState.pollHandle = window.setInterval(() => {
       if (_inboxState.pollMountGen !== pollGen) return;
+      if (!_inboxShouldKeepPolling()) {
+        try { window.clearInterval(_inboxState.pollHandle); } catch (_) {}
+        _inboxState.pollHandle = null;
+        return;
+      }
       try {
         api.postClinicianInboxAuditEvent(buildInboxAuditPayload('polling_tick'));
       } catch (_) { /* ignore */ }
@@ -639,14 +655,6 @@ async function loadInboxData(navigate) {
   const demoSession = typeof isDemoSession === 'function' && isDemoSession();
   const listOk = !!(list && Array.isArray(list.items));
   const summaryOk = !!(summary && typeof summary === 'object');
-  const useDemoFallback = demoSession && (!listOk || !summaryOk);
-
-  if (useDemoFallback) {
-    const effList = listOk ? list : _buildDemoInboxResponse();
-    const effSummary = summaryOk ? summary : _buildDemoInboxSummary();
-    _applySuccessfulInboxPayload(effList, effSummary, demoSession, null, nav);
-    return;
-  }
 
   if (fetchErr) {
     const hadData = _inboxState.loaded && (_inboxState.items || []).length > 0;
@@ -698,7 +706,8 @@ function _applySuccessfulInboxPayload(effectiveList, effectiveSummary, demoSessi
   _inboxState.error = null;
   _inboxState.staleRefreshError = null;
 
-  _inboxState.items = (effectiveList && Array.isArray(effectiveList.items)) ? effectiveList.items : [];
+  const rawItems = (effectiveList && Array.isArray(effectiveList.items)) ? effectiveList.items : [];
+  _inboxState.items = demoSession ? _applyDemoAckState(rawItems) : rawItems;
   _inboxState.total = (effectiveList && Number(effectiveList.total)) || _inboxState.items.length;
   _inboxState.isDemoView = !!(effectiveList && effectiveList.is_demo_view);
   _inboxState.summary = effectiveSummary;
@@ -807,16 +816,22 @@ function bindFilterHandlers(navigate) {
   if (bulkBtn && !bulkBtn._bound) {
     bulkBtn._bound = true;
     bulkBtn.onclick = async () => {
-      if (_inboxState.selectedIds.size === 0) {
-        showToast('Select at least one item to acknowledge.', 'warn');
-        return;
-      }
+      if (_inboxState.selectedIds.size === 0) return;
       const note = (typeof window !== 'undefined' ? window.prompt('Acknowledgement note (required):', '') : '');
       if (!inboxNoteRequiredValid(note)) {
         showToast('Acknowledgement note is required.', 'warn');
         return;
       }
       const ids = Array.from(_inboxState.selectedIds);
+      const demoSession = typeof isDemoSession === 'function' && isDemoSession();
+      if (demoSession && _inboxState.isDemoView) {
+        _demoAckMark(ids);
+        _inboxState.selectedIds.clear();
+        refreshInboxDomNav(_inboxNavigate);
+        try { api.postClinicianInboxAuditEvent(buildInboxAuditPayload('bulk_acknowledged', { note: `processed=${ids.length}`, using_demo_data: true })); } catch (_) {}
+        showToast(`Recorded ${ids.length} acknowledgement(s) locally (demo).`, 'success');
+        return;
+      }
       try {
         const r = await api.clinicianInboxBulkAcknowledge(ids, note);
         try { api.postClinicianInboxAuditEvent(buildInboxAuditPayload('bulk_acknowledged', { note: `processed=${ids.length}` })); } catch (_) {}
@@ -838,8 +853,37 @@ function bindFilterHandlers(navigate) {
   if (exportBtn && !exportBtn._bound) {
     exportBtn._bound = true;
     exportBtn.onclick = async () => {
-      try { api.postClinicianInboxAuditEvent(buildInboxAuditPayload('export', { note: 'format=csv' })); } catch (_) {}
+      const demoSession = typeof isDemoSession === 'function' && isDemoSession();
+      try { api.postClinicianInboxAuditEvent(buildInboxAuditPayload('export', { note: 'format=csv', using_demo_data: demoSession && _inboxState.isDemoView })); } catch (_) {}
       try {
+        if (demoSession && _inboxState.isDemoView) {
+          const cols = [
+            'event_id','created_at','surface','event_type','actor_id','patient_id','patient_name','is_demo','is_acknowledged','note',
+          ];
+          const escCsv = v => `"${String(v ?? '').replace(/"/g, '""').replace(/\r?\n/g, ' ')}"`;
+          const lines = [
+            '# DEMO — synthetic/non-PHI. Not regulator-submittable.',
+            cols.join(','),
+          ];
+          (_inboxState.items || []).forEach(it => {
+            lines.push([
+              it.event_id,
+              it.created_at,
+              it.surface,
+              it.event_type,
+              it.actor_id,
+              it.patient_id || '',
+              it.patient_name || '',
+              it.is_demo ? '1' : '0',
+              it.is_acknowledged ? '1' : '0',
+              it.note || '',
+            ].map(escCsv).join(','));
+          });
+          const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' });
+          downloadBlob(blob, 'DEMO-clinician-inbox.csv');
+          showToast('Export started (demo CSV).', 'success');
+          return;
+        }
         const out = await api.clinicianInboxExportCsvBlob();
         const name = out.filename || 'clinician-inbox.csv';
         downloadBlob(out.blob, name);
@@ -860,6 +904,16 @@ function bindRowHandlers(navigate) {
       const id = cb.getAttribute('data-event-id');
       if (cb.checked) _inboxState.selectedIds.add(id);
       else _inboxState.selectedIds.delete(id);
+      // Keep the bulk-ack button state honest without refetching.
+      const bulkBtn = document.getElementById('inbox-bulk-ack-btn');
+      if (bulkBtn) {
+        const disabled = _inboxState.selectedIds.size === 0;
+        bulkBtn.disabled = disabled;
+        bulkBtn.style.cursor = disabled ? 'not-allowed' : 'pointer';
+        bulkBtn.style.background = disabled ? 'var(--surface-2)' : 'var(--teal)';
+        bulkBtn.style.border = disabled ? '1px solid var(--border)' : '1px solid transparent';
+        bulkBtn.style.color = disabled ? 'var(--text-tertiary)' : 'white';
+      }
     };
   });
 
@@ -872,6 +926,14 @@ function bindRowHandlers(navigate) {
       const note = (typeof window !== 'undefined' ? window.prompt('Acknowledgement note (required):', '') : '');
       if (!inboxNoteRequiredValid(note)) {
         showToast('Acknowledgement note is required.', 'warn');
+        return;
+      }
+      const demoSession = typeof isDemoSession === 'function' && isDemoSession();
+      if (demoSession && _inboxState.isDemoView) {
+        _demoAckMark([eventId]);
+        try { api.postClinicianInboxAuditEvent(buildInboxAuditPayload('item_acknowledged_via_modal', { item_event_id: eventId, using_demo_data: true })); } catch (_) {}
+        showToast('Recorded acknowledgement locally (demo).', 'success');
+        refreshInboxDomNav(_inboxNavigate);
         return;
       }
       try {

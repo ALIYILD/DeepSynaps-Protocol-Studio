@@ -85,18 +85,27 @@ export function isDemoSession() {
 }
 
 // ── Demo inbox items (shared between inbox + digest shims) ──────────────────
+// Non-PHI synthetic examples for offline demo-token sessions only.
 const _DEMO_INBOX_ITEMS = [
-  { event_id: 'demo-inbox-1', surface: 'adherence_events', event_type: 'adherence.missed_session', note: 'Patient missed 3rd consecutive NFB session. Protocol requires escalation after 2 consecutive misses.', actor_id: 'system', patient_id: 'demo-pt-samantha-li', created_at: new Date(Date.now() - 3600000).toISOString(), is_acknowledged: false, is_demo: true },
-  { event_id: 'demo-inbox-2', surface: 'wearables', event_type: 'wearable.anomaly_detected', note: 'HRV dropped below baseline by 2.3 SD overnight. Sleep efficiency 52% (norm >85%). Possible autonomic stress response.', actor_id: 'system', patient_id: 'demo-pt-marcus-chen', created_at: new Date(Date.now() - 5400000).toISOString(), is_acknowledged: false, is_demo: true },
-  { event_id: 'demo-inbox-3', surface: 'adverse_events_hub', event_type: 'ae.new_report', note: 'Patient reported persistent headache (4/10) following rTMS session #8. Duration >24h. Grade 1 AE logged.', actor_id: 'system', patient_id: 'demo-pt-elena-vasquez', created_at: new Date(Date.now() - 9000000).toISOString(), is_acknowledged: false, is_demo: true },
-  { event_id: 'demo-inbox-4', surface: 'patient_messages', event_type: 'message.urgent', note: 'Urgent message from patient: "Feeling very dizzy since yesterday, should I continue home exercises?"', actor_id: 'demo-pt-samantha-li', patient_id: 'demo-pt-samantha-li', created_at: new Date(Date.now() - 14400000).toISOString(), is_acknowledged: false, is_demo: true },
-  { event_id: 'demo-inbox-5', surface: 'home_program_tasks', event_type: 'task.overdue', note: 'Home program task "Daily mindfulness breathing (10 min)" overdue by 3 days. Adherence trend declining.', actor_id: 'system', patient_id: 'demo-pt-marcus-chen', created_at: new Date(Date.now() - 21600000).toISOString(), is_acknowledged: true, is_demo: true },
-  { event_id: 'demo-inbox-6', surface: 'wearables_workbench', event_type: 'wearable.threshold_breach', note: 'Cortisol proxy elevated 1.8 SD above 30-day rolling mean. Combined with sleep disruption — flag for clinical review.', actor_id: 'system', patient_id: 'demo-pt-elena-vasquez', created_at: new Date(Date.now() - 28800000).toISOString(), is_acknowledged: true, is_demo: true },
+  // Unread / ACTION items (last 24h)
+  { event_id: 'demo-inbox-1', surface: 'adherence_events', event_type: 'adherence.missed_session', note: 'DEMO — priority=high; patient missed 2 consecutive home sessions; escalation threshold reached. Non-PHI synthetic scenario.', actor_id: 'system', patient_id: 'demo-pt-samantha-li', created_at: new Date(Date.now() - 60 * 60_000).toISOString(), is_acknowledged: false, is_demo: true },
+  { event_id: 'demo-inbox-2', surface: 'patient_messages', event_type: 'message.urgent', note: 'DEMO — priority=high; patient asks: “Dizzy since yesterday — should I continue home exercises?” Non-PHI synthetic message.', actor_id: 'demo-patient', patient_id: 'demo-pt-samantha-li', created_at: new Date(Date.now() - 2 * 60 * 60_000).toISOString(), is_acknowledged: false, is_demo: true },
+  { event_id: 'demo-inbox-3', surface: 'adverse_events_hub', event_type: 'ae.new_report', note: 'DEMO — priority=high; persistent headache after session; requires clinician review (not an emergency system). Non-PHI synthetic AE.', actor_id: 'system', patient_id: 'demo-pt-elena-vasquez', created_at: new Date(Date.now() - 3 * 60 * 60_000).toISOString(), is_acknowledged: false, is_demo: true },
+  { event_id: 'demo-inbox-4', surface: 'wearables_workbench', event_type: 'wearables.threshold_breach', note: 'DEMO — priority=high; monitoring threshold breach (sleep disruption + stress proxy). Requires review; decision support only.', actor_id: 'system', patient_id: 'demo-pt-marcus-chen', created_at: new Date(Date.now() - 5 * 60 * 60_000).toISOString(), is_acknowledged: false, is_demo: true },
+  { event_id: 'demo-inbox-5', surface: 'quality_assurance', event_type: 'qa.finding', note: 'DEMO — priority=high; QA finding requires clinician sign-off (workflow reminder). Non-PHI synthetic.', actor_id: 'system', patient_id: 'demo-pt-omar-haddad', created_at: new Date(Date.now() - 8 * 60 * 60_000).toISOString(), is_acknowledged: false, is_demo: true },
+  { event_id: 'demo-inbox-6', surface: 'patient_profile', event_type: 'consent.renewal_required', note: 'DEMO — priority=high; consent renewal required before next session scheduling. Non-PHI synthetic.', actor_id: 'system', patient_id: 'demo-pt-amelia-brown', created_at: new Date(Date.now() - 10 * 60 * 60_000).toISOString(), is_acknowledged: false, is_demo: true },
+  { event_id: 'demo-inbox-7', surface: 'wearables', event_type: 'wearables.anomaly_detected', note: 'DEMO — priority=high; HRV below baseline; correlate with symptoms. Non-PHI synthetic.', actor_id: 'system', patient_id: 'demo-pt-marcus-chen', created_at: new Date(Date.now() - 14 * 60 * 60_000).toISOString(), is_acknowledged: false, is_demo: true },
+  // Reviewed / acknowledged items (older)
+  { event_id: 'demo-inbox-8', surface: 'home_program_tasks', event_type: 'task.overdue', note: 'DEMO — priority=high; home program task overdue; reviewed previously. Non-PHI synthetic.', actor_id: 'system', patient_id: 'demo-pt-elena-vasquez', created_at: new Date(Date.now() - 2 * 86400_000).toISOString(), is_acknowledged: true, is_demo: true },
+  { event_id: 'demo-inbox-9', surface: 'course_detail', event_type: 'course.review_required', note: 'DEMO — priority=high; course review required due to pattern change. Non-PHI synthetic.', actor_id: 'system', patient_id: 'demo-pt-omar-haddad', created_at: new Date(Date.now() - 4 * 86400_000).toISOString(), is_acknowledged: true, is_demo: true },
+  { event_id: 'demo-inbox-10', surface: 'adherence_events', event_type: 'adherence.side_effect', note: 'DEMO — priority=high; mild side effect reported; reviewed and documented. Non-PHI synthetic.', actor_id: 'system', patient_id: 'demo-pt-amelia-brown', created_at: new Date(Date.now() - 6 * 86400_000).toISOString(), is_acknowledged: true, is_demo: true },
 ];
 const _DEMO_PT_NAMES = {
-  'demo-pt-samantha-li': 'Demo Patient A (synthetic)',
-  'demo-pt-marcus-chen': 'Demo Patient B (synthetic)',
-  'demo-pt-elena-vasquez': 'Demo Patient C (synthetic)',
+  'demo-pt-samantha-li': 'DEMO Patient (synthetic) — Samantha',
+  'demo-pt-elena-vasquez': 'DEMO Patient (synthetic) — Elena',
+  'demo-pt-marcus-chen': 'DEMO Patient (synthetic) — Marcus',
+  'demo-pt-omar-haddad': 'DEMO Patient (synthetic) — Omar',
+  'demo-pt-amelia-brown': 'DEMO Patient (synthetic) — Amelia',
 };
 function _buildDemoInboxGroups() {
   const grouped = {};

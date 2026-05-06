@@ -78,11 +78,11 @@ function inboxSummaryHonestUnreadCount(serverSummaryResp) {
 
 const SURFACE_DRILL_OUT_PAGE = {
   patient_messages: 'patient-messages',
-  adherence_events: 'adherence-events',
-  home_program_tasks: 'home-program-tasks',
+  adherence_events: 'adherence-hub',
+  home_program_tasks: 'home-tasks-v2',
   wearables: 'patient-wearables',
   wearables_workbench: 'monitor',
-  adverse_events_hub: 'adverse-events-hub',
+  adverse_events_hub: 'adverse-events',
   quality_assurance: 'quality-assurance',
   course_detail: 'course-detail',
   patient_profile: 'patient-profile',
@@ -203,11 +203,11 @@ test('Summary unread: read straight off server, no UI math', () => {
 
 test('Drill-out: known surfaces map to a real page id', () => {
   assert.equal(inboxDrillOutPageFor('patient_messages'), 'patient-messages');
-  assert.equal(inboxDrillOutPageFor('adherence_events'), 'adherence-events');
-  assert.equal(inboxDrillOutPageFor('home_program_tasks'), 'home-program-tasks');
+  assert.equal(inboxDrillOutPageFor('adherence_events'), 'adherence-hub');
+  assert.equal(inboxDrillOutPageFor('home_program_tasks'), 'home-tasks-v2');
   assert.equal(inboxDrillOutPageFor('wearables'), 'patient-wearables');
   assert.equal(inboxDrillOutPageFor('wearables_workbench'), 'monitor');
-  assert.equal(inboxDrillOutPageFor('adverse_events_hub'), 'adverse-events-hub');
+  assert.equal(inboxDrillOutPageFor('adverse_events_hub'), 'adverse-events');
 });
 
 test('Drill-out: unknown surface returns null (no fake nav)', () => {
@@ -218,13 +218,13 @@ test('Drill-out: unknown surface returns null (no fake nav)', () => {
 
 test('Drill-out URL: includes patient_id when present', () => {
   const u = inboxBuildDrillOutUrl({ surface: 'adherence_events', patient_id: 'p1' });
-  assert.ok(u.includes('page=adherence-events'));
+  assert.ok(u.includes('page=adherence-hub'));
   assert.ok(u.includes('patient_id=p1'));
 });
 
 test('Drill-out URL: omits patient_id when absent', () => {
   const u = inboxBuildDrillOutUrl({ surface: 'adverse_events_hub' });
-  assert.ok(u.includes('page=adverse-events-hub'));
+  assert.ok(u.includes('page=adverse-events'));
   assert.equal(u.includes('patient_id'), false);
 });
 
