@@ -1,5 +1,18 @@
 # Patients Hub / Registry — live readiness (doctor-demo preview)
 
+## Readiness status
+
+**READY WITH LIMITATIONS** — controlled doctor demo is appropriate from a **frontend** perspective; **backend pytest** for patient routers / seed should still run in **CI or the full API dev environment** (private monorepo packages such as `deepsynaps-core-schema` are not installable from public PyPI alone).
+
+| Layer | Verification |
+|-------|----------------|
+| Frontend | `npm ci` OK; `npm run test:unit` — **1061 passed**; `npm run build` OK with **Node 20.19+** |
+| Backend | `pytest` command below — run where `deepsynaps-api` installs with internal deps |
+
+**Node.js:** Vite 7 requires **Node 20.19+** (e.g. 20.20.x). Builds on **Node 18** fail (`crypto.hash is not a function`). CI and demo machines should pin Node **20.19+**.
+
+**Demo posture:** Safe for a **controlled** demo when preview banners are shown; treat **patient-specific persistence** (quick note, chart) as **environment-dependent** until API tests pass in full dev/CI.
+
 ## Scope
 
 This document covers the **Patients** area of the clinician app:
@@ -96,16 +109,21 @@ Unknown routes show a safe toast — **no silent navigation**.
 
 | Step | Result |
 |------|--------|
-| Env verification | Documented above; agent runs in CI-like shell — **execute local `pytest` / `npm run build` / `npm run test:unit` before release** |
+| Frontend unit + build | See **Readiness status** — verified with Node 20.20.x |
+| Backend pytest | **Pending** in bare containers; run in CI / full monorepo API environment |
 | Manual Netlify preview | Run `bash scripts/deploy-preview.sh` from repo root per `CLAUDE.md` (requires Netlify auth on reviewer machine) |
 
 ## Tests (commands)
 
 ```bash
-cd apps/api && python3 -m pytest -q tests/test_patients_router.py tests/test_dashboard_router.py tests/test_demo_clinic_seed.py tests/test_seed_demo.py
+cd apps/web && npm ci
 cd apps/web && npm run test:unit
-cd apps/web && npm run build
+cd apps/web && npm run build   # requires Node 20.19+
+
+cd apps/api && python3 -m pytest -q tests/test_patients_router.py tests/test_dashboard_router.py tests/test_demo_clinic_seed.py tests/test_seed_demo.py
 ```
+
+The API pytest block requires a working install of `apps/api` including **internal** DeepSynaps packages — use the repo’s standard API virtualenv or CI image, not a minimal PyPI-only sandbox.
 
 ---
 
