@@ -49,7 +49,7 @@ export function buildDemoDashboard360Payload(patientId) {
     card('diagnosis', 'available', dx.join(' · ')),
     card('symptoms_goals', 'partial', 'Demo intake notes only.'),
     card('assessments', 'missing', 'No assessment scores in this demo seed.', {
-      upload_links: [{ label: 'Submit assessment', href: '/assessments', kind: 'assessment' }],
+      upload_links: [{ label: 'Submit assessment', href: '/?page=assessments-v2', kind: 'assessment' }],
     }),
     card('qeeg', 'missing', 'No qEEG records in this demo seed.', {
       upload_links: [{ label: 'Upload qEEG', href: '/qeeg-launcher', kind: 'qeeg' }],

@@ -20,6 +20,7 @@ test('Video Assessments source advertises governance and honest analyzer status'
 
 test('Video Assessments source wires linked module navigation ids', () => {
   assert.match(VA_SRC, /va-link-profile/);
+  assert.match(VA_SRC, /navWithPatient\('assessments-v2'/);
   assert.match(VA_SRC, /navWithPatient\('deeptwin'/);
   assert.match(VA_SRC, /protocol-studio/);
 });
