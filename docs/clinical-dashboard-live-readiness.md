@@ -99,3 +99,46 @@ Frontend:
 - `cd apps/web && npm run build`
   - Result: **PASS**
 
+## Final preview click-through (local preview via Playwright)
+
+Checked: **2026-05-06T10:52:46Z**
+
+Env used:
+
+- Frontend: `VITE_ENABLE_DEMO=1`, `VITE_API_BASE_URL=http://127.0.0.1:8000`
+- Backend: `DEEPSYNAPS_APP_ENV=development`, `DEEPSYNAPS_DEMO_CLINIC_SEED=1`
+
+Preview URL checked (local):
+
+- `http://127.0.0.1:5173/?page=dashboard`
+
+PASS/FAIL routes:
+
+| Route | Expected label | Result | Notes |
+|---|---|---|---|
+| `dashboard` | Dashboard loads + DEMO BUILD + safety strip | **PASS** | DEMO BUILD banner + decision-support disclaimer present |
+| `clinician-inbox` | New messages / Inbox | **PASS** | Opens; honest state |
+| `review-queue` | Awaiting sign-off | **PASS** | Opens |
+| `clinic-day` | Today’s sessions | **PASS** | Opens |
+| `review-queue` | Pending reviews | **PASS** | Opens |
+| `adverse-events` | Critical flags | **PASS** | Opens |
+| `scheduling-hub` | Open schedule | **PASS** | Opens |
+| `session-execution` | Session execution | **PASS** | Opens |
+| `brain-map-planner` | Brain Map Planner | **PASS** | Opens |
+| `patients-hub` | All Patients / Patient Hub | **PASS** | Opens |
+| `patient-profile` | Patient Profile | **PASS** | Opens |
+| `risk-analyzer` | Risk Analyzer | **PASS** | Opens |
+| `deeptwin` | DeepTwin | **PASS** | Opens |
+| `protocol-hub` | Protocol Hub / Generate tab | **PASS** | Opens |
+| `research-evidence` | Evidence Library + adjunct evidence | **PASS** | Opens |
+| `mri-analysis` | MRI Analyzer | **PASS** | Opens (demo/degraded as applicable) |
+| `qeeg-launcher` | qEEG launcher | **PASS** | Opens |
+| `video-assessments` | Video assessments | **PASS** | Opens |
+| `voice-analyzer` | Voice analyzer | **PASS** | Opens |
+| `reports-hub` | Export / Reports | **PASS** | Opens |
+| `dashboard#agent` | Agent modal | **PASS** | Renders response or truthful degraded message |
+
+Notes:
+
+- Playwright observed some browser console errors from backend endpoints returning `503`/`401` during the run; pages still rendered and remained **honest** (no fake success) and did not dead-end.
+
