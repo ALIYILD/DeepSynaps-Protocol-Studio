@@ -61,6 +61,7 @@ Honesty rule: audit write failures must not break responses (best-effort audit).
 
 Results (this lock pass):
 
+- **Timestamp**: 2026-05-06 10:42–10:44 UTC
 - **Backend (dashboard-specific)**: `cd apps/api && python3 -m pytest -q tests/test_dashboard_router.py` (**PASS**, 13 tests)
 - **Backend (full suite)**: `cd apps/api && python3 -m pytest -q` (**FAIL** in this environment)
   - Example failures observed:
@@ -68,6 +69,16 @@ Results (this lock pass):
     - `tests/test_bio_router.py` failures/contract drift (404 vs 403 and 405 vs 200) unrelated to Dashboard routes
 - **Frontend**: `cd apps/web && node --test src/clinical-dashboard-launch-audit.test.js` (**PASS**, 10 subtests)
 - **Frontend build**: `cd apps/web && npm run build` (**PASS**, requires Node 20+ for Vite 7)
+
+## Manual / controlled click-through result (freeze pass)
+
+This environment does not provide an interactive browser UI, so I could not literally “click” through the app as a human would. Instead, this freeze pass validated the same path via:
+
+- **Dev servers started**:
+  - API: `python3 -m uvicorn app.main:app --port 8000` (with `PYTHONPATH` set to include workspace packages)
+  - Web: `npm run dev -- --port 5173`
+- **Route existence**: verified the key demo path route ids exist in `apps/web/src/app.js` (Dashboard, Inbox, Patient Profile, Schedule, Planner, Protocol Hub/Generate tab, Evidence Library, Risk Analyzer, DeepTwin, MRI/qEEG launchers, Agents, Reports hub).
+- **API smoke**: `GET /api/v1/dashboard/overview` responds as expected under `Authorization: Bearer clinician-demo-token` (403 without auth; JSON with auth).
 
 ## Known limitations (explicit)
 
