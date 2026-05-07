@@ -11,9 +11,9 @@
     "protocols": 59,
     "sources": 30
   },
-  "created_at": "2026-05-07T11:40:29.884104+00:00",
+  "created_at": "2026-05-06T10:49:41.706043+00:00",
   "snapshot_id": "clinical-ab549dd1b827",
   "source_hash": "ab549dd1b827d5493d00c8f8fb5c79ad6076297b9fff3256383c628186a0b431",
-  "source_root": "/Users/aliyildirim/DeepSynaps-Protocol-Studio/data/imports/clinical-database",
+  "source_root": "/workspace/data/imports/clinical-database",
   "total_records": 263
 }
