@@ -189,6 +189,41 @@ async def upload_voice(
         logger.exception("preprocess_upload failed for patient_id=%s", patient_id)
         raise HTTPException(status_code=500, detail="preprocessing failed") from exc
 
+    # Persist an AudioAnalysis row so /voice/analyze and /voice/result resolve
+    # by session_id. Best-effort: skipped silently when the DB layer is absent
+    # (bare voice-engine tests) or fails. Without this, analyze 404s on every
+    # uploaded session because the security fix from PR #552 requires a DB row.
+    if db is not None:
+        try:
+            import uuid as _uuid  # lazy
+            from app.persistence.models import AudioAnalysis  # lazy
+
+            existing = (
+                db.query(AudioAnalysis)
+                .filter(AudioAnalysis.session_id == meta.session_id)
+                .first()
+            )
+            if existing is None:
+                row = AudioAnalysis(
+                    analysis_id=str(_uuid.uuid4()),
+                    patient_id=meta.patient_id,
+                    session_id=meta.session_id,
+                    status="uploaded",
+                    input_path=meta.processed_s3_key,
+                )
+                db.add(row)
+                db.commit()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "voice upload: failed to insert AudioAnalysis row for session=%s: %s",
+                meta.session_id,
+                exc,
+            )
+            try:
+                db.rollback()
+            except Exception:
+                pass
+
     return dataclasses.asdict(meta)
 
 
