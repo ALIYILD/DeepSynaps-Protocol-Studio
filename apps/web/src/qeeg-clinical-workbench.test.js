@@ -94,6 +94,76 @@ test('renderNormativeModelCard renders metadata', () => {
   assert.ok(html.includes('Complete'));
 });
 
+test('renderNormativeModelCard renders toy status with visible clinical caveat and OOD warning', () => {
+  const html = normative.renderNormativeModelCard({
+    status: 'toy',
+    normative_db_name: 'ToyCsvNormDB',
+    normative_db_version: 'toy-0.1',
+    age_range: '18-65',
+    complete: false,
+    clinical_caveat: 'Toy norms are for engineering validation only and are not suitable for clinical interpretation.',
+    ood_warning: 'Patient demographics fall outside the reference cohort.',
+    limitations: ['Fixture dataset only.'],
+  });
+  assert.ok(html.includes('Toy / Non-Clinical'));
+  assert.ok(html.includes('Clinical Caveat'));
+  assert.ok(html.includes('engineering validation only'));
+  assert.ok(html.includes('Out-of-Distribution Warning'));
+  assert.ok(html.includes('outside the reference cohort'));
+  assert.ok(html.includes('<td>toy</td>'));
+});
+
+test('renderNormativeModelCard renders configured status and compatibility metadata', () => {
+  const html = normative.renderNormativeModelCard({
+    status: 'configured',
+    normative_db_name: 'Clinic Norm Bank',
+    normative_db_version: '2026.04',
+    age_range: '12-80',
+    eyes_condition_compatible: false,
+    montage_compatible: true,
+    zscore_method: 'age-stratified z',
+    confidence_interval: '95%',
+    complete: true,
+    limitations: [],
+  });
+  assert.ok(html.includes('Configured'));
+  assert.ok(html.includes('Clinic Norm Bank'));
+  assert.ok(html.includes('2026.04'));
+  assert.ok(html.includes('No'));
+  assert.ok(html.includes('Yes'));
+  assert.ok(html.includes('age-stratified z'));
+  assert.ok(html.includes('95%'));
+});
+
+test('renderNormativeModelCard renders unavailable status with truthful caveat language', () => {
+  const html = normative.renderNormativeModelCard({
+    status: 'unavailable',
+    normative_db_name: '—',
+    complete: false,
+    clinical_caveat: 'Normative comparison is unavailable for this recording; review raw features and acquisition quality before interpreting deviations.',
+    limitations: ['Age/sex metadata missing.'],
+  });
+  assert.ok(html.includes('Norms Unavailable'));
+  assert.ok(html.includes('unavailable'));
+  assert.ok(html.includes('Clinical Caveat'));
+  assert.ok(html.includes('review raw features and acquisition quality'));
+  assert.ok(html.includes('Age/sex metadata missing.'));
+});
+
+test('renderNormativeModelCard escapes caveat and warning content', () => {
+  const html = normative.renderNormativeModelCard({
+    status: 'toy',
+    complete: false,
+    clinical_caveat: '<script>alert(1)</script> clinician review required',
+    ood_warning: '<b>OOD</b> outside range',
+    limitations: [],
+  });
+  assert.ok(!html.includes('<script>'));
+  assert.ok(!html.includes('<b>OOD</b>'));
+  assert.ok(html.includes('&lt;script&gt;alert(1)&lt;/script&gt; clinician review required'));
+  assert.ok(html.includes('&lt;b&gt;OOD&lt;/b&gt; outside range'));
+});
+
 // ── Protocol Fit ─────────────────────────────────────────────────────────────
 
 test('renderProtocolFit returns empty string for null', () => {

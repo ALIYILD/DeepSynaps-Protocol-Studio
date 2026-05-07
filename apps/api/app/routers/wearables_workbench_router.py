@@ -299,6 +299,62 @@ def _scope_query(actor: AuthenticatedActor):
     return _q
 
 
+def _apply_flag_filters(
+    q,
+    *,
+    status: Optional[str] = None,
+    severity: Optional[str] = None,
+    flag_type: Optional[str] = None,
+    patient_id: Optional[str] = None,
+    since: Optional[str] = None,
+    until: Optional[str] = None,
+):
+    if status:
+        s = status.lower().strip()
+        if s in WORKBENCH_STATUSES:
+            if s == "open":
+                q = q.filter(
+                    or_(
+                        WearableAlertFlag.workbench_status == "open",
+                        (
+                            (WearableAlertFlag.workbench_status.is_(None))
+                            & (WearableAlertFlag.dismissed.is_(False))
+                        ),
+                    )
+                )
+            elif s == "resolved":
+                q = q.filter(
+                    or_(
+                        WearableAlertFlag.workbench_status == "resolved",
+                        (
+                            (WearableAlertFlag.workbench_status.is_(None))
+                            & (WearableAlertFlag.dismissed.is_(True))
+                        ),
+                    )
+                )
+            else:
+                q = q.filter(WearableAlertFlag.workbench_status == s)
+    if severity and severity in _VALID_SEVERITIES:
+        q = q.filter(WearableAlertFlag.severity == severity)
+    if flag_type:
+        q = q.filter(WearableAlertFlag.flag_type == flag_type)
+    if patient_id:
+        q = q.filter(WearableAlertFlag.patient_id == patient_id)
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            q = q.filter(WearableAlertFlag.triggered_at >= since_dt)
+        except ValueError:
+            pass
+    if until:
+        try:
+            until_dt = datetime.fromisoformat(until.replace("Z", "+00:00"))
+            q = q.filter(WearableAlertFlag.triggered_at <= until_dt)
+        except ValueError:
+            pass
+    return q
+
+
 def _serialize_flag(
     db: Session,
     flag: WearableAlertFlag,
@@ -505,52 +561,15 @@ def list_flags(
     """List clinic-scoped wearable alert flags for clinician triage."""
     _require_clinician_or_admin(actor)
     q = _scope_query(actor)(db)
-
-    if status:
-        s = status.lower().strip()
-        if s in WORKBENCH_STATUSES:
-            if s == "open":
-                # Backwards-compat: legacy rows have NULL workbench_status
-                # AND dismissed=False — they belong in the open queue.
-                q = q.filter(
-                    or_(
-                        WearableAlertFlag.workbench_status == "open",
-                        (
-                            (WearableAlertFlag.workbench_status.is_(None))
-                            & (WearableAlertFlag.dismissed.is_(False))
-                        ),
-                    )
-                )
-            elif s == "resolved":
-                q = q.filter(
-                    or_(
-                        WearableAlertFlag.workbench_status == "resolved",
-                        (
-                            (WearableAlertFlag.workbench_status.is_(None))
-                            & (WearableAlertFlag.dismissed.is_(True))
-                        ),
-                    )
-                )
-            else:
-                q = q.filter(WearableAlertFlag.workbench_status == s)
-    if severity and severity in _VALID_SEVERITIES:
-        q = q.filter(WearableAlertFlag.severity == severity)
-    if flag_type:
-        q = q.filter(WearableAlertFlag.flag_type == flag_type)
-    if patient_id:
-        q = q.filter(WearableAlertFlag.patient_id == patient_id)
-    if since:
-        try:
-            since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
-            q = q.filter(WearableAlertFlag.triggered_at >= since_dt)
-        except ValueError:
-            pass
-    if until:
-        try:
-            until_dt = datetime.fromisoformat(until.replace("Z", "+00:00"))
-            q = q.filter(WearableAlertFlag.triggered_at <= until_dt)
-        except ValueError:
-            pass
+    q = _apply_flag_filters(
+        q,
+        status=status,
+        severity=severity,
+        flag_type=flag_type,
+        patient_id=patient_id,
+        since=since,
+        until=until,
+    )
 
     rows = q.order_by(WearableAlertFlag.triggered_at.desc()).limit(limit).all()
     items = [WorkbenchFlagOut(**_serialize_flag(db, r)) for r in rows]
@@ -670,12 +689,26 @@ def post_audit_event(
 
 @router.get("/flags/export.csv")
 def export_csv(
+    status: Optional[str] = Query(default=None, max_length=32),
+    severity: Optional[str] = Query(default=None, max_length=16),
+    flag_type: Optional[str] = Query(default=None, max_length=64),
+    patient_id: Optional[str] = Query(default=None, max_length=64),
+    since: Optional[str] = Query(default=None, max_length=32),
+    until: Optional[str] = Query(default=None, max_length=32),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> Response:
     """CSV export of the clinic-scoped triage queue."""
     _require_clinician_or_admin(actor)
-    rows = _scope_query(actor)(db).order_by(
+    rows = _apply_flag_filters(
+        _scope_query(actor)(db),
+        status=status,
+        severity=severity,
+        flag_type=flag_type,
+        patient_id=patient_id,
+        since=since,
+        until=until,
+    ).order_by(
         WearableAlertFlag.triggered_at.desc()
     ).limit(5000).all()
 
@@ -711,7 +744,11 @@ def export_csv(
         actor,
         event="export",
         target_id=actor.clinic_id or actor.actor_id,
-        note=f"format=csv; rows={len(rows)}; demo={1 if any_demo else 0}",
+        note=(
+            f"format=csv; rows={len(rows)}; demo={1 if any_demo else 0}; "
+            f"status={status or 'all'}; severity={severity or 'all'}; "
+            f"flag_type={flag_type or 'all'}; patient_id={patient_id or 'all'}"
+        ),
         using_demo_data=any_demo,
     )
 
@@ -727,12 +764,26 @@ def export_csv(
 
 @router.get("/flags/export.ndjson")
 def export_ndjson(
+    status: Optional[str] = Query(default=None, max_length=32),
+    severity: Optional[str] = Query(default=None, max_length=16),
+    flag_type: Optional[str] = Query(default=None, max_length=64),
+    patient_id: Optional[str] = Query(default=None, max_length=64),
+    since: Optional[str] = Query(default=None, max_length=32),
+    until: Optional[str] = Query(default=None, max_length=32),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> Response:
     """NDJSON export — one flag per line, including triage transcript."""
     _require_clinician_or_admin(actor)
-    rows = _scope_query(actor)(db).order_by(
+    rows = _apply_flag_filters(
+        _scope_query(actor)(db),
+        status=status,
+        severity=severity,
+        flag_type=flag_type,
+        patient_id=patient_id,
+        since=since,
+        until=until,
+    ).order_by(
         WearableAlertFlag.triggered_at.desc()
     ).limit(5000).all()
 
@@ -750,7 +801,11 @@ def export_ndjson(
         actor,
         event="export",
         target_id=actor.clinic_id or actor.actor_id,
-        note=f"format=ndjson; rows={len(rows)}; demo={1 if any_demo else 0}",
+        note=(
+            f"format=ndjson; rows={len(rows)}; demo={1 if any_demo else 0}; "
+            f"status={status or 'all'}; severity={severity or 'all'}; "
+            f"flag_type={flag_type or 'all'}; patient_id={patient_id or 'all'}"
+        ),
         using_demo_data=any_demo,
     )
 

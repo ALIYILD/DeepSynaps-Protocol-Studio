@@ -43,8 +43,8 @@ test('_validateFile accepts valid BDF file', () => {
   assert.equal(result.valid, true);
 });
 
-test('_validateFile accepts valid VHDR file', () => {
-  const file = { name: 'session.vhdr', size: 256 };
+test('_validateFile accepts valid FIF file', () => {
+  const file = { name: 'session.fif', size: 256 };
   const result = _test._validateFile(file);
   assert.equal(result.valid, true);
 });
@@ -53,7 +53,7 @@ test('_validateFile rejects unsupported extension', () => {
   const file = { name: 'photo.jpg', size: 1024 };
   const result = _test._validateFile(file);
   assert.equal(result.valid, false);
-  assert.ok(result.errors.includes('Unsupported format'));
+  assert.ok(result.errors.includes('Unsupported standalone format'));
 });
 
 test('_validateFile rejects file exceeding 100MB', () => {

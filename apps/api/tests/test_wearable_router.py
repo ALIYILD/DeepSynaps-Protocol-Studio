@@ -144,6 +144,28 @@ def test_cross_clinic_clinician_cannot_dismiss_alert(
     assert resp.status_code in (403, 404), resp.text
 
 
+def test_resolved_workbench_flag_cannot_be_dismissed_via_legacy_route(
+    client: TestClient, two_clinics_with_alert: dict[str, Any]
+) -> None:
+    db: Session = SessionLocal()
+    try:
+        flag = db.query(WearableAlertFlag).filter_by(id=two_clinics_with_alert["flag_id"]).first()
+        assert flag is not None
+        flag.workbench_status = "resolved"
+        flag.dismissed = True
+        flag.resolved_by = "actor-clinician-reviewer"
+        flag.resolved_at = datetime.now(timezone.utc)
+        db.commit()
+    finally:
+        db.close()
+
+    resp = client.post(
+        f"/api/v1/wearables/alerts/{two_clinics_with_alert['flag_id']}/dismiss",
+        headers=_auth(two_clinics_with_alert["token_a2"]),
+    )
+    assert resp.status_code == 409, resp.text
+
+
 # ---------------------------------------------------------------------------
 # get_clinic_alert_summary
 # ---------------------------------------------------------------------------

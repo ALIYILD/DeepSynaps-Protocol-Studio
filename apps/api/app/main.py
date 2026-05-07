@@ -240,6 +240,7 @@ from app.routers.recording_eeg_events_router import router as recording_eeg_even
 from app.routers.montages_router import router as montages_router
 from app.routers.audit_trail_router import router as audit_trail_router
 from app.routers.biometrics_router import router as biometrics_router
+from app.routers.bio_router import router as bio_router
 from app.routers.qeeg_report_annotations_router import (
     router as qeeg_report_annotations_router,
 )
@@ -403,6 +404,27 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
     # QEEG-105 Analysis Worker (Phase 0 scaffold) — gated on
     # DEEPSYNAPS_QEEG_105_WORKER_ENABLED so tests / CI don't run background jobs.
     start_qeeg_105_worker()
+    # Voice engine warm-up — pre-load Whisper weights at startup so /api/v1/voice/analyze
+    # doesn't pay 30-90s of cold-load latency inside the request handler. Gated on
+    # DEEPSYNAPS_VOICE_WARMUP=1 so tests / CI don't load torch+whisper. Failures are
+    # logged and swallowed; the rule-based fallback still works without warm models.
+    if os.environ.get("DEEPSYNAPS_VOICE_WARMUP") == "1":
+        try:
+            import time as _voice_time
+            import sys as _voice_sys
+            from pathlib import Path as _VoicePath
+            _voice_engine_dir = _VoicePath(__file__).resolve().parents[3] / "packages" / "voice-engine"
+            if str(_voice_engine_dir) not in _voice_sys.path:
+                _voice_sys.path.insert(0, str(_voice_engine_dir))
+            import transcription as _voice_transcription  # noqa: PLC0415
+            _t0 = _voice_time.monotonic()
+            _voice_transcription.get_whisper_model()
+            logger.info(
+                "voice-engine warm-up complete",
+                extra={"elapsed_sec": round(_voice_time.monotonic() - _t0, 2)},
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("voice-engine warm-up failed (non-fatal): %s", exc)
     try:
         yield
     finally:
@@ -683,6 +705,7 @@ app.include_router(rotation_policy_advisor_threshold_tuning_router)
 app.include_router(treatment_sessions_router)
 app.include_router(audit_trail_router)
 app.include_router(biometrics_router)
+app.include_router(bio_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

@@ -240,7 +240,7 @@ out += cond('bdd', {
 
 out += cond('hoarding', {
   epidemiology: 'Hoarding disorder affects 2-5% of adults; persistent difficulty discarding possessions causing significant functional impairment.',
-  neuroBasis: 'Hoarding involves L-DLPFC hypoactivation during decision-making tasks and ACC dysfunction in conflict monitoring; L-DLPFC TMS enhances executive decision-making capacity.',
+  neuroBasis: 'Hoarding may involve reduced L-DLPFC engagement during decision-making and altered ACC-mediated conflict monitoring; L-DLPFC TMS is being studied to support executive decision-making capacity.',
   responseData: 'Evidence level C; L-DLPFC HF-TMS combined with CBT-Hoarding (exposure and sorting tasks) is the most studied approach.',
   patientExplain: 'Hoarding disorder involves difficulty with decision-making and letting go; brain stimulation strengthens the brain\'s decision-making and impulse control systems.',
   timeline: 'Progress measured by functional improvement (room accessibility, safety) over 20-30 sessions combined with active sorting assignments.',

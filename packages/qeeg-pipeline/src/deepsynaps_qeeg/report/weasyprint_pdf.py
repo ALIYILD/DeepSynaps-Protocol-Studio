@@ -56,6 +56,34 @@ def _b64_img(raw_bytes: bytes, fmt: str = "png") -> str:
     return f"data:{mime};base64,{b64}"
 
 
+def _norm_db_warning(version: Any) -> str:
+    text = str(version or "").strip()
+    low = text.lower()
+    if not text or (low != "toy-0.1" and "toy" not in low and low != "unknown"):
+        return ""
+    return (
+        '<p class="note"><strong>Normative caution:</strong> '
+        f'Norm DB {_esc(text)} is a research/preview dataset and should not be treated as '
+        "validated clinical normative mapping.</p>"
+    )
+
+
+def _band_z_map(spectral_z: dict[str, Any], band: str) -> dict[str, Any]:
+    """Return the per-channel z-score map for one band.
+
+    Live analysis payloads store nested shapes like
+    ``{\"absolute_uv2\": {\"Fz\": 1.2, ...}}`` whereas older/report-only paths may
+    already provide a flat ``{\"Fz\": 1.2, ...}`` mapping.
+    """
+    band_payload = spectral_z.get(band, {})
+    if not isinstance(band_payload, dict):
+        return {}
+    absolute = band_payload.get("absolute_uv2")
+    if isinstance(absolute, dict):
+        return absolute
+    return band_payload
+
+
 def build_pdf_report(
     result: "PipelineResult",
     *,
@@ -180,7 +208,7 @@ def _generate_zscore_images(
     spectral_z = zscores.get("spectral", {}).get("bands", {})
     images = {}
     for band in BAND_ORDER:
-        z_map = spectral_z.get(band, {})
+        z_map = _band_z_map(spectral_z, band)
         if not z_map:
             continue
         values = [float(z_map.get(ch, 0.0)) for ch in ch_names]
@@ -267,7 +295,7 @@ def _generate_bandpower_bar(zscores: dict[str, Any]) -> str | None:
     mean_z = []
     present_bands = []
     for band in BAND_ORDER:
-        z_map = spectral_z.get(band, {})
+        z_map = _band_z_map(spectral_z, band)
         if z_map:
             vals = [float(v) for v in z_map.values()]
             mean_z.append(float(np.nanmean(vals)))
@@ -491,6 +519,7 @@ def _render_full_html(
     <span class="badge">Norms {_esc(zscores.get('norm_db_version', 'N/A'))}</span>
     <span class="badge">Source: {_esc(source_method)}</span>
   </p>
+  {_norm_db_warning(zscores.get('norm_db_version'))}
 </div>
 
 <!-- 2. Pipeline Quality -->

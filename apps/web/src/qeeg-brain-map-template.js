@@ -149,7 +149,7 @@ function renderBrainFunctionScoreCard(score) {
     + '<div class="ds-card__body" style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">'
     + '<div style="font-size:48px;font-weight:700;color:' + color + '">' + (n != null ? n.toFixed(1) : '—') + '</div>'
     + '<div style="flex:1;min-width:200px;font-size:12px;color:var(--text-secondary);line-height:1.5">'
-    + 'Aggregate score across the four lobes versus age and sex-matched norms. ' + (n != null && n > 30 && n < 70 ? 'Within the typical range.' : (n != null ? 'May indicate atypical pattern — discuss with clinician.' : ''))
+    + 'Aggregate score across the four lobes versus the deployment-configured reference dataset. ' + (n != null && n > 30 && n < 70 ? 'Within the expected range for the configured dataset.' : (n != null ? 'May indicate an atypical pattern for the configured dataset — discuss with clinician.' : ''))
     + '<div style="margin-top:6px;font-size:10px">Formula: ' + esc(s.formula_version || 'phase0_placeholder_v1') + ' (see Phase 0 docs)</div>'
     + '</div></div></section>';
 }
@@ -162,7 +162,7 @@ function renderSourceMapSection(sourceMap) {
   return '<section class="qeeg-source-map ds-card ds-print" style="margin-bottom:24px">'
     + '<div class="ds-card__header"><h3 style="margin:0">Brain Source Image</h3></div>'
     + '<div class="ds-card__body">' + img
-    + '<p style="margin:12px 0 0;font-size:12px;color:var(--text-secondary)">3D source-localized power compared to age and sex-matched norms. Red areas indicate higher-than-typical activity; blue areas indicate lower-than-typical.</p>'
+    + '<p style="margin:12px 0 0;font-size:12px;color:var(--text-secondary)">3D source-localized power compared to the deployment-configured reference dataset. Red areas indicate relatively higher activity; blue areas indicate relatively lower activity within that reference context.</p>'
     + '</div></section>';
 }
 
