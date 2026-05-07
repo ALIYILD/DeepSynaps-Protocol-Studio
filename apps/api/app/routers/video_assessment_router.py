@@ -31,9 +31,11 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role, require_patient_owner
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import AuditEventRecord
 from app.repositories.video_assessments import Patient, User, VideoAssessmentSession
-from app.repositories.audit import create_audit_event
+from app.repositories.audit import (
+    create_audit_event,
+    latest_video_assessment_historical_summary_audit,
+)
 from app.repositories.patients import resolve_patient_clinic_id
 from app.services import media_storage
 from app.services.video_assessment_seed import (
@@ -718,34 +720,6 @@ def _historical_summary_source_fingerprint(
     )
 
 
-def _latest_historical_summary_audit(
-    db: Session,
-    *,
-    actor_id: str,
-    session_id: str,
-) -> tuple[Optional[AuditEventRecord], Optional[dict[str, Any]]]:
-    row = (
-        db.query(AuditEventRecord)
-        .filter(
-            AuditEventRecord.target_type == "video_assessment",
-            AuditEventRecord.target_id == session_id[:64],
-            AuditEventRecord.actor_id == actor_id,
-            AuditEventRecord.action == "video_assessment.historical_ai_summary_generated",
-        )
-        .order_by(AuditEventRecord.id.desc())
-        .first()
-    )
-    if row is None:
-        return None, None
-    try:
-        payload = json.loads(row.note or "{}")
-        if not isinstance(payload, dict):
-            return row, None
-        return row, payload
-    except Exception:
-        return row, None
-
-
 def _historical_summary_status(
     *,
     previous_payload: Optional[dict[str, Any]],
@@ -968,7 +942,7 @@ def generate_historical_ai_summary(
         selected_trend_sessions,
         basis,
     )
-    _, previous_payload = _latest_historical_summary_audit(
+    _, previous_payload = latest_video_assessment_historical_summary_audit(
         db,
         actor_id=actor.actor_id,
         session_id=session_id,
