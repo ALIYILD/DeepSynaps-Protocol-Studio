@@ -80,6 +80,17 @@ def compute(
     freqs, psd = _compute_psd(epochs, fmin=PSD_FREQ_RANGE[0], fmax=PSD_FREQ_RANGE[1],
                               n_per_seg=n_per_seg, n_overlap=n_overlap)
     psd_uv2 = psd * _UV2_SCALE  # µV²/Hz
+    if psd_uv2.shape[0] != len(ch_names):
+        try:
+            eeg_ch_names = list(epochs.copy().pick("eeg").ch_names)
+        except Exception:  # pragma: no cover
+            eeg_ch_names = ch_names[: psd_uv2.shape[0]]
+        log.warning(
+            "PSD channel count mismatch: epochs=%d psd=%d; aligning spectral outputs to EEG picks.",
+            len(ch_names),
+            psd_uv2.shape[0],
+        )
+        ch_names = eeg_ch_names[: psd_uv2.shape[0]]
 
     # --- Band power ---
     bands_out: dict[str, dict[str, dict[str, float]]] = {}

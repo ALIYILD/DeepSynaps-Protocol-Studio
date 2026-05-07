@@ -42,3 +42,23 @@ def test_spectral_shape_and_alpha_peak(synthetic_raw):
 
         median_paf = statistics.median(paf_values)
         assert 8.0 <= median_paf <= 12.0
+
+
+def test_spectral_handles_psd_channel_count_mismatch(
+    synthetic_raw, monkeypatch: pytest.MonkeyPatch
+):
+    from deepsynaps_qeeg import FREQ_BANDS
+    from deepsynaps_qeeg.features import spectral
+
+    epochs = _make_epochs(synthetic_raw)
+    original_compute_psd = spectral._compute_psd
+
+    def _mismatch_psd(*args, **kwargs):
+        freqs, psd = original_compute_psd(*args, **kwargs)
+        return freqs, psd[:-1]
+
+    monkeypatch.setattr(spectral, "_compute_psd", _mismatch_psd)
+    out = spectral.compute(epochs, FREQ_BANDS)
+
+    assert len(out["bands"]["alpha"]["absolute_uv2"]) == len(epochs.ch_names) - 1
+    assert len(out["peak_alpha_freq"]) == len(epochs.ch_names) - 1
