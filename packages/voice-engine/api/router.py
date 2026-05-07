@@ -27,6 +27,14 @@ if _VOICE_ENGINE_DIR not in sys.path:
 import audio_io  # noqa: E402  (after sys.path manipulation)
 import pipeline as _pipeline  # noqa: E402
 
+# Clinical-use constants — defined here to mirror __init__.py without a circular import.
+_ENGINE_VERSION = "0.1.0"
+_CLINICAL_DISCLAIMER = (
+    "Voice-derived decision support; not a diagnostic device. "
+    "Patterns are statistical, not validated against clinical outcomes. "
+    "All findings require clinician interpretation."
+)
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/voice", tags=["voice"])
@@ -250,6 +258,8 @@ async def analyze_voice(
             "failed_steps": result.pipeline_status.failed_steps,
             "total_steps": result.pipeline_status.total_steps,
         },
+        "disclaimer": _CLINICAL_DISCLAIMER,
+        "engine_version": _ENGINE_VERSION,
     }
 
 
@@ -278,13 +288,20 @@ async def get_voice_result(
     status = getattr(row, "status", "uploaded")
 
     if status == "uploaded":
-        return {"status": "pending", "session_id": session_id}
+        return {
+            "status": "pending",
+            "session_id": session_id,
+            "disclaimer": _CLINICAL_DISCLAIMER,
+            "engine_version": _ENGINE_VERSION,
+        }
 
     if status == "failed":
         return {
             "status": "failed",
             "session_id": session_id,
             "message": "Pipeline failed; see logs.",
+            "disclaimer": _CLINICAL_DISCLAIMER,
+            "engine_version": _ENGINE_VERSION,
         }
 
     # status == "completed"
@@ -296,6 +313,10 @@ async def get_voice_result(
         except Exception:
             blob = {}
 
+    # engine_version: use persisted value so historic reports trace to the engine that
+    # produced them; fall back to current constant if the blob pre-dates this field.
+    persisted_version = blob.get("engine_version") or _ENGINE_VERSION
+
     return {
         "status": "completed",
         "session_id": session_id,
@@ -305,4 +326,6 @@ async def get_voice_result(
         "summary": blob.get("summary"),
         "flags": blob.get("flags") or blob.get("raw_flags"),
         "data_quality_notes": blob.get("data_quality_notes"),
+        "disclaimer": _CLINICAL_DISCLAIMER,
+        "engine_version": persisted_version,
     }
