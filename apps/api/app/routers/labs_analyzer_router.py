@@ -53,6 +53,7 @@ from app.services.labs_analyzer import (
 router = APIRouter(prefix="/api/v1/labs/analyzer", tags=["Labs Analyzer"])
 
 
+# core-schema-exempt: clinic-summary response shape; not reused outside this router
 class ClinicLabsPatientSummary(BaseModel):
     patient_id: str
     patient_name: str
@@ -63,6 +64,7 @@ class ClinicLabsPatientSummary(BaseModel):
     top_flag_status: str | None = None
 
 
+# core-schema-exempt: clinic-summary response shape; not reused outside this router
 class ClinicLabsSummaryResponse(BaseModel):
     patients: list[ClinicLabsPatientSummary] = Field(default_factory=list)
     total: int = 0

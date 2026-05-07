@@ -101,16 +101,19 @@ class ObservationCreateBody(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+# core-schema-exempt: minimal router-local annotation body; not reused outside this router
 class AnnotationBody(BaseModel):
     note: str = Field(min_length=1, max_length=8000)
 
 
+# core-schema-exempt: clinic-summary response shape; not reused outside this router
 class ClinicSignalFlagOut(BaseModel):
     key: str
     label: str
     severity: str
 
 
+# core-schema-exempt: clinic-summary response shape; not reused outside this router
 class ClinicPatientSummaryOut(BaseModel):
     patient_id: str
     patient_name: str
@@ -120,6 +123,7 @@ class ClinicPatientSummaryOut(BaseModel):
     trend: str = "stable"
 
 
+# core-schema-exempt: clinic-summary response shape; not reused outside this router
 class ClinicSummaryResponse(BaseModel):
     captured_at: str | None = None
     patients: list[ClinicPatientSummaryOut] = Field(default_factory=list)
