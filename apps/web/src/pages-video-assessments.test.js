@@ -6,11 +6,13 @@
  * - honest empty and error states
  * - selection of 1-3 prior sessions with side-by-side comparison
  * - deterministic advisory AI historical summary
+ * - clinician feedback on advisory historical summary
  * - read-only historical comparison export
  * - patient-hidden comparison UI
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { JSDOM } from 'jsdom';
 
 import { api } from './api.js';
@@ -20,6 +22,8 @@ import {
   VIDEO_ASSESSMENT_SESSION_STORAGE_KEY,
 } from './pages-video-assessments.js';
 import { createEmptySession, VIDEO_ASSESSMENT_TASKS } from './video-assessment-protocol.js';
+
+const VA_SRC = fs.readFileSync(new URL('./pages-video-assessments.js', import.meta.url), 'utf8');
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body><div id="content"></div></body></html>', {
@@ -116,6 +120,8 @@ function stubVideoAssessmentApi(overrides = {}) {
     listPatients: api.listPatients,
     getVideoAssessmentPriorFinalizedSessions: api.getVideoAssessmentPriorFinalizedSessions,
     generateVideoAssessmentHistoricalAiSummary: api.generateVideoAssessmentHistoricalAiSummary,
+    getVideoAssessmentHistoricalAiSummaryFeedback: api.getVideoAssessmentHistoricalAiSummaryFeedback,
+    saveVideoAssessmentHistoricalAiSummaryFeedback: api.saveVideoAssessmentHistoricalAiSummaryFeedback,
   };
 
   api.listPatients = overrides.listPatients ?? (async () => ({
@@ -127,6 +133,22 @@ function stubVideoAssessmentApi(overrides = {}) {
   api.generateVideoAssessmentHistoricalAiSummary =
     overrides.generateVideoAssessmentHistoricalAiSummary ??
     (async () => makeHistoricalAiSummary({ sessionCount: 1, sourceSessionIds: ['sess-prior-1'] }));
+  api.getVideoAssessmentHistoricalAiSummaryFeedback =
+    overrides.getVideoAssessmentHistoricalAiSummaryFeedback ??
+    (async () => {
+      const err = new Error('Feedback not found');
+      err.status = 404;
+      throw err;
+    });
+  api.saveVideoAssessmentHistoricalAiSummaryFeedback =
+    overrides.saveVideoAssessmentHistoricalAiSummaryFeedback ??
+    (async (_sessionId, payload) => ({
+      summary_event_id: payload.summary_event_id,
+      feedback_status: payload.feedback_status,
+      feedback_note: payload.feedback_note || '',
+      updated_at: '2026-05-07T13:00:00Z',
+      actor_role: 'clinician',
+    }));
 
   return () => {
     Object.assign(api, saved);
@@ -974,6 +996,201 @@ test('AI historical summary error and insufficient-data paths stay conservative'
     assert.match(sparsePage.document.body.textContent, /temporal interpretation is limited/i);
   } finally {
     sparsePage.restore();
+  }
+});
+
+test('historical AI summary feedback controls are visible only for clinician, supervisor, and admin', async () => {
+  for (const role of ['clinician', 'supervisor', 'admin']) {
+    const page = await mountVideoPage({
+      role,
+      apiOverrides: {
+        getVideoAssessmentPriorFinalizedSessions: async () => ({
+          sessions: [makePriorSession({ sessionId: `sess-${role}`, occurredAt: '2026-05-07T10:00:00Z' })],
+          trend_sessions: [makeTrendSession({ sessionId: `sess-${role}`, occurredAt: '2026-05-07T10:00:00Z' })],
+        }),
+      },
+    });
+    try {
+      page.document.getElementById('va-mode-clinician').click();
+      await flush(4);
+      page.document.querySelector(`[data-va-prior-select="sess-${role}"]`).click();
+      await flush(2);
+      page.document.getElementById('va-generate-history-ai').click();
+      await flush(6);
+      assert.ok(page.document.getElementById('va-ai-feedback-status'));
+      assert.ok(page.document.getElementById('va-ai-feedback-note'));
+      assert.ok(page.document.getElementById('va-ai-feedback-save'));
+    } finally {
+      page.restore();
+    }
+  }
+
+  const patientPage = await mountVideoPage({ role: 'patient' });
+  try {
+    patientPage.document.getElementById('va-mode-clinician').click();
+    await flush(4);
+    assert.equal(patientPage.document.getElementById('va-ai-feedback-save'), null);
+  } finally {
+    patientPage.restore();
+  }
+});
+
+test('disagreed feedback requires a rationale note before submit', async () => {
+  let saveCalls = 0;
+  const page = await mountVideoPage({
+    role: 'clinician',
+    apiOverrides: {
+      getVideoAssessmentPriorFinalizedSessions: async () => ({
+        sessions: [makePriorSession({ sessionId: 'sess-prior-1', occurredAt: '2026-05-07T10:00:00Z' })],
+        trend_sessions: [makeTrendSession({ sessionId: 'sess-prior-1', occurredAt: '2026-05-07T10:00:00Z' })],
+      }),
+      saveVideoAssessmentHistoricalAiSummaryFeedback: async () => {
+        saveCalls += 1;
+        return {};
+      },
+    },
+  });
+  try {
+    page.document.getElementById('va-mode-clinician').click();
+    await flush(4);
+    page.document.querySelector('[data-va-prior-select="sess-prior-1"]').click();
+    await flush(2);
+    page.document.getElementById('va-generate-history-ai').click();
+    await flush(6);
+    const select = page.document.getElementById('va-ai-feedback-status');
+    select.value = 'disagreed';
+    select.dispatchEvent(new page.window.Event('change', { bubbles: true }));
+    await flush(2);
+    page.document.getElementById('va-ai-feedback-save').click();
+    await flush(2);
+    assert.equal(saveCalls, 0);
+    assert.match(page.document.body.textContent, /Please add a short rationale when marking this advisory summary as disagreed or not useful/i);
+  } finally {
+    page.restore();
+  }
+});
+
+test('historical AI summary feedback saves successfully and export includes only saved-in-view feedback', async () => {
+  let savePayload = null;
+  const page = await mountVideoPage({
+    role: 'clinician',
+    apiOverrides: {
+      getVideoAssessmentPriorFinalizedSessions: async () => ({
+        sessions: [makePriorSession({ sessionId: 'sess-prior-1', occurredAt: '2026-05-07T10:00:00Z' })],
+        trend_sessions: [makeTrendSession({ sessionId: 'sess-prior-1', occurredAt: '2026-05-07T10:00:00Z' })],
+      }),
+      saveVideoAssessmentHistoricalAiSummaryFeedback: async (_sessionId, payload) => {
+        savePayload = payload;
+        return {
+          summary_event_id: payload.summary_event_id,
+          feedback_status: payload.feedback_status,
+          feedback_note: payload.feedback_note,
+          updated_at: '2026-05-07T13:00:00Z',
+          actor_role: 'clinician',
+        };
+      },
+    },
+  });
+  const exportStub = installExportWindowStub(page.window);
+  try {
+    page.document.getElementById('va-mode-clinician').click();
+    await flush(4);
+    page.document.querySelector('[data-va-prior-select="sess-prior-1"]').click();
+    await flush(2);
+    page.document.getElementById('va-generate-history-ai').click();
+    await flush(6);
+    const select = page.document.getElementById('va-ai-feedback-status');
+    select.value = 'accepted';
+    select.dispatchEvent(new page.window.Event('change', { bubbles: true }));
+    const note = page.document.getElementById('va-ai-feedback-note');
+    note.value = 'Helpful descriptive summary.';
+    note.dispatchEvent(new page.window.Event('input', { bubbles: true }));
+    await flush(2);
+    page.document.getElementById('va-ai-feedback-save').click();
+    await flush(4);
+    assert.deepEqual(savePayload, {
+      summary_event_id: 'va-historical-summary-test',
+      feedback_status: 'accepted',
+      feedback_note: 'Helpful descriptive summary.',
+    });
+    assert.match(page.document.body.textContent, /Saved in this view/i);
+    page.document.getElementById('va-export-history').click();
+    assert.match(exportStub.written.html, /Clinician feedback on advisory summary/i);
+    assert.match(exportStub.written.html, /Helpful descriptive summary\./i);
+  } finally {
+    exportStub.restore();
+    page.restore();
+  }
+});
+
+test('preloaded historical AI summary feedback is shown honestly and excluded from export until re-saved here', async () => {
+  const page = await mountVideoPage({
+    role: 'clinician',
+    apiOverrides: {
+      getVideoAssessmentPriorFinalizedSessions: async () => ({
+        sessions: [makePriorSession({ sessionId: 'sess-prior-1', occurredAt: '2026-05-07T10:00:00Z' })],
+        trend_sessions: [makeTrendSession({ sessionId: 'sess-prior-1', occurredAt: '2026-05-07T10:00:00Z' })],
+      }),
+      getVideoAssessmentHistoricalAiSummaryFeedback: async () => ({
+        summary_event_id: 'va-historical-summary-test',
+        feedback_status: 'partially_accepted',
+        feedback_note: 'Useful, but I needed direct clip review.',
+        updated_at: '2026-05-07T11:30:00Z',
+        actor_role: 'clinician',
+      }),
+    },
+  });
+  const exportStub = installExportWindowStub(page.window);
+  try {
+    page.document.getElementById('va-mode-clinician').click();
+    await flush(4);
+    page.document.querySelector('[data-va-prior-select="sess-prior-1"]').click();
+    await flush(2);
+    page.document.getElementById('va-generate-history-ai').click();
+    await flush(8);
+    assert.match(page.document.body.textContent, /Loaded saved feedback from backend\. Re-save here to include it in export\./i);
+    page.document.getElementById('va-export-history').click();
+    assert.doesNotMatch(exportStub.written.html, /Clinician feedback on advisory summary/i);
+  } finally {
+    exportStub.restore();
+    page.restore();
+  }
+});
+
+test('backend feedback_note_required error renders honest form feedback', async () => {
+  const page = await mountVideoPage({
+    role: 'clinician',
+    apiOverrides: {
+      getVideoAssessmentPriorFinalizedSessions: async () => ({
+        sessions: [makePriorSession({ sessionId: 'sess-prior-1', occurredAt: '2026-05-07T10:00:00Z' })],
+        trend_sessions: [makeTrendSession({ sessionId: 'sess-prior-1', occurredAt: '2026-05-07T10:00:00Z' })],
+      }),
+      saveVideoAssessmentHistoricalAiSummaryFeedback: async () => {
+        const err = new Error('A rationale note is required when feedback_status is disagreed or not_useful.');
+        err.code = 'feedback_note_required';
+        throw err;
+      },
+    },
+  });
+  try {
+    page.document.getElementById('va-mode-clinician').click();
+    await flush(4);
+    page.document.querySelector('[data-va-prior-select="sess-prior-1"]').click();
+    await flush(2);
+    page.document.getElementById('va-generate-history-ai').click();
+    await flush(6);
+    const select = page.document.getElementById('va-ai-feedback-status');
+    select.value = 'accepted';
+    select.dispatchEvent(new page.window.Event('change', { bubbles: true }));
+    const note = page.document.getElementById('va-ai-feedback-note');
+    note.value = 'Saved note';
+    note.dispatchEvent(new page.window.Event('input', { bubbles: true }));
+    await flush(2);
+    page.document.getElementById('va-ai-feedback-save').click();
+    await flush(4);
+    assert.match(page.document.body.textContent, /Please add a short rationale when marking this advisory summary as disagreed or not useful/i);
+  } finally {
+    page.restore();
   }
 });
 

@@ -54,6 +54,9 @@ function _demoTokenWorkspace() {
 }
 
 function _sessionPersistLabel() {
+  if (_sessionHasServerTruth()) {
+    return 'Persisted session attached: clinician review saves and exports use backend truth. Browser storage is only a transient mirror for this view.';
+  }
   if (!_persistAllowed()) return 'Session data is not persisted across reloads in this build.';
   if (_demoTokenWorkspace()) return 'Demo-token session: draft reviews stay in this browser only (not the clinical record).';
   return 'Draft reviews are stored in this browser session only until backend persistence is enabled—not the clinical record.';
@@ -100,6 +103,13 @@ var _vaPriorSessionsState = {
   aiSummaryResult: null,
   aiSummarySelectionKey: '',
   aiSummaryStaleReason: '',
+  aiSummaryFeedbackLoading: false,
+  aiSummaryFeedbackSaving: false,
+  aiSummaryFeedbackError: null,
+  aiSummaryFeedbackDraft: { feedback_status: '', feedback_note: '' },
+  aiSummaryFeedbackPreloaded: null,
+  aiSummaryFeedbackSaved: null,
+  aiSummaryFeedbackDirty: false,
 };
 
 function _readStoredPatientId() {
@@ -193,6 +203,106 @@ function _loadPersistedSession() {
   return null;
 }
 
+function _sessionHasServerTruth(session = _vaSession) {
+  return _isPersistedSessionId(session?.id || '');
+}
+
+function _sessionReadOnly(session = _vaSession) {
+  return _sessionHasServerTruth(session) && String(session?.overall_status || '').trim().toLowerCase() === 'finalized';
+}
+
+function _sessionRevisionToken(session = _vaSession) {
+  return String(session?.revision_token || '').trim();
+}
+
+function _replaceSession(nextSession, { persist = true } = {}) {
+  if (!nextSession || typeof nextSession !== 'object') return;
+  _vaSession = nextSession;
+  if (_vaSelectedPatientId) _vaSession.patient_id = _vaSelectedPatientId;
+  _applySummary();
+  if (persist) _persistSession();
+}
+
+function _downloadSessionJsonPayload(payload, filename) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(() => {
+    try {
+      URL.revokeObjectURL(a.href);
+    } catch (_) {}
+  }, 4000);
+}
+
+async function _refreshPersistedSessionTruth(sessionId, { silent = false } = {}) {
+  if (!_isPersistedSessionId(sessionId)) return null;
+  const fresh = await api.getVideoAssessmentSession(sessionId);
+  if (_vaSession?.id === sessionId) {
+    _replaceSession(fresh);
+    _render();
+  }
+  return fresh;
+}
+
+async function _recoverPersistedSessionConflict(sessionId, error) {
+  try {
+    await _refreshPersistedSessionTruth(sessionId, { silent: true });
+  } catch (_) {}
+  if (error?.code === 'session_conflict') {
+    showToast('Persisted session changed on the server. Latest version reloaded.', 'warning');
+    return;
+  }
+  if (error?.code === 'session_finalized' || error?.code === 'session_already_finalized') {
+    showToast('Persisted session is finalized and now read-only.', 'warning');
+    return;
+  }
+  showToast(error?.message || 'Could not save the persisted session.', 'error');
+}
+
+async function _patchPersistedSession(patch, successMessage) {
+  const session = _ensureSession();
+  const sessionId = session?.id || '';
+  if (!_isPersistedSessionId(sessionId)) return null;
+  const nextPatch = {
+    ...(patch || {}),
+    expected_revision: _sessionRevisionToken(session),
+  };
+  try {
+    const saved = await api.patchVideoAssessmentSession(sessionId, nextPatch);
+    _replaceSession(saved);
+    _render();
+    if (successMessage) showToast(successMessage);
+    return saved;
+  } catch (error) {
+    await _recoverPersistedSessionConflict(sessionId, error);
+    _render();
+    return null;
+  }
+}
+
+async function _finalizePersistedSession(successMessage) {
+  const session = _ensureSession();
+  const sessionId = session?.id || '';
+  if (!_isPersistedSessionId(sessionId)) return null;
+  try {
+    const saved = await api.finalizeVideoAssessmentSession(sessionId, {
+      expected_revision: _sessionRevisionToken(session),
+      clinician_impression: document.getElementById('va-summary-impression')?.value || '',
+      recommended_followup: document.getElementById('va-summary-followup')?.value || '',
+    });
+    _replaceSession(saved);
+    _render();
+    if (successMessage) showToast(successMessage);
+    return saved;
+  } catch (error) {
+    await _recoverPersistedSessionConflict(sessionId, error);
+    _render();
+    return null;
+  }
+}
+
 function _applySummary() {
   if (!_vaSession) return;
   const sum = summarizeSession(_vaSession);
@@ -254,6 +364,13 @@ function _resetPriorSessionsState() {
     aiSummaryResult: null,
     aiSummarySelectionKey: '',
     aiSummaryStaleReason: '',
+    aiSummaryFeedbackLoading: false,
+    aiSummaryFeedbackSaving: false,
+    aiSummaryFeedbackError: null,
+    aiSummaryFeedbackDraft: { feedback_status: '', feedback_note: '' },
+    aiSummaryFeedbackPreloaded: null,
+    aiSummaryFeedbackSaved: null,
+    aiSummaryFeedbackDirty: false,
   };
 }
 
@@ -322,6 +439,10 @@ function _currentAiSummarySelectionKey() {
   return _selectedPriorSessionIds().join('|');
 }
 
+function _emptyAiSummaryFeedbackDraft() {
+  return { feedback_status: '', feedback_note: '' };
+}
+
 function _shortSessionId(sessionId) {
   const text = String(sessionId || '').trim();
   if (!text) return 'unknown';
@@ -350,6 +471,26 @@ function _aiSummaryStaleCopy(reason) {
     return 'The previous AI historical summary no longer matches the current selected prior sessions and must be regenerated.';
   }
   return '';
+}
+
+function _feedbackStatusLabel(status) {
+  switch (String(status || '').trim()) {
+    case 'accepted':
+      return 'Accepted';
+    case 'partially_accepted':
+      return 'Partially accepted';
+    case 'disagreed':
+      return 'Disagreed';
+    case 'not_useful':
+      return 'Not useful';
+    default:
+      return 'Not recorded';
+  }
+}
+
+function _feedbackRequiresNote(status) {
+  const value = String(status || '').trim();
+  return value === 'disagreed' || value === 'not_useful';
 }
 
 function _currentSessionContextLabel() {
@@ -515,6 +656,17 @@ function _renderHistoricalExportAiSummary(summary) {
     </section>`;
 }
 
+function _renderHistoricalExportAiSummaryFeedback(feedback) {
+  if (!feedback) return '';
+  return `<section class="panel">
+      <h2>Clinician feedback on advisory summary</h2>
+      <p><strong>Feedback status:</strong> ${esc(_feedbackStatusLabel(feedback.feedback_status))}</p>
+      <p><strong>Saved:</strong> ${esc(_formatPriorSessionDate(feedback.updated_at))} · ${esc(feedback.actor_role || 'clinician')}</p>
+      <p><strong>Note:</strong> ${esc(String(feedback.feedback_note || '').trim() || 'No rationale note saved.')}</p>
+      <p class="meta" style="margin-top:12px">This records clinician response to advisory output only and does not alter the persisted session review automatically.</p>
+    </section>`;
+}
+
 /*
  * Historical comparison export is a presentation layer over already-authorized,
  * persisted backend summaries that are already visible in the UI. It must not
@@ -525,6 +677,7 @@ function _buildHistoricalComparisonExportHtml() {
   const selected = _selectedPriorSessions();
   const trend = _computePriorTrendSummary(_vaPriorSessionsState.trendItems || []);
   const aiSummary = _vaPriorSessionsState.aiSummaryResult;
+  const aiSummaryFeedback = _vaPriorSessionsState.aiSummaryFeedbackSaved;
   const generatedAt = _formatPriorSessionDate(new Date().toISOString());
   const selectedSummaryRows = selected.length
     ? selected.map((item) => `<tr>
@@ -644,6 +797,7 @@ function _buildHistoricalComparisonExportHtml() {
     </section>
 
     ${aiSummary ? _renderHistoricalExportAiSummary(aiSummary) : ''}
+    ${aiSummaryFeedback ? _renderHistoricalExportAiSummaryFeedback(aiSummaryFeedback) : ''}
 
     <p class="meta" style="margin-top:24px">Read-only historical comparison generated from persisted finalized-session backend data.</p>
   </body>
@@ -698,6 +852,13 @@ async function _ensurePriorSessionsLoaded() {
     aiSummaryResult: null,
     aiSummarySelectionKey: '',
     aiSummaryStaleReason: '',
+    aiSummaryFeedbackLoading: false,
+    aiSummaryFeedbackSaving: false,
+    aiSummaryFeedbackError: null,
+    aiSummaryFeedbackDraft: _emptyAiSummaryFeedbackDraft(),
+    aiSummaryFeedbackPreloaded: null,
+    aiSummaryFeedbackSaved: null,
+    aiSummaryFeedbackDirty: false,
   };
   _render();
   try {
@@ -717,6 +878,13 @@ async function _ensurePriorSessionsLoaded() {
       aiSummaryResult: null,
       aiSummarySelectionKey: '',
       aiSummaryStaleReason: '',
+      aiSummaryFeedbackLoading: false,
+      aiSummaryFeedbackSaving: false,
+      aiSummaryFeedbackError: null,
+      aiSummaryFeedbackDraft: _emptyAiSummaryFeedbackDraft(),
+      aiSummaryFeedbackPreloaded: null,
+      aiSummaryFeedbackSaved: null,
+      aiSummaryFeedbackDirty: false,
     };
   } catch (e) {
     _vaPriorSessionsState = {
@@ -732,6 +900,13 @@ async function _ensurePriorSessionsLoaded() {
       aiSummaryResult: null,
       aiSummarySelectionKey: '',
       aiSummaryStaleReason: '',
+      aiSummaryFeedbackLoading: false,
+      aiSummaryFeedbackSaving: false,
+      aiSummaryFeedbackError: null,
+      aiSummaryFeedbackDraft: _emptyAiSummaryFeedbackDraft(),
+      aiSummaryFeedbackPreloaded: null,
+      aiSummaryFeedbackSaved: null,
+      aiSummaryFeedbackDirty: false,
     };
   }
   _render();
@@ -757,7 +932,70 @@ function _togglePriorSessionSelection(sessionId) {
     aiSummaryResult: null,
     aiSummarySelectionKey: '',
     aiSummaryStaleReason: hadSummary ? 'selection_changed' : '',
+    aiSummaryFeedbackLoading: false,
+    aiSummaryFeedbackSaving: false,
+    aiSummaryFeedbackError: null,
+    aiSummaryFeedbackDraft: _emptyAiSummaryFeedbackDraft(),
+    aiSummaryFeedbackPreloaded: null,
+    aiSummaryFeedbackSaved: null,
+    aiSummaryFeedbackDirty: false,
   };
+  _render();
+}
+
+async function _loadHistoricalAiSummaryFeedback(sessionId, summaryEventId, selectionKey) {
+  _vaPriorSessionsState = {
+    ..._vaPriorSessionsState,
+    aiSummaryFeedbackLoading: true,
+    aiSummaryFeedbackSaving: false,
+    aiSummaryFeedbackError: null,
+    aiSummaryFeedbackDraft: _emptyAiSummaryFeedbackDraft(),
+    aiSummaryFeedbackPreloaded: null,
+    aiSummaryFeedbackSaved: null,
+    aiSummaryFeedbackDirty: false,
+  };
+  _render();
+  try {
+    const feedback = await api.getVideoAssessmentHistoricalAiSummaryFeedback(sessionId, summaryEventId);
+    if (
+      _currentPriorComparisonSessionId() !== sessionId ||
+      _vaPriorSessionsState.aiSummarySelectionKey !== selectionKey ||
+      _vaPriorSessionsState.aiSummaryResult?.provenance?.event_id !== summaryEventId
+    ) {
+      return;
+    }
+    _vaPriorSessionsState = {
+      ..._vaPriorSessionsState,
+      aiSummaryFeedbackLoading: false,
+      aiSummaryFeedbackSaving: false,
+      aiSummaryFeedbackError: null,
+      aiSummaryFeedbackDraft: {
+        feedback_status: feedback?.feedback_status || '',
+        feedback_note: feedback?.feedback_note || '',
+      },
+      aiSummaryFeedbackPreloaded: feedback || null,
+      aiSummaryFeedbackSaved: null,
+      aiSummaryFeedbackDirty: false,
+    };
+  } catch (e) {
+    if (
+      _currentPriorComparisonSessionId() !== sessionId ||
+      _vaPriorSessionsState.aiSummarySelectionKey !== selectionKey ||
+      _vaPriorSessionsState.aiSummaryResult?.provenance?.event_id !== summaryEventId
+    ) {
+      return;
+    }
+    _vaPriorSessionsState = {
+      ..._vaPriorSessionsState,
+      aiSummaryFeedbackLoading: false,
+      aiSummaryFeedbackSaving: false,
+      aiSummaryFeedbackError: e?.status === 404 ? null : (e?.message || 'Historical summary feedback is temporarily unavailable.'),
+      aiSummaryFeedbackDraft: _emptyAiSummaryFeedbackDraft(),
+      aiSummaryFeedbackPreloaded: null,
+      aiSummaryFeedbackSaved: null,
+      aiSummaryFeedbackDirty: false,
+    };
+  }
   _render();
 }
 
@@ -778,6 +1016,13 @@ async function _generateHistoricalAiSummary() {
     aiSummaryResult: null,
     aiSummarySelectionKey: selectionKey,
     aiSummaryStaleReason: '',
+    aiSummaryFeedbackLoading: false,
+    aiSummaryFeedbackSaving: false,
+    aiSummaryFeedbackError: null,
+    aiSummaryFeedbackDraft: _emptyAiSummaryFeedbackDraft(),
+    aiSummaryFeedbackPreloaded: null,
+    aiSummaryFeedbackSaved: null,
+    aiSummaryFeedbackDirty: false,
   };
   _render();
   try {
@@ -794,7 +1039,17 @@ async function _generateHistoricalAiSummary() {
       aiSummaryResult: result || null,
       aiSummarySelectionKey: selectionKey,
       aiSummaryStaleReason: '',
+      aiSummaryFeedbackLoading: false,
+      aiSummaryFeedbackSaving: false,
+      aiSummaryFeedbackError: null,
+      aiSummaryFeedbackDraft: _emptyAiSummaryFeedbackDraft(),
+      aiSummaryFeedbackPreloaded: null,
+      aiSummaryFeedbackSaved: null,
+      aiSummaryFeedbackDirty: false,
     };
+    if (result?.provenance?.event_id) {
+      void _loadHistoricalAiSummaryFeedback(sessionId, result.provenance.event_id, selectionKey);
+    }
   } catch (e) {
     if (_currentPriorComparisonSessionId() !== sessionId || _currentAiSummarySelectionKey() !== selectionKey) {
       return;
@@ -806,6 +1061,13 @@ async function _generateHistoricalAiSummary() {
       aiSummaryResult: null,
       aiSummarySelectionKey: selectionKey,
       aiSummaryStaleReason: '',
+      aiSummaryFeedbackLoading: false,
+      aiSummaryFeedbackSaving: false,
+      aiSummaryFeedbackError: null,
+      aiSummaryFeedbackDraft: _emptyAiSummaryFeedbackDraft(),
+      aiSummaryFeedbackPreloaded: null,
+      aiSummaryFeedbackSaved: null,
+      aiSummaryFeedbackDirty: false,
     };
   }
   _render();
@@ -1246,6 +1508,7 @@ function _mergeReview(existing, def) {
 function _renderClinicianForm(task) {
   const def = _taskDef(task.task_id);
   const rev = _mergeReview(task.clinician_review, def);
+  const readOnly = _sessionReadOnly();
   const opts = (name, values) =>
     values.map((v) => `<option value="${esc(v)}" ${rev[name] === v ? 'selected' : ''}>${esc(v.replace(/_/g, ' '))}</option>`).join('');
 
@@ -1298,14 +1561,17 @@ function _renderClinicianForm(task) {
   return `<div class="va-clinician-form">
     ${unsafeBadge}${skipBadge}
     <div style="margin-bottom:12px">${videoBlock}</div>
-    ${baseFields}
-    ${structured}
-    <div class="form-group"><label class="form-label">Free-text comment</label>
-      <textarea class="form-control" rows="3" data-va-field="free_text_comment">${esc(rev.free_text_comment)}</textarea></div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <button type="button" class="btn btn-secondary" id="va-save-draft">Save draft</button>
-      <button type="button" class="btn btn-primary" id="va-mark-reviewed">Mark reviewed</button>
-    </div>
+    ${readOnly ? '<p class="va-muted" style="font-size:12px;margin:0 0 12px;color:var(--amber)">This persisted session is finalized. Structured review fields are read-only.</p>' : ''}
+    <fieldset style="border:0;padding:0;margin:0" ${readOnly ? 'disabled' : ''}>
+      ${baseFields}
+      ${structured}
+      <div class="form-group"><label class="form-label">Free-text comment</label>
+        <textarea class="form-control" rows="3" data-va-field="free_text_comment">${esc(rev.free_text_comment)}</textarea></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button type="button" class="btn btn-secondary" id="va-save-draft">${_sessionHasServerTruth() ? 'Save to persisted session' : 'Save draft'}</button>
+        <button type="button" class="btn btn-primary" id="va-mark-reviewed">${_sessionHasServerTruth() ? 'Mark reviewed in persisted session' : 'Mark reviewed'}</button>
+      </div>
+    </fieldset>
   </div>`;
 }
 
@@ -1506,6 +1772,12 @@ function _renderHistoricalAiSummaryPanel() {
   const basis = summary.data_basis || {};
   const provenance = summary.provenance || {};
   const statusLabel = _aiSummaryStatusLabel(summary.summary_status);
+  const feedbackDraft = state.aiSummaryFeedbackDraft || _emptyAiSummaryFeedbackDraft();
+  const feedbackStatus = String(feedbackDraft.feedback_status || '').trim();
+  const feedbackNote = String(feedbackDraft.feedback_note || '');
+  const feedbackRequired = _feedbackRequiresNote(feedbackStatus);
+  const feedbackSaved = state.aiSummaryFeedbackSaved;
+  const feedbackPreloaded = state.aiSummaryFeedbackPreloaded;
   const dataBasisLine = [
     `${basis.session_count ?? 0} finalized session(s)`,
     `severity data ${basis.has_severity_data ? 'available' : 'limited'}`,
@@ -1518,6 +1790,21 @@ function _renderHistoricalAiSummaryPanel() {
     `${provenance.session_count ?? 0} source session(s)`,
     `Sources ${(Array.isArray(provenance.source_session_ids) ? provenance.source_session_ids : []).map(_shortSessionId).join(', ') || 'none'}`,
   ].join(' · ');
+  let feedbackStateCopy = '';
+  if (feedbackSaved) {
+    feedbackStateCopy = `Saved in this view at ${_formatPriorSessionDate(feedbackSaved.updated_at)}. Export includes only this saved feedback snapshot.`;
+  } else if (feedbackPreloaded) {
+    feedbackStateCopy = 'Loaded saved feedback from backend. Re-save here to include it in export.';
+  }
+  const feedbackDirtyCopy = state.aiSummaryFeedbackDirty
+    ? 'You have unsaved feedback edits. They do not change the persisted session review and will not appear in export until you save them here.'
+    : '';
+  const feedbackLoading = state.aiSummaryFeedbackLoading
+    ? '<p class="va-muted" style="margin:8px 0 0">Loading previously saved feedback for this summary…</p>'
+    : '';
+  const feedbackError = state.aiSummaryFeedbackError
+    ? `<p class="va-muted" role="alert" style="margin:8px 0 0;color:var(--amber)">${esc(state.aiSummaryFeedbackError)}</p>`
+    : '';
   return `<div class="ds-card" style="margin-top:12px">
     <div class="ds-card__header"><h3 style="margin:0">AI historical summary</h3></div>
     <div class="ds-card__body" style="font-size:12px;line-height:1.6">
@@ -1535,6 +1822,33 @@ function _renderHistoricalAiSummaryPanel() {
         <ul style="margin:0;padding-left:18px">${limitations.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>
       </div>
       <p class="va-muted" style="margin:12px 0 0">Advisory summary generated from persisted finalized-session comparison data. Not a diagnosis or treatment recommendation.</p>
+      <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">
+        <strong style="display:block;margin-bottom:6px">Clinician feedback on advisory summary</strong>
+        <p class="va-muted" style="margin:0 0 8px">This records clinician response to the advisory summary only. It does not alter the persisted session review automatically.</p>
+        <div class="form-group">
+          <label class="form-label" for="va-ai-feedback-status">Feedback status</label>
+          <select id="va-ai-feedback-status" class="form-control">
+            <option value="">Select feedback status</option>
+            <option value="accepted" ${feedbackStatus === 'accepted' ? 'selected' : ''}>Accepted</option>
+            <option value="partially_accepted" ${feedbackStatus === 'partially_accepted' ? 'selected' : ''}>Partially accepted</option>
+            <option value="disagreed" ${feedbackStatus === 'disagreed' ? 'selected' : ''}>Disagreed</option>
+            <option value="not_useful" ${feedbackStatus === 'not_useful' ? 'selected' : ''}>Not useful</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <!-- Required rationale applies only to override-style statuses. -->
+          <label class="form-label" for="va-ai-feedback-note">Rationale note ${feedbackRequired ? '<span style="color:var(--amber)">*</span>' : '<span class="va-muted">(optional)</span>'}</label>
+          <textarea id="va-ai-feedback-note" class="form-control" rows="3" maxlength="500" placeholder="Optional short rationale">${esc(feedbackNote)}</textarea>
+          ${feedbackRequired ? '<p class="va-muted" style="margin:6px 0 0;color:var(--amber)">Please add a short rationale when marking this advisory summary as disagreed or not useful.</p>' : ''}
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button type="button" class="btn btn-secondary btn-sm" id="va-ai-feedback-save" ${state.aiSummaryFeedbackSaving ? 'disabled' : ''}>${state.aiSummaryFeedbackSaving ? 'Saving…' : 'Save feedback'}</button>
+        </div>
+        ${feedbackStateCopy ? `<p class="va-muted" style="margin:8px 0 0">${esc(feedbackStateCopy)}</p>` : ''}
+        ${feedbackDirtyCopy ? `<p class="va-muted" style="margin:8px 0 0;color:var(--amber)">${esc(feedbackDirtyCopy)}</p>` : ''}
+        ${feedbackLoading}
+        ${feedbackError}
+      </div>
     </div>
   </div>`;
 }
@@ -1586,6 +1900,8 @@ function _renderSummaryPanel() {
   _applySummary();
   const s = session.summary;
   const flags = (session.safety_flags || []).length;
+  const persisted = _sessionHasServerTruth(session);
+  const readOnly = _sessionReadOnly(session);
   return `<div class="ds-card va-summary"><div class="ds-card__header"><h3>Summary</h3></div><div class="ds-card__body">
     <div class="va-summary-grid">
       <div><span class="va-muted">Tasks recorded</span><strong>${s.tasks_completed}</strong></div>
@@ -1593,15 +1909,19 @@ function _renderSummaryPanel() {
       <div><span class="va-muted">Safety flags</span><strong>${flags}</strong></div>
       <div><span class="va-muted">Review progress</span><strong>${s.review_completion_percent}%</strong></div>
     </div>
-    <div class="form-group" style="margin-top:12px"><label class="form-label">Clinician impression (draft)</label>
-      <textarea id="va-summary-impression" class="form-control" rows="2" placeholder="Brief overall impression">${esc(session.summary.clinician_impression || '')}</textarea></div>
-    <div class="form-group"><label class="form-label">Recommended follow-up</label>
-      <textarea id="va-summary-followup" class="form-control" rows="2" placeholder="Optional">${esc(session.summary.recommended_followup || '')}</textarea></div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <button type="button" class="btn btn-secondary" id="va-export-json">Download session draft (JSON)</button>
-      <button type="button" class="btn btn-primary" id="va-save-summary">Save draft summary</button>
-    </div>
-    <p class="va-muted" style="font-size:11px;margin-top:10px">JSON export is a local draft for workflow handoff—not a signed report or EHR upload.</p>
+    ${persisted ? `<p class="va-muted" style="font-size:11px;margin-top:12px">${readOnly ? 'This attached persisted session is finalized. Notes below are read-only server truth.' : 'This attached persisted session saves clinician summary changes to backend truth with conflict checks.'}</p>` : ''}
+    <fieldset style="border:0;padding:0;margin:0" ${readOnly ? 'disabled' : ''}>
+      <div class="form-group" style="margin-top:12px"><label class="form-label">Clinician impression ${persisted ? '' : '(draft)'}</label>
+        <textarea id="va-summary-impression" class="form-control" rows="2" placeholder="Brief overall impression">${esc(session.summary.clinician_impression || '')}</textarea></div>
+      <div class="form-group"><label class="form-label">Recommended follow-up</label>
+        <textarea id="va-summary-followup" class="form-control" rows="2" placeholder="Optional">${esc(session.summary.recommended_followup || '')}</textarea></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button type="button" class="btn btn-secondary" id="va-export-json">${persisted ? 'Download persisted session JSON' : 'Download session draft (JSON)'}</button>
+        <button type="button" class="btn btn-primary" id="va-save-summary">${persisted ? 'Save summary to persisted session' : 'Save draft summary'}</button>
+        ${persisted && !readOnly ? '<button type="button" class="btn btn-secondary" id="va-finalize-session">Finalize persisted review</button>' : ''}
+      </div>
+    </fieldset>
+    <p class="va-muted" style="font-size:11px;margin-top:10px">${persisted ? 'JSON export reflects the persisted backend session for workflow handoff; it is not a signed clinical report or EHR upload.' : 'JSON export is a local draft for workflow handoff—not a signed report or EHR upload.'}</p>
   </div></div>`;
 }
 
@@ -1669,6 +1989,98 @@ function _collectReviewFromDom(task) {
     if (k) r.structured_scores[k] = el.value;
   });
   return r;
+}
+
+function _setAiSummaryFeedbackDraftField(field, value) {
+  _vaPriorSessionsState = {
+    ..._vaPriorSessionsState,
+    aiSummaryFeedbackDraft: {
+      ...(_vaPriorSessionsState.aiSummaryFeedbackDraft || _emptyAiSummaryFeedbackDraft()),
+      [field]: value,
+    },
+    aiSummaryFeedbackDirty: true,
+    aiSummaryFeedbackError: null,
+  };
+  _render();
+}
+
+async function _saveHistoricalAiSummaryFeedback() {
+  const role = currentUser?.role || '';
+  const sessionId = _currentPriorComparisonSessionId();
+  const summaryEventId = _vaPriorSessionsState.aiSummaryResult?.provenance?.event_id || '';
+  if (!_canReviewPriorSessions(role) || !sessionId || !summaryEventId) return;
+  const draft = _vaPriorSessionsState.aiSummaryFeedbackDraft || _emptyAiSummaryFeedbackDraft();
+  const feedbackStatus = String(draft.feedback_status || '').trim();
+  const feedbackNote = String(draft.feedback_note || '').trim();
+  if (!feedbackStatus) {
+    _vaPriorSessionsState = {
+      ..._vaPriorSessionsState,
+      aiSummaryFeedbackError: 'Select a feedback status before saving.',
+    };
+    _render();
+    return;
+  }
+  if (_feedbackRequiresNote(feedbackStatus) && !feedbackNote) {
+    _vaPriorSessionsState = {
+      ..._vaPriorSessionsState,
+      aiSummaryFeedbackError: 'Please add a short rationale when marking this advisory summary as disagreed or not useful.',
+    };
+    _render();
+    return;
+  }
+  _vaPriorSessionsState = {
+    ..._vaPriorSessionsState,
+    aiSummaryFeedbackSaving: true,
+    aiSummaryFeedbackError: null,
+  };
+  _render();
+  try {
+    const saved = await api.saveVideoAssessmentHistoricalAiSummaryFeedback(sessionId, {
+      summary_event_id: summaryEventId,
+      feedback_status: feedbackStatus,
+      feedback_note: feedbackNote,
+    });
+    if (
+      _currentPriorComparisonSessionId() !== sessionId ||
+      _vaPriorSessionsState.aiSummaryResult?.provenance?.event_id !== summaryEventId
+    ) {
+      return;
+    }
+    const normalizedSaved = {
+      ...saved,
+      feedback_status: saved?.feedback_status || feedbackStatus,
+      feedback_note: saved?.feedback_note ?? feedbackNote,
+    };
+    _vaPriorSessionsState = {
+      ..._vaPriorSessionsState,
+      aiSummaryFeedbackSaving: false,
+      aiSummaryFeedbackError: null,
+      aiSummaryFeedbackDraft: {
+        feedback_status: normalizedSaved.feedback_status,
+        feedback_note: normalizedSaved.feedback_note || '',
+      },
+      aiSummaryFeedbackPreloaded: normalizedSaved,
+      aiSummaryFeedbackSaved: normalizedSaved,
+      aiSummaryFeedbackDirty: false,
+    };
+    showToast('Advisory-summary feedback saved.');
+  } catch (e) {
+    if (
+      _currentPriorComparisonSessionId() !== sessionId ||
+      _vaPriorSessionsState.aiSummaryResult?.provenance?.event_id !== summaryEventId
+    ) {
+      return;
+    }
+    _vaPriorSessionsState = {
+      ..._vaPriorSessionsState,
+      aiSummaryFeedbackSaving: false,
+      aiSummaryFeedbackError:
+        e?.code === 'feedback_note_required'
+          ? 'Please add a short rationale when marking this advisory summary as disagreed or not useful.'
+          : (e?.message || 'Could not save historical-summary feedback.'),
+    };
+  }
+  _render();
 }
 
 function _wire() {
@@ -1742,6 +2154,15 @@ function _wire() {
   });
   document.getElementById('va-generate-history-ai')?.addEventListener('click', () => {
     void _generateHistoricalAiSummary();
+  });
+  document.getElementById('va-ai-feedback-status')?.addEventListener('change', (e) => {
+    _setAiSummaryFeedbackDraftField('feedback_status', e.target?.value || '');
+  });
+  document.getElementById('va-ai-feedback-note')?.addEventListener('input', (e) => {
+    _setAiSummaryFeedbackDraftField('feedback_note', e.target?.value || '');
+  });
+  document.getElementById('va-ai-feedback-save')?.addEventListener('click', () => {
+    void _saveHistoricalAiSummaryFeedback();
   });
 
   document.getElementById('va-setup-continue')?.addEventListener('click', () => {
@@ -1993,6 +2414,14 @@ export async function pgVideoAssessments(setTopbar, navigate) {
     const pid =
       _vaSelectedPatientId || (_demoTokenWorkspace() ? 'demo-workspace' : 'not-selected');
     _vaSession = createEmptySession({ patient_id: pid });
+  }
+
+  if (_isPersistedSessionId(_vaSession?.id || '')) {
+    try {
+      await _refreshPersistedSessionTruth(_vaSession.id, { silent: true });
+    } catch (e) {
+      showToast('Could not reload persisted session from backend. Using the local mirror until refresh succeeds.', 'warning');
+    }
   }
 
   _vaUiMode = 'patient';
