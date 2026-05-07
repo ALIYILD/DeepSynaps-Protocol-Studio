@@ -2,13 +2,14 @@
 #
 # Also usable on-demand via the "Run workflow" button on GitHub Actions.
 #
-# Requires two repo secrets:
-#   NETLIFY_AUTH_TOKEN     — Netlify personal access token for deploys.
-#   NETLIFY_BUILD_HOOK_URL — Netlify build hook URL (kept as fallback).
+# Requires one repo secret:
+#   NETLIFY_BUILD_HOOK_URL — Netlify build hook URL for the
+#                            deepsynaps-studio-preview site.
 #
-# The site ID remains pinned in netlify.toml. GitHub Actions builds the
-# site locally, then deploys the dist folder directly to Netlify so the
-# update is visible immediately (no async build-queue wait).
+# The site ID remains pinned in netlify.toml. GitHub Actions validates the
+# web build locally, then triggers a production Netlify build via the hook.
+# The hook includes ?clear_cache=true to force a clean build when stale
+# artifacts have been suspected.
 
 name: Deploy web → Netlify
 
@@ -53,30 +54,18 @@ jobs:
       - name: Build (demo flag on, API → Fly)
         run: npm run build:web
 
-      - name: Install Netlify CLI (v12 — pre-monorepo detection)
-        run: npm install -g netlify-cli@12.2.8
-
-      - name: Deploy to Netlify (direct upload)
-        env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-        run: |
-          if [ -z "$NETLIFY_AUTH_TOKEN" ]; then
-            echo "::error::NETLIFY_AUTH_TOKEN secret is missing. Falling back to build hook."
-            exit 1
-          fi
-          netlify deploy \
-            --prod \
-            --dir=apps/web/dist \
-            --site="$NETLIFY_SITE_ID" \
-            --message="Deploy from GitHub Actions ${{ github.sha }}"
-
-      - name: Trigger Netlify Build Hook (fallback)
-        if: failure()
+      - name: Trigger Netlify Build Hook (with cache clear)
         env:
           NETLIFY_BUILD_HOOK_URL: ${{ secrets.NETLIFY_BUILD_HOOK_URL }}
         run: |
-          if [ -n "$NETLIFY_BUILD_HOOK_URL" ]; then
-            curl --fail --show-error --silent \
-              -X POST \
-              "$NETLIFY_BUILD_HOOK_URL"
+          if [ -z "$NETLIFY_BUILD_HOOK_URL" ]; then
+            echo "::error::NETLIFY_BUILD_HOOK_URL secret is missing."
+            echo "Create a Netlify site build hook for the preview site and store its URL as a GitHub Actions secret."
+            exit 1
           fi
+          echo "Triggering Netlify build hook with cache clear..."
+          RESPONSE=$(curl --fail --show-error --silent \
+            -X POST \
+            -w "\nHTTP_CODE:%{http_code}" \
+            "${NETLIFY_BUILD_HOOK_URL}?clear_cache=true")
+          echo "$RESPONSE"
