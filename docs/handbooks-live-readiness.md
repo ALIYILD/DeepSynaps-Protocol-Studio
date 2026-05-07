@@ -61,7 +61,7 @@ Request body (`ExportHandbookDocxRequest`): `condition_name`, `modality_name`, `
 ## Tests (run locally)
 
 ```bash
-cd packages/render-engine && python3 -m pytest -q tests/test_handbook_bundle.py tests/test_handbook_report_payload.py
+cd packages/render-engine && python3 -m pytest -q tests/test_handbook_bundle.py
 cd apps/api && python3 -m pytest -q tests/test_generation_api.py tests/test_export_handbook_bundle.py
 cd apps/web && node --test src/pages-handbooks.test.js
 cd apps/web && npm run build
