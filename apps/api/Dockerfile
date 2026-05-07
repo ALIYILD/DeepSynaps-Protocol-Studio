@@ -78,6 +78,7 @@ RUN pip install --no-cache-dir \
     -e ./packages/evidence \
     -e ./packages/mri-pipeline \
     -e ./packages/biometrics-pipeline \
+    -e ./packages/qeeg-pipeline \
     -e ./packages/deeptwin-neuroai-lab \
     -e ./apps/api
 

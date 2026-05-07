@@ -1,4 +1,10 @@
-# DeepSynaps Protocol Studio — Fly.io configuration
+# ⚠️  DEPRECATED — This file is kept for reference only.
+# The canonical Fly.io configuration is `apps/api/fly.toml`.
+# The deploy script (`scripts/deploy-preview.sh`) explicitly uses that file.
+# If you deploy from repo root without `--config apps/api/fly.toml`,
+# update this file to match apps/api/fly.toml or use the deploy script.
+#
+# DeepSynaps Protocol Studio — Fly.io configuration (legacy)
 #
 # Required secrets (set via `fly secrets set KEY=value`):
 #   DEEPSYNAPS_DATABASE_URL   — PostgreSQL connection string for production DB
@@ -62,6 +68,10 @@ primary_region = "lhr"
     timeout = "5s"
     method = "GET"
     path = "/health"
+
+[deploy]
+  # alembic.ini lives in apps/api/ — run from that subdirectory
+  release_command = "sh -c 'cd /app/apps/api && python -m alembic upgrade head'"
 
 # Persistent volume backing /data (evidence DB, media uploads, sqlite fallback).
 # Prerequisite: create the volume once per region before the first deploy:

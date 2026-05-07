@@ -240,6 +240,7 @@ from app.routers.recording_eeg_events_router import router as recording_eeg_even
 from app.routers.montages_router import router as montages_router
 from app.routers.audit_trail_router import router as audit_trail_router
 from app.routers.biometrics_router import router as biometrics_router
+from app.routers.bio_router import router as bio_router
 from app.routers.qeeg_report_annotations_router import (
     router as qeeg_report_annotations_router,
 )
@@ -683,6 +684,7 @@ app.include_router(rotation_policy_advisor_threshold_tuning_router)
 app.include_router(treatment_sessions_router)
 app.include_router(audit_trail_router)
 app.include_router(biometrics_router)
+app.include_router(bio_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
