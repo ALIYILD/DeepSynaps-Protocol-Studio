@@ -375,6 +375,11 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
         # Seed demo Clinic + User rows so demo tokens resolve with a real
         # clinic_id and cross-clinic gates work in dev/test/smoke runs.
         _seed_demo_users_for_dev(session)
+        # Optional: deterministic synthetic demo data for Clinician Digest.
+        # Guarded by settings.app_env in {development,test} AND
+        # DEEPSYNAPS_DEMO_CLINIC_SEED=1 (never runs in staging/production).
+        from app.services.demo_clinic_seed import maybe_seed_demo_clinic_digest  # noqa: PLC0415
+        maybe_seed_demo_clinic_digest(session)
         app_instance.state.clinical_snapshot_id = snapshot.snapshot_id
         logger.info(
             "application startup complete",
