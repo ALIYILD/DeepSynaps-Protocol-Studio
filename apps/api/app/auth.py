@@ -50,6 +50,7 @@ ROLE_ORDER: dict[UserRole, int] = {
     "reviewer": 3,
     "clinician": 4,
     "admin": 5,
+    "supervisor": 5,
 }
 
 
