@@ -1583,20 +1583,20 @@ export const api = {
   // Decision-support framing only — extracted entities are NLP candidates,
   // never validated clinical findings.
   clinicalTextHealth: () => apiFetch('/api/v1/clinical-text/health'),
-  clinicalTextAnalyze: ({ text, sourceType = 'free_text', locale = 'en' } = {}) =>
+  clinicalTextAnalyze: ({ text, sourceType = 'free_text', locale = 'en', patientId = null } = {}) =>
     apiFetch('/api/v1/clinical-text/analyze', {
       method: 'POST',
-      body: JSON.stringify({ text, source_type: sourceType, locale }),
+      body: JSON.stringify({ text, source_type: sourceType, locale, patient_id: patientId || undefined }),
     }),
-  clinicalTextExtractPII: ({ text, sourceType = 'free_text', locale = 'en' } = {}) =>
+  clinicalTextExtractPII: ({ text, sourceType = 'free_text', locale = 'en', patientId = null } = {}) =>
     apiFetch('/api/v1/clinical-text/extract-pii', {
       method: 'POST',
-      body: JSON.stringify({ text, source_type: sourceType, locale }),
+      body: JSON.stringify({ text, source_type: sourceType, locale, patient_id: patientId || undefined }),
     }),
-  clinicalTextDeidentify: ({ text, sourceType = 'free_text', locale = 'en' } = {}) =>
+  clinicalTextDeidentify: ({ text, sourceType = 'free_text', locale = 'en', patientId = null } = {}) =>
     apiFetch('/api/v1/clinical-text/deidentify', {
       method: 'POST',
-      body: JSON.stringify({ text, source_type: sourceType, locale }),
+      body: JSON.stringify({ text, source_type: sourceType, locale, patient_id: patientId || undefined }),
     }),
 
   // Custom document templates (clinician-authored, distinct from the bundled
@@ -2406,6 +2406,10 @@ export const api = {
   getQEEGRecord: (id) => apiFetch(`/api/v1/qeeg-records/${id}`),
   updateQEEGRecord: (id, data) =>
     apiFetch(`/api/v1/qeeg-records/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  // Phase 5b — POST /api/v1/qeeg-records/upload (multipart). Returns
+  // { record_id, raw_data_ref, suggested_path: "auto"|"manual", qc }.
+  uploadQEEGRecording: (formData) =>
+    apiFetch('/api/v1/qeeg-records/upload', { method: 'POST', body: formData }),
 
   // ── qEEG Analysis Pipeline ──────────────────────────────────────────────
   uploadQEEGAnalysis: (formData) =>
@@ -3980,6 +3984,8 @@ export const api = {
   },
 
   // ── Digital Phenotyping Analyzer (passive behavioral signals) ────────────
+  getDigitalPhenotypingClinicSummary: () =>
+    apiFetch('/api/v1/digital-phenotyping/analyzer/clinic/summary'),
   getDigitalPhenotypingAnalyzer: (patientId) =>
     apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}`),
   getDigitalPhenotypingAudit: (patientId) =>
@@ -4027,14 +4033,10 @@ export const api = {
   addPhenotypingAnnotation: (patientId, body) => {
     const note = (body && (body.note || body.message)) || '';
     return apiFetch(
-      `/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/observations/manual`,
+      `/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/annotation`,
       {
         method: 'POST',
-        body: JSON.stringify({
-          kind: 'clinician_annotation',
-          notes: note,
-          ...(body && body.recorded_at ? { recorded_at: body.recorded_at } : {}),
-        }),
+        body: JSON.stringify({ note }),
       },
     );
   },
@@ -4084,6 +4086,8 @@ export const api = {
     apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
 
   // ── Labs / Blood Biomarkers Analyzer (psych-med + neuromodulation safety) ─
+  getLabsClinicSummary: () =>
+    apiFetch('/api/v1/labs/analyzer/clinic/summary'),
   getLabsProfile: (patientId) =>
     apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}`),
   recomputeLabs: (patientId) =>

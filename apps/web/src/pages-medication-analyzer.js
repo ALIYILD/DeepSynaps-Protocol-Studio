@@ -10,12 +10,27 @@ import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 import { crossCheckMedNeuromod } from './medication-neuromod-rules.js';
 
+const CLINICAL_MEDICATION_ANALYZER_ROLES = new Set(['clinician', 'admin', 'clinic-admin', 'supervisor', 'reviewer', 'technician']);
+
 function esc(s) {
   return String(s ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+export function medicationAnalyzerAllowsRole(role) {
+  return CLINICAL_MEDICATION_ANALYZER_ROLES.has(String(role || '').trim().toLowerCase());
+}
+
+function _renderMedicationAnalyzerRestrictedCard() {
+  return `<div role="region" aria-label="Medication analyzer access restricted" style="max-width:560px;margin:48px auto;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);text-align:center">
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px">Clinician workspace</div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
+      Medication reconciliation and interaction screening are restricted to clinician-facing accounts because they surface patient-linked medication safety data that requires governed review.
+    </div>
+  </div>`;
 }
 
 /** Demo IDs must not read as real individuals on this clinical surface. */
@@ -531,6 +546,21 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
 
   const el = document.getElementById('content');
   if (!el) return;
+
+  const demoMode = isDemoSession();
+  if (!demoMode) {
+    let actorRole = null;
+    try {
+      const me = await api.me();
+      actorRole = me?.role || me?.user?.role || null;
+    } catch {
+      actorRole = null;
+    }
+    if (!medicationAnalyzerAllowsRole(actorRole)) {
+      el.innerHTML = _renderMedicationAnalyzerRestrictedCard();
+      return;
+    }
+  }
 
   let view = 'log';
   let logCache = null;

@@ -14,7 +14,9 @@ import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 
 const VA_LAST_ANALYSIS_KEY = 'ds_va_last_analysis_id';
+const VA_LAST_ANALYSIS_PATIENT_KEY = 'ds_va_last_analysis_patient_id';
 const VA_PATIENT_STORAGE = 'ds_pat_selected_id';
+const CLINICAL_VOICE_ANALYZER_ROLES = new Set(['clinician', 'admin', 'clinic-admin', 'supervisor', 'reviewer', 'technician']);
 
 export function esc(s) {
   return String(s ?? '')
@@ -25,6 +27,51 @@ export function esc(s) {
 }
 
 const DISCLAIMER = VOICE_DECISION_SUPPORT_FULL;
+
+export function voiceAnalyzerAllowsLiveRole(role) {
+  return CLINICAL_VOICE_ANALYZER_ROLES.has(String(role || '').trim().toLowerCase());
+}
+
+export function resolveVoiceAnalyzerPatientContext({
+  selectedPatientId = '',
+  overridePatientId = '',
+  demoMode = false,
+  allowManualOverride = false,
+} = {}) {
+  const selected = String(selectedPatientId || '').trim();
+  const override = String(overridePatientId || '').trim();
+  if (selected && override && selected !== override) {
+    return {
+      patientId: null,
+      error: 'Manual patient override must match the selected patient, or be cleared before live analysis.',
+      source: null,
+    };
+  }
+  if (selected) return { patientId: selected, error: null, source: 'selected' };
+  if (override) {
+    if (demoMode || allowManualOverride) {
+      return { patientId: override, error: null, source: 'override' };
+    }
+    return {
+      patientId: null,
+      error: 'Select the patient from the clinic list before running live analysis.',
+      source: null,
+    };
+  }
+  return {
+    patientId: null,
+    error: demoMode ? null : 'Select a patient before running live analysis.',
+    source: null,
+  };
+}
+
+export function voiceAnalyzerShouldAutoLoadStoredReport(currentPatientId, storedPatientId) {
+  const current = String(currentPatientId || '').trim();
+  const stored = String(storedPatientId || '').trim();
+  if (!stored) return true;
+  if (!current) return true;
+  return current === stored;
+}
 
 function _isDemoBuildFlag() {
   try {
@@ -70,7 +117,17 @@ function _persistPatientSelection(pid) {
   } catch (_) {}
   try {
     if (pid) sessionStorage.setItem(VA_PATIENT_STORAGE, pid);
+    else sessionStorage.removeItem(VA_PATIENT_STORAGE);
   } catch (_) {}
+}
+
+function _renderVoiceAnalyzerRestrictedCard() {
+  return `<div role="region" aria-label="Voice analyzer access restricted" style="max-width:560px;margin:48px auto;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);text-align:center">
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px">Clinician workspace</div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
+      Voice analysis is restricted to clinician-facing accounts because uploads, stored reports, and patient-linked interpretation require governed review.
+    </div>
+  </div>`;
 }
 
 function _pickMimeType() {
@@ -400,6 +457,21 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
   const el = document.getElementById('content');
   if (!el) return;
 
+  const demoMode = isDemoSession();
+  let actorRole = null;
+  if (!demoMode) {
+    try {
+      const me = await api.me();
+      actorRole = me?.role || me?.user?.role || null;
+    } catch {
+      actorRole = null;
+    }
+    if (!voiceAnalyzerAllowsLiveRole(actorRole)) {
+      el.innerHTML = _renderVoiceAnalyzerRestrictedCard();
+      return;
+    }
+  }
+
   let recordChunks = [];
   let mediaRecorder = null;
   let recordMime = '';
@@ -453,9 +525,9 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
           </select>
           <button type="button" class="btn btn-outline btn-sm" id="va-patient-clear">Clear</button>
         </div>
-        <label style="display:block;margin-bottom:6px;font-size:12px" for="va-patient-id-override">Patient ID (manual override)</label>
+        <label style="display:block;margin-bottom:6px;font-size:12px" for="va-patient-id-override">Patient ID (demo-only override)</label>
         <input id="va-patient-id-override" class="form-control" style="max-width:420px;margin-bottom:8px" placeholder="UUID — optional if patient selected above" autocomplete="off" />
-        <p style="font-size:11px;color:var(--text-tertiary);margin:0">Manual ID is sent to the API as <span class="font-mono">patient_id</span> when provided; prefer the selector to avoid transcription errors.</p>
+        <p style="font-size:11px;color:var(--text-tertiary);margin:0">Live uploads must be bound from the clinic patient list. Free-form patient ID entry is disabled outside demo workflows.</p>
       </section>
 
       <section style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:18px" aria-labelledby="va-audio-h">
@@ -557,17 +629,27 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
   }
 
   function effectivePatientId() {
-    const ov = document.getElementById('va-patient-id-override')?.value?.trim();
-    if (ov) return ov;
     const sel = document.getElementById('va-patient-select')?.value?.trim();
-    return sel || null;
+    const ov = document.getElementById('va-patient-id-override')?.value?.trim();
+    return resolveVoiceAnalyzerPatientContext({
+      selectedPatientId: sel,
+      overridePatientId: ov,
+      demoMode,
+      allowManualOverride: demoMode,
+    });
+  }
+
+  const overrideInput = document.getElementById('va-patient-id-override');
+  if (overrideInput && !demoMode) {
+    overrideInput.disabled = true;
+    overrideInput.placeholder = 'Available in demo mode only';
   }
 
   // Navigation shortcuts
   el.querySelectorAll('[data-va-nav]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const page = btn.getAttribute('data-va-nav');
-      const pid = effectivePatientId();
+      const pid = effectivePatientId().patientId;
       if (pid) _persistPatientSelection(pid);
       try {
         window._deeptwinPatientId = pid || window._deeptwinPatientId;
@@ -582,7 +664,7 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
   });
   document.getElementById('va-open-biomarkers')?.addEventListener('click', () => window._nav('biomarkers-ref'));
   document.getElementById('va-open-deeptwin')?.addEventListener('click', () => {
-    const pid = effectivePatientId();
+    const pid = effectivePatientId().patientId;
     if (pid) _persistPatientSelection(pid);
     try { window._deeptwinPatientId = pid || window._deeptwinPatientId; } catch (_) {}
     navigate('deeptwin');
@@ -633,14 +715,11 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
       opt.textContent = 'Could not load patients (sign in as clinician)';
       sel.appendChild(opt);
     }
-    _syncPatientFromGlobal('va-patient-id-override');
     let stored = '';
     try { stored = sessionStorage.getItem(VA_PATIENT_STORAGE) || ''; } catch (_) {}
     const want = window._selectedPatientId || stored;
     if (want) {
       sel.value = want;
-      const ov = document.getElementById('va-patient-id-override');
-      if (ov && !ov.value) ov.value = want;
     }
   }
 
@@ -682,7 +761,7 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
             resultWrap().style.display = '';
             resultEl().innerHTML = renderVoiceReportHtml(synthetic, { storedReport: true });
             statusEl().textContent = 'Showing stored analysis.';
-            _persistLastAnalysisId(aid);
+            _persistLastAnalysisId(aid, pid);
           } catch (e) {
             const t = voiceApiErrorToast(e);
             statusEl().textContent = t.title;
@@ -697,14 +776,12 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
 
   document.getElementById('va-patient-select')?.addEventListener('change', (e) => {
     const v = e.target?.value?.trim() || '';
-    const ov = document.getElementById('va-patient-id-override');
-    if (ov && !ov.value) ov.value = v;
     _persistPatientSelection(v);
     refreshAnalysisList(v);
   });
 
   await refreshPatientList();
-  await refreshAnalysisList(effectivePatientId());
+  await refreshAnalysisList(effectivePatientId().patientId);
 
   // Recording
   document.getElementById('va-rec-start')?.addEventListener('click', async () => {
@@ -787,7 +864,12 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
       statusEl().textContent = 'Choose a file, record audio, or load a stored analysis from the list.';
       return;
     }
-    const pid = effectivePatientId();
+    const patientCtx = effectivePatientId();
+    if (patientCtx.error) {
+      statusEl().textContent = patientCtx.error;
+      return;
+    }
+    const pid = patientCtx.patientId;
     const taskProtocol = document.getElementById('va-protocol')?.value || 'sustained_vowel_a';
     const transcript = document.getElementById('va-transcript')?.value?.trim() || null;
     statusEl().textContent = 'Uploading & analyzing…';
@@ -802,7 +884,7 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
       resultWrap().style.display = '';
       resultEl().innerHTML = renderVoiceReportHtml(res);
       statusEl().textContent = res?.ok ? 'Analysis complete (review outputs below).' : 'Finished with warnings.';
-      _persistLastAnalysisId(res?.analysis_id || null);
+      _persistLastAnalysisId(res?.analysis_id || null, pid);
       if (pid) {
         refreshAnalysisList(pid);
         try {
@@ -822,9 +904,9 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
     }
   });
 
-  await _tryLoadPendingReport(statusEl, resultEl, resultWrap);
+  await _tryLoadPendingReport(statusEl, resultEl, resultWrap, effectivePatientId().patientId);
 
-  if (isDemoSession() && resultWrap().style.display === 'none') {
+  if (demoMode && resultWrap().style.display === 'none') {
     resultWrap().style.display = '';
     resultEl().innerHTML = voiceAnalyzerDemoFixtureBanner() + renderVoiceReportHtml(ANALYZER_DEMO_FIXTURES.voice, { demoFixture: true });
     statusEl().textContent = 'Showing labelled demo report — not from a live upload.';
@@ -833,24 +915,30 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
   window.addEventListener('beforeunload', revokePlayback, { once: true });
 }
 
-function _persistLastAnalysisId(id) {
+function _persistLastAnalysisId(id, patientId = null) {
   if (!id) return;
   try {
     window._lastVoiceAnalysisId = id;
   } catch (_) {}
   try {
     sessionStorage.setItem(VA_LAST_ANALYSIS_KEY, id);
+    if (patientId) sessionStorage.setItem(VA_LAST_ANALYSIS_PATIENT_KEY, patientId);
+    else sessionStorage.removeItem(VA_LAST_ANALYSIS_PATIENT_KEY);
   } catch (_) {}
 }
 
-async function _tryLoadPendingReport(statusEl, resultEl, resultWrap) {
+async function _tryLoadPendingReport(statusEl, resultEl, resultWrap, currentPatientId = null) {
   let id = null;
+  let storedPatientId = null;
   try {
     id = window._lastVoiceAnalysisId || sessionStorage.getItem(VA_LAST_ANALYSIS_KEY);
+    storedPatientId = sessionStorage.getItem(VA_LAST_ANALYSIS_PATIENT_KEY);
   } catch (_) {
     id = window._lastVoiceAnalysisId;
+    storedPatientId = null;
   }
   if (!id || !api.audioGetReport) return;
+  if (!voiceAnalyzerShouldAutoLoadStoredReport(currentPatientId, storedPatientId)) return;
 
   statusEl().textContent = 'Loading last analysis…';
   try {
@@ -868,13 +956,14 @@ async function _tryLoadPendingReport(statusEl, resultEl, resultWrap) {
       + '<strong style="color:var(--text-primary)">Latest stored report</strong> — loaded from the server. Run a new analysis below to replace.'
       + '</div>' + renderVoiceReportHtml(synthetic, { storedReport: true });
     statusEl().textContent = 'Showing stored report.';
-    _persistLastAnalysisId(id);
+    _persistLastAnalysisId(id, storedPatientId);
   } catch (e) {
     if (isDemoSession()) {
       if (resultWrap) resultWrap.style.display = '';
       resultEl().innerHTML = voiceAnalyzerDemoFixtureBanner() + renderVoiceReportHtml(ANALYZER_DEMO_FIXTURES.voice, { demoFixture: true });
       statusEl().textContent = 'Showing labelled demo report.';
       try { sessionStorage.removeItem(VA_LAST_ANALYSIS_KEY); } catch (_) {}
+      try { sessionStorage.removeItem(VA_LAST_ANALYSIS_PATIENT_KEY); } catch (_) {}
       try { window._lastVoiceAnalysisId = null; } catch (_) {}
       return;
     }
@@ -884,6 +973,9 @@ async function _tryLoadPendingReport(statusEl, resultEl, resultWrap) {
     resultEl().innerHTML = `<div style="padding:12px;border-radius:10px;border:1px solid rgba(246,178,60,.35);background:rgba(246,178,60,.1);font-size:12px"><strong>${esc(t.title)}</strong><br/>${esc(t.body)}</div>`;
     try {
       sessionStorage.removeItem(VA_LAST_ANALYSIS_KEY);
+    } catch (_) {}
+    try {
+      sessionStorage.removeItem(VA_LAST_ANALYSIS_PATIENT_KEY);
     } catch (_) {}
     try {
       window._lastVoiceAnalysisId = null;

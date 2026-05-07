@@ -1,9 +1,9 @@
 // DeepTwin frontend service layer.
 //
 // Wraps api.* calls and falls back to deterministic demo data when the
-// API errors or is unreachable. This mirrors the codebase's existing
-// "seed on empty roster" pattern in pages-clinical-hubs.js so demo mode
-// renders the page fully even without a live backend.
+// API errors or is unreachable. Simulation is the exception for real
+// clinician sessions: it now fails closed so a disabled/not-implemented
+// backend cannot silently degrade into demo trajectories.
 
 import { api } from '../api.js';
 import {
@@ -73,7 +73,10 @@ export async function getTwinPredictions(patientId, horizon = '6w') {
 }
 
 export async function runTwinSimulation(patientId, payload) {
-  return withFallback(() => api.runTwinSimulation(patientId, payload), () => demoSimulation(patientId, payload));
+  if (isDeepTwinDemoTokenSession() || DEMO_FORCED) {
+    return withFallback(() => api.runTwinSimulation(patientId, payload), () => demoSimulation(patientId, payload));
+  }
+  return api.runTwinSimulation(patientId, payload);
 }
 
 export async function generateTwinReport(patientId, payload) {

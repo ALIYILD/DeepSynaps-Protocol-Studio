@@ -76,6 +76,10 @@ function inboxSummaryHonestUnreadCount(serverSummaryResp) {
   return Number.isFinite(v) && v >= 0 ? v : 0;
 }
 
+function inboxHasUsableLoadedState(state) {
+  return !!(state && state.loaded && !state.error);
+}
+
 const SURFACE_DRILL_OUT_PAGE = {
   patient_messages: 'patient-messages',
   adherence_events: 'adherence-events',
@@ -197,6 +201,14 @@ test('Summary unread: read straight off server, no UI math', () => {
   assert.equal(inboxSummaryHonestUnreadCount({ high_priority_unread: 'lots' }), 0);
 });
 
+test('Loaded-state fallback: preserve stale UI after any successful load, including empty inbox', () => {
+  assert.equal(inboxHasUsableLoadedState(null), false);
+  assert.equal(inboxHasUsableLoadedState({ loaded: false, error: null }), false);
+  assert.equal(inboxHasUsableLoadedState({ loaded: true, error: 'network failed' }), false);
+  assert.equal(inboxHasUsableLoadedState({ loaded: true, error: null, items: [] }), true);
+  assert.equal(inboxHasUsableLoadedState({ loaded: true, error: null, items: [{ event_id: 'e1' }] }), true);
+});
+
 
 // ── Drill-out wiring ───────────────────────────────────────────────────────
 
@@ -277,6 +289,12 @@ test('Source contract: pages-inbox renders honest empty state copy', () => {
   // No AI happy-talk snuck in
   assert.equal(/your clinic is doing great/i.test(src), false);
   assert.equal(/AI scored/i.test(src), false);
+});
+
+test('Source contract: pages-inbox keeps stale refresh for previously loaded empty states', () => {
+  const src = readSrc('pages-inbox.js');
+  assert.ok(src.includes('export function inboxHasUsableLoadedState'));
+  assert.ok(src.includes("state.loaded && !state.error"));
 });
 
 test('Source contract: visible scope / safety note (work queue, not triage)', () => {

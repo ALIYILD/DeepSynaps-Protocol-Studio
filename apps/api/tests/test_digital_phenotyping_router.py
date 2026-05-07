@@ -74,6 +74,7 @@ def _seed(dp_router_scope: dict) -> dict:
             "token_a": _mint_token(clin_a.id, "clinician", clinic_a.id),
             "token_b": _mint_token(clin_b.id, "clinician", clinic_b.id),
             "token_patient": _mint_token(str(uuid.uuid4()), "patient", clinic_a.id),
+            "token_admin": _mint_token(str(uuid.uuid4()), "admin", None),
         }
         dp_router_scope.update(out)
         return out
@@ -172,6 +173,274 @@ def test_digital_phenotyping_idor_other_clinic(client: TestClient, seeded: dict,
     )
     assert r.status_code == 403
 
+
+def test_digital_phenotyping_clinic_summary_visible_to_same_clinic(
+    client: TestClient, seeded: dict, dp_router_scope: dict
+) -> None:
+    resp = client.get(
+        "/api/v1/digital-phenotyping/analyzer/clinic/summary",
+        headers=_auth(dp_router_scope["token_a"]),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["total"] >= 1
+    patient_ids = {p["patient_id"] for p in body["patients"]}
+    assert dp_router_scope["patient_id"] in patient_ids
+    match = next(p for p in body["patients"] if p["patient_id"] == dp_router_scope["patient_id"])
+    assert {"patient_id", "patient_name", "flags", "worst_severity", "trend"}.issubset(match.keys())
+
+
+def test_digital_phenotyping_clinic_summary_hides_other_clinic(
+    client: TestClient, seeded: dict, dp_router_scope: dict
+) -> None:
+    resp = client.get(
+        "/api/v1/digital-phenotyping/analyzer/clinic/summary",
+        headers=_auth(dp_router_scope["token_b"]),
+    )
+    assert resp.status_code == 200, resp.text
+    patient_ids = {p["patient_id"] for p in resp.json()["patients"]}
+    assert dp_router_scope["patient_id"] not in patient_ids
+
+
+def test_digital_phenotyping_annotation_is_audit_only(
+    client: TestClient, seeded: dict, dp_router_scope: dict
+) -> None:
+    pid = dp_router_scope["patient_id"]
+    headers = _auth(dp_router_scope["token_a"])
+
+    before_obs = client.get(
+        f"/api/v1/digital-phenotyping/analyzer/patient/{pid}/observations",
+        headers=headers,
+    )
+    assert before_obs.status_code == 200, before_obs.text
+    before_total = before_obs.json()["total"]
+
+    resp = client.post(
+        f"/api/v1/digital-phenotyping/analyzer/patient/{pid}/annotation",
+        json={"note": "Clinician annotation for audit integrity test."},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["patient_id"] == pid
+    assert body["message"] == "Clinician annotation for audit integrity test."
+    assert body["id"]
+
+    after_obs = client.get(
+        f"/api/v1/digital-phenotyping/analyzer/patient/{pid}/observations",
+        headers=headers,
+    )
+    assert after_obs.status_code == 200, after_obs.text
+    assert after_obs.json()["total"] == before_total
+
+    audit = client.get(
+        f"/api/v1/digital-phenotyping/analyzer/patient/{pid}/audit",
+        headers=headers,
+    )
+    assert audit.status_code == 200, audit.text
+    events = audit.json()["events"]
+    assert any(ev["action"] == "annotation" and "audit integrity test" in ev["summary"] for ev in events)
+
+
+def test_digital_phenotyping_annotation_rejects_whitespace_note(
+    client: TestClient, seeded: dict, dp_router_scope: dict,
+) -> None:
+    pid = dp_router_scope["patient_id"]
+    headers = _auth(dp_router_scope["token_a"])
+
+    resp = client.post(
+        f"/api/v1/digital-phenotyping/analyzer/patient/{pid}/annotation",
+        json={"note": "   "},
+        headers=headers,
+    )
+    assert resp.status_code == 422, resp.text
+
+
+def test_digital_phenotyping_observation_rejects_invalid_recorded_at(
+    client: TestClient, seeded: dict, dp_router_scope: dict
+) -> None:
+    pid = dp_router_scope["patient_id"]
+    headers = _auth(dp_router_scope["token_a"])
+
+    resp = client.post(
+        f"/api/v1/digital-phenotyping/analyzer/patient/{pid}/observations",
+        json={
+            "source": "manual",
+            "kind": "ema_checkin",
+            "recorded_at": "tomorrow-ish",
+            "payload": {"mood_0_10": 6.5},
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422, resp.text
+    assert "recorded_at" in resp.text
+
+
+def test_digital_phenotyping_manual_observation_accepts_trimmed_iso_recorded_at(
+    client: TestClient, seeded: dict, dp_router_scope: dict
+) -> None:
+    pid = dp_router_scope["patient_id"]
+    headers = _auth(dp_router_scope["token_a"])
+
+    resp = client.post(
+        f"/api/v1/digital-phenotyping/analyzer/patient/{pid}/observations/manual",
+        json={
+            "kind": "ema_checkin",
+            "recorded_at": " 2026-05-06T09:30:00Z ",
+            "mood_0_10": 6.5,
+            "sleep_hours": 7.0,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["patient_id"] == pid
+    assert body["recorded_at"] == "2026-05-06T09:30:00Z"
+
+
+def test_digital_phenotyping_observation_blank_kind_defaults_to_ema_checkin(
+    client: TestClient, seeded: dict, dp_router_scope: dict
+) -> None:
+    pid = dp_router_scope["patient_id"]
+    headers = _auth(dp_router_scope["token_a"])
+
+    resp = client.post(
+        f"/api/v1/digital-phenotyping/analyzer/patient/{pid}/observations",
+        json={
+            "source": "manual",
+            "kind": "   ",
+            "payload": {"mood_0_10": 6.5},
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    listing = client.get(
+        f"/api/v1/digital-phenotyping/analyzer/patient/{pid}/observations",
+        headers=headers,
+    )
+    assert listing.status_code == 200, listing.text
+    assert listing.json()["items"][0]["kind"] == "ema_checkin"
+
+
+def test_digital_phenotyping_manual_observation_blank_kind_defaults_to_ema_checkin(
+    client: TestClient, seeded: dict, dp_router_scope: dict
+) -> None:
+    pid = dp_router_scope["patient_id"]
+    headers = _auth(dp_router_scope["token_a"])
+
+    resp = client.post(
+        f"/api/v1/digital-phenotyping/analyzer/patient/{pid}/observations/manual",
+        json={
+            "kind": "   ",
+            "mood_0_10": 6.5,
+            "sleep_hours": 7.0,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    listing = client.get(
+        f"/api/v1/digital-phenotyping/analyzer/patient/{pid}/observations",
+        headers=headers,
+    )
+    assert listing.status_code == 200, listing.text
+    assert listing.json()["items"][0]["kind"] == "ema_checkin"
+
+
+def test_digital_phenotyping_observation_rejects_overlong_kind(
+    client: TestClient, seeded: dict, dp_router_scope: dict
+) -> None:
+    pid = dp_router_scope["patient_id"]
+    headers = _auth(dp_router_scope["token_a"])
+
+    resp = client.post(
+        f"/api/v1/digital-phenotyping/analyzer/patient/{pid}/observations",
+        json={
+            "source": "manual",
+            "kind": "k" * 65,
+            "payload": {"mood_0_10": 6.5},
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422, resp.text
+    assert "64 characters or fewer" in resp.text
+
+
+def test_digital_phenotyping_manual_observation_rejects_overlong_kind(
+    client: TestClient, seeded: dict, dp_router_scope: dict
+) -> None:
+    pid = dp_router_scope["patient_id"]
+    headers = _auth(dp_router_scope["token_a"])
+
+    resp = client.post(
+        f"/api/v1/digital-phenotyping/analyzer/patient/{pid}/observations/manual",
+        json={
+            "kind": "k" * 65,
+            "mood_0_10": 6.5,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 422, resp.text
+    assert "64 characters or fewer" in resp.text
+
+
+def test_digital_phenotyping_observation_payload_trims_strings_and_drops_blank_values(
+    client: TestClient, seeded: dict, dp_router_scope: dict
+) -> None:
+    pid = dp_router_scope["patient_id"]
+    headers = _auth(dp_router_scope["token_a"])
+
+    resp = client.post(
+        f"/api/v1/digital-phenotyping/analyzer/patient/{pid}/observations",
+        json={
+            "source": "manual",
+            "kind": "ema_checkin",
+            "payload": {
+                "free_text": "  observed at home  ",
+                "blank_field": "   ",
+                "mood_0_10": 6.5,
+            },
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    listing = client.get(
+        f"/api/v1/digital-phenotyping/analyzer/patient/{pid}/observations",
+        headers=headers,
+    )
+    assert listing.status_code == 200, listing.text
+    payload = listing.json()["items"][0]["payload"]
+    assert payload["free_text"] == "observed at home"
+    assert "blank_field" not in payload
+    assert payload["mood_0_10"] == 6.5
+
+
+def test_digital_phenotyping_manual_observation_trims_notes_payload(
+    client: TestClient, seeded: dict, dp_router_scope: dict
+) -> None:
+    pid = dp_router_scope["patient_id"]
+    headers = _auth(dp_router_scope["token_a"])
+
+    resp = client.post(
+        f"/api/v1/digital-phenotyping/analyzer/patient/{pid}/observations/manual",
+        json={
+            "kind": "ema_checkin",
+            "notes": "  clinician note  ",
+            "mood_0_10": 6.5,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    listing = client.get(
+        f"/api/v1/digital-phenotyping/analyzer/patient/{pid}/observations",
+        headers=headers,
+    )
+    assert listing.status_code == 200, listing.text
+    payload = listing.json()["items"][0]["payload"]
+    assert payload["notes"] == "clinician note"
 
 @pytest.mark.skip(
     reason=(

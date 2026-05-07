@@ -801,17 +801,18 @@ def deeptwin_simulate(
             schema_version=SCHEMA_VERSION,
             provenance=sim_provenance,
         )
-
-    return DeeptwinSimulateResponse(
-        patient_id=payload.patient_id,
-        protocol_id=payload.protocol_id,
-        horizon_days=payload.horizon_days,
-        engine={"name": "stub", "status": "placeholder", "real_ai": False,
-                "notice": "No production simulation model is connected. "
-                          "Output is deterministic placeholder data for UI development only."},
-        outputs=governed_outputs,
-        schema_version=SCHEMA_VERSION,
-        provenance=sim_provenance,
+    raise ApiServiceError(
+        code="deeptwin_simulation_not_implemented",
+        message=(
+            "DeepTwin simulation is not implemented in this environment. "
+            "No validated simulation engine is connected."
+        ),
+        status_code=503,
+        details={
+            "reason": "no_validated_simulation_engine",
+            "feature": "deeptwin_simulation",
+            "placeholder_simulations_disabled": True,
+        },
     )
 
 

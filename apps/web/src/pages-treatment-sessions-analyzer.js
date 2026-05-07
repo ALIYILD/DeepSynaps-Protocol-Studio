@@ -7,6 +7,22 @@ import { api } from './api.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 
+const TREATMENT_SESSIONS_CLINICAL_ROLES = new Set([
+  'clinician',
+  'admin',
+  'clinic-admin',
+  'supervisor',
+  'reviewer',
+  'technician',
+  'resident',
+]);
+
+export function canUseTreatmentSessionsAnalyzerWorkspace(role, opts = {}) {
+  const normalized = String(role || '').trim().toLowerCase();
+  if (!normalized) return !!opts.allowUnknown;
+  return TREATMENT_SESSIONS_CLINICAL_ROLES.has(normalized);
+}
+
 function esc(s) {
   return String(s ?? '')
     .replace(/&/g, '&amp;')
@@ -105,7 +121,7 @@ function _restrictedCard() {
   return `<div role="region" aria-label="Access restricted" style="max-width:560px;margin:48px auto;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);text-align:center">
     <div style="font-size:15px;font-weight:600;margin-bottom:8px">Clinician workspace</div>
     <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
-      Treatment session analytics are restricted to clinician and administrator roles. Follow your clinic’s policy for patient-facing session summaries.
+      Treatment session analytics are restricted to authorised clinical staff roles. Follow your clinic’s policy for patient-facing session summaries.
     </div>
   </div>`;
 }
@@ -223,8 +239,10 @@ async function _hydrateCourseDetail(course, patientId, patientNameFromCaller = '
     api.getCourseSessionsSummary(courseId).catch(() => null),
     api.getCourseAdverseEventsSummary(courseId).catch(() => null),
     lite
-      ? Promise.resolve({ items: [] })
-      : api.listCourseAuditEvents(courseId, { limit: 40 }).catch(() => ({ items: [] })),
+      ? Promise.resolve({ items: [], unavailable: false })
+      : api.listCourseAuditEvents(courseId, { limit: 40 })
+        .then((resp) => ({ ...(resp || {}), unavailable: false }))
+        .catch(() => ({ items: [], unavailable: true })),
   ]);
 
   const logs = Array.isArray(courseSessions?.items)
@@ -348,6 +366,7 @@ async function _hydrateCourseDetail(course, patientId, patientNameFromCaller = '
       last_session_at: sessSummary?.last_session_at || null,
       is_demo: !!sessSummary?.is_demo,
       lite,
+      audit_unavailable: !!auditResp?.unavailable,
     },
   };
 }
@@ -547,12 +566,16 @@ function _renderCourseHeader(course, summary) {
   </div>`;
 }
 
-function _renderSignoffQueue(unsigned) {
+function _renderSignoffQueue(unsigned, opts = {}) {
+  const canSignAll = opts.canSignAll !== false;
   if (!Array.isArray(unsigned) || !unsigned.length) {
     return `<div style="margin-top:14px;padding:14px;border:1px solid var(--border);background:rgba(255,255,255,.02);border-radius:12px;font-size:12px;color:var(--text-secondary)">
       <strong style="color:var(--text-primary)">No pending sign-offs in this view.</strong> Either sign-off events exist for each delivered session row, or sign-off state could not be loaded — verify session events in the source record. This does not certify clinical completeness.
     </div>`;
   }
+  const actionHtml = canSignAll
+    ? '<button type="button" class="btn btn-primary btn-sm" data-action="sign-all" style="min-height:44px">Record sign-off…</button>'
+    : '<span style="font-size:11px;color:var(--text-tertiary);line-height:1.45;text-align:right">Sign-off actions require an authorised clinical staff role.</span>';
   const list = unsigned.map((s) => `<li style="padding:8px 10px;border-bottom:1px solid var(--border);font-size:12px;display:flex;justify-content:space-between;gap:10px">
     <span><strong>Session ${esc(s.session_number || '—')}</strong> · ${esc(_fmtDateTime(s.scheduled_at))}</span>
     <span style="color:var(--text-tertiary)">${esc(s.modality || '')}</span>
@@ -560,7 +583,7 @@ function _renderSignoffQueue(unsigned) {
   return `<div style="margin-top:14px;background:var(--bg-card);border:1px solid rgba(245,158,11,0.30);border-radius:12px;overflow:hidden">
     <div style="padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:1px solid var(--border);background:rgba(245,158,11,0.06)">
       <div style="font-weight:600;font-size:13px"><span style="color:var(--amber)">${unsigned.length}</span> delivered session${unsigned.length === 1 ? '' : 's'} without sign-off event</div>
-      <button type="button" class="btn btn-primary btn-sm" data-action="sign-all" style="min-height:44px">Record sign-off…</button>
+      ${actionHtml}
     </div>
     <ul style="list-style:none;margin:0;padding:0">${list}</ul>
     <div style="padding:10px 14px;font-size:11px;color:var(--text-tertiary);line-height:1.45">Sign-off writes a clinician signature event to each session — requires clinician review per clinic protocol; not autonomous approval.</div>
@@ -689,11 +712,13 @@ function _renderAeBanner(aeSummary) {
   </div>`;
 }
 
-function _renderAuditTeaser(items, usingDemoFixture) {
+function _renderAuditTeaser(items, usingDemoFixture, unavailable = false) {
   const rows = (Array.isArray(items) ? items : []).slice(0, 6);
   if (!rows.length) {
     return `<div style="margin-top:14px;padding:12px;border:1px solid var(--border);border-radius:12px;font-size:12px;color:var(--text-secondary)">
-      <strong style="color:var(--text-primary)">Audit trail.</strong> No audit events returned for this course, or the endpoint was unavailable. Use Course Detail for the full timeline when available.
+      <strong style="color:var(--text-primary)">Audit trail.</strong> ${unavailable
+    ? 'Audit events could not be loaded from the backend right now. Use Course Detail or the source record once the endpoint is available.'
+    : 'No audit events were returned for this course. Use Course Detail for the full timeline when available.'}
     </div>`;
   }
   const demoNote = usingDemoFixture ? '<span class="pill pill-pending" style="margin-left:6px">Demo / sample</span>' : '';
@@ -981,7 +1006,8 @@ export async function pgTreatmentSessionsAnalyzer(setTopbar, navigate) {
   async function loadClinic() {
     const body = $('ts-body');
     if (!body) return;
-    if (actorRole === 'patient') {
+    const canUseWorkspace = canUseTreatmentSessionsAnalyzerWorkspace(actorRole, { allowUnknown: isDemoSession() });
+    if (!canUseWorkspace) {
       body.innerHTML = _restrictedCard();
       return;
     }
@@ -1081,6 +1107,7 @@ export async function pgTreatmentSessionsAnalyzer(setTopbar, navigate) {
     const sessions = detail.sessions || [];
     const summary = detail.summary || { signed_count: 0, delivered_count: sessions.length };
     const unsigned = sessions.filter((s) => !s.signed && !s.signoff_unknown);
+    const canSignAll = canUseTreatmentSessionsAnalyzerWorkspace(actorRole, { allowUnknown: usingFixtures && isDemoSession() });
     const deviations = detail.deviations || [];
     const outcomes = detail.outcomes || { scale: '—', scores: [], rule_note: '' };
     const pick = typeof outcomes.pick_series === 'function'
@@ -1105,21 +1132,22 @@ export async function pgTreatmentSessionsAnalyzer(setTopbar, navigate) {
     return `${_renderCourseHeader(course, summary)}
     ${stale}
     ${_renderAeBanner(ae)}
-    ${_renderSignoffQueue(unsigned)}
+    ${_renderSignoffQueue(unsigned, { canSignAll })}
     ${_renderTimeline(sessions, expandedId)}
     ${_renderDeviationPanel(deviations, detail.deviations_count, detail.interrupted_count)}
     ${_renderOutcomePicker(outcomes)}
     ${_renderSparkline(sparkScores, sparkScale, sparkRule)}
     ${outcomes.responder_backend_flag != null ? `<div style="margin-top:8px;font-size:11px;color:var(--text-tertiary)">Backend responder heuristic flag (rule-based, not clinical fact): ${outcomes.responder_backend_flag ? 'true' : 'false'} — requires clinician interpretation.</div>` : ''}
     ${governance}
-    ${_renderAuditTeaser(auditItems, !!course._demo_fixture)}
+    ${_renderAuditTeaser(auditItems, !!course._demo_fixture, !!dm.audit_unavailable)}
     ${_renderLinkedBar(course.patient_id, course.id, navigate)}`;
-  }
+}
 
   async function loadPatient() {
     const body = $('ts-body');
     if (!body || !activePatientId) return;
-    if (actorRole === 'patient') {
+    const canUseWorkspace = canUseTreatmentSessionsAnalyzerWorkspace(actorRole, { allowUnknown: isDemoSession() });
+    if (!canUseWorkspace) {
       body.innerHTML = _restrictedCard();
       return;
     }
@@ -1185,6 +1213,11 @@ export async function pgTreatmentSessionsAnalyzer(setTopbar, navigate) {
 
     body.querySelector('[data-action="sign-all"]')?.addEventListener('click', async (ev) => {
       const btn = ev.currentTarget;
+      const canSignAll = canUseTreatmentSessionsAnalyzerWorkspace(actorRole, { allowUnknown: usingFixtures && isDemoSession() });
+      if (!canSignAll) {
+        alert('Treatment session sign-off is restricted to authorised clinical staff roles.');
+        return;
+      }
       const unsigned = (detailCache?.sessions || []).filter((s) => !s.signed);
       if (!unsigned.length) return;
       const ok = window.confirm(`Record clinician sign-off on ${unsigned.length} session${unsigned.length === 1 ? '' : 's'}? This writes SIGN events to the session record (not a protocol change).`);
@@ -1235,9 +1268,11 @@ export default { pgTreatmentSessionsAnalyzer };
 
 /** @internal exported for unit tests */
 export {
+  _renderSignoffQueue,
   _parseOutcomeSummaries,
   _summarizeOutcomeScores,
   _completionPct,
   _mergeBatchSignIntoRows,
   _mergeBatchUnavailable,
+  _renderAuditTeaser,
 };

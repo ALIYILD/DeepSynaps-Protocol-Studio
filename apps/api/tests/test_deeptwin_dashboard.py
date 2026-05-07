@@ -8,7 +8,7 @@ Coverage matrix (per the brief):
 4. Payload includes all 22 domains
 5. Missing domains are not faked (status in {missing, unavailable})
 6. Safety flags included when present
-7. prediction_confidence is honest when model is placeholder
+7. prediction_confidence fails closed until a validated model exists
 8. Audit event written (deeptwin.dashboard.opened)
 """
 
@@ -222,16 +222,23 @@ def test_safety_flags_included_when_present(client: TestClient, db: Session):
     assert by_key["safety_flags"]["record_count"] == 2
 
 
-def test_prediction_confidence_is_honest_placeholder(client: TestClient, db: Session):
-    """7. `prediction_confidence` reports placeholder honesty until a validated model lands."""
+def test_prediction_confidence_is_fail_closed_without_validated_model(
+    client: TestClient, db: Session,
+):
+    """7. `prediction_confidence` is withheld until a validated model lands."""
     _, _, token = _seed_clin_and_patient(db, user_id="user-clin-pc", patient_id="pat-360-5")
     r = client.get("/api/v1/deeptwin/patients/pat-360-5/dashboard", headers=_hdr(token))
-    pc = r.json()["prediction_confidence"]
-    assert pc["status"] == "placeholder"
+    body = r.json()
+    pc = body["prediction_confidence"]
+    by_key = {d["key"]: d for d in body["domains"]}
+    assert by_key["twin_predictions"]["status"] == "unavailable"
+    assert pc["available"] is False
+    assert pc["status"] == "not_implemented"
     assert pc["real_ai"] is False
     assert pc["confidence"] is None
-    assert pc["confidence_label"].lower().startswith("not")
-    assert "decision-support" in pc["summary"].lower()
+    assert pc["confidence_label"].lower().startswith("with")
+    assert pc["reason"] == "no_validated_prediction_model"
+    assert "withheld" in pc["summary"].lower()
     assert pc["limitations"]
 
 

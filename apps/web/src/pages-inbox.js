@@ -247,6 +247,10 @@ export function inboxSummaryHonestUnreadCount(serverSummaryResp) {
   return Number.isFinite(v) && v >= 0 ? v : 0;
 }
 
+export function inboxHasUsableLoadedState(state) {
+  return !!(state && state.loaded && !state.error);
+}
+
 export function inboxDrillOutPageFor(surface) {
   return SURFACE_DRILL_OUT_PAGE[surface] || null;
 }
@@ -649,8 +653,8 @@ async function loadInboxData(navigate) {
   }
 
   if (fetchErr) {
-    const hadData = _inboxState.loaded && (_inboxState.items || []).length > 0;
-    if (hadData) {
+    const hadUsableState = inboxHasUsableLoadedState(_inboxState);
+    if (hadUsableState) {
       _inboxState.staleRefreshError = fetchErr;
       const staleEl = document.getElementById('inbox-stale');
       if (staleEl) staleEl.innerHTML = renderStaleRefreshBanner(fetchErr);

@@ -60,7 +60,7 @@ def test_deeptwin_analyze_returns_ranked_workspace_outputs(
     assert body["engine"]["notes"]
 
 
-def test_deeptwin_simulate_returns_forecast_biomarkers_and_monitoring_plan(
+def test_deeptwin_simulate_returns_503_when_no_validated_engine_is_connected(
     client: TestClient,
     auth_headers: dict[str, dict[str, str]],
 ) -> None:
@@ -84,19 +84,11 @@ def test_deeptwin_simulate_returns_forecast_biomarkers_and_monitoring_plan(
         },
         headers=auth_headers["clinician"],
     )
-    assert resp.status_code == 200, resp.text
+    assert resp.status_code == 503, resp.text
     body = resp.json()
-
-    assert body["engine"]["status"] in {"ok", "available", "placeholder"}
-    # Stub engine must be honest about not being real AI
-    if body["engine"]["status"] == "placeholder":
-        assert body["engine"].get("real_ai") is False
-    assert body["outputs"]["clinical_forecast"]["summary"]
-    assert body["outputs"]["clinical_forecast"]["response_probability"] > 0
-    assert body["outputs"]["biomarker_forecast"]
-    assert body["outputs"]["timecourse"]
-    assert body["outputs"]["monitoring_plan"]
-    assert body["outputs"]["assumptions"]
+    assert body["code"] == "deeptwin_simulation_not_implemented"
+    assert body["details"]["reason"] == "no_validated_simulation_engine"
+    assert body["details"]["placeholder_simulations_disabled"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -405,17 +397,11 @@ def test_legacy_simulate_response_has_provenance_and_decision_support(
             },
         },
     )
-    assert r.status_code == 200, r.text
+    assert r.status_code == 503, r.text
     body = r.json()
-    assert body["schema_version"].startswith("deeptwin.simulate.")
-    assert body["provenance"]["inputs_hash"].startswith("sha256:")
-    assert body["decision_support_only"] is True
-    out = body["outputs"]
-    assert out["confidence_tier"] in {"high", "medium", "low"}
-    assert isinstance(out["top_drivers"], list) and out["top_drivers"]
-    assert out["calibration"]["status"] == "uncalibrated"
-    assert "components" in out["uncertainty"]
-    assert "delta_pred" in out["scenario_comparison"]
+    assert body["code"] == "deeptwin_simulation_not_implemented"
+    assert body["details"]["reason"] == "no_validated_simulation_engine"
+    assert body["details"]["feature"] == "deeptwin_simulation"
 
 
 def test_scenario_comparison_endpoint(

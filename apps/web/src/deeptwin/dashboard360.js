@@ -7,7 +7,7 @@
 //
 // Honest data only:
 // - status comes from the backend (available | partial | missing | unavailable)
-// - prediction confidence is "placeholder" until a validated model lands
+// - prediction output is withheld until a validated model lands
 // - safety + decision-support disclaimers are wired throughout
 
 import { api } from '../api.js';
@@ -281,16 +281,25 @@ function _renderCorrelations(payload) {
 function _renderPredictionPanel(payload) {
   const pc = payload.prediction_confidence || {};
   const limits = (pc.limitations || []).map(l => `<li>${ESC(l)}</li>`).join('');
-  const warn = !pc.real_ai
-    ? `<div class="dt360-warn">⚠ Model is currently a deterministic placeholder. Predictions are uncalibrated.</div>`
+  const unavailable = pc.available === false || pc.status === 'not_implemented';
+  const warn = unavailable
+    ? `<div class="dt360-warn">⚠ Prediction output is withheld until a validated DeepTwin model is connected.</div>`
+    : !pc.real_ai
+      ? `<div class="dt360-warn">⚠ Model output is not backed by a validated DeepTwin engine.</div>`
+    : '';
+  const reasonChip = pc.reason
+    ? `<span class="dt-chip dt-chip--low">reason: ${ESC(pc.reason)}</span>`
     : '';
   return `
     <div class="dt360-pred-head">
-      <span class="dt-chip dt-chip--warn">${ESC(pc.confidence_label || 'Not calibrated')}</span>
-      <span class="dt-chip dt-chip--low">status: ${ESC(pc.status || 'placeholder')}</span>
+      <span class="dt-chip dt-chip--warn">${ESC(pc.confidence_label || (unavailable ? 'Withheld' : 'Not calibrated'))}</span>
+      <span class="dt-chip dt-chip--low">status: ${ESC(pc.status || (unavailable ? 'not_implemented' : 'unknown'))}</span>
       <span class="dt-chip dt-chip--low">real AI: ${pc.real_ai ? 'yes' : 'no'}</span>
+      ${reasonChip}
     </div>
-    <div class="dt360-pred-summary">${ESC(pc.summary || 'Decision-support only. Requires clinician review.')}</div>
+    <div class="dt360-pred-summary">${ESC(pc.summary || (unavailable
+      ? 'DeepTwin prediction output is withheld until a validated model is connected.'
+      : 'Decision-support only. Requires clinician review.'))}</div>
     ${warn}
     ${limits ? `<ul class="dt360-pred-limits">${limits}</ul>` : ''}
   `;
@@ -434,6 +443,15 @@ function _renderDomainDetail(d) {
 
 let _dashboardPayloadCache = null;
 
+export function applyDashboard360PatientContext(patientId, win = globalThis.window, storage = globalThis.sessionStorage) {
+  const id = String(patientId || '').trim();
+  if (!id) return false;
+  try { if (win) win._selectedPatientId = id; } catch {}
+  try { if (win) win._profilePatientId = id; } catch {}
+  try { storage?.setItem('ds_pat_selected_id', id); } catch {}
+  return true;
+}
+
 export function wireDashboard360Actions(payload) {
   if (payload) _dashboardPayloadCache = payload;
 
@@ -477,7 +495,9 @@ function _wirePanelNav() {
   document.querySelectorAll('.dt360-panel-action[data-panel-nav]').forEach(btn => {
     btn.addEventListener('click', () => {
       const target = btn.dataset.panelNav;
-      if (target) window._nav?.(target);
+      if (!target) return;
+      applyDashboard360PatientContext(_dashboardPayloadCache?.patient_id);
+      window._nav?.(target);
     });
   });
 }

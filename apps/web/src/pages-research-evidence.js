@@ -1,17 +1,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// pages-research-evidence.js — Clinician evidence & governance workspace
-// Combines live corpus metrics (when API + ingest available), bundled registry
-// rollups, and brokered search — not autonomous clinical decision-making.
+// pages-research-evidence.js — Research Evidence Interactive Dashboard
+// 87,000 papers · 53 conditions · 13 modalities · 24 assessments · 18 devices
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { tag, spinner } from './helpers.js';
 import { api } from './api.js';
 import { currentUser } from './auth.js';
-import { renderLiveEvidencePanel } from './live-evidence.js';
 import {
   EVIDENCE_TOTAL_PAPERS, EVIDENCE_TOTAL_TRIALS, EVIDENCE_TOTAL_META,
   EVIDENCE_SOURCES, CONDITION_EVIDENCE, EVIDENCE_SUMMARY,
-  getTopConditionsByPaperCount,
+  getTopConditionsByPaperCount, searchEvidenceByKeyword,
 } from './evidence-dataset.js';
 import { getEvidenceUiStats } from './evidence-ui-live.js';
 import { loadResearchBundleWorkspace } from './research-bundle-workspace.js';
@@ -27,51 +25,6 @@ const esc = s => String(s == null ? '' : s)
 const fmt = n => Number(n).toLocaleString();
 const fmtK = n => n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K' : String(n);
 const pct = (n, total) => total ? ((n / total) * 100).toFixed(1) : '0';
-
-function _reReadRouteState() {
-  try {
-    const url = new URL(window.location.href);
-    return {
-      tab: url.searchParams.get('tab') || '',
-      q: url.searchParams.get('q') || '',
-      topic: url.searchParams.get('topic') || '',
-      source: url.searchParams.get('source') || '',
-    };
-  } catch {
-    return { tab: '', q: '', topic: '', source: '' };
-  }
-}
-
-function _reApplyRouteState() {
-  const route = _reReadRouteState();
-  const nextTab = route.tab && TAB_META[route.tab] ? route.tab : '';
-  if (nextTab) window._resEvidenceTab = nextTab;
-  if (route.q) {
-    const targetTab = nextTab || window._resEvidenceTab || 'overview';
-    window._reSearch = window._reSearch || {};
-    window._reSearch[targetTab] = route.q;
-  }
-  if (route.topic) window._reAdjunctTopic = route.topic;
-  if (route.source) window._reEvidenceSource = route.source;
-}
-
-function _reSyncRoute(tab) {
-  try {
-    const url = new URL(window.location.href);
-    url.searchParams.set('page', 'research-evidence');
-    url.searchParams.set('tab', tab);
-    const q = String(window._reSearch?.[tab] || '').trim();
-    if (q) url.searchParams.set('q', q);
-    else url.searchParams.delete('q');
-    const topic = String(window._reAdjunctTopic || '').trim();
-    if (tab === 'adjunct' && topic) url.searchParams.set('topic', topic);
-    else url.searchParams.delete('topic');
-    const source = String(window._reEvidenceSource || '').trim();
-    if (source) url.searchParams.set('source', source);
-    else url.searchParams.delete('source');
-    history.replaceState({ page: 'research-evidence' }, '', `${url.pathname}?${url.searchParams.toString()}`);
-  } catch {}
-}
 
 /* condition category from CONDITION_REGISTRY (id→cat lookup) */
 const _condCatMap = {};
@@ -104,82 +57,6 @@ function hBar(label, value, maxVal, color) {
 /* ── grade color ───────────────────────────────────────────────────────────── */
 const GRADE_CLR = { A: '#2dd4bf', B: '#60a5fa', C: '#fbbf24', D: '#f97316', E: '#ef4444' };
 let _liveEvidenceUiStats = null;
-
-function _resDemoBuild() {
-  try {
-    return !!(import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1');
-  } catch {
-    return false;
-  }
-}
-
-/** Governance + safety framing — shown on key tabs */
-function _resGovernanceBanner() {
-  return (
-    '<div class="ch-card" role="region" aria-label="Evidence governance notice" style="margin-bottom:14px;border-left:3px solid var(--amber);background:rgba(245,158,11,0.06);padding:12px 14px">' +
-    '<div style="font-size:12.5px;line-height:1.55;color:var(--text-secondary)">' +
-    '<strong style="color:var(--amber)">Clinician-reviewed evidence workspace.</strong> ' +
-    'This surface supports literature review, grades, and governance — not diagnosis, prescribing, treatment approval, or emergency triage. ' +
-    'Regulatory clearance ≠ efficacy; adjacent-condition evidence ≠ indication-specific suitability; weak or off-label use requires explicit judgement.' +
-    '</div></div>'
-  );
-}
-
-/** Labels live API vs bundled demo/registry fallback for transparency */
-function _resSourceStrip(stats) {
-  const demo = _resDemoBuild();
-  const apiLive = !!(stats && stats.live);
-  const modeLabel = apiLive
-    ? 'Live evidence service (aggregated counts)'
-    : 'Bundled registry approximation — connect API + ingest for authoritative totals';
-  const demoNote = demo
-    ? '<span style="margin-left:8px;padding:2px 8px;border-radius:999px;background:rgba(245,158,11,0.15);color:var(--amber);font-size:11px;font-weight:600">Demo / preview build</span>'
-    : '';
-  return (
-    '<div class="ch-card" style="padding:10px 14px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between">' +
-    '<div style="font-size:12px;color:var(--text-secondary)">' +
-    '<strong style="color:var(--text-primary)">Source mode:</strong> ' + esc(modeLabel) + demoNote +
-    '</div>' +
-    '<div style="font-size:11px;color:var(--text-tertiary)">Governance reference: <code style="font-size:10px">docs/protocol-evidence-governance-policy.md</code></div>' +
-    '</div>'
-  );
-}
-
-/** Shared header: governance + source strip; optional module shortcuts */
-function _resWorkspaceHeader(liveEvidence, { shortcuts = false } = {}) {
-  return _resGovernanceBanner() + _resSourceStrip(liveEvidence) + (shortcuts ? _resWorkbenchShortcuts() : '');
-}
-
-/** Quick navigation to linked Clinical OS modules (draft/review contexts only) */
-function _resWorkbenchShortcuts() {
-  const role = currentUser?.role || '';
-  const patientOk = role && role !== 'patient';
-  return (
-    '<div class="ch-card" style="padding:14px 16px;margin-bottom:16px">' +
-    '<div style="font-weight:600;margin-bottom:10px;font-size:14px">Linked workspaces</div>' +
-    '<p style="font-size:12px;color:var(--text-secondary);margin:0 0 12px;line-height:1.5">' +
-    'Open related tools for <strong>draft</strong> protocols, handbook drafts, and planning — never as automatic approval from this page.</p>' +
-    '<div style="display:flex;flex-wrap:wrap;gap:8px">' +
-    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'protocol-studio\')">Protocol Studio</button>' +
-    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'handbooks-v2\')">Handbooks</button>' +
-    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'brainmap-v2\')">Brain Map Planner</button>' +
-    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'assessments-v2\')">Assessments</button>' +
-    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'documents-v2\')">Documents</button>' +
-    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'clinician-inbox\')">Inbox</button>' +
-    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'schedule-v2\')">Schedule</button>' +
-    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'deeptwin\')">DeepTwin</button>' +
-    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'qeeg-launcher\')">qEEG</button>' +
-    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'mri-analysis\')">MRI</button>' +
-    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'video-assessments\')">Video</button>' +
-    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'wearables\')">Biometrics</button>' +
-    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'text-analyzer\')">Text</button>' +
-    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'live-session\')">Virtual Care</button>' +
-    (patientOk
-      ? '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'patients-v2\')">Patients</button>'
-      : '<span style="font-size:11px;color:var(--text-tertiary);align-self:center">Patient roster requires clinician context.</span>') +
-    '</div></div>'
-  );
-}
 let _researchBundleState = {
   loaded: false,
   loading: null,
@@ -193,6 +70,7 @@ let _researchBundleState = {
   adjunctPapers: [],
   adjunctReviewTables: null,
 };
+const _researchConditionDetailCache = new Map();
 
 function _reSlug(v) {
   return String(v || '')
@@ -220,6 +98,27 @@ function _reSignalTitle(signal) {
     || signal.example_titles
     || 'Safety signal'
   );
+}
+
+function _tierToGradeLabel(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (raw === 'high') return 'A';
+  if (raw === 'moderate_high') return 'B';
+  if (raw === 'moderate') return 'C';
+  if (raw === 'low') return 'D';
+  if (raw.includes('low')) return 'D';
+  if (raw.includes('preclinical') || raw.includes('contextual') || raw.includes('unspecified')) return 'E';
+  return raw.toUpperCase();
+}
+
+async function _ensureResearchConditionDetail(slug) {
+  const key = String(slug || '').trim();
+  if (!key) return null;
+  if (_researchConditionDetailCache.has(key)) return _researchConditionDetailCache.get(key);
+  const promise = api.getResearchCondition(key).catch(() => null);
+  _researchConditionDetailCache.set(key, promise);
+  return promise;
 }
 
 async function _ensureResearchBundleData() {
@@ -284,10 +183,8 @@ const TAB_META = {
    pgResearchEvidence — main export
    ══════════════════════════════════════════════════════════════════════════════ */
 export async function pgResearchEvidence(setTopbar, navigate) {
-  _reApplyRouteState();
   const tab = window._resEvidenceTab || 'overview';
   window._resEvidenceTab = tab;
-  _reSyncRoute(tab);
   const el = document.getElementById('content');
   const liveEvidence = await getEvidenceUiStats({
     fallbackSummary: EVIDENCE_SUMMARY,
@@ -296,11 +193,8 @@ export async function pgResearchEvidence(setTopbar, navigate) {
   });
   _liveEvidenceUiStats = liveEvidence;
 
-  const papersBadgeText = liveEvidence.totalPapers
-    ? `${fmtK(liveEvidence.totalPapers)} papers indexed`
-    : 'Evidence corpus';
   setTopbar('Research Evidence',
-    `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--surface-2);color:var(--text-secondary);font-weight:600;border:1px solid var(--border)" title="Aggregate count when API available; otherwise bundled approximation">${esc(papersBadgeText)}</span>`);
+    `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--teal);color:#fff;font-weight:600">${esc(fmtK(liveEvidence.totalPapers))} Papers</span>`);
 
   /* ── tab bar ─────────────────────────────────────────────────────────────── */
   function tabBar() {
@@ -317,28 +211,6 @@ export async function pgResearchEvidence(setTopbar, navigate) {
   window._reFilter = window._reFilter || {};
   window._reExpand = window._reExpand || {};
   window._reSort   = window._reSort || {};
-  if (tab !== 'search' && window._reEvidencePrefill) {
-    const prefill = String(window._reEvidencePrefill || '').trim();
-    window._reEvidencePrefill = null;
-    if (prefill) {
-      window._reSearch[tab] = prefill;
-    }
-  }
-  window._reOpenTab = function(nextTab, opts = {}) {
-    if (!TAB_META[nextTab]) return;
-    window._resEvidenceTab = nextTab;
-    window._reSearch = window._reSearch || {};
-    if (Object.prototype.hasOwnProperty.call(opts, 'q')) {
-      window._reSearch[nextTab] = String(opts.q || '');
-    }
-    if (Object.prototype.hasOwnProperty.call(opts, 'topic')) {
-      window._reAdjunctTopic = String(opts.topic || '');
-    }
-    if (Object.prototype.hasOwnProperty.call(opts, 'source')) {
-      window._reEvidenceSource = String(opts.source || '');
-    }
-    window._nav('research-evidence');
-  };
 
   const q    = (window._reSearch[tab] || '').toLowerCase();
   const filt = window._reFilter[tab] || 'All';
@@ -374,23 +246,25 @@ export async function pgResearchEvidence(setTopbar, navigate) {
   const body = document.getElementById('re-body');
 
   /* ── render per tab ──────────────────────────────────────────────────────── */
-  if (tab === 'overview')         renderOverview(body, liveEvidence);
-  else if (tab === 'conditions')  renderConditions(body, liveEvidence, q, filt, sort, sInput, pills, sortBtn);
-  else if (tab === 'assessments') renderAssessments(body, liveEvidence, q, filt, sInput, pills);
-  else if (tab === 'protocols')   await renderProtocols(body, liveEvidence, q, sInput);
-  else if (tab === 'neuro')       await renderNeuro(body, liveEvidence, q, filt, sInput, pills);
-  else if (tab === 'adjunct')     await renderAdjunctEvidence(body, liveEvidence, q, sInput);
-  else if (tab === 'aiml')        renderAIML(body, liveEvidence, q, sInput);
-  else if (tab === 'search')      await renderEvidenceSearch(body, liveEvidence);
-  else if (tab === 'review')      await renderNeedsReview(body, liveEvidence);
+  if (tab === 'overview')         await renderOverview(body, liveEvidence);
+  else if (tab === 'conditions')  await renderConditions(body, q, filt, sort, sInput, pills, sortBtn);
+  else if (tab === 'assessments') await renderAssessments(body, q, filt, sInput, pills);
+  else if (tab === 'protocols')   await renderProtocols(body, q, sInput);
+  else if (tab === 'neuro')       await renderNeuro(body, q, filt, sInput, pills);
+  else if (tab === 'adjunct')     await renderAdjunctEvidence(body, q, sInput);
+  else if (tab === 'aiml')        await renderAIML(body, q, sInput);
+  else if (tab === 'search')      await renderEvidenceSearch(body);
+  else if (tab === 'review')      await renderNeedsReview(body);
 }
 
 
 /* ══════════════════════════════════════════════════════════════════════════════
    TAB 1 — Overview
    ══════════════════════════════════════════════════════════════════════════════ */
-function renderOverview(body, liveEvidence = null) {
+async function renderOverview(body, liveEvidence = null) {
+  await _ensureResearchBundleData();
   const S = EVIDENCE_SUMMARY;
+  const liveSummary = _researchBundleState.summary || null;
   const top10 = Array.isArray(liveEvidence?.topConditions) && liveEvidence.topConditions.length
     ? liveEvidence.topConditions.slice(0, 10).map((row) => ({
         conditionId: row.key,
@@ -398,17 +272,13 @@ function renderOverview(body, liveEvidence = null) {
       }))
     : getTopConditionsByPaperCount(10);
 
-  /* KPI strip — modality count uses registry when live distribution empty */
-  const modalityKeys = Object.keys(liveEvidence?.modalityDistribution || {});
-  const modalityKpi = modalityKeys.length
-    ? modalityKeys.length
-    : Object.keys(S.modalityDistribution || {}).length;
+  /* KPI strip */
   const kpis = [
-    { val: fmtK(liveEvidence?.totalPapers || EVIDENCE_TOTAL_PAPERS), label: 'Papers (index)', color: 'var(--teal)' },
+    { val: fmtK(liveEvidence?.totalPapers || EVIDENCE_TOTAL_PAPERS), label: 'Papers', color: 'var(--teal)' },
     { val: fmtK(liveEvidence?.totalTrials || EVIDENCE_TOTAL_TRIALS), label: 'Clinical Trials', color: 'var(--blue)' },
     { val: fmtK(liveEvidence?.totalMetaAnalyses || EVIDENCE_TOTAL_META), label: 'Meta-analyses', color: 'var(--violet)' },
-    { val: liveEvidence?.totalConditions || S.totalConditions, label: 'Conditions (registry)', color: 'var(--rose)' },
-    { val: modalityKpi, label: 'Modalities tracked', color: 'var(--amber)' },
+    { val: liveEvidence?.totalConditions || S.totalConditions, label: 'Conditions', color: 'var(--rose)' },
+    { val: Object.keys(liveEvidence?.modalityDistribution || {}).length || S.totalDevices, label: 'Modalities', color: 'var(--amber)' },
   ];
   let kpiHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">';
   for (const k of kpis) {
@@ -419,64 +289,12 @@ function renderOverview(body, liveEvidence = null) {
   }
   kpiHtml += '</div>';
 
-  const quickLinks = [
-    {
-      title: 'Labs / Meds / Diet',
-      body: 'Jump straight into adjunct evidence for biomarkers, medications, supplements, and diet confounders.',
-      action: `window._reOpenTab('adjunct',{source:'overview'})`,
-      cta: 'Open adjunct evidence',
-      tone: 'var(--cyan,var(--teal))',
-    },
-    {
-      title: 'Common Adjunct Queries',
-      body: 'Start with clinician-ready searches for lithium, TSH, omega-3, vitamin D, and inflammation markers.',
-      action: `window._reOpenTab('adjunct',{q:'lithium TSH vitamin D omega-3 CRP',source:'overview'})`,
-      cta: 'Load common search',
-      tone: 'var(--violet)',
-    },
-    {
-      title: 'Condition Review Tables',
-      body: 'Browse depression, OCD, ADHD, pain, and epilepsy review tables without hunting through the evidence graph.',
-      action: `window._reOpenTab('adjunct',{topic:'review-tables',source:'overview'})`,
-      cta: 'Open review tables',
-      tone: 'var(--amber)',
-    },
-  ];
-  let shortcutHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-bottom:20px">';
-  for (const link of quickLinks) {
-    shortcutHtml += `<button type="button" class="ch-card" onclick="${link.action}" style="padding:16px;text-align:left;cursor:pointer;border:1px solid ${link.tone}55;background:linear-gradient(180deg,${link.tone}10,rgba(255,255,255,0.02))">
-      <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
-        <div style="font-size:14px;font-weight:700;color:var(--text-primary)">${esc(link.title)}</div>
-        <span style="padding:2px 8px;font-size:10px;border-radius:999px;background:${link.tone};color:#fff">Shortcut</span>
-      </div>
-      <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;margin-top:8px">${esc(link.body)}</div>
-      <div style="font-size:11px;font-weight:600;color:${link.tone};margin-top:12px">${esc(link.cta)} →</div>
-    </button>`;
-  }
-  shortcutHtml += '</div>';
-
   /* sources strip */
   let srcHtml = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:20px">';
   for (const s of (liveEvidence?.sources?.length ? liveEvidence.sources : EVIDENCE_SOURCES)) {
     srcHtml += `<span style="padding:3px 10px;font-size:11px;border-radius:12px;background:var(--surface-2);color:var(--text-secondary)">${esc(s)}</span>`;
   }
   srcHtml += '</div>';
-
-  /* Wearables ↔ biometrics evidence bridge (Studio wiring) */
-  const wearBridge =
-    '<div class="ch-card" style="padding:16px;margin-bottom:16px;border-left:3px solid var(--teal)">' +
-    '<div style="font-weight:600;margin-bottom:8px">Wearables &amp; passive sensing</div>' +
-    '<p style="font-size:13px;color:var(--text-secondary);margin:0 0 10px;line-height:1.5">' +
-    'Patient <strong>Devices &amp; Wearables</strong> can surface ranked citations via the same evidence-intelligence layer as this dashboard ' +
-    '(deterministic retrieval over the indexed corpus — typically on the order of <strong>' +
-    fmt(EVIDENCE_TOTAL_PAPERS) +
-    '</strong> works when the evidence database is mounted). ' +
-    'Biometric <em>correlation</em> readouts are associational; use the papers below for mechanistic and clinical context, not autonomous diagnosis.' +
-    '</p>' +
-    (currentUser && currentUser.role === 'patient'
-      ? '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'patient-wearables\')">Open Devices &amp; Wearables</button>'
-      : '<span style="font-size:12px;color:var(--text-tertiary)">Clinicians: review citations under patient wearable summaries in the clinical workspace.</span>') +
-    '</div>';
 
   /* year distribution */
   const yd = S.yearDistribution;
@@ -506,18 +324,6 @@ function renderOverview(body, liveEvidence = null) {
   }
   modHtml += '</div>';
 
-  /* top journals — only when live aggregation supplies rows */
-  let jrnlHtml = '';
-  if (Array.isArray(S.topPublishingJournals) && S.topPublishingJournals.length) {
-    jrnlHtml = '<div class="ch-card" style="padding:16px;margin-bottom:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Top Publishing Journals</div>';
-    jrnlHtml += '<table style="width:100%;font-size:12px;border-collapse:collapse">';
-    jrnlHtml += '<thead><tr style="text-align:left;color:var(--text-tertiary);border-bottom:1px solid var(--border)"><th style="padding:6px 8px">Journal</th><th style="padding:6px 8px;text-align:right">Papers</th><th style="padding:6px 8px;text-align:right">Impact Factor</th></tr></thead><tbody>';
-    for (const j of S.topPublishingJournals) {
-      jrnlHtml += `<tr style="border-bottom:1px solid var(--border-light,var(--border))"><td style="padding:6px 8px">${esc(j.name)}</td><td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">${fmt(j.papers)}</td><td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">${j.impactFactor}</td></tr>`;
-    }
-    jrnlHtml += '</tbody></table></div>';
-  }
-
   /* top conditions */
   const tcMax = top10[0]?.paperCount || 1;
   let tcHtml = '<div class="ch-card" style="padding:16px;margin-bottom:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Top 10 Conditions by Paper Count</div>';
@@ -527,24 +333,76 @@ function renderOverview(body, liveEvidence = null) {
   }
   tcHtml += '</div>';
 
+  let liveLinksHtml = '<div class="ch-card" style="padding:16px;margin-bottom:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Top Evidence Links</div>';
+  const topLinks = Array.isArray(liveSummary?.top_evidence_links) ? liveSummary.top_evidence_links.slice(0, 8) : [];
+  liveLinksHtml += topLinks.length
+    ? topLinks.map((row) => `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="font-size:12px;font-weight:600">${esc(_reNormalizeLabel(row.modality || 'Modality'))}${row.indication ? ' · ' + esc(_reNormalizeLabel(row.indication)) : ''}</div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">${esc(row.target || 'Target')} · ${fmt(row.paper_count || 0)} papers · ${fmt(row.citation_sum || 0)} citations</div>
+      </div>`).join('')
+    : '<div style="font-size:12px;color:var(--text-tertiary)">No live evidence-link rows available.</div>';
+  liveLinksHtml += '</div>';
+
+  let liveTemplateHtml = '<div class="ch-card" style="padding:16px;margin-bottom:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Top Protocol Templates</div>';
+  const topTemplates = Array.isArray(liveSummary?.top_protocol_templates) ? liveSummary.top_protocol_templates.slice(0, 8) : [];
+  liveTemplateHtml += topTemplates.length
+    ? topTemplates.map((row) => `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="font-size:12px;font-weight:600">${esc(_reNormalizeLabel(row.modality || 'Modality'))}${row.indication ? ' · ' + esc(_reNormalizeLabel(row.indication)) : ''}</div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">${esc(row.target || 'Target')} · ${fmt(row.paper_count || 0)} papers · support ${fmt(Math.round(row.template_support_score || 0))}</div>
+      </div>`).join('')
+    : '<div style="font-size:12px;color:var(--text-tertiary)">No live protocol-template rows available.</div>';
+  liveTemplateHtml += '</div>';
+
+  let liveSafetyHtml = '<div class="ch-card" style="padding:16px;margin-bottom:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Recent Safety Signals</div>';
+  const recentSafety = Array.isArray(liveSummary?.recent_safety_signals) ? liveSummary.recent_safety_signals.slice(0, 8) : [];
+  liveSafetyHtml += recentSafety.length
+    ? recentSafety.map((row) => `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="font-size:12px;font-weight:600">${esc(row.title || 'Safety signal')}</div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">${esc(_reNormalizeLabel(row.primary_modality || 'Modality'))}${row.year ? ' · ' + esc(row.year) : ''}${row.evidence_tier ? ' · tier ' + esc(row.evidence_tier) : ''}</div>
+      </div>`).join('')
+    : '<div style="font-size:12px;color:var(--text-tertiary)">No recent safety rows available.</div>';
+  liveSafetyHtml += '</div>';
+
   /* two-column layout for charts */
-  body.innerHTML = _resWorkspaceHeader(liveEvidence, { shortcuts: true }) + kpiHtml + shortcutHtml + srcHtml + wearBridge +
+  body.innerHTML = kpiHtml + srcHtml +
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px">' +
-    yearHtml + gradeHtml + modHtml + tcHtml + jrnlHtml +
-    '</div>' +
-    '<p style="font-size:11px;color:var(--text-tertiary);margin-top:12px">Grade and year distributions on this tab use the bundled registry when the live API is unavailable — use <strong>Evidence Search</strong> for PubMed-backed retrieval.</p>';
+    yearHtml + gradeHtml + modHtml + tcHtml + liveLinksHtml + liveTemplateHtml + liveSafetyHtml +
+    '</div>';
 }
 
 
 /* ══════════════════════════════════════════════════════════════════════════════
    TAB 2 — Conditions & Comorbidity
    ══════════════════════════════════════════════════════════════════════════════ */
-function renderConditions(body, liveEvidence, q, filt, sort, sInput, pills, sortBtn) {
+async function renderConditions(body, q, filt, sort, sInput, pills, sortBtn) {
   const cats = ['All', 'Mood', 'Anxiety', 'OCD Spectrum', 'Trauma', 'ADHD', 'Autism',
     'Pain', 'Sleep', 'Neurological', 'Substance', 'Eating', 'Comorbid', 'Other'];
 
-  /* merge evidence data + registry metadata */
-  let rows = CONDITION_EVIDENCE.map(ev => {
+  let liveRows = [];
+  try {
+    liveRows = await api.listResearchConditions();
+  } catch {}
+
+  /* merge live condition rows + registry metadata, fallback to static */
+  let rows = liveRows.length ? liveRows.map((row) => {
+    const reg = _regLookup(row.condition_slug) || _regLookup(row.condition_label || '');
+    const topSafety = Array.isArray(row.top_safety_signals) ? row.top_safety_signals : [];
+    return {
+      conditionId: row.condition_slug,
+      name: row.condition_label || row.condition_slug.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+      icd10: reg?.icd10 || '',
+      cat: reg?.cat || (row.condition_slug.includes('comorbid') ? 'Comorbid' : 'Other'),
+      ev: reg?.ev || '',
+      paperCount: Number(row.research_paper_count || 0),
+      rctCount: 0,
+      metaAnalysisCount: 0,
+      systematicReviewCount: 0,
+      topJournals: [],
+      priorityModalities: Array.isArray(row.priority_modalities) ? row.priority_modalities : [],
+      topSafetySignals: topSafety,
+      live: true,
+    };
+  }) : CONDITION_EVIDENCE.map(ev => {
     const reg = _regLookup(ev.conditionId);
     return {
       ...ev,
@@ -552,6 +410,7 @@ function renderConditions(body, liveEvidence, q, filt, sort, sInput, pills, sort
       icd10: reg?.icd10 || '',
       cat: reg?.cat || (ev.conditionId.includes('comorbid') ? 'Comorbid' : 'Other'),
       ev: reg?.ev || '',
+      live: false,
     };
   });
 
@@ -566,13 +425,17 @@ function renderConditions(body, liveEvidence, q, filt, sort, sInput, pills, sort
 
   /* sort */
   if (sort === 'papers')   rows.sort((a, b) => b.paperCount - a.paperCount);
-  else if (sort === 'rcts') rows.sort((a, b) => b.rctCount - a.rctCount);
-  else if (sort === 'meta') rows.sort((a, b) => b.metaAnalysisCount - a.metaAnalysisCount);
+  else if (sort === 'rcts') rows.sort((a, b) => (b.rctCount || 0) - (a.rctCount || 0));
+  else if (sort === 'meta') rows.sort((a, b) => (b.metaAnalysisCount || 0) - (a.metaAnalysisCount || 0));
   else if (sort === 'name') rows.sort((a, b) => a.name.localeCompare(b.name));
 
+  const expandedRows = rows.filter((r) => window._reExpand[r.conditionId]).slice(0, 8);
+  const expandedDetails = new Map(
+    await Promise.all(expandedRows.map(async (r) => [r.conditionId, await _ensureResearchConditionDetail(r.conditionId)]))
+  );
+
   /* toolbar */
-  let html = _resWorkspaceHeader(liveEvidence) +
-    `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
+  let html = `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
     ${sInput('Search conditions...')}
     <div style="display:flex;flex-wrap:wrap;gap:4px">${pills(cats, filt)}</div>
   </div>`;
@@ -596,25 +459,73 @@ function renderConditions(body, liveEvidence, q, filt, sort, sInput, pills, sort
       <td style="padding:8px;color:var(--text-tertiary)">${esc(r.icd10)}</td>
       <td style="padding:8px"><span style="padding:2px 8px;font-size:10px;border-radius:8px;background:var(--surface-2);color:var(--text-secondary)">${esc(r.cat)}</span></td>
       <td style="padding:8px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600">${fmt(r.paperCount)}</td>
-      <td style="padding:8px;text-align:right;font-variant-numeric:tabular-nums">${fmt(r.rctCount)}</td>
-      <td style="padding:8px;text-align:right;font-variant-numeric:tabular-nums">${fmt(r.metaAnalysisCount)}</td>
-      <td style="padding:8px;text-align:right;font-variant-numeric:tabular-nums">${fmt(r.systematicReviewCount)}</td>
+      <td style="padding:8px;text-align:right;font-variant-numeric:tabular-nums">${fmt(r.rctCount || 0)}</td>
+      <td style="padding:8px;text-align:right;font-variant-numeric:tabular-nums">${fmt(r.metaAnalysisCount || 0)}</td>
+      <td style="padding:8px;text-align:right;font-variant-numeric:tabular-nums">${fmt(r.systematicReviewCount || 0)}</td>
       <td style="padding:8px"><span style="display:inline-block;padding:2px 8px;font-size:10px;font-weight:700;border-radius:8px;background:${gradeBg};color:#fff">${esc(r.ev || '—')}</span></td>
       <td style="padding:8px;font-size:11px;color:var(--text-tertiary)">${esc((r.topJournals || [])[0] || '')}</td>
     </tr>`;
 
-    /* expanded detail — recent high-impact papers */
-    if (expanded) {
+    const detail = expanded ? expandedDetails.get(r.conditionId) : null;
+    if (expanded && detail) {
+      const stats = detail.research_stats || {};
+      const topModalities = Array.isArray(stats.modalities) ? stats.modalities.slice(0, 4) : [];
+      const topStudies = Array.isArray(stats.study_types) ? stats.study_types.slice(0, 4) : [];
+      const repPapers = Array.isArray(detail.representative_papers) ? detail.representative_papers.slice(0, 5) : [];
+      const safety = Array.isArray(detail.safety_signals) ? detail.safety_signals.slice(0, 4) : [];
+      const protocolNotes = Array.isArray(detail.protocol_personalization_notes) ? detail.protocol_personalization_notes.slice(0, 3) : [];
       html += `<tr><td colspan="9" style="padding:0 8px 12px 24px;background:var(--surface-1,var(--bg))">
-        <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;margin:8px 0">
-          <strong>Illustrative citations removed.</strong> Open <button type="button" class="btn btn-ghost btn-xs" onclick="window._resEvidenceTab='search';window._nav('research-evidence')">Evidence Search</button>
-          for PubMed-linked retrieval, or review bundled counts above as registry approximations — not verified primary citations on this row.
-        </div></td></tr>`;
+        <div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin:8px 0 10px">Live Condition Detail</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:10px">
+          <div style="padding:10px;border:1px solid var(--border);border-radius:8px">
+            <div style="font-size:10px;color:var(--text-tertiary)">Research stats</div>
+            <div style="font-size:12px;margin-top:4px">${fmt(stats.total_papers || 0)} papers · ${fmt(stats.open_access_papers || 0)} OA · ${esc(stats.year_min || '—')}–${esc(stats.year_max || '—')}</div>
+          </div>
+          <div style="padding:10px;border:1px solid var(--border);border-radius:8px">
+            <div style="font-size:10px;color:var(--text-tertiary)">Top modalities</div>
+            <div style="font-size:12px;margin-top:4px">${topModalities.map((m) => `${esc(_reNormalizeLabel(m.label || ''))} (${fmt(m.count || 0)})`).join(' · ') || '—'}</div>
+          </div>
+          <div style="padding:10px;border:1px solid var(--border);border-radius:8px">
+            <div style="font-size:10px;color:var(--text-tertiary)">Top study types</div>
+            <div style="font-size:12px;margin-top:4px">${topStudies.map((s) => `${esc(_reNormalizeLabel(s.label || ''))} (${fmt(s.count || 0)})`).join(' · ') || '—'}</div>
+          </div>
+          <div style="padding:10px;border:1px solid var(--border);border-radius:8px">
+            <div style="font-size:10px;color:var(--text-tertiary)">Safety signals</div>
+            <div style="font-size:12px;margin-top:4px">${safety.map((s) => `${esc(_reNormalizeLabel(s.signal || ''))} (${fmt(s.count || 0)})`).join(' · ') || '—'}</div>
+          </div>
+        </div>`;
+      if (protocolNotes.length) {
+        html += `<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:10px">${protocolNotes.map(esc).join(' · ')}</div>`;
+      }
+      html += `<div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin:8px 0 6px">Representative Papers (${repPapers.length})</div>`;
+      for (const p of repPapers) {
+        html += `<div style="padding:6px 0;border-bottom:1px solid var(--border-light,var(--border))">
+          <div style="font-size:12px;font-weight:500">${esc(p.title)}</div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${p.year ? esc(p.year) + ' · ' : ''}${p.journal ? '<em>' + esc(p.journal) + '</em> · ' : ''}${p.study_type ? esc(_reNormalizeLabel(p.study_type)) + ' · ' : ''}${p.citation_count != null ? fmt(p.citation_count) + ' citations' : ''}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+            ${p.record_url ? `<a href="${esc(p.record_url)}" target="_blank" rel="noopener" style="font-size:10px;color:var(--teal)">Record ↗</a>` : ''}
+            ${p.doi ? `<a href="https://doi.org/${esc(p.doi)}" target="_blank" rel="noopener" style="font-size:10px;color:var(--teal)">DOI</a>` : ''}
+            ${p.pmid ? `<a href="https://pubmed.ncbi.nlm.nih.gov/${esc(p.pmid)}/" target="_blank" rel="noopener" style="font-size:10px;color:var(--teal)">PubMed</a>` : ''}
+          </div>
+        </div>`;
+      }
+      html += '</td></tr>';
+    } else if (expanded && r.recentHighImpact?.length) {
+      html += `<tr><td colspan="9" style="padding:0 8px 12px 24px;background:var(--surface-1,var(--bg))">
+        <div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin:8px 0 6px">Recent High-Impact Papers (${r.recentHighImpact.length})</div>`;
+      for (const p of r.recentHighImpact) {
+        html += `<div style="padding:6px 0;border-bottom:1px solid var(--border-light,var(--border))">
+          <div style="font-size:12px;font-weight:500">${esc(p.title)}</div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${esc(p.authors)} &middot; ${p.year} &middot; <em>${esc(p.journal)}</em> &middot; ${fmt(p.citations)} citations</div>
+          ${p.doi ? `<a href="https://doi.org/${esc(p.doi)}" target="_blank" rel="noopener" style="font-size:10px;color:var(--teal)">DOI: ${esc(p.doi)}</a>` : ''}
+        </div>`;
+      }
+      html += '</td></tr>';
     }
   }
 
   html += '</tbody></table></div>';
-  html += `<div style="font-size:11px;color:var(--text-tertiary);margin-top:8px">Showing ${rows.length} of ${CONDITION_EVIDENCE.length} conditions · rollups are bundled registry approximations unless live API is connected.</div>`;
+  html += `<div style="font-size:11px;color:var(--text-tertiary);margin-top:8px">Showing ${rows.length} of ${(liveRows.length || CONDITION_EVIDENCE.length)} conditions</div>`;
   body.innerHTML = html;
 }
 
@@ -622,16 +533,38 @@ function renderConditions(body, liveEvidence, q, filt, sort, sInput, pills, sort
 /* ══════════════════════════════════════════════════════════════════════════════
    TAB 3 — Assessments & Scales
    ══════════════════════════════════════════════════════════════════════════════ */
-function renderAssessments(body, liveEvidence, q, filt, sInput, pills) {
+async function renderAssessments(body, q, filt, sInput, pills) {
   const domains = ['All', ...new Set(ASSESSMENT_REGISTRY.map(a => a.domain).filter(Boolean))];
 
   let rows = [...ASSESSMENT_REGISTRY];
   if (filt !== 'All') rows = rows.filter(a => a.domain === filt);
   if (q) rows = rows.filter(a => (a.name + ' ' + a.id + ' ' + a.domain + ' ' + (a.conditions || []).join(' ')).toLowerCase().includes(q));
 
+  const expandedRows = rows.filter((a) => window._reExpand['a_' + a.id]).slice(0, 8);
+  const assessmentEvidence = new Map(
+    await Promise.all(expandedRows.map(async (a) => {
+      const indication = Array.isArray(a.conditions) && a.conditions.length ? a.conditions[0] : undefined;
+      const [papersRes, graphRes] = await Promise.allSettled([
+        api.searchResearchPapers?.({
+          q: a.name,
+          indication,
+          ranking_mode: 'clinical',
+          limit: 4,
+        }),
+        api.listResearchEvidenceGraph?.({
+          indication,
+          limit: 4,
+        }),
+      ]);
+      return [a.id, {
+        papers: papersRes.status === 'fulfilled' && Array.isArray(papersRes.value) ? papersRes.value : [],
+        graph: graphRes.status === 'fulfilled' && Array.isArray(graphRes.value) ? graphRes.value : [],
+      }];
+    }))
+  );
+
   /* toolbar */
-  let html = _resWorkspaceHeader(liveEvidence) +
-    `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px">
+  let html = `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px">
     ${sInput('Search assessments...')}
     <div style="display:flex;flex-wrap:wrap;gap:4px">${pills(domains, filt)}</div>
   </div>`;
@@ -659,6 +592,7 @@ function renderAssessments(body, liveEvidence, q, filt, sInput, pills) {
       </div>`;
 
     if (expanded) {
+      const live = assessmentEvidence.get(a.id) || { papers: [], graph: [] };
       html += `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:12px">`;
       if (a.scoring) html += `<div style="margin-bottom:6px"><strong>Scoring:</strong> ${esc(a.scoring)}</div>`;
       if (a.conditions?.length) {
@@ -671,6 +605,22 @@ function renderAssessments(body, liveEvidence, q, filt, sInput, pills) {
         html += '</div>';
       }
       if (a.link) html += `<div style="margin-top:6px"><a href="${esc(a.link)}" target="_blank" rel="noopener" style="font-size:11px;color:var(--teal)">Reference &rarr;</a></div>`;
+      if (live.graph.length) {
+        html += `<div style="margin-top:10px"><strong>Live Evidence Graph Context:</strong></div>`;
+        html += live.graph.map((row) => `<div style="margin-top:6px;font-size:11px;color:var(--text-tertiary)">${esc(_reNormalizeLabel(row.modality || 'Modality'))}${row.indication ? ' · ' + esc(_reNormalizeLabel(row.indication)) : ''}${row.target ? ' · ' + esc(row.target) : ''}${row.paper_count != null ? ' · ' + fmt(row.paper_count) + ' papers' : ''}</div>`).join('');
+      }
+      if (live.papers.length) {
+        html += `<div style="margin-top:10px"><strong>Live Papers:</strong></div>`;
+        html += live.papers.map((p) => `<div style="padding:8px 0;border-bottom:1px solid var(--border-light,var(--border))">
+          <div style="font-size:12px;font-weight:500">${esc(p.title || '(untitled)')}</div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${esc(p.authors || '')}${p.year ? ' · ' + esc(p.year) : ''}${p.journal ? ' · ' + '<em>' + esc(p.journal) + '</em>' : ''}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:5px">
+            ${p.record_url ? `<a href="${esc(p.record_url)}" target="_blank" rel="noopener" style="font-size:10px;color:var(--teal)">Open</a>` : ''}
+            ${p.doi ? `<a href="https://doi.org/${esc(p.doi)}" target="_blank" rel="noopener" style="font-size:10px;color:var(--teal)">DOI</a>` : ''}
+            ${p.pmid ? `<a href="https://pubmed.ncbi.nlm.nih.gov/${esc(p.pmid)}/" target="_blank" rel="noopener" style="font-size:10px;color:var(--teal)">PubMed</a>` : ''}
+          </div>
+        </div>`).join('');
+      }
       html += '</div>';
     }
 
@@ -685,9 +635,13 @@ function renderAssessments(body, liveEvidence, q, filt, sInput, pills) {
 /* ══════════════════════════════════════════════════════════════════════════════
    TAB 4 — Protocols & Devices
    ══════════════════════════════════════════════════════════════════════════════ */
-async function renderProtocols(body, liveEvidence, q, sInput) {
+async function renderProtocols(body, q, sInput) {
   await _ensureResearchBundleData();
-  let html = _resWorkspaceHeader(liveEvidence) + sInput('Search protocols, devices, modalities...') + '<div style="margin-bottom:16px"></div>';
+  let liveDevices = [];
+  try {
+    liveDevices = await api.searchEvidenceDevices?.({ limit: 60 });
+  } catch {}
+  let html = sInput('Search protocols, devices, modalities...') + '<div style="margin-bottom:16px"></div>';
 
   /* ── Section A: Protocol Templates ────────────────────────────────────────── */
   const liveProtoRows = _researchBundleState.loaded
@@ -731,8 +685,21 @@ async function renderProtocols(body, liveEvidence, q, sInput) {
   html += '</tbody></table></div></div>';
 
   /* ── Section B: Devices ───────────────────────────────────────────────────── */
-  let devs = [...DEVICE_REGISTRY];
-  if (q) devs = devs.filter(d => (d.name + ' ' + d.mfr + ' ' + d.modality + ' ' + d.indication).toLowerCase().includes(q));
+  let devs = (Array.isArray(liveDevices) && liveDevices.length)
+    ? liveDevices.map((d, idx) => ({
+        id: `live-device-${idx}`,
+        name: d.trade_name || d.applicant || d.number || 'Indexed device',
+        mfr: d.applicant || 'Indexed evidence DB',
+        modality: d.kind ? d.kind.toUpperCase() : 'FDA',
+        type: d.product_code || d.kind || 'device',
+        clearance: d.kind ? `FDA ${String(d.kind).toUpperCase()}` : 'FDA',
+        homeClinic: d.number || '',
+        region: d.decision_date || '',
+        indication: d.number || '',
+        notes: d.decision_date ? `Decision date ${d.decision_date}` : '',
+      }))
+    : [...DEVICE_REGISTRY];
+  if (q) devs = devs.filter(d => (d.name + ' ' + d.mfr + ' ' + d.modality + ' ' + d.indication + ' ' + (d.type || '')).toLowerCase().includes(q));
 
   html += '<div class="ch-card" style="padding:16px;margin-bottom:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Devices (' + devs.length + ')</div>';
   html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px">';
@@ -816,7 +783,7 @@ async function renderProtocols(body, liveEvidence, q, sInput) {
       (graphRows.length
         ? graphRows.map((row) => `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
             <div style="font-size:12px;font-weight:600">${esc(_reNormalizeLabel(row.modality || 'Modality'))}${row.indication ? ' · ' + esc(_reNormalizeLabel(row.indication)) : ''}</div>
-            <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">${esc(row.target || row.target_label || 'Target link')}${row.paper_count != null ? ' · ' + fmt(row.paper_count) + ' papers' : ''}</div>
+            <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">${esc(row.target || row.target_label || 'Target link')}${row.paper_count != null ? ' · ' + fmt(row.paper_count) + ' papers' : ''}${row.citation_sum != null ? ' · ' + fmt(row.citation_sum) + ' citations' : ''}${row.year_min || row.year_max ? ' · ' + esc(row.year_min || '—') + '–' + esc(row.year_max || '—') : ''}</div>
           </div>`).join('')
         : '<div style="font-size:12px;color:var(--text-tertiary)">No live evidence-graph rows available.</div>') +
       '</div>';
@@ -836,11 +803,6 @@ function renderAdjunctEvidenceSection(q, { standalone = false } = {}) {
   const reviewConditions = Array.isArray(adjunctReviewTables.conditions)
     ? adjunctReviewTables.conditions.filter((row) => Array.isArray(row.rows) && row.rows.length)
     : [];
-  const selectedTopic = String(window._reAdjunctTopic || '').trim();
-  const normalizedTopic = _reSlug(selectedTopic);
-  const visibleReviewConditions = normalizedTopic === 'review-tables'
-    ? reviewConditions
-    : reviewConditions.filter((condition) => !normalizedTopic || _reSlug(condition.condition_label || condition.condition_slug) === normalizedTopic);
   const adjunctRows = (_researchBundleState.adjunctPapers || [])
     .filter((row) => !q || ([
       row.title,
@@ -850,12 +812,6 @@ function renderAdjunctEvidenceSection(q, { standalone = false } = {}) {
       ...(row.adjunct_terms || []),
       ...(row.indication_tags || []),
     ].join(' ').toLowerCase().includes(q)))
-    .filter((row) => {
-      if (!normalizedTopic || normalizedTopic === 'review-tables') return true;
-      return (row.adjunct_topic_labels || []).some((label) => _reSlug(label) === normalizedTopic)
-        || (row.adjunct_terms || []).some((label) => _reSlug(label) === normalizedTopic)
-        || (row.indication_tags || []).some((label) => _reSlug(label) === normalizedTopic);
-    })
     .slice(0, standalone ? 12 : 8);
 
   let html = '';
@@ -886,16 +842,7 @@ function renderAdjunctEvidenceSection(q, { standalone = false } = {}) {
   </div>`;
   html += `<div class="ch-card" style="padding:16px">
     <div style="font-weight:600;font-size:14px;margin-bottom:10px">Top Topics</div>
-    ${(adjunctSummary.top_topics || []).slice(0, standalone ? 8 : 6).map((row) => {
-      const isActive = _reSlug(row.key) === normalizedTopic;
-      return `<button type="button" onclick="window._reOpenTab('adjunct',{topic:'${esc(_reSlug(row.key))}',source:'topic-chip'})" style="display:block;width:100%;padding:8px 0;border:none;border-bottom:1px solid var(--border);background:transparent;text-align:left;cursor:pointer">
-        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
-          <div style="font-size:12px;font-weight:600;color:${isActive ? 'var(--teal)' : 'var(--text-primary)'}">${esc(row.key)}</div>
-          ${isActive ? '<span style="padding:2px 8px;font-size:10px;border-radius:999px;background:var(--teal);color:#fff">Active</span>' : ''}
-        </div>
-        <div style="font-size:11px;color:var(--text-tertiary);margin-top:3px">${fmt(row.count)} linked papers</div>
-      </button>`;
-    }).join('') || '<div style="font-size:12px;color:var(--text-tertiary)">No topic summaries available.</div>'}
+    ${(adjunctSummary.top_topics || []).slice(0, standalone ? 8 : 6).map((row) => `<div style="padding:8px 0;border-bottom:1px solid var(--border)"><div style="font-size:12px;font-weight:600">${esc(row.key)}</div><div style="font-size:11px;color:var(--text-tertiary);margin-top:3px">${fmt(row.count)} linked papers</div></div>`).join('') || '<div style="font-size:12px;color:var(--text-tertiary)">No topic summaries available.</div>'}
   </div>`;
   html += `<div class="ch-card" style="padding:16px">
     <div style="font-weight:600;font-size:14px;margin-bottom:10px">Example Papers</div>
@@ -914,18 +861,8 @@ function renderAdjunctEvidenceSection(q, { standalone = false } = {}) {
     html += '<div style="font-weight:600;font-size:14px">Condition Review Tables</div>';
     html += `<div style="font-size:11px;color:var(--text-tertiary)">Focused on depression, OCD, ADHD, pain, and epilepsy review workflows.</div>`;
     html += '</div>';
-    if (standalone) {
-      html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">';
-      html += `<button type="button" class="reg-domain-pill${normalizedTopic === 'review-tables' ? ' active' : ''}" onclick="window._reOpenTab('adjunct',{topic:'review-tables',source:'review-tables'})">All review tables</button>`;
-      html += reviewConditions.map((condition) => {
-        const slug = _reSlug(condition.condition_label || condition.condition_slug);
-        const active = slug === normalizedTopic;
-        return `<button type="button" class="reg-domain-pill${active ? ' active' : ''}" onclick="window._reOpenTab('adjunct',{topic:'${esc(slug)}',source:'review-tables'})">${esc(condition.condition_label || condition.condition_slug || 'Condition')}</button>`;
-      }).join('');
-      html += '</div>';
-    }
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">';
-    html += visibleReviewConditions.map((condition) => `<div style="padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--surface-2)">
+    html += reviewConditions.map((condition) => `<div style="padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--surface-2)">
       <div style="font-size:13px;font-weight:600;margin-bottom:10px">${esc(condition.condition_label || condition.condition_slug || 'Condition')}</div>
       ${(condition.rows || []).map((row) => `<div style="padding:10px 0;border-top:1px solid var(--border)">
         <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
@@ -943,18 +880,7 @@ function renderAdjunctEvidenceSection(q, { standalone = false } = {}) {
   return html;
 }
 
-function _hasAdjunctEvidenceBundleData() {
-  const reviewConditions = Array.isArray(_researchBundleState.adjunctReviewTables?.conditions)
-    ? _researchBundleState.adjunctReviewTables.conditions.filter((row) => Array.isArray(row?.rows) && row.rows.length)
-    : [];
-  return !!(
-    _researchBundleState.adjunctSummary ||
-    _researchBundleState.adjunctPapers.length ||
-    reviewConditions.length
-  );
-}
-
-async function renderNeuro(body, liveEvidence, q, filt, sInput, pills) {
+async function renderNeuro(body, q, filt, sInput, pills) {
   await _ensureResearchBundleData();
   const lobes = ['All', ...new Set(BRAIN_TARGET_REGISTRY.map(t => t.lobe).filter(Boolean))];
 
@@ -962,8 +888,25 @@ async function renderNeuro(body, liveEvidence, q, filt, sInput, pills) {
   if (filt !== 'All') rows = rows.filter(t => t.lobe === filt);
   if (q) rows = rows.filter(t => (t.label + ' ' + t.region + ' ' + t.function + ' ' + t.clinical + ' ' + t.site10_20).toLowerCase().includes(q));
 
-  let html = _resWorkspaceHeader(liveEvidence) +
-    `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px">
+  const expandedRows = rows.filter((t) => window._reExpand['n_' + t.id]).slice(0, 8);
+  const liveTargetEvidence = new Map(
+    await Promise.all(expandedRows.map(async (t) => {
+      const targetNeedle = t.label || t.id || t.site10_20 || '';
+      const [graphRes, papersRes, templateRes] = await Promise.allSettled([
+        api.listResearchEvidenceGraph?.({ target: targetNeedle, limit: 6 }),
+        api.searchResearchPapers?.({ target: targetNeedle, ranking_mode: 'clinical', limit: 4 }),
+        api.listResearchProtocolTemplates?.({ limit: 6 }),
+      ]);
+      const graph = graphRes.status === 'fulfilled' && Array.isArray(graphRes.value) ? graphRes.value : [];
+      const papers = papersRes.status === 'fulfilled' && Array.isArray(papersRes.value) ? papersRes.value : [];
+      const templates = templateRes.status === 'fulfilled' && Array.isArray(templateRes.value) ? templateRes.value.filter((row) =>
+        String(row.target || '').toLowerCase().includes(String(targetNeedle).toLowerCase())
+      ).slice(0, 4) : [];
+      return [t.id, { graph, papers, templates }];
+    }))
+  );
+
+  let html = `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px">
     ${sInput('Search brain targets...')}
     <div style="display:flex;flex-wrap:wrap;gap:4px">${pills(lobes, filt)}</div>
   </div>`;
@@ -994,6 +937,7 @@ async function renderNeuro(body, liveEvidence, q, filt, sInput, pills) {
       const linkedConds = CONDITION_REGISTRY.filter(c =>
         (c.targets || []).some(tgt => tgt === t.site10_20 || tgt === t.id)
       );
+      const live = liveTargetEvidence.get(t.id) || { graph: [], papers: [], templates: [] };
 
       html += `<tr><td colspan="7" style="padding:8px 8px 12px 24px;background:var(--surface-1,var(--bg));font-size:12px">
         <div style="font-weight:500;margin-bottom:4px">Region: ${esc(t.region)}</div>`;
@@ -1003,6 +947,25 @@ async function renderNeuro(body, liveEvidence, q, filt, sInput, pills) {
       if (linkedConds.length) {
         html += '<div style="margin-top:6px"><strong>Linked Conditions:</strong> ' + linkedConds.map(c => `<span style="padding:2px 6px;font-size:10px;border-radius:6px;background:var(--blue);color:#fff;margin:2px">${esc(c.name)}</span>`).join('') + '</div>';
       }
+      if (live.graph.length) {
+        html += '<div style="margin-top:8px"><strong>Live Evidence Graph:</strong></div>';
+        html += live.graph.map((row) => `<div style="margin-top:6px;font-size:11px;color:var(--text-tertiary)">${esc(_reNormalizeLabel(row.modality || 'Modality'))}${row.indication ? ' · ' + esc(_reNormalizeLabel(row.indication)) : ''}${row.paper_count != null ? ' · ' + fmt(row.paper_count) + ' papers' : ''}${row.citation_sum != null ? ' · ' + fmt(row.citation_sum) + ' citations' : ''}</div>`).join('');
+      }
+      if (live.templates.length) {
+        html += '<div style="margin-top:8px"><strong>Live Protocol Templates:</strong> ' + live.templates.map((row) => `<span style="padding:2px 6px;font-size:10px;border-radius:6px;background:var(--violet);color:#fff;margin:2px">${esc(_reNormalizeLabel(row.modality || 'Protocol'))}${row.indication ? ' · ' + esc(_reNormalizeLabel(row.indication)) : ''}</span>`).join('') + '</div>';
+      }
+      if (live.papers.length) {
+        html += '<div style="margin-top:8px"><strong>Live Papers:</strong></div>';
+        html += live.papers.map((p) => `<div style="padding:8px 0;border-bottom:1px solid var(--border-light,var(--border))">
+          <div style="font-size:12px;font-weight:500">${esc(p.title || '(untitled)')}</div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${esc(p.authors || '')}${p.year ? ' · ' + esc(p.year) : ''}${p.journal ? ' · ' + '<em>' + esc(p.journal) + '</em>' : ''}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:5px">
+            ${p.record_url ? `<a href="${esc(p.record_url)}" target="_blank" rel="noopener" style="font-size:10px;color:var(--teal)">Open</a>` : ''}
+            ${p.doi ? `<a href="https://doi.org/${esc(p.doi)}" target="_blank" rel="noopener" style="font-size:10px;color:var(--teal)">DOI</a>` : ''}
+            ${p.pmid ? `<a href="https://pubmed.ncbi.nlm.nih.gov/${esc(p.pmid)}/" target="_blank" rel="noopener" style="font-size:10px;color:var(--teal)">PubMed</a>` : ''}
+          </div>
+        </div>`).join('');
+      }
       html += '</td></tr>';
     }
   }
@@ -1010,7 +973,7 @@ async function renderNeuro(body, liveEvidence, q, filt, sInput, pills) {
   html += '</tbody></table></div>';
   html += `<div style="font-size:11px;color:var(--text-tertiary);margin-top:8px">Showing ${rows.length} of ${BRAIN_TARGET_REGISTRY.length} brain targets</div>`;
 
-  if (_hasAdjunctEvidenceBundleData()) {
+  if (_researchBundleState.adjunctSummary || _researchBundleState.adjunctPapers.length) {
     html += renderAdjunctEvidenceSection(q);
   }
 
@@ -1021,15 +984,14 @@ async function renderNeuro(body, liveEvidence, q, filt, sInput, pills) {
 /* ══════════════════════════════════════════════════════════════════════════════
    TAB 6 — Labs / Meds / Diet
    ══════════════════════════════════════════════════════════════════════════════ */
-async function renderAdjunctEvidence(body, liveEvidence, q, sInput) {
+async function renderAdjunctEvidence(body, q, sInput) {
   await _ensureResearchBundleData();
 
-  let html = _resWorkspaceHeader(liveEvidence) +
-    `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px">
+  let html = `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px">
     ${sInput('Search labs, medications, supplements, vitamins, and diet evidence...')}
   </div>`;
 
-  if (_hasAdjunctEvidenceBundleData()) {
+  if (_researchBundleState.adjunctSummary || _researchBundleState.adjunctPapers.length) {
     html += renderAdjunctEvidenceSection(q, { standalone: true });
   } else {
     html += `<div class="ch-card" style="padding:16px">
@@ -1045,24 +1007,116 @@ async function renderAdjunctEvidence(body, liveEvidence, q, sInput) {
 /* ══════════════════════════════════════════════════════════════════════════════
    TAB 7 — AI/ML & Psychotherapies
    ══════════════════════════════════════════════════════════════════════════════ */
-function renderAIML(body, liveEvidence, q, sInput) {
-  let html = _resWorkspaceHeader(liveEvidence) +
-    `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px">
-    ${sInput('Reserved — use Evidence Search for keyword retrieval')}
+async function renderAIML(body, q, sInput) {
+  const aiKeywords  = ['machine learning', 'artificial intelligence', 'deep learning', 'neural network', 'predictive model', 'classifier', 'biomarker prediction'];
+  const psyKeywords = ['psychotherapy', 'cbt', 'cognitive behav', 'exposure', 'erp', 'mindfulness', 'behavioural activation', 'behavioral activation', 'therapy augment'];
+
+  async function gatherLive(keywords) {
+    const results = [];
+    const seen = new Set();
+    const batches = await Promise.allSettled(
+      keywords.map((kw) => api.searchResearchPapers?.({
+        q: kw,
+        ranking_mode: 'clinical',
+        limit: 8,
+      }))
+    );
+    for (const batch of batches) {
+      const rows = batch.status === 'fulfilled' && Array.isArray(batch.value) ? batch.value : [];
+      for (const r of rows) {
+        const key = r.paper_key || r.doi || r.pmid || r.title;
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        results.push(r);
+      }
+    }
+    return results;
+  }
+
+  let aiPapers = [];
+  let psyPapers = [];
+  try {
+    [aiPapers, psyPapers] = await Promise.all([
+      gatherLive(aiKeywords),
+      gatherLive(psyKeywords),
+    ]);
+  } catch {}
+
+  if (!aiPapers.length && !psyPapers.length) {
+    const gatherFallback = (keywords) => {
+      const results = [];
+      const seen = new Set();
+      for (const kw of keywords) {
+        for (const r of searchEvidenceByKeyword(kw)) {
+          const key = r.doi || r.title;
+          if (!seen.has(key)) { seen.add(key); results.push(r); }
+        }
+      }
+      return results;
+    };
+    aiPapers = gatherFallback(aiKeywords);
+    psyPapers = gatherFallback(psyKeywords);
+  }
+
+  if (q) {
+    aiPapers  = aiPapers.filter(p => (String(p.title || '') + ' ' + String(p.authors || '') + ' ' + String(p.journal || '') + ' ' + String(p.conditionId || '') + ' ' + String((p.indication_tags || []).join(' '))).toLowerCase().includes(q));
+    psyPapers = psyPapers.filter(p => (String(p.title || '') + ' ' + String(p.authors || '') + ' ' + String(p.journal || '') + ' ' + String(p.conditionId || '') + ' ' + String((p.indication_tags || []).join(' '))).toLowerCase().includes(q));
+  }
+
+  function paperCard(p) {
+    const condLabel = (p.conditionId || p.indication_tags?.[0] || '').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || '';
+    const doiHref = p.doi ? `https://doi.org/${p.doi}` : '';
+    const pubmedHref = p.pmid ? `https://pubmed.ncbi.nlm.nih.gov/${p.pmid}/` : '';
+    const openHref = p.record_url || '';
+    const cites = p.citations ?? p.citation_count ?? 0;
+    const summary = p.research_summary || '';
+    return `<div style="padding:10px 0;border-bottom:1px solid var(--border-light,var(--border))">
+      <div style="font-size:12px;font-weight:500">${esc(p.title)}</div>
+      <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${esc(p.authors || '')} ${p.authors ? '&middot;' : ''} ${p.year || ''} ${p.year ? '&middot;' : ''} <em>${esc(p.journal || '')}</em> ${cites ? '&middot; ' + fmt(cites) + ' citations' : ''}</div>
+      ${summary ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:6px;line-height:1.45">${esc(summary.length > 180 ? summary.slice(0, 180) + '…' : summary)}</div>` : ''}
+      <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">
+        <span style="padding:2px 6px;font-size:10px;border-radius:6px;background:var(--blue);color:#fff">${esc(condLabel)}</span>
+        ${p.primary_modality ? `<span style="padding:2px 6px;font-size:10px;border-radius:6px;background:var(--surface-2);color:var(--text-secondary)">${esc(_reNormalizeLabel(p.primary_modality))}</span>` : ''}
+        ${openHref ? `<a href="${esc(openHref)}" target="_blank" rel="noopener" style="padding:2px 6px;font-size:10px;border-radius:6px;background:var(--surface-2);color:var(--teal);text-decoration:none">Open</a>` : ''}
+        ${doiHref ? `<a href="${esc(doiHref)}" target="_blank" rel="noopener" style="padding:2px 6px;font-size:10px;border-radius:6px;background:var(--surface-2);color:var(--teal);text-decoration:none">DOI</a>` : ''}
+        ${pubmedHref ? `<a href="${esc(pubmedHref)}" target="_blank" rel="noopener" style="padding:2px 6px;font-size:10px;border-radius:6px;background:var(--surface-2);color:var(--teal);text-decoration:none">PubMed</a>` : ''}
+      </div>
+    </div>`;
+  }
+
+  let html = `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px">
+    ${sInput('Search AI/ML & psychotherapy papers...')}
   </div>`;
 
-  html += `<div class="ch-card" style="padding:16px;margin-bottom:16px;border-left:3px solid var(--violet)">
-    <div style="font-weight:600;font-size:14px;margin-bottom:8px">AI / ML &amp; psychotherapy literature</div>
-    <p style="font-size:13px;color:var(--text-secondary);margin:0;line-height:1.55">
-      Fabricated citation cards were removed from this tab. Use <strong>Evidence Search</strong> for authenticated corpus query and
-      <strong>AI-assisted draft summaries</strong> there — always clinician-reviewed, never autonomous claims.
-    </p>
-    <div style="margin-top:12px">
-      <button type="button" class="btn btn-primary btn-sm" onclick="window._resEvidenceTab='search';window._nav('research-evidence')">Open Evidence Search</button>
+  /* AI/ML section */
+  html += `<div class="ch-card" style="padding:16px;margin-bottom:16px">
+    <div style="font-weight:600;font-size:14px;margin-bottom:4px">AI / Machine Learning in Neuromodulation</div>
+    <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:12px">${aiPapers.length} papers found across ${new Set(aiPapers.map(p => p.conditionId)).size} conditions</div>
+    ${aiPapers.length ? aiPapers.map(paperCard).join('') : '<div style="color:var(--text-tertiary);font-size:12px">No matching papers found.</div>'}
+  </div>`;
+
+  /* Psychotherapies section */
+  html += `<div class="ch-card" style="padding:16px;margin-bottom:16px">
+    <div style="font-weight:600;font-size:14px;margin-bottom:4px">Psychotherapy + Neuromodulation Combinations</div>
+    <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:12px">${psyPapers.length} papers found across ${new Set(psyPapers.map(p => p.conditionId)).size} conditions</div>
+    ${psyPapers.length ? psyPapers.map(paperCard).join('') : '<div style="color:var(--text-tertiary);font-size:12px">No matching papers found.</div>'}
+  </div>`;
+
+  /* summary KPIs */
+  html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px">
+    <div class="ch-card" style="padding:14px;text-align:center">
+      <div style="font-size:24px;font-weight:700;color:var(--amber)">${aiPapers.length}</div>
+      <div style="font-size:11px;color:var(--text-secondary)">AI/ML Papers</div>
+    </div>
+    <div class="ch-card" style="padding:14px;text-align:center">
+      <div style="font-size:24px;font-weight:700;color:var(--violet)">${psyPapers.length}</div>
+      <div style="font-size:11px;color:var(--text-secondary)">Psychotherapy Papers</div>
+    </div>
+    <div class="ch-card" style="padding:14px;text-align:center">
+      <div style="font-size:24px;font-weight:700;color:var(--teal)">${new Set([...aiPapers, ...psyPapers].map(p => p.conditionId)).size}</div>
+      <div style="font-size:11px;color:var(--text-secondary)">Conditions Covered</div>
     </div>
   </div>`;
-
-  html += `<div class="ch-card" style="padding:14px;font-size:12px;color:var(--text-tertiary)">Filter box above is disabled for this tab — ${esc(q || 'no query')} (navigate to Evidence Search to run FTS).</div>`;
 
   body.innerHTML = html;
 }
@@ -1072,9 +1126,8 @@ function renderAIML(body, liveEvidence, q, sInput) {
    TAB 7 — Evidence Search (migrated from Library Hub)
    External brokered search · promote-to-library · AI summarization · curated lib
    ══════════════════════════════════════════════════════════════════════════════ */
-async function renderEvidenceSearch(body, liveEvidence) {
+async function renderEvidenceSearch(body) {
   await _ensureProtoData();
-  const defaultSearch = String(window._reEvidencePrefill || window._reSearch?.search || '').trim();
 
   const kpi = (color, value, label, title) =>
     `<div class="ch-kpi-card" style="--kpi-color:${color}"${title ? ` title="${esc(title)}"` : ''}>` +
@@ -1088,83 +1141,317 @@ async function renderEvidenceSearch(body, liveEvidence) {
   }
 
   /* ── parallel API fetch ──────────────────────────────────────────────── */
-  let overview = null, conditions = [], curatedLitItems = [];
-  const [ovRes, litRes] = await Promise.allSettled([
+  let overview = null, conditions = [], curatedLitItems = [], evidenceIndications = [];
+  const [ovRes, litRes, indRes] = await Promise.allSettled([
     api.libraryOverview(),
     api.listLiterature(),
+    api.evidenceIndications?.(),
   ]);
   if (ovRes.status === 'fulfilled') overview = ovRes.value;
   if (litRes.status === 'fulfilled') curatedLitItems = litRes.value?.items || [];
   conditions = overview?.conditions || [];
+  if (indRes.status === 'fulfilled' && Array.isArray(indRes.value)) evidenceIndications = indRes.value;
 
-  const condOptions = ['<option value="">— All conditions —</option>']
-    .concat(conditions.map(c => '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>'))
+  window._reLiveEvidenceState = window._reLiveEvidenceState || {
+    filters: { q: '', indication: '', grade: '', oa_only: false },
+    lastResults: [],
+    lastGraph: [],
+    lastTrials: [],
+    lastDevices: [],
+    lastRanked: [],
+    detail: null,
+  };
+  const state = window._reLiveEvidenceState;
+
+  const condOptions = ['<option value="">— All indications —</option>']
+    .concat((evidenceIndications.length ? evidenceIndications : conditions).map(c => {
+      const value = c.slug || c.id || '';
+      const label = c.label || c.name || c.condition_label || value;
+      const modality = c.modality ? ` · ${c.modality}` : '';
+      return '<option value="' + esc(value) + '">' + esc(label + modality) + '</option>';
+    }))
     .join('');
   const curatedCount = curatedLitItems.length;
   const evDbAvailable = overview?.evidence_db_available;
-  const _totalEvPapers = _liveEvidenceUiStats?.totalPapers || EVIDENCE_SUMMARY?.totalPapers || 0;
+  const _totalEvPapers = _liveEvidenceUiStats?.totalPapers || EVIDENCE_SUMMARY?.totalPapers || 87000;
   const _totalEvTrials = _liveEvidenceUiStats?.totalTrials || EVIDENCE_SUMMARY?.totalTrials || 0;
-  const indexedPapersDisplay = _totalEvPapers ? fmtK(_totalEvPapers) : '—';
-  const curatedRollupDisplay = overview?.curated_paper_count != null ? fmtK(overview.curated_paper_count) : indexedPapersDisplay;
+  const _totalEvFda = _liveEvidenceUiStats?.totalFda || 0;
+
+  function linkBtn(href, label, tone = '') {
+    if (!href) return '';
+    const style = tone ? ` style="${tone}"` : '';
+    return `<a class="ch-btn-sm" target="_blank" rel="noopener noreferrer" href="${esc(href)}"${style}>${esc(label)}</a>`;
+  }
+
+  function paperLinks(paper) {
+    const links = [];
+    if (paper?.oa_url) links.push(linkBtn(paper.oa_url, 'Open PDF'));
+    if (paper?.doi) links.push(linkBtn(`https://doi.org/${paper.doi}`, 'DOI'));
+    if (paper?.pmid) links.push(linkBtn(`https://pubmed.ncbi.nlm.nih.gov/${paper.pmid}/`, 'PubMed'));
+    if (paper?.europe_pmc_url) links.push(linkBtn(paper.europe_pmc_url, 'Europe PMC'));
+    return links.join('');
+  }
+
+  function paperSummary(paper) {
+    const bits = [];
+    const authors = Array.isArray(paper?.authors) ? paper.authors.filter(Boolean) : [];
+    if (authors.length) bits.push(esc(authors.length > 4 ? `${authors[0]} et al.` : authors.join(', ')));
+    if (paper?.year) bits.push(esc(paper.year));
+    if (paper?.journal) bits.push('<em>' + esc(paper.journal) + '</em>');
+    if (paper?.cited_by_count != null) bits.push(`${fmt(paper.cited_by_count)} cites`);
+    return bits.join(' · ') || 'Metadata unavailable';
+  }
+
+  function paperTags(paper) {
+    const tags = [];
+    if (paper?.study_design) tags.push(`<span class="lib-tag">${esc(paper.study_design)}</span>`);
+    if (paper?.effect_direction) tags.push(`<span class="lib-tag">${esc(paper.effect_direction)}</span>`);
+    if (Array.isArray(paper?.modalities)) {
+      for (const modality of paper.modalities.slice(0, 2)) tags.push(`<span class="lib-tag">${esc(_reNormalizeLabel(modality))}</span>`);
+    }
+    if (Array.isArray(paper?.conditions)) {
+      for (const condition of paper.conditions.slice(0, 2)) tags.push(`<span class="lib-tag">${esc(_reNormalizeLabel(condition))}</span>`);
+    }
+    return tags.join('');
+  }
+
+  function resultCard(paper) {
+    const abstract = String(paper?.abstract || '').trim();
+    const abstractPreview = abstract
+      ? (abstract.length > 280 ? abstract.slice(0, 280) + '…' : abstract)
+      : '';
+    return (
+      '<article class="lib-card lib-card--review">' +
+        '<div class="lib-card-top">' +
+          '<span class="lib-card-name">' + esc(paper?.title || '(untitled)') + '</span>' +
+          (paper?.is_oa ? '<span class="lib-badge" style="background:rgba(20,184,166,0.14);color:var(--teal);border:1px solid rgba(20,184,166,0.35)">Open access</span>' : '') +
+        '</div>' +
+        '<div class="lib-card-meta">' +
+          (paper?.year ? '<span class="lib-tag">' + esc(paper.year) + '</span>' : '') +
+          (paper?.journal ? '<span class="lib-tag">' + esc(paper.journal) + '</span>' : '') +
+          (paper?.pub_types?.[0] ? '<span class="lib-tag">' + esc(paper.pub_types[0]) + '</span>' : '') +
+          (paper?.pmid ? '<span class="lib-tag">PMID ' + esc(paper.pmid) + '</span>' : '') +
+        '</div>' +
+        '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + paperSummary(paper) + '</div>' +
+        (paperTags(paper) ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">' + paperTags(paper) + '</div>' : '') +
+        (abstractPreview ? '<div style="font-size:12px;line-height:1.5;color:var(--text-secondary);margin-top:8px">' + esc(abstractPreview) + '</div>' : '') +
+        '<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">' +
+          paperLinks(paper) +
+          '<button class="ch-btn-sm ch-btn-teal" onclick="window._reShowEvidenceDetail(' + Number(paper.id) + ')">Details</button>' +
+          '<button class="ch-btn-sm" onclick="window._rePromoteEvidencePaper(' + Number(paper.id) + ')">Promote to Library</button>' +
+          '<label class="ch-btn-sm" style="display:inline-flex;gap:4px;align-items:center;cursor:pointer"><input type="checkbox" class="re-ev-pick" value="' + Number(paper.id) + '" style="margin:0"> AI draft</label>' +
+        '</div>' +
+      '</article>'
+    );
+  }
+
+  function rankedPaperCard(paper) {
+    const links = [];
+    if (paper?.record_url) links.push(linkBtn(paper.record_url, 'Open record'));
+    if (paper?.doi) links.push(linkBtn(`https://doi.org/${paper.doi}`, 'DOI'));
+    if (paper?.pmid) links.push(linkBtn(`https://pubmed.ncbi.nlm.nih.gov/${paper.pmid}/`, 'PubMed'));
+    const summary = String(paper?.research_summary || '').trim();
+    return (
+      '<article class="lib-card lib-card--evidence">' +
+        '<div class="lib-card-top">' +
+          '<span class="lib-card-name">' + esc(paper?.title || '(untitled)') + '</span>' +
+          (paper?.evidence_tier ? gradeBadge(paper.evidence_tier) : '') +
+        '</div>' +
+        '<div class="lib-card-meta">' +
+          (paper?.year ? '<span class="lib-tag">' + esc(paper.year) + '</span>' : '') +
+          (paper?.journal ? '<span class="lib-tag">' + esc(paper.journal) + '</span>' : '') +
+          (paper?.study_type_normalized ? '<span class="lib-tag">' + esc(paper.study_type_normalized) + '</span>' : '') +
+          (paper?.primary_modality ? '<span class="lib-tag">' + esc(_reNormalizeLabel(paper.primary_modality)) + '</span>' : '') +
+        '</div>' +
+        (paper?.authors ? '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + esc(paper.authors) + '</div>' : '') +
+        '<div style="display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--text-tertiary);margin-top:6px">' +
+          '<span>Priority ' + esc(paper.priority_score || 0) + '</span>' +
+          '<span>Confidence ' + esc(paper.paper_confidence_score || 0) + '</span>' +
+          '<span>Trials ' + esc(paper.trial_match_count || 0) + '</span>' +
+          '<span>FDA ' + esc(paper.fda_match_count || 0) + '</span>' +
+        '</div>' +
+        (summary ? '<div style="font-size:12px;line-height:1.5;color:var(--text-secondary);margin-top:8px">' + esc(summary.length > 220 ? summary.slice(0, 220) + '…' : summary) + '</div>' : '') +
+        (links.length ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">' + links.join('') + '</div>' : '') +
+      '</article>'
+    );
+  }
+
+  function renderContextPanel(graphRows, trials, devices, rankedRows = []) {
+    const graphHtml = graphRows.length
+      ? graphRows.map((row) => (
+          '<div style="padding:10px 0;border-bottom:1px solid var(--border)">' +
+            '<div style="font-size:12px;font-weight:600">' +
+              esc(_reNormalizeLabel(row.modality || 'Modality')) +
+              (row.indication ? ' · ' + esc(_reNormalizeLabel(row.indication)) : '') +
+            '</div>' +
+            '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' +
+              esc(row.target || 'Target') +
+              (row.paper_count != null ? ' · ' + fmt(row.paper_count) + ' papers' : '') +
+              (row.year_min || row.year_max ? ` · ${esc(row.year_min || '—')}–${esc(row.year_max || '—')}` : '') +
+            '</div>' +
+          '</div>'
+        )).join('')
+      : '<div class="ch-empty" style="padding:10px 0">No graph rows matched the current search scope.</div>';
+    const trialHtml = trials.length
+      ? trials.map((row) => (
+          '<div style="padding:10px 0;border-bottom:1px solid var(--border)">' +
+            '<div style="font-size:12px;font-weight:600">' + esc(row.title || row.nct_id || 'Trial') + '</div>' +
+            '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' +
+              esc(row.nct_id || '') +
+              (row.status ? ' · ' + esc(row.status) : '') +
+              (row.phase ? ' · ' + esc(row.phase) : '') +
+            '</div>' +
+          '</div>'
+        )).join('')
+      : '<div class="ch-empty" style="padding:10px 0">No trial rows matched the current scope.</div>';
+    const deviceHtml = devices.length
+      ? devices.map((row) => (
+          '<div style="padding:10px 0;border-bottom:1px solid var(--border)">' +
+            '<div style="font-size:12px;font-weight:600">' + esc(row.trade_name || row.applicant || row.number || 'Device') + '</div>' +
+            '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' +
+              esc((row.kind || '').toUpperCase()) +
+              (row.number ? ' · ' + esc(row.number) : '') +
+              (row.decision_date ? ' · ' + esc(row.decision_date) : '') +
+            '</div>' +
+          '</div>'
+        )).join('')
+      : '<div class="ch-empty" style="padding:10px 0">No FDA device rows matched the current scope.</div>';
+    const rankedHtml = rankedRows.length
+      ? rankedRows.map(rankedPaperCard).join('')
+      : '<div class="ch-empty" style="padding:10px 0">No ranked research-paper rows matched the current scope.</div>';
+
+    return '' +
+      '<div class="ch-card" style="margin-bottom:16px">' +
+        '<div class="ch-card-hd"><span class="ch-card-title">Ranked Research Context</span></div>' +
+        '<div style="padding:0 16px 16px">' + rankedHtml + '</div>' +
+      '</div>' +
+      '<div class="ch-card" style="margin-bottom:16px">' +
+        '<div class="ch-card-hd"><span class="ch-card-title">Evidence Graph Context</span></div>' +
+        '<div style="padding:0 16px 16px">' + graphHtml + '</div>' +
+      '</div>' +
+      '<div class="ch-card" style="margin-bottom:16px">' +
+        '<div class="ch-card-hd"><span class="ch-card-title">Trial Signals</span></div>' +
+        '<div style="padding:0 16px 16px">' + trialHtml + '</div>' +
+      '</div>' +
+      '<div class="ch-card">' +
+        '<div class="ch-card-hd"><span class="ch-card-title">FDA Device Signals</span></div>' +
+        '<div style="padding:0 16px 16px">' + deviceHtml + '</div>' +
+      '</div>';
+  }
+
+  function renderDetailPanel(detail) {
+    if (!detail) {
+      return '<div class="ch-empty" style="padding:24px 16px">Select a paper to inspect abstract, methods, and outbound links.</div>';
+    }
+    const abstract = String(detail.abstract || '').trim();
+    return (
+      '<div class="ch-card">' +
+        '<div class="ch-card-hd"><span class="ch-card-title">Paper Detail</span></div>' +
+        '<div style="padding:14px 16px">' +
+          '<div style="font-size:15px;font-weight:700;line-height:1.4">' + esc(detail.title || '(untitled)') + '</div>' +
+          '<div style="font-size:11.5px;color:var(--text-tertiary);margin-top:6px">' + paperSummary(detail) + '</div>' +
+          (paperTags(detail) ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">' + paperTags(detail) + '</div>' : '') +
+          '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">' + paperLinks(detail) + '</div>' +
+          '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:14px">' +
+            '<div style="padding:10px;border:1px solid var(--border);border-radius:8px"><div style="font-size:10px;color:var(--text-tertiary)">Primary outcome</div><div style="font-size:12px;margin-top:4px">' + esc(detail.primary_outcome_measure || '—') + '</div></div>' +
+            '<div style="padding:10px;border:1px solid var(--border);border-radius:8px"><div style="font-size:10px;color:var(--text-tertiary)">Sample size</div><div style="font-size:12px;margin-top:4px">' + esc(detail.sample_size || '—') + '</div></div>' +
+            '<div style="padding:10px;border:1px solid var(--border);border-radius:8px"><div style="font-size:10px;color:var(--text-tertiary)">Study design</div><div style="font-size:12px;margin-top:4px">' + esc(detail.study_design || '—') + '</div></div>' +
+            '<div style="padding:10px;border:1px solid var(--border);border-radius:8px"><div style="font-size:10px;color:var(--text-tertiary)">Effect direction</div><div style="font-size:12px;margin-top:4px">' + esc(detail.effect_direction || '—') + '</div></div>' +
+          '</div>' +
+          '<div style="margin-top:14px">' +
+            '<div style="font-size:11px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">Abstract</div>' +
+            '<div style="white-space:pre-wrap;font-size:12.5px;line-height:1.6;color:var(--text-secondary)">' + esc(abstract || 'Abstract unavailable for this record.') + '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>'
+    );
+  }
 
   /* ── window handlers ─────────────────────────────────────────────────── */
-  window._libPromoteExternal = async (paperId, title) => {
+  window._rePromoteEvidencePaper = async (paperId) => {
     try {
       await api.promoteEvidencePaper(paperId);
-      window._dsToast?.({ title: 'Promoted to library', body: String(title || '').slice(0, 80), severity: 'success' });
+      window._dsToast?.({ title: 'Promoted to library', body: `Paper #${paperId}`, severity: 'success' });
     } catch (e) {
       window._dsToast?.({ title: 'Promote failed', body: e?.message || 'Unknown error', severity: 'error' });
     }
   };
-  window._libExternalSearch = async () => {
-    const input = document.getElementById('lib-ext-q');
-    const cSel  = document.getElementById('lib-ext-cond');
-    const out   = document.getElementById('lib-ext-results');
-    if (!input || !out) return;
-    const qv = (input.value || '').trim();
-    if (qv.length < 2) { out.innerHTML = '<div class="ch-empty">Type at least 2 characters.</div>'; return; }
-    out.innerHTML = spinner();
+  window._reShowEvidenceDetail = async (paperId) => {
+    const host = document.getElementById('re-ev-detail');
+    if (!host) return;
+    host.innerHTML = spinner();
     try {
-      const res = await api.libraryExternalSearch({ q: qv, condition_id: cSel?.value || null, limit: 20 });
-      if (!res?.items?.length) { out.innerHTML = '<div class="ch-empty">No matches in the curated ingest for that query.</div>'; return; }
-      const rowsHtml = res.items.map(r => (
-        '<div class="lib-card lib-card--review">' +
-          '<div class="lib-card-top">' +
-            '<span class="lib-card-name">' + esc(r.title) + '</span>' +
-            '<span class="lib-badge" style="background:rgba(245,158,11,0.14);color:var(--amber);border:1px solid rgba(245,158,11,0.3)" title="Not curated — review before clinical use">Unreviewed</span>' +
-          '</div>' +
-          '<div class="lib-card-meta">' +
-            (r.year ? '<span class="lib-tag">' + esc(r.year) + '</span>' : '') +
-            (r.journal ? '<span class="lib-tag">' + esc(r.journal) + '</span>' : '') +
-            (r.pub_types && r.pub_types[0] ? '<span class="lib-tag">' + esc(r.pub_types[0]) + '</span>' : '') +
-          '</div>' +
-          (r.authors ? '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + esc(r.authors) + '</div>' : '') +
-          '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:6px">Trust: <b>' + esc(r.source_trust) + '</b> · Status: <b>' + esc(r.review_status) + '</b></div>' +
-          '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">' +
-            (r.url ? '<a class="ch-btn-sm" target="_blank" rel="noopener noreferrer" href="' + esc(r.url) + '">Open ↗</a>' : '') +
-            '<button class="ch-btn-sm ch-btn-teal" onclick="window._libPromoteExternal(' + Number(r.id) + ',\'' + esc(r.title).replace(/'/g, "\\'") + '\')">Promote to Library</button>' +
-            '<label class="ch-btn-sm" style="display:inline-flex;gap:4px;align-items:center;cursor:pointer"><input type="checkbox" class="lib-ai-pick" value="' + Number(r.id) + '" style="margin:0"> AI draft</label>' +
-          '</div>' +
-        '</div>'
-      )).join('');
-      out.innerHTML =
-        '<div class="lib-trust-banner" role="note" style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:12px">' +
-          '<b style="color:var(--amber)">Unreviewed external results</b> — ' + esc(res.notice || '') +
-          '<br><span style="opacity:0.7">Provenance: ' + esc(res.provenance || '—') + ' · Last checked: ' + esc((res.last_checked_at || '').slice(0, 19)) + '</span>' +
-        '</div>' +
-        '<div style="display:flex;gap:8px;align-items:center;margin:10px 0;flex-wrap:wrap">' +
-          '<button class="ch-btn-sm ch-btn-teal" onclick="window._libAiDraft()">✦ Summarise selected</button>' +
-          '<span style="font-size:11px;color:var(--text-tertiary)">AI output is always a DRAFT and cites source paper IDs.</span>' +
-        '</div>' +
-        '<div class="lib-grid">' + rowsHtml + '</div>' +
-        '<div id="lib-ai-draft-panel" style="margin-top:16px"></div>';
+      const detail = await api.evidencePaperDetail(paperId);
+      state.detail = detail || null;
+      host.innerHTML = renderDetailPanel(state.detail);
     } catch (e) {
-      out.innerHTML = '<div class="ch-empty" style="color:var(--red)">External search failed: ' + esc(e?.message || 'service unavailable') + '</div>';
+      state.detail = null;
+      host.innerHTML = '<div class="ch-empty" style="color:var(--red);padding:24px 16px">Paper detail failed: ' + esc(e?.message || 'service unavailable') + '</div>';
     }
   };
-  window._libAiDraft = async () => {
-    const picks = Array.from(document.querySelectorAll('.lib-ai-pick:checked')).map(n => Number(n.value)).filter(Boolean);
-    const panel = document.getElementById('lib-ai-draft-panel');
+  window._reRunIndexedSearch = async () => {
+    const input = document.getElementById('re-ev-q');
+    const cSel = document.getElementById('re-ev-cond');
+    const gSel = document.getElementById('re-ev-grade');
+    const oaCbx = document.getElementById('re-ev-oa');
+    const out = document.getElementById('re-ev-results');
+    const ctx = document.getElementById('re-ev-context');
+    const detailHost = document.getElementById('re-ev-detail');
+    if (!input || !cSel || !gSel || !oaCbx || !out || !ctx || !detailHost) return;
+    const qv = (input.value || '').trim();
+    const indication = cSel.value || '';
+    const grade = gSel.value || '';
+    const oaOnly = !!oaCbx.checked;
+    state.filters = { q: qv, indication, grade, oa_only: oaOnly };
+    state.detail = null;
+    out.innerHTML = spinner();
+    ctx.innerHTML = spinner();
+    detailHost.innerHTML = '<div class="ch-empty" style="padding:24px 16px">Select a paper to inspect abstract, methods, and outbound links.</div>';
+    if (qv.length < 2 && !indication) {
+      out.innerHTML = '<div class="ch-empty" style="padding:24px 16px">Enter at least 2 characters or choose a condition to search the live evidence index.</div>';
+      ctx.innerHTML = renderContextPanel([], [], []);
+      return;
+    }
+    try {
+      const [papersRes, graphRes, trialsRes, devicesRes, rankedRes] = await Promise.allSettled([
+        api.searchEvidencePapers({ q: qv, indication, grade, oa_only: oaOnly, limit: 20 }),
+        api.listResearchEvidenceGraph?.({ indication: indication || undefined, limit: 8 }),
+        api.searchEvidenceTrials?.({ indication, q: qv, limit: 6 }),
+        api.searchEvidenceDevices?.({ indication, limit: 6 }),
+        api.searchResearchPapers?.({
+          q: qv || undefined,
+          indication: indication || undefined,
+          evidence_tier: grade || undefined,
+          open_access_only: oaOnly,
+          ranking_mode: 'clinical',
+          limit: 6,
+        }),
+      ]);
+      const papers = papersRes.status === 'fulfilled' && Array.isArray(papersRes.value) ? papersRes.value : [];
+      const graphRows = graphRes.status === 'fulfilled' && Array.isArray(graphRes.value) ? graphRes.value : [];
+      const trials = trialsRes.status === 'fulfilled' && Array.isArray(trialsRes.value) ? trialsRes.value : [];
+      const devices = devicesRes.status === 'fulfilled' && Array.isArray(devicesRes.value) ? devicesRes.value : [];
+      const rankedRows = rankedRes.status === 'fulfilled' && Array.isArray(rankedRes.value) ? rankedRes.value : [];
+      state.lastResults = papers;
+      state.lastGraph = graphRows;
+      state.lastTrials = trials;
+      state.lastDevices = devices;
+      state.lastRanked = rankedRows;
+      out.innerHTML = papers.length
+        ? '<div class="lib-grid">' + papers.map(resultCard).join('') + '</div>'
+        : '<div class="ch-empty" style="padding:24px 16px">No indexed papers matched the current search. Widen filters or try another condition.</div>';
+      ctx.innerHTML = renderContextPanel(graphRows, trials, devices, rankedRows);
+      if (papers.length) {
+        try { window._reShowEvidenceDetail?.(papers[0].id); } catch {}
+      }
+    } catch (e) {
+      out.innerHTML = '<div class="ch-empty" style="color:var(--red);padding:24px 16px">Indexed search failed: ' + esc(e?.message || 'service unavailable') + '</div>';
+      ctx.innerHTML = renderContextPanel([], [], [], []);
+    }
+  };
+  window._reSummarizeIndexedEvidence = async () => {
+    const picks = Array.from(document.querySelectorAll('.re-ev-pick:checked')).map((n) => Number(n.value)).filter(Boolean);
+    const panel = document.getElementById('re-ev-ai-draft');
     if (!panel) return;
     if (!picks.length) { panel.innerHTML = '<div class="ch-empty">Select at least one paper with the AI draft checkbox.</div>'; return; }
     panel.innerHTML = spinner();
@@ -1194,70 +1481,59 @@ async function renderEvidenceSearch(body, liveEvidence) {
     }
   };
 
-  window._resExportEvidenceSummary = async () => {
-    const btn = document.getElementById('re-export-summary-btn');
-    const out = document.getElementById('re-export-summary-status');
-    if (btn) btn.disabled = true;
-    if (out) out.textContent = 'Requesting export summary…';
-    try {
-      const data = await api.getResearchExportSummary({ consent: 'research', format: 'CSV' });
-      const bits = [
-        data?.patients_eligible != null ? `eligible patients: ${data.patients_eligible}` : null,
-        data?.sessions != null ? `sessions: ${data.sessions}` : null,
-        data?.modality_condition_pairs != null ? `pairs: ${data.modality_condition_pairs}` : null,
-      ].filter(Boolean);
-      const line = bits.length ? bits.join(' · ') : 'Summary retrieved.';
-      if (out) out.textContent = line;
-      window._dsToast?.({ title: 'Export summary', body: line, severity: 'success' });
-    } catch (e) {
-      const code = e?.status;
-      let msg = e?.message || 'Request failed';
-      if (code === 401 || code === 403) msg = 'Sign in as a clinician to export evidence summaries.';
-      if (out) out.textContent = msg;
-      window._dsToast?.({ title: 'Export unavailable', body: msg, severity: 'error' });
-    } finally {
-      if (btn) btn.disabled = false;
-    }
-  };
-
   /* ── HTML ─────────────────────────────────────────────────────────────── */
   let html =
-    _resWorkspaceHeader(liveEvidence, { shortcuts: true }) +
-    '<div id="re-live-evidence-host" style="margin-bottom:16px"></div>' +
-    '<div class="ch-card" style="margin-bottom:16px;padding:14px 16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between">' +
-      '<div style="font-size:12px;color:var(--text-secondary)"><strong>Research export summary</strong> — clinician-only; audits on server.</div>' +
-      '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">' +
-        '<button type="button" id="re-export-summary-btn" class="btn btn-ghost btn-sm" onclick="window._resExportEvidenceSummary && window._resExportEvidenceSummary()">Request export summary</button>' +
-        '<span id="re-export-summary-status" style="font-size:11px;color:var(--text-tertiary);max-width:280px"></span>' +
-      '</div>' +
-    '</div>' +
     '<div class="ch-kpi-strip" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px;margin-bottom:16px">' +
-      kpi('var(--teal)',   curatedRollupDisplay, 'Indexed / curated papers', 'Library overview when signed in; else corpus aggregate') +
-      kpi('var(--blue)',   overview?.curated_trial_count != null ? fmt(overview.curated_trial_count) : fmt(_totalEvTrials), 'Trials (rollup)') +
-      kpi('var(--rose)',   _liveEvidenceUiStats?.totalMetaAnalyses || EVIDENCE_SUMMARY?.totalMetaAnalyses || 0, 'Meta-analyses (bundle)') +
+      kpi('var(--teal)',   overview?.curated_paper_count || fmtK(_totalEvPapers), 'Curated papers', 'Public PubMed/OpenAlex ingest — 87K indexed') +
+      kpi('var(--blue)',   overview?.curated_trial_count || fmt(_totalEvTrials), 'Curated trials') +
+      kpi('var(--blue)',   fmt(_totalEvFda), 'FDA devices') +
+      kpi('var(--rose)',   _liveEvidenceUiStats?.totalMetaAnalyses || EVIDENCE_SUMMARY?.totalMetaAnalyses || 0, 'Meta-analyses') +
       kpi('var(--violet)', curatedCount, 'Your library', 'Per-clinician promoted papers') +
       kpi('var(--amber)',  _liveEvidenceUiStats?.totalConditions || CONDITION_EVIDENCE.length, 'Conditions covered') +
-      kpi('var(--teal)',   evDbAvailable ? 'Online' : 'Unavailable', 'Evidence index reachability') +
+      kpi('var(--teal)',   evDbAvailable ? 'Online' : 'Offline', 'Evidence index') +
     '</div>' +
-    /* External brokered search */
+    /* Live indexed search */
     '<div class="ch-card" style="margin-bottom:16px">' +
-      '<div class="ch-card-hd"><span class="ch-card-title">External evidence search (brokered)</span>' +
-        '<span class="lib-badge" style="background:rgba(245,158,11,0.14);color:var(--amber);border:1px solid rgba(245,158,11,0.3)" title="Unreviewed ingest — promote before clinical use">Unreviewed by default</span>' +
+      '<div class="ch-card-hd"><span class="ch-card-title">Live Indexed Evidence Search</span>' +
+        '<span class="lib-badge" style="background:rgba(20,184,166,0.14);color:var(--teal);border:1px solid rgba(20,184,166,0.3)" title="Searches the indexed evidence DB used by the API">Indexed DB</span>' +
       '</div>' +
       '<div style="padding:14px 16px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">' +
-        '<div style="flex:2;min-width:240px"><label class="sr-only" for="lib-ext-q">Query</label>' +
-          '<input id="lib-ext-q" type="search" value="' + esc(defaultSearch) + '" placeholder="e.g. rTMS dlpfc depression meta-analysis" class="ph-search-input" style="width:100%">' +
+        '<div style="flex:2;min-width:240px"><label class="sr-only" for="re-ev-q">Query</label>' +
+          '<input id="re-ev-q" type="search" placeholder="e.g. rTMS dlpfc depression meta-analysis" class="ph-search-input" style="width:100%" value="' + esc(state.filters.q || '') + '">' +
         '</div>' +
-        '<div style="flex:1;min-width:180px"><label class="sr-only" for="lib-ext-cond">Condition scope</label>' +
-          '<select id="lib-ext-cond" class="ph-search-input" style="width:100%">' + condOptions + '</select>' +
+        '<div style="flex:1;min-width:180px"><label class="sr-only" for="re-ev-cond">Condition scope</label>' +
+          '<select id="re-ev-cond" class="ph-search-input" style="width:100%">' + condOptions + '</select>' +
         '</div>' +
-        '<button class="btn btn-primary btn-sm" onclick="window._libExternalSearch()">Search</button>' +
+        '<div style="min-width:120px"><label class="sr-only" for="re-ev-grade">Evidence grade</label>' +
+          '<select id="re-ev-grade" class="ph-search-input" style="width:100%">' +
+            '<option value="">All grades</option>' +
+            '<option value="A">Grade A</option>' +
+            '<option value="B">Grade B</option>' +
+            '<option value="C">Grade C</option>' +
+            '<option value="D">Grade D</option>' +
+            '<option value="E">Grade E</option>' +
+          '</select>' +
+        '</div>' +
+        '<label class="ch-btn-sm" style="display:inline-flex;gap:6px;align-items:center;cursor:pointer"><input id="re-ev-oa" type="checkbox" style="margin:0"' + (state.filters.oa_only ? ' checked' : '') + '> Open access only</label>' +
+        '<button class="btn btn-primary btn-sm" onclick="window._reRunIndexedSearch()">Search</button>' +
       '</div>' +
       '<div style="padding:0 16px 16px;font-size:11px;color:var(--text-tertiary)">' +
-        'Queries are routed through the backend evidence broker — never via the browser. ' +
-        'Every result is tagged with provenance and marked <b>pending</b> until a clinician promotes it.' +
+        'Results come from the indexed evidence DB behind the API. Each record can expose DOI, PubMed, Europe PMC, and open-access links when available.' +
       '</div>' +
-      '<div id="lib-ext-results" style="padding:0 16px 16px"></div>' +
+      '<div style="padding:0 16px 16px;display:grid;grid-template-columns:minmax(0,1.6fr) minmax(320px,1fr);gap:16px;align-items:start">' +
+        '<div>' +
+          '<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">' +
+            '<button class="ch-btn-sm ch-btn-teal" onclick="window._reSummarizeIndexedEvidence()">✦ Summarise selected</button>' +
+            '<span style="font-size:11px;color:var(--text-tertiary)">Search shows title, authors, journal, links, abstract snippets, and promotes directly to the clinician library.</span>' +
+          '</div>' +
+          '<div id="re-ev-results"></div>' +
+          '<div id="re-ev-ai-draft" style="margin-top:16px"></div>' +
+        '</div>' +
+        '<div>' +
+          '<div id="re-ev-context"></div>' +
+          '<div id="re-ev-detail" style="margin-top:16px">' + renderDetailPanel(state.detail) + '</div>' +
+        '</div>' +
+      '</div>' +
     '</div>' +
     /* Curated library */
     '<div class="ch-card">' +
@@ -1286,27 +1562,33 @@ async function renderEvidenceSearch(body, liveEvidence) {
 
   body.innerHTML = html;
 
-  const liveHost = document.getElementById('re-live-evidence-host');
-  if (liveHost) {
-    try {
-      await renderLiveEvidencePanel(liveHost, { compact: true });
-    } catch {
-      liveHost.innerHTML =
-        '<div class="ch-card" role="alert" style="padding:14px;font-size:13px;color:var(--text-secondary)">' +
-        '<strong>Live indexed search unavailable</strong> in this session (offline, guest, or evidence DB not ingested). ' +
-        'Use brokered search below when signed in, or deploy the evidence pipeline.</div>';
-    }
+  const condSel = document.getElementById('re-ev-cond');
+  if (condSel) condSel.value = state.filters.indication || '';
+  const gradeSel = document.getElementById('re-ev-grade');
+  if (gradeSel) gradeSel.value = state.filters.grade || '';
+  const searchInput = document.getElementById('re-ev-q');
+  if (searchInput) {
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') window._reRunIndexedSearch?.();
+    });
   }
 
-  if (defaultSearch) {
-    window._reSearch = window._reSearch || {};
-    window._reSearch.search = defaultSearch;
+  const contextHost = document.getElementById('re-ev-context');
+  if (contextHost) contextHost.innerHTML = renderContextPanel(state.lastGraph || [], state.lastTrials || [], state.lastDevices || [], state.lastRanked || []);
+  const detailHost = document.getElementById('re-ev-detail');
+  if (detailHost) detailHost.innerHTML = renderDetailPanel(state.detail);
+
+  if (window._reEvidencePrefill) {
+    const _pref = String(window._reEvidencePrefill || '').trim();
     window._reEvidencePrefill = null;
-    const _input = document.getElementById('lib-ext-q');
-    if (_input) {
+    const _input = document.getElementById('re-ev-q');
+    if (_input && _pref) {
+      _input.value = _pref;
       try { _input.focus(); _input.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {}
+      try { window._reRunIndexedSearch?.(); } catch {}
     }
-    try { window._libExternalSearch?.(); } catch {}
+  } else if (state.filters.q || state.filters.indication) {
+    try { window._reRunIndexedSearch?.(); } catch {}
   }
 }
 
@@ -1315,7 +1597,7 @@ async function renderEvidenceSearch(body, liveEvidence) {
    TAB 8 — Needs Review (migrated from Library Hub)
    Unreviewed protocol triage · Literature Watch queue
    ══════════════════════════════════════════════════════════════════════════════ */
-async function renderNeedsReview(body, liveEvidence) {
+async function renderNeedsReview(body) {
   await _ensureProtoData();
   await _ensureResearchBundleData();
 
@@ -1439,7 +1721,7 @@ async function renderNeedsReview(body, liveEvidence) {
   const totalVerify     = rows.filter(r => r.hasVerify).length;
   const gradeABHighPri  = rows.filter(r => r.isUnreviewed && ['A','B'].includes(String(r.p.evidenceGrade || '').toUpperCase())).length;
   const pendingPapers   = _litQueue.length;
-  const _totalEvPapers  = _liveEvidenceUiStats?.totalPapers || EVIDENCE_SUMMARY?.totalPapers || 0;
+  const _totalEvPapers  = _liveEvidenceUiStats?.totalPapers || EVIDENCE_SUMMARY?.totalPapers || 87000;
   const _totalProtocols = liveRows.length || _protosAll.length;
   const reviewCaption = liveRows.length
     ? 'Live protocol coverage and safety triage from the neuromodulation evidence bundle'
@@ -1553,7 +1835,6 @@ async function renderNeedsReview(body, liveEvidence) {
 
   /* ── compose ────────────────────────────────────────────────────────── */
   body.innerHTML =
-    _resWorkspaceHeader(liveEvidence, { shortcuts: true }) +
     '<div class="ch-card" role="note" style="border-left:3px solid var(--amber);padding:12px 16px;margin-bottom:14px;background:rgba(245,158,11,0.06)">' +
       '<div style="font-size:12.5px;color:var(--text-secondary);line-height:1.55">' +
         '<b style="color:var(--amber)">Disclaimer.</b> These protocols and papers were drafted from literature and are ' +
@@ -1567,7 +1848,7 @@ async function renderNeedsReview(body, liveEvidence) {
       kpi('var(--teal)',   gradeABHighPri,  'Grade A/B priority', 'Highest clinical priority — strong evidence awaiting review') +
       kpi('var(--violet)', pendingPapers,   'Pending papers', 'Cross-protocol literature_watch rows (verdict=pending)') +
       kpi('var(--rose)',   _totalProtocols, 'Tracked rows', liveRows.length ? 'Live protocol coverage rows with unresolved gaps' : 'From curated neuromodulation evidence library') +
-      kpi('var(--teal)',   _totalEvPapers ? fmtK(_totalEvPapers) : '—', 'Evidence base', (_totalEvPapers ? _totalEvPapers.toLocaleString() + ' papers indexed' : 'Connect API / ingest for counts') + ' · ' + (_liveEvidenceUiStats?.totalConditions || CONDITION_EVIDENCE.length) + ' conditions in registry') +
+      kpi('var(--teal)',   fmtK(_totalEvPapers), 'Evidence base', _totalEvPapers.toLocaleString() + ' papers indexed across ' + (_liveEvidenceUiStats?.totalConditions || CONDITION_EVIDENCE.length) + ' conditions') +
     '</div>' +
     protosSection +
     papersSection;

@@ -138,6 +138,36 @@ def test_batch_signed_when_sign_event_exists(client: TestClient, auth_headers) -
     assert item["missing_reason"] is None
 
 
+def test_batch_signed_by_falls_back_to_actor_when_payload_value_blank(client: TestClient, auth_headers) -> None:
+    h = auth_headers["clinician"]
+    patient_id = _create_patient(client, h)
+    session_id = str(uuid.uuid4())
+    course_id = f"course-{uuid.uuid4().hex[:8]}"
+    db = SessionLocal()
+    try:
+        _create_session_row(db, patient_id, session_id)
+        _create_course_and_log(db, patient_id, course_id, session_id)
+        db.add(
+            ClinicalSessionEvent(
+                session_id=session_id,
+                clinician_id="actor-clinician-demo",
+                actor_id="actor-clinician-demo",
+                event_type="SIGN",
+                note="Signed",
+                payload_json=json.dumps({"signed_by": "   "}),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    resp = _post_batch(client, h, course_ids=[course_id])
+    assert resp.status_code == 200, resp.text
+    item = resp.json()["items"][0]
+    assert item["sign_status"] == "signed"
+    assert item["signed_by"] == "actor-clinician-demo"
+
+
 def test_guest_denied(client: TestClient, auth_headers) -> None:
     resp = _post_batch(client, auth_headers["guest"], course_ids=["any"])
     assert resp.status_code == 403
@@ -157,6 +187,17 @@ def test_batch_limit_enforced(client: TestClient, auth_headers) -> None:
 def test_empty_body_rejected(client: TestClient, auth_headers) -> None:
     resp = _post_batch(client, auth_headers["clinician"])
     assert resp.status_code == 422
+
+
+def test_whitespace_only_ids_rejected_as_empty_batch(client: TestClient, auth_headers) -> None:
+    resp = _post_batch(
+        client,
+        auth_headers["clinician"],
+        course_ids=["   "],
+        session_ids=["\n\t"],
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["code"] == "empty_batch"
 
 
 def test_course_aggregate_counts(client: TestClient, auth_headers) -> None:
@@ -213,6 +254,32 @@ def test_random_session_id_not_exposed(client: TestClient, auth_headers) -> None
     assert resp.json()["items"] == []
 
 
+def test_padded_ids_are_trimmed_before_lookup(client: TestClient, auth_headers) -> None:
+    h = auth_headers["clinician"]
+    patient_id = _create_patient(client, h)
+    session_id = str(uuid.uuid4())
+    course_id = f"course-{uuid.uuid4().hex[:8]}"
+    db = SessionLocal()
+    try:
+        _create_session_row(db, patient_id, session_id)
+        _create_course_and_log(db, patient_id, course_id, session_id)
+        db.commit()
+    finally:
+        db.close()
+
+    resp = _post_batch(
+        client,
+        h,
+        course_ids=[f"  {course_id}  "],
+        session_ids=[f"  {session_id}  "],
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert len(data["items"]) == 1
+    assert data["items"][0]["session_id"] == session_id
+    assert data["items"][0]["course_id"] == course_id
+
+
 def test_other_clinicians_course_omitted(client: TestClient, auth_headers) -> None:
     """Clinician token cannot batch SIGN rows for a course owned by another clinician_id."""
     h = auth_headers["clinician"]
@@ -261,6 +328,36 @@ def test_admin_can_read_course_owned_by_peer(client: TestClient, auth_headers) -
     resp = _post_batch(client, auth_headers["admin"], course_ids=[course_id])
     assert resp.status_code == 200, resp.text
     assert len(resp.json()["items"]) == 1
+
+
+def test_batch_reviewed_by_falls_back_to_actor_when_payload_value_blank(client: TestClient, auth_headers) -> None:
+    h = auth_headers["clinician"]
+    patient_id = _create_patient(client, h)
+    session_id = str(uuid.uuid4())
+    course_id = f"course-{uuid.uuid4().hex[:8]}"
+    db = SessionLocal()
+    try:
+        _create_session_row(db, patient_id, session_id)
+        _create_course_and_log(db, patient_id, course_id, session_id)
+        db.add(
+            ClinicalSessionEvent(
+                session_id=session_id,
+                clinician_id="actor-clinician-demo",
+                actor_id="actor-clinician-demo",
+                event_type="REVIEW",
+                note="Reviewed",
+                payload_json=json.dumps({"reviewed_by": "   "}),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    resp = _post_batch(client, h, course_ids=[course_id])
+    assert resp.status_code == 200, resp.text
+    item = resp.json()["items"][0]
+    assert item["review_status"] == "reviewed"
+    assert item["reviewed_by"] == "actor-clinician-demo"
     assert resp.json()["items"][0]["sign_status"] == "pending"
 
 

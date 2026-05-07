@@ -9,13 +9,20 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
+from app.errors import ApiServiceError
 from app.persistence.models import SessionRecording
+from app.repositories.patients import resolve_patient_clinic_id
 from app.routers.recordings_router import _scope_recordings_query_to_clinic
 from app.services import media_storage
 from app.services import audio_pipeline as audio_facade
@@ -42,6 +49,20 @@ class AnalyzeVoiceRequest(BaseModel):
     transcript: Optional[str] = None
 
 
+def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _normalize_required_text(value: str, *, field_name: str) -> str:
+    cleaned = (value or "").strip()
+    if not cleaned:
+        raise HTTPException(status_code=422, detail=f"{field_name} is required")
+    return cleaned
+
+
 def _require_pipeline() -> None:
     if not getattr(audio_facade, "HAS_AUDIO_PIPELINE", False):
         raise HTTPException(
@@ -51,6 +72,18 @@ def _require_pipeline() -> None:
     fn = getattr(audio_facade, "run_voice_pipeline_from_paths", None)
     if fn is None:
         raise HTTPException(status_code=503, detail="voice pipeline unavailable")
+
+
+def _gate_patient_access(
+    actor: AuthenticatedActor,
+    patient_id: Optional[str],
+    db: Session,
+) -> None:
+    if not patient_id:
+        return
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 
 
 def _run_and_persist(
@@ -128,19 +161,24 @@ def analyze_voice(
 ) -> dict[str, Any]:
     """Run neuromod voice pipeline from a server-local file path."""
 
+    session_id = _normalize_required_text(body.session_id, field_name="session_id")
+    patient_id = _normalize_optional_text(body.patient_id)
+    task_protocol = _normalize_required_text(body.task_protocol, field_name="task_protocol")
+    transcript = _normalize_optional_text(body.transcript)
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
     _require_pipeline()
 
-    path = Path(body.audio_path)
+    path = Path(_normalize_required_text(body.audio_path, field_name="audio_path"))
     if not path.is_file():
         raise HTTPException(status_code=400, detail=f"audio_path not found: {body.audio_path}")
 
     return _run_and_persist(
         resolved_audio_path=str(path.resolve()),
-        session_id=body.session_id,
-        patient_id=body.patient_id,
-        task_protocol=body.task_protocol,
-        transcript=body.transcript,
+        session_id=session_id,
+        patient_id=patient_id,
+        task_protocol=task_protocol,
+        transcript=transcript,
         db=db,
     )
 
@@ -157,7 +195,12 @@ async def analyze_voice_upload(
 ) -> dict[str, Any]:
     """Multipart upload — bytes are written under ``media_storage_root`` then analyzed."""
 
+    session_id = _normalize_required_text(session_id, field_name="session_id")
+    patient_id = _normalize_optional_text(patient_id)
+    task_protocol = _normalize_required_text(task_protocol, field_name="task_protocol")
+    transcript = _normalize_optional_text(transcript)
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
     _require_pipeline()
 
     settings = get_settings()
@@ -224,8 +267,11 @@ def analyze_voice_from_recording(
 ) -> dict[str, Any]:
     """Analyze audio from an existing :class:`SessionRecording` row (Virtual Care studio)."""
 
+    session_id = _normalize_required_text(session_id, field_name="session_id")
+    patient_id = _normalize_optional_text(patient_id)
+    task_protocol = _normalize_required_text(task_protocol, field_name="task_protocol")
+    transcript = _normalize_optional_text(transcript)
     require_minimum_role(actor, "clinician")
-    _require_pipeline()
 
     record = (
         _scope_recordings_query_to_clinic(
@@ -235,6 +281,10 @@ def analyze_voice_from_recording(
     )
     if record is None:
         raise HTTPException(status_code=404, detail="recording not found")
+
+    effective_patient_id = patient_id or record.patient_id
+    _gate_patient_access(actor, effective_patient_id, db)
+    _require_pipeline()
 
     mime = (record.mime_type or "").lower()
     if not mime.startswith("audio/"):
@@ -254,7 +304,7 @@ def analyze_voice_from_recording(
     return _run_and_persist(
         resolved_audio_path=str(target),
         session_id=session_id,
-        patient_id=patient_id or record.patient_id,
+        patient_id=effective_patient_id,
         task_protocol=task_protocol,
         transcript=transcript,
         db=db,
@@ -275,6 +325,12 @@ def get_voice_report(
     if row is None:
         raise HTTPException(status_code=404, detail="analysis not found")
     try:
+        _gate_patient_access(actor, row.patient_id, db)
+    except ApiServiceError as exc:
+        if exc.code == "cross_clinic_access_denied":
+            raise HTTPException(status_code=404, detail="analysis not found") from exc
+        raise
+    try:
         vr = json.loads(row.voice_report_json or "{}")
     except json.JSONDecodeError:
         vr = {}
@@ -289,13 +345,14 @@ def get_voice_report(
 @router.get("/patients/{patient_id}/analyses")
 def list_patient_voice_analyses(
     patient_id: str,
-    limit: int = 30,
+    limit: int = Query(30, ge=1, le=200),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
     """List stored voice biomarker runs for a patient (DeepTwin / analytics linking)."""
 
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
     rows = list_voice_analyses_for_patient(db, patient_id, limit=limit)
     return {
         "items": [

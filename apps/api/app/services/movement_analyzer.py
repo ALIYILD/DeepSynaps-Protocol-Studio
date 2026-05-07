@@ -129,16 +129,24 @@ _AXIS_TO_MODALITY = {
 }
 
 
-def _severity_from_axis_level(level: Optional[str]) -> str:
-    """Map cursor's axis 'level' vocabulary onto PR #452's severity colours."""
+def _severity_from_axis_level(level: Optional[str]) -> Optional[str]:
+    """Map cursor's axis 'level' vocabulary onto PR #452's severity colours.
+
+    Unknown / sparse / unassessed states must fail closed instead of
+    fabricating an amber concern signal just so the UI can paint a card.
+    """
     if not level:
-        return "amber"
+        return None
     lv = str(level).lower()
     if lv in ("within_expected", "active", "available"):
         return "green"
     if lv in ("notable_concern", "low", "worsening"):
         return "red"
-    # `not_assessed`, `indirect`, `sparse`, `mild_limitation`, `moderate`, `unknown` → amber
+    if lv in ("mild_limitation", "moderate"):
+        return "amber"
+    # `not_assessed`, `indirect`, `sparse`, `unknown` must render as unknown.
+    if lv in ("not_assessed", "indirect", "sparse", "unknown"):
+        return None
     return "amber"
 
 
@@ -169,7 +177,7 @@ def _build_modalities_block(snapshot_axes: dict[str, dict[str, Any]], by_domain:
         if label:
             contributing.append(str(label))
         out[modality_key] = {
-            "score": _score_from_severity_and_completeness(severity, completeness),
+            "score": _score_from_severity_and_completeness(severity, completeness) if severity else None,
             "severity": severity,
             "confidence": _clamp01(confidence),
             "contributing_factors": contributing,
@@ -177,8 +185,8 @@ def _build_modalities_block(snapshot_axes: dict[str, dict[str, Any]], by_domain:
     # Always include all five modality keys the frontend renders, even if axis missing.
     for k in ("bradykinesia", "tremor", "gait", "posture", "monitoring"):
         out.setdefault(k, {
-            "score": 50,
-            "severity": "amber",
+            "score": None,
+            "severity": None,
             "confidence": 0.3,
             "contributing_factors": ["No structured signal available yet."],
         })

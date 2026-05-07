@@ -92,6 +92,14 @@ const STATE = {
   clinicianNotes: [],
 };
 
+export function deeptwinHasPatientScope(patientId) {
+  return !!String(patientId || '').trim();
+}
+
+export function deeptwinResolvedTab(patientId, requestedTab) {
+  return deeptwinHasPatientScope(patientId) ? (requestedTab || 'overview') : 'overview';
+}
+
 function _setMain(html) {
   // The host element is content (Brain-Twin pattern) but page modules in
   // this app render to either #content or #main-content depending on
@@ -506,6 +514,7 @@ function _setTopbar(setTopbar) {
 }
 
 function _renderTabStrip(active) {
+  const hasPatient = deeptwinHasPatientScope(STATE.patientId);
   const tabs = [
     { id: 'overview', label: 'Overview' },
     { id: '360', label: '360 Dashboard' },
@@ -517,7 +526,8 @@ function _renderTabStrip(active) {
     <nav class="dt-tabs" role="tablist" aria-label="DeepTwin views">
       ${tabs.map(t => `
         <button class="dt-tab ${t.id === active ? 'dt-tab--active' : ''}"
-                data-dt-tab="${t.id}" role="tab" aria-selected="${t.id === active}">
+                data-dt-tab="${t.id}" role="tab" aria-selected="${t.id === active}"
+                ${!hasPatient && t.id !== 'overview' ? 'aria-disabled="true" title="Select a patient first"' : ''}>
           ${t.label}
         </button>
       `).join('')}
@@ -545,7 +555,15 @@ function _wireTabStrip(setTopbar) {
   document.querySelectorAll('button[data-dt-tab]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const tab = btn.dataset.dtTab;
-      STATE.activeTab = tab;
+      if (!deeptwinHasPatientScope(STATE.patientId)) {
+        STATE.activeTab = 'overview';
+        try { sessionStorage.setItem('ds_dt_active_tab', 'overview'); } catch {}
+        _setMain(`<div class="dt-page">${_renderTabStrip('overview')}${decisionSupportBanner()}${emptyPatientBlock()}${renderSafetyFooter()}</div>`);
+        _wireTabStrip(_setTopbarRef);
+        window._showToast?.('Select a patient first.', 'warning');
+        return;
+      }
+      STATE.activeTab = deeptwinResolvedTab(STATE.patientId, tab);
       sessionStorage.setItem('ds_dt_active_tab', tab);
       await _renderActiveTab(_setTopbarRef);
     });
@@ -554,7 +572,13 @@ function _wireTabStrip(setTopbar) {
 
 async function _renderActiveTab(setTopbar) {
   const patientId = STATE.patientId;
-  const active = STATE.activeTab || 'overview';
+  const active = deeptwinResolvedTab(patientId, STATE.activeTab);
+  STATE.activeTab = active;
+  if (!deeptwinHasPatientScope(patientId)) {
+    _setMain(`<div class="dt-page">${_renderTabStrip('overview')}${decisionSupportBanner()}${emptyPatientBlock()}${renderSafetyFooter()}</div>`);
+    _wireTabStrip(setTopbar);
+    return;
+  }
   if (active === '360') {
     _setMain(`<div class="dt-page">${_renderTabStrip('360')}${renderDashboard360Skeleton()}</div>`);
     _wireTabStrip();
@@ -637,11 +661,11 @@ export async function pgDeeptwin(setTopbar /* , navigate */) {
   _injectStylesOnce();
   const patientId = _selectedPatientId();
   STATE.patientId = patientId;
-  STATE.activeTab = sessionStorage.getItem('ds_dt_active_tab') || 'overview';
+  STATE.activeTab = deeptwinResolvedTab(patientId, sessionStorage.getItem('ds_dt_active_tab') || 'overview');
   _setTopbar(setTopbar);
 
-  if (!patientId) {
-    _setMain(`<div class="dt-page">${_renderTabStrip(STATE.activeTab)}${decisionSupportBanner()}${emptyPatientBlock()}${renderSafetyFooter()}</div>`);
+  if (!deeptwinHasPatientScope(patientId)) {
+    _setMain(`<div class="dt-page">${_renderTabStrip('overview')}${decisionSupportBanner()}${emptyPatientBlock()}${renderSafetyFooter()}</div>`);
     _wireTabStrip(setTopbar);
     return;
   }
