@@ -3099,6 +3099,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body || {}),
     }),
+  updatePatientBioLab: (patientId, labResultId, body) =>
+    apiFetch(`/api/v1/bio/patients/${encodeURIComponent(patientId)}/labs/${encodeURIComponent(labResultId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(body || {}),
+    }),
   deletePatientBioLab: (patientId, labResultId) =>
     apiFetch(
       `/api/v1/bio/patients/${encodeURIComponent(patientId)}/labs/${encodeURIComponent(labResultId)}`,

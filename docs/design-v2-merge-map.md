@@ -115,7 +115,7 @@ Branch: `feat/design-v2` · Prototype: `design-v2-prototype.html` (at repo root,
 
 ## Non-goals / deferred
 
-- **Brain scan AI analysis** (currently in Protocol Hub) — stays as a sub-tool under Brain Map Planner
+- **Brain scan AI-assisted analysis** (currently in Protocol Hub) — stays as a sub-tool under Brain Map Planner
 - **Legacy Protocol Hub landing** — removed; its children reparented to Studio (09), Brain Map (06), Handbooks (11), Registry (inside 09)
 - **Patient Portal sub-pages** (pt-journal, pt-wellness, pt-learn, pt-media-*, pt-outcomes) — stay as patient-role routes, not top-level clinician nav
 

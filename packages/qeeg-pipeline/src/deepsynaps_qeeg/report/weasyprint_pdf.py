@@ -56,6 +56,18 @@ def _b64_img(raw_bytes: bytes, fmt: str = "png") -> str:
     return f"data:{mime};base64,{b64}"
 
 
+def _norm_db_warning(version: Any) -> str:
+    text = str(version or "").strip()
+    low = text.lower()
+    if not text or (low != "toy-0.1" and "toy" not in low and low != "unknown"):
+        return ""
+    return (
+        '<p class="note"><strong>Normative caution:</strong> '
+        f'Norm DB {_esc(text)} is a research/preview dataset and should not be treated as '
+        "validated clinical normative mapping.</p>"
+    )
+
+
 def _band_z_map(spectral_z: dict[str, Any], band: str) -> dict[str, Any]:
     """Return the per-channel z-score map for one band.
 
@@ -507,6 +519,7 @@ def _render_full_html(
     <span class="badge">Norms {_esc(zscores.get('norm_db_version', 'N/A'))}</span>
     <span class="badge">Source: {_esc(source_method)}</span>
   </p>
+  {_norm_db_warning(zscores.get('norm_db_version'))}
 </div>
 
 <!-- 2. Pipeline Quality -->

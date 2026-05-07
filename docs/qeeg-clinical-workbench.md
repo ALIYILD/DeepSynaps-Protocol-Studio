@@ -20,7 +20,13 @@ The Clinical Intelligence Workbench is a set of 10 integrated features that add 
 ### 3. Normative Model Card
 - **Endpoint**: `GET /api/v1/qeeg-analysis/{id}/normative-model-card`
 - Shows normative database name/version, age range, compatibility, z-score method, confidence interval
+- Includes explicit normative status labels:
+  - `toy`: non-clinical fixture/demo norms only
+  - `configured`: a deployment-specific normative dataset is configured
+  - `unavailable`: no honest normative comparison can be shown for this recording
+- Includes a visible clinical caveat banner when the backend provides one
 - Includes out-of-distribution (OOD) warnings and limitations
+- Clinical interpretation rule: if status is `toy` or `unavailable`, treat z-score context as non-validated or absent and rely on clinician review of raw features, acquisition quality, and the rest of the safety panels
 
 ### 4. AI Protocol Fit Panel
 - **Endpoints**: `POST/GET /api/v1/qeeg-analysis/{id}/protocol-fit`

@@ -69,6 +69,10 @@ class MriAnalysis(Base):
     age: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     sex: Mapped[Optional[str]] = mapped_column(String(4), nullable=True)
     failure_reason: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    # True when this analysis was created in demo mode (canned sample report).
+    # Doctor-ready compliance: every downstream consumer must be able to tell
+    # real pipeline output from demo / placeholder data.
+    demo_mode: Mapped[Optional[bool]] = mapped_column(Boolean(), nullable=True, default=False)
     # ── MRI Clinical Workbench (migration 053) ────────────────────────────
     safety_cockpit_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     red_flags_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)

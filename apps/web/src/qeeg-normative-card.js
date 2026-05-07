@@ -20,8 +20,14 @@ function renderNormativeModelCard(card) {
   var complete = !!card.complete;
   var ood = card.ood_warning || '';
   var limitations = card.limitations || [];
+  var status = String(card.status || '').toLowerCase();
+  var statusPill = complete ? _pill('Complete', '#22c55e') : _pill('Partial', '#f59e0b');
+  if (status === 'toy') statusPill = _pill('Toy / Non-Clinical', '#f59e0b');
+  else if (status === 'unavailable') statusPill = _pill('Norms Unavailable', '#ef4444');
+  else if (status === 'configured') statusPill = _pill('Configured', '#22c55e');
 
   var rows = [
+    ['Status', card.status || '—'],
     ['Normative Database', card.normative_db_name || '—'],
     ['Version', card.normative_db_version || '—'],
     ['Age Range', card.age_range || '—'],
@@ -38,6 +44,11 @@ function renderNormativeModelCard(card) {
       + '<strong>Out-of-Distribution Warning</strong> ' + esc(ood) + '</div>'
     : '';
 
+  var caveat = card.clinical_caveat
+    ? '<div style="padding:10px 14px;border-radius:6px;margin-bottom:10px;background:#fff7ed;border-left:4px solid #f97316">'
+      + '<strong>Clinical Caveat</strong> ' + esc(card.clinical_caveat) + '</div>'
+    : '';
+
   var lims = limitations.length
     ? '<ul style="margin:8px 0 0 16px;font-size:13px">' + limitations.map(function (l) {
       return '<li>' + esc(l) + '</li>';
@@ -45,8 +56,9 @@ function renderNormativeModelCard(card) {
     : '';
 
   return '<div class="ds-card qeeg-ai-card">'
-    + '<div class="ds-card__header"><h3>Normative Model Card</h3>' + (complete ? _pill('Complete', '#22c55e') : _pill('Partial', '#f59e0b')) + '</div>'
+    + '<div class="ds-card__header"><h3>Normative Model Card</h3>' + statusPill + '</div>'
     + '<div class="ds-card__body">'
+    + caveat
     + oodBanner
     + '<table class="ds-table" style="width:100%;font-size:13px"><tbody>' + rows + '</tbody></table>'
     + (lims ? '<h4 style="margin:12px 0 4px;font-size:13px">Limitations</h4>' + lims : '')
