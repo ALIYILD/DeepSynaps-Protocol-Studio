@@ -124,7 +124,7 @@ function _renderDisclaimer() {
   return ''
     + '<footer class="qeeg-launcher__disclaimer ds-print" '
     + 'style="margin-top:18px;padding:12px;background:#f8fafc;border-radius:8px;font-size:11.5px;color:var(--text-secondary);line-height:1.5">'
-    + 'Research and wellness use only. The brain map is informational and is not a medical diagnosis or '
+    + 'Decision-support only. The brain map is informational and is not a medical diagnosis or '
     + 'treatment recommendation. Findings should be reviewed by a qualified clinician before any care '
     + 'decisions are made.'
     + '</footer>';

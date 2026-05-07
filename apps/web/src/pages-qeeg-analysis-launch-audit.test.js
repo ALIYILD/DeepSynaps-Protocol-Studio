@@ -119,7 +119,7 @@ test('demo banner output is marked data-demo for downstream filtering', () => {
 
 test('clinical safety footer lists non-diagnosis and review-required disclaimers', () => {
   const src = _readSrc('pages-qeeg-analysis.js');
-  assert.match(src, /support clinical decision-making and require clinician review/);
+  assert.match(src, /support interpretation and require clinician review/);
   assert.match(src, /are not prescriptive/);
   assert.match(src, /Z-scores are referenced against the embedded normative dataset/);
   assert.match(src, /AI interpretation runs after deterministic numerics/);

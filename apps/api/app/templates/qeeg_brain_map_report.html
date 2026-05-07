@@ -51,11 +51,11 @@
   <h2>Cover Indicators</h2>
   <div class="indicator-grid">
     {% for label, ind in [
-        ('Frontal Lobe Development (TBR)', indicators.tbr),
-        ('Information Processing Speed', indicators.occipital_paf),
+        ('Frontal Theta-Beta Ratio', indicators.tbr),
+        ('Occipital Peak Alpha Frequency', indicators.occipital_paf),
         ('Alpha Wave Reactivity', indicators.alpha_reactivity),
         ('Frontal Alpha Asymmetry (FAA)', indicators.brain_balance),
-        ('AI Brain Development Age', indicators.ai_brain_age),
+        ('Estimated Brain Age', indicators.ai_brain_age),
     ] %}
       <div class="indicator indicator--{{ (ind.band if ind and ind.band else 'unknown') }}">
         <p class="indicator__label">{{ label }}</p>
