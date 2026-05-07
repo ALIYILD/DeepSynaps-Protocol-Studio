@@ -32,12 +32,6 @@ const ANALYTE_UNIT_EXPECTATIONS = Object.freeze({
   b12: ['pg/ml', 'pmol/l'],
 });
 const SEVERITY_LABEL = Object.freeze({ critical: 'Critical', major: 'Major', monitor: 'Monitor', stable: 'Stable' });
-const REVIEW_SCOPES = Object.freeze({
-  full: { id: 'full', label: 'Full review', description: 'Show the full analyzer surface and export every active section.' },
-  protocol: { id: 'protocol', label: 'Protocol review', description: 'Prioritize protocol-facing cautions, burdens, and next-step decisions.' },
-  labs: { id: 'labs', label: 'Lab cleanup', description: 'Focus on lab interpretation, ranges, unit issues, and analyte trends.' },
-  meds: { id: 'meds', label: 'Med reconciliation', description: 'Focus on substance burden, stimulant or sedative exposure, and reconciliation tasks.' },
-});
 
 export function bioResolvePatientId() {
   try {
@@ -118,10 +112,6 @@ function _injectStylesOnce() {
     .bio-db-trend-bar{flex:1;min-width:14px;border-radius:8px 8px 3px 3px;background:linear-gradient(180deg,rgba(96,165,250,.95),rgba(96,165,250,.35))}
     .bio-db-note-stamp{font-size:11px;color:var(--text-tertiary);margin-top:8px}
     .bio-db-finding-foot{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px}
-    .bio-db-scope-row{display:grid;gap:10px;margin:0 0 12px}
-    .bio-db-scope-pills{display:flex;flex-wrap:wrap;gap:8px}
-    .bio-db-scope-pill{border:1px solid var(--border);background:var(--surface-2);color:var(--text-secondary);border-radius:999px;padding:7px 12px;font-size:12px;cursor:pointer}
-    .bio-db-scope-pill[data-active="true"]{background:rgba(96,165,250,.12);border-color:rgba(96,165,250,.3);color:var(--text)}
     @media (max-width:1180px){.bio-db-layout,.bio-db-data-grid,.bio-db-summary,.bio-db-form-grid,.bio-db-inline-grid,.bio-db-split{grid-template-columns:1fr}}
   `;
   document.head.appendChild(style);
@@ -135,7 +125,6 @@ const STATE = {
   substances: [],
   labs: [],
   editingLabId: '',
-  reviewScopeId: 'full',
   reviewNotes: { note: '', updatedAt: '' },
   findingAcks: {},
   loadError: '',
@@ -368,211 +357,6 @@ function _resolveModality(patient) {
   return _normalizedText(patient?.primary_modality || patient?.modality || patient?.recommended_modality);
 }
 
-function _scopeKey(patientId) {
-  return `ds:bio-review-scope:${patientId || ''}`;
-}
-
-function _normalizeReviewScopeId(scopeId) {
-  return REVIEW_SCOPES[scopeId] ? scopeId : 'full';
-}
-
-function _matchesAnyId(item, ids) {
-  return !!item?.id && ids.includes(item.id);
-}
-
-function _buildScopedReviewSummary(model) {
-  const findings = bioNormalizeArray(model?.findings);
-  return {
-    totalFindings: findings.length,
-    acknowledgedFindings: findings.filter((item) => item.acknowledged).length,
-    unacknowledgedFindings: findings.filter((item) => !item.acknowledged).length,
-    criticalFindings: findings.filter((item) => item.severity === 'critical').length,
-    majorFindings: findings.filter((item) => item.severity === 'major').length,
-    protocolCautions: bioNormalizeArray(model?.protocolCautions).length,
-  };
-}
-
-export function applyBioReviewScope(model, scopeId = 'full') {
-  const normalizedScopeId = _normalizeReviewScopeId(scopeId);
-  const scope = REVIEW_SCOPES[normalizedScopeId];
-  if (!model || normalizedScopeId === 'full') {
-    return {
-      ...model,
-      reviewScopeId: normalizedScopeId,
-      reviewScopeLabel: scope.label,
-      reviewScopeDescription: scope.description,
-      fullReviewSummary: model?.reviewSummary || _buildScopedReviewSummary(model),
-      reviewSummary: model?.reviewSummary || _buildScopedReviewSummary(model),
-    };
-  }
-
-  const findings = bioNormalizeArray(model.findings);
-  const cautions = bioNormalizeArray(model.protocolCautions);
-  const actions = bioNormalizeArray(model.actionPlan);
-  const trends = bioNormalizeArray(model.repeatedLabTrends);
-  const insights = bioNormalizeArray(model.labInsights);
-  const thresholdSignals = bioNormalizeArray(model.thresholdSignals);
-  let scopedFindings = findings;
-  let scopedCautions = cautions;
-  let scopedActions = actions;
-  let scopedTrends = trends;
-  let scopedInsights = insights;
-  let scopedThresholdSignals = thresholdSignals;
-
-  if (normalizedScopeId === 'protocol') {
-    scopedFindings = findings.filter((item) => item.severity === 'critical'
-      || item.severity === 'major'
-      || _matchesAnyId(item, ['stale-labs', 'stale-substances', 'sedating-exposure', 'activating-exposure', 'baseline-gaps'])
-      || String(item.id || '').startsWith('threshold-'));
-    scopedActions = actions.filter((item) => item.priority === 'critical'
-      || item.priority === 'major'
-      || _matchesAnyId(item, ['plan-check-substance-confounders', 'plan-modality-tms', 'plan-modality-rtms', 'plan-modality-tdcs', 'plan-modality-neurofeedback']));
-    scopedTrends = [];
-    scopedInsights = insights.filter((item) => item.inferredStatus === 'critical' || item.thresholdSignal || item.unitMismatch);
-  } else if (normalizedScopeId === 'labs') {
-    scopedFindings = findings.filter((item) => _matchesAnyId(item, ['critical-labs', 'thyroid-review', 'reference-range-review', 'unit-mismatch-review', 'missing-reference-range', 'stale-labs', 'baseline-gaps', 'lab-trends'])
-      || String(item.id || '').startsWith('threshold-'));
-    scopedCautions = cautions.filter((item) => /(thyroid|biomarker|baseline|ferritin|vitamin-d|inflammation|b12|lab-unit|reference|electrolyte|stale-labs)/.test(String(item.id || '')));
-    scopedActions = actions.filter((item) => _matchesAnyId(item, ['plan-confirm-critical-labs', 'plan-verify-lab-units', 'plan-add-reference-ranges', 'plan-refresh-baseline-labs', 'plan-review-medical-confounders', 'plan-use-trends']));
-  } else if (normalizedScopeId === 'meds') {
-    scopedFindings = findings.filter((item) => _matchesAnyId(item, ['stale-substances', 'sedating-exposure', 'activating-exposure']));
-    scopedCautions = cautions.filter((item) => /(benzo|stimulant|sedation)/.test(String(item.id || '')));
-    scopedActions = actions.filter((item) => _matchesAnyId(item, ['plan-reconcile-substances', 'plan-check-substance-confounders', 'plan-modality-tms', 'plan-modality-rtms', 'plan-modality-tdcs', 'plan-modality-neurofeedback']));
-    scopedTrends = [];
-    scopedInsights = [];
-    scopedThresholdSignals = [];
-  }
-
-  const scopedModel = {
-    ...model,
-    findings: _sortBySeverity(scopedFindings),
-    protocolCautions: _sortBySeverity(scopedCautions),
-    actionPlan: _sortByPriority(scopedActions),
-    repeatedLabTrends: scopedTrends,
-    labInsights: scopedInsights,
-    thresholdSignals: scopedThresholdSignals,
-    reviewScopeId: normalizedScopeId,
-    reviewScopeLabel: scope.label,
-    reviewScopeDescription: scope.description,
-    fullReviewSummary: model.reviewSummary || _buildScopedReviewSummary(model),
-  };
-  return { ...scopedModel, reviewSummary: _buildScopedReviewSummary(scopedModel) };
-}
-
-export function filterBioRowsForReviewScope({
-  scopeId = 'full',
-  substances = [],
-  labs = [],
-} = {}) {
-  const normalizedScopeId = _normalizeReviewScopeId(scopeId);
-  const substanceRows = bioNormalizeArray(substances);
-  const labRows = bioNormalizeArray(labs);
-
-  if (normalizedScopeId === 'meds') {
-    return {
-      substances: substanceRows.filter((item) => _isActiveSubstance(item)
-        || _matchTerm(_extractSubstanceName(item), SEDATING_TERMS)
-        || _matchTerm(_extractSubstanceName(item), ACTIVATING_TERMS)),
-      labs: labRows,
-    };
-  }
-  if (normalizedScopeId === 'labs') {
-    return {
-      substances: substanceRows,
-      labs: labRows.filter((item) => _isFlaggedLab(item)
-        || _isCriticalLab(item)
-        || !!_inferLabRangeReason(item, _inferLabStatus(item))
-        || _checkUnitMismatch(item)
-        || !!_buildThresholdSignal(item)),
-    };
-  }
-  if (normalizedScopeId === 'protocol') {
-    return {
-      substances: substanceRows.filter((item) => _isActiveSubstance(item)
-        || _matchTerm(_extractSubstanceName(item), SEDATING_TERMS)
-        || _matchTerm(_extractSubstanceName(item), ACTIVATING_TERMS)),
-      labs: labRows.filter((item) => _isFlaggedLab(item)
-        || _isCriticalLab(item)
-        || !!_buildThresholdSignal(item)),
-    };
-  }
-  return { substances: substanceRows, labs: labRows };
-}
-
-export function buildBioScopeFormHints({
-  scopeId = 'full',
-  substances = [],
-  labs = [],
-} = {}) {
-  const normalizedScopeId = _normalizeReviewScopeId(scopeId);
-  const scoped = filterBioRowsForReviewScope({ scopeId: normalizedScopeId, substances, labs });
-  const missingReferenceRangeCount = scoped.labs.filter((item) => !String(item?.reference_range || item?.reference || item?.reference_range_text || '').trim()).length;
-  const missingSourceLabCount = scoped.labs.filter((item) => !String(item?.source_lab || '').trim()).length;
-  return {
-    scopeId: normalizedScopeId,
-    substanceStatusDefault: 'active',
-    substanceHelperText: normalizedScopeId === 'meds'
-      ? 'Med reconciliation view assumes you are refreshing the active list first.'
-      : normalizedScopeId === 'protocol'
-        ? 'Protocol review keeps active and exposure-relevant substances in focus.'
-        : 'Capture medications, supplements, vitamins, and other tracked substances.',
-    substanceNotesPlaceholder: normalizedScopeId === 'meds'
-      ? 'Reason, adherence issues, last confirmed date, taper plan, or exposure relevance'
-      : 'Reason, response, adherence issues, seizure-threshold relevance',
-    labHelperText: normalizedScopeId === 'labs'
-      ? 'Lab cleanup emphasizes structured source data so the analyzer can interpret ranges and units reliably.'
-      : normalizedScopeId === 'protocol'
-        ? 'Protocol review favors abnormal, critical, and threshold-relevant labs.'
-        : 'Track blood tests and biomarker results that may influence protocol planning, safety, or response interpretation.',
-    labReferencePlaceholder: normalizedScopeId === 'labs' ? 'Required for cleanup when available, e.g. 0.4 - 4.5' : '0.4 - 4.5',
-    labSourcePlaceholder: normalizedScopeId === 'labs' ? 'Required for cleanup when available, e.g. Quest or LabCorp' : 'Quest, LabCorp, hospital lab',
-    labWarning: normalizedScopeId === 'labs' && (missingReferenceRangeCount || missingSourceLabCount)
-      ? `${missingReferenceRangeCount} scoped lab${missingReferenceRangeCount === 1 ? '' : 's'} missing reference range · ${missingSourceLabCount} scoped lab${missingSourceLabCount === 1 ? '' : 's'} missing source lab`
-      : '',
-  };
-}
-
-export function buildBioReviewHandoffSummary({
-  patientLabel = '',
-  patientSubtitle = '',
-  patientId = '',
-  model = null,
-} = {}) {
-  const scopeLabel = model?.reviewScopeLabel || REVIEW_SCOPES.full.label;
-  const patientLine = [patientLabel, patientSubtitle].filter(Boolean).join(' · ');
-  const topFindings = bioNormalizeArray(model?.findings).slice(0, 5).map((item) => `- ${item.title}: ${item.summary}`);
-  const topCautions = bioNormalizeArray(model?.protocolCautions).slice(0, 5).map((item) => `- ${item.title}: ${item.summary}`);
-  const topSignals = bioNormalizeArray(model?.thresholdSignals).slice(0, 5).map((item) => `- ${item.title}: ${item.summary}`);
-  const nextSteps = bioNormalizeArray(model?.actionPlan).slice(0, 5).map((item) => `- ${item.title}: ${item.summary}`);
-  return [
-    'Bio Database Review Handoff',
-    `Review scope: ${scopeLabel}`,
-    `Patient: ${patientLine || patientId || 'Selected patient'}`,
-    `Primary modality: ${model?.modality || 'not set'}`,
-    '',
-    'Review summary',
-    `- Findings: ${model?.reviewSummary?.totalFindings || 0}`,
-    `- Open findings: ${model?.reviewSummary?.unacknowledgedFindings || 0}`,
-    `- Protocol cautions: ${model?.reviewSummary?.protocolCautions || 0}`,
-    `- Threshold signals: ${bioNormalizeArray(model?.thresholdSignals).length}`,
-    '',
-    'Priority findings',
-    ...(topFindings.length ? topFindings : ['- None in this review scope']),
-    '',
-    'Protocol cautions',
-    ...(topCautions.length ? topCautions : ['- None in this review scope']),
-    '',
-    'Analyte-specific threshold signals',
-    ...(topSignals.length ? topSignals : ['- None in this review scope']),
-    '',
-    'Suggested next steps',
-    ...(nextSteps.length ? nextSteps : ['- None in this review scope']),
-    '',
-    'Clinician note',
-    model?.reviewNotes?.note ? model.reviewNotes.note : 'No saved clinician note.',
-  ].join('\n');
-}
-
 export function buildBioAnalyzerModel({
   patient = null,
   catalog = [],
@@ -778,11 +562,6 @@ function _sortLabs(rows) {
   });
 }
 
-function _panelCountNote(shown, total, noun) {
-  if (shown === total) return `${shown} ${noun}${shown === 1 ? '' : 's'} shown`;
-  return `${shown} of ${total} ${noun}${total === 1 ? '' : 's'} shown in this review scope`;
-}
-
 function _renderFindingCard(item) {
   return `<div class="bio-db-finding" data-severity="${esc(item.severity)}">
     <div class="bio-db-finding-head">
@@ -822,13 +601,11 @@ function _renderLabInsightCard(item) {
 
 function _renderAnalyzerPanel(model) {
   const modalityLabel = model.modality ? model.modality.toUpperCase() : 'Not set';
-  const scopeButtons = Object.values(REVIEW_SCOPES).map((scope) => `<button class="bio-db-scope-pill" data-active="${model.reviewScopeId === scope.id ? 'true' : 'false'}" type="button" onclick="window._bioSetReviewScope('${esc(scope.id)}')">${esc(scope.label)}</button>`).join('');
   return `<section class="bio-db-panel">
     <div class="bio-db-panel-head">
       <div><div class="bio-db-eyebrow">Analyzer review</div><h2 class="bio-db-panel-title">Clinician review surface</h2><div class="bio-db-panel-note">This layer interprets recency, medication burden, reference ranges, analyte thresholds, repeated analytes, and modality-specific cautions on top of the raw bio database.</div></div>
-      <div><div class="bio-db-kicker">Primary modality</div><div class="bio-db-mini">${esc(modalityLabel)}</div><div class="bio-db-actions" style="margin-top:8px"><button class="btn btn-ghost btn-sm" type="button" onclick="window._bioExportReviewSummary()">Export handoff</button></div></div>
+      <div><div class="bio-db-kicker">Primary modality</div><div class="bio-db-mini">${esc(modalityLabel)}</div></div>
     </div>
-    <div class="bio-db-scope-row"><div class="bio-db-scope-pills">${scopeButtons}</div><div class="bio-db-panel-note">${esc(model.reviewScopeDescription)} Export uses this same review scope.</div></div>
     <div class="bio-db-inline-grid" style="margin-bottom:12px">
       <div class="bio-db-note-box"><div class="bio-db-kicker">Exposure summary</div><div class="bio-db-mini">Sedating agents: ${esc(model.exposures.sedating)} · Activating agents: ${esc(model.exposures.activating)}</div><div class="bio-db-note-stamp">${model.staleSubstances ? 'Medication reconciliation appears stale.' : 'Medication reconciliation is present.'}</div></div>
       <div class="bio-db-note-box"><div class="bio-db-kicker">Baseline context</div><div class="bio-db-mini">${model.baselineGaps.length ? `Missing: ${esc(model.baselineGaps.join(', '))}` : 'No baseline gaps detected from common reference checks.'}</div><div class="bio-db-note-stamp">${model.staleLabs ? 'Recent lab context is missing or stale.' : 'Recent lab context is available.'}</div></div>
@@ -854,13 +631,9 @@ function _renderAnalyzerPanel(model) {
 
 function _renderSubstancesPanel() {
   const catalog = _catalogSummary().substances;
-  const scopedRows = filterBioRowsForReviewScope({ scopeId: STATE.reviewScopeId, substances: STATE.substances, labs: STATE.labs }).substances;
-  const hints = buildBioScopeFormHints({ scopeId: STATE.reviewScopeId, substances: STATE.substances, labs: STATE.labs });
-  const rows = _sortSubstances(scopedRows);
-  const totalRows = bioNormalizeArray(STATE.substances).length;
-  const countNote = _panelCountNote(rows.length, totalRows, 'substance');
+  const rows = _sortSubstances(bioNormalizeArray(STATE.substances));
   return `<section class="bio-db-panel">
-    <div class="bio-db-panel-head"><div><h2 class="bio-db-panel-title">Substances</h2><div class="bio-db-panel-note">${esc(hints.substanceHelperText)}</div><div class="bio-db-mini" style="margin-top:6px">${esc(countNote)}</div></div><div class="bio-db-actions">${_canSeedCatalog() ? `<button class="btn btn-ghost btn-sm" onclick="window._bioSeedCatalog()" ${STATE.busy ? 'disabled' : ''}>Seed catalog</button>` : ''}</div></div>
+    <div class="bio-db-panel-head"><div><h2 class="bio-db-panel-title">Substances</h2><div class="bio-db-panel-note">Medications, supplements, vitamins, and other tracked substances relevant to neuromodulation review.</div></div><div class="bio-db-actions">${_canSeedCatalog() ? `<button class="btn btn-ghost btn-sm" onclick="window._bioSeedCatalog()" ${STATE.busy ? 'disabled' : ''}>Seed catalog</button>` : ''}</div></div>
     <form class="bio-db-form" onsubmit="window._bioSubmitSubstance(event)">
       <div class="bio-db-form-grid">
         <label class="bio-db-field"><span>Catalog match</span><select id="bio-substance-catalog" class="bio-db-select"><option value="">Optional catalog item</option>${_catalogOptions(catalog)}</select></label>
@@ -888,17 +661,12 @@ function _renderSubstancesPanel() {
 
 function _renderLabsPanel() {
   const catalog = _catalogSummary().labs;
-  const scopedRows = filterBioRowsForReviewScope({ scopeId: STATE.reviewScopeId, substances: STATE.substances, labs: STATE.labs }).labs;
-  const hints = buildBioScopeFormHints({ scopeId: STATE.reviewScopeId, substances: STATE.substances, labs: STATE.labs });
-  const rows = _sortLabs(scopedRows);
-  const totalRows = bioNormalizeArray(STATE.labs).length;
-  const countNote = _panelCountNote(rows.length, totalRows, 'lab');
+  const rows = _sortLabs(bioNormalizeArray(STATE.labs));
   const editingLab = STATE.editingLabId ? _findLabById(STATE.editingLabId) : null;
   return `<section class="bio-db-panel">
-    <div class="bio-db-panel-head"><div><h2 class="bio-db-panel-title">Lab results</h2><div class="bio-db-panel-note">${esc(hints.labHelperText)}</div><div class="bio-db-mini" style="margin-top:6px">${esc(countNote)}</div></div><div class="bio-db-actions">${_canSeedCatalog() ? `<button class="btn btn-ghost btn-sm" onclick="window._bioSeedCatalog()" ${STATE.busy ? 'disabled' : ''}>Seed catalog</button>` : ''}</div></div>
+    <div class="bio-db-panel-head"><div><h2 class="bio-db-panel-title">Lab results</h2><div class="bio-db-panel-note">Track blood tests and biomarker results that may influence protocol planning, safety, or response interpretation.</div></div><div class="bio-db-actions">${_canSeedCatalog() ? `<button class="btn btn-ghost btn-sm" onclick="window._bioSeedCatalog()" ${STATE.busy ? 'disabled' : ''}>Seed catalog</button>` : ''}</div></div>
     <form class="bio-db-form" onsubmit="window._bioSubmitLab(event)">
       ${editingLab ? `<div class="bio-db-warning">Editing existing lab entry. Save to update, or cancel to return to add mode.</div>` : ''}
-      ${hints.labWarning ? `<div class="bio-db-warning">${esc(hints.labWarning)}</div>` : ''}
       <div class="bio-db-form-grid">
         <label class="bio-db-field"><span>Catalog match</span><select id="bio-lab-catalog" class="bio-db-select"><option value="">Optional catalog item</option>${_catalogOptions(catalog)}</select></label>
         <label class="bio-db-field"><span>Flag</span><select id="bio-lab-flag" class="bio-db-select"><option value="normal"${_normalizedText(editingLab?.flag || editingLab?.status || editingLab?.abnormal_flag) === 'normal' ? ' selected' : ''}>Normal</option><option value="abnormal"${_normalizedText(editingLab?.flag || editingLab?.status || editingLab?.abnormal_flag) === 'abnormal' ? ' selected' : ''}>Abnormal</option><option value="critical"${_normalizedText(editingLab?.flag || editingLab?.status || editingLab?.abnormal_flag) === 'critical' ? ' selected' : ''}>Critical</option><option value="unknown"${!editingLab || _normalizedText(editingLab?.flag || editingLab?.status || editingLab?.abnormal_flag) === 'unknown' ? ' selected' : ''}>Unknown</option></select></label>
@@ -906,8 +674,8 @@ function _renderLabsPanel() {
         <label class="bio-db-field"><span>Collected at</span><input id="bio-lab-collected-at" class="bio-db-input" type="date" value="${esc(String(editingLab?.collected_at || '').slice(0, 10))}"></label>
         <label class="bio-db-field"><span>Value</span><input id="bio-lab-value" class="bio-db-input" placeholder="32" value="${esc(editingLab?.value_numeric ?? editingLab?.value_text ?? editingLab?.value ?? '')}"></label>
         <label class="bio-db-field"><span>Unit</span><input id="bio-lab-unit" class="bio-db-input" placeholder="ng/mL" value="${esc(editingLab?.unit || '')}"></label>
-        <label class="bio-db-field"><span>Reference range</span><input id="bio-lab-reference-range" class="bio-db-input" placeholder="${esc(hints.labReferencePlaceholder)}" value="${esc(editingLab?.reference_range || editingLab?.reference || editingLab?.reference_range_text || '')}"></label>
-        <label class="bio-db-field"><span>Source lab</span><input id="bio-lab-source-lab" class="bio-db-input" placeholder="${esc(hints.labSourcePlaceholder)}" value="${esc(editingLab?.source_lab || '')}"></label>
+        <label class="bio-db-field"><span>Reference range</span><input id="bio-lab-reference-range" class="bio-db-input" placeholder="0.4 - 4.5" value="${esc(editingLab?.reference_range || editingLab?.reference || editingLab?.reference_range_text || '')}"></label>
+        <label class="bio-db-field"><span>Source lab</span><input id="bio-lab-source-lab" class="bio-db-input" placeholder="Quest, LabCorp, hospital lab" value="${esc(editingLab?.source_lab || '')}"></label>
       </div>
       <label class="bio-db-field"><span>Notes</span><textarea id="bio-lab-notes" class="bio-db-textarea" placeholder="Fasting status, interpretation note, specimen context, or follow-up instruction">${esc(editingLab?.notes || '')}</textarea></label>
       <div class="bio-db-actions"><button class="btn btn-primary btn-sm" type="submit" ${STATE.busy ? 'disabled' : ''}>${editingLab ? 'Save lab changes' : 'Add lab result'}</button>${editingLab ? `<button class="btn btn-ghost btn-sm" type="button" onclick="window._bioCancelLabEdit()" ${STATE.busy ? 'disabled' : ''}>Cancel</button>` : ''}</div>
@@ -932,7 +700,7 @@ function _renderPage() {
   if (!el) return;
   const counts = _counts();
   const catalogInfo = _catalogSummary();
-  const model = applyBioReviewScope(buildBioAnalyzerModel({ patient: STATE.patient, catalog: STATE.catalog, substances: STATE.substances, labs: STATE.labs, reviewNotes: STATE.reviewNotes, findingAcks: STATE.findingAcks }), STATE.reviewScopeId);
+  const model = buildBioAnalyzerModel({ patient: STATE.patient, catalog: STATE.catalog, substances: STATE.substances, labs: STATE.labs, reviewNotes: STATE.reviewNotes, findingAcks: STATE.findingAcks });
   el.innerHTML = `<div class="bio-db-page"><div class="bio-db-stack"><section class="bio-db-context"><div class="bio-db-eyebrow">Patient bio context</div><h1 class="bio-db-title">${esc(_patientLabel())}</h1><div class="bio-db-subtitle">${esc(_patientSubtitle() || 'Use this page to capture substances and lab signals that can confound, contextualize, or support neuromodulation decisions.')}</div></section>${STATE.loadError ? `<div class="bio-db-error">${esc(STATE.loadError)}</div>` : ''}${!catalogInfo.total && _canSeedCatalog() ? '<div class="bio-db-warning">The bio catalog is empty. Seed it to preload common medications, supplements, vitamins, labs, and biomarkers.</div>' : ''}<section class="bio-db-summary"><div class="bio-db-card bio-db-stat"><div class="bio-db-stat-value">' + counts.substances + '</div><div class="bio-db-stat-label">Tracked substances</div></div><div class="bio-db-card bio-db-stat"><div class="bio-db-stat-value">' + counts.activeSubstances + '</div><div class="bio-db-stat-label">Active substances</div></div><div class="bio-db-card bio-db-stat"><div class="bio-db-stat-value">' + counts.labs + '</div><div class="bio-db-stat-label">Lab results</div></div><div class="bio-db-card bio-db-stat"><div class="bio-db-stat-value">' + counts.abnormalLabs + '</div><div class="bio-db-stat-label">Flagged labs</div></div></section><div class="bio-db-layout">${_renderAnalyzerPanel(model)}<div class="bio-db-data-grid">${_renderSubstancesPanel()}${_renderLabsPanel()}</div></div></div></div>`;
 }
 
@@ -946,7 +714,6 @@ function _setTopbar() {
 
 function _hydrateLocalReviewState() {
   if (!STATE.patientId) return;
-  STATE.reviewScopeId = _normalizeReviewScopeId(_readLocalJson(_scopeKey(STATE.patientId), { scopeId: 'full' })?.scopeId);
   STATE.reviewNotes = _readLocalJson(_noteKey(STATE.patientId), { note: '', updatedAt: '' });
   STATE.findingAcks = _readLocalJson(_ackKey(STATE.patientId), {});
 }
@@ -1003,61 +770,12 @@ function _clearReviewNotes() {
   showToast('Review note cleared.', 'success');
 }
 
-function _buildReviewHandoffSummary() {
-  const model = applyBioReviewScope(buildBioAnalyzerModel({
-    patient: STATE.patient,
-    catalog: STATE.catalog,
-    substances: STATE.substances,
-    labs: STATE.labs,
-    reviewNotes: STATE.reviewNotes,
-    findingAcks: STATE.findingAcks,
-  }), STATE.reviewScopeId);
-  return buildBioReviewHandoffSummary({
-    patientLabel: _patientLabel(),
-    patientSubtitle: _patientSubtitle(),
-    patientId: STATE.patientId,
-    model,
-  });
-}
-
-async function _exportReviewSummary() {
-  const summary = _buildReviewHandoffSummary();
-  try {
-    if (navigator?.clipboard?.writeText) {
-      await navigator.clipboard.writeText(summary);
-      showToast('Review handoff copied to clipboard.', 'success');
-      return;
-    }
-  } catch (_) {}
-  try {
-    const textArea = document.createElement('textarea');
-    textArea.value = summary;
-    textArea.setAttribute('readonly', 'true');
-    textArea.style.position = 'fixed';
-    textArea.style.left = '-9999px';
-    document.body.appendChild(textArea);
-    textArea.select();
-    document.execCommand('copy');
-    document.body.removeChild(textArea);
-    showToast('Review handoff copied to clipboard.', 'success');
-    return;
-  } catch (_) {}
-  window.prompt('Copy review handoff:', summary);
-}
-
 function _toggleFindingAck(id) {
   const next = { ...(STATE.findingAcks || {}) };
   if (next[id]?.acknowledged) delete next[id];
   else next[id] = { acknowledged: true, acknowledgedAt: new Date().toISOString() };
   STATE.findingAcks = next;
   _writeLocalJson(_ackKey(STATE.patientId), STATE.findingAcks);
-  _renderPage();
-}
-
-function _setReviewScope(scopeId) {
-  const nextScopeId = _normalizeReviewScopeId(scopeId);
-  STATE.reviewScopeId = nextScopeId;
-  _writeLocalJson(_scopeKey(STATE.patientId), { scopeId: nextScopeId });
   _renderPage();
 }
 
@@ -1147,8 +865,6 @@ function _installHandlers() {
   window._bioRefresh = () => _loadData();
   window._bioOpenPatientProfile = () => _navigateTo('patient-profile');
   window._bioNavigateTo = (page) => _navigateTo(page);
-  window._bioExportReviewSummary = () => _exportReviewSummary();
-  window._bioSetReviewScope = (scopeId) => _setReviewScope(scopeId);
   window._bioSaveReviewNotes = (event) => _saveReviewNotes(event);
   window._bioClearReviewNotes = () => _clearReviewNotes();
   window._bioToggleFindingAck = (id) => _toggleFindingAck(id);
@@ -1173,7 +889,6 @@ export async function pgBioDatabase(setTopbar, navigate) {
   STATE.substances = [];
   STATE.labs = [];
   STATE.editingLabId = '';
-  STATE.reviewScopeId = 'full';
   STATE.reviewNotes = { note: '', updatedAt: '' };
   STATE.findingAcks = {};
   STATE.loadError = '';

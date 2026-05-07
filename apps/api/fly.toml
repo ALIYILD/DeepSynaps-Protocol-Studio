@@ -34,10 +34,16 @@ primary_region = "lhr"
   # return 503 with a clear message until the file exists.
   EVIDENCE_DB_PATH = "/data/evidence.db"
   # Voice engine: S3-compatible bucket for audio uploads and analysis artifacts.
-  # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set as secrets.
   DEEPSYNAPS_VOICE_BUCKET = "deepsynaps-voice"
-  # DEEPSYNAPS_CORS_ORIGINS, DEEPSYNAPS_DATABASE_URL, JWT_SECRET_KEY, and
-  # DEEPSYNAPS_SECRETS_KEY must be set as secrets before production boot.
+
+# Process groups:
+#   app          — FastAPI HTTP server (public-facing)
+#   qeeg_worker  — Celery worker for qEEG/ERP async analysis jobs
+#   stripe_worker — Polls StripeWebhookLog outbox every 5 min for retries
+[processes]
+  app = "uvicorn app.main:app --host 0.0.0.0 --port 8080 --app-dir apps/api"
+  qeeg_worker = "celery -A app.jobs worker --workdir /app/apps/api --loglevel=INFO --without-gossip --without-mingle"
+  stripe_worker = "sh -c 'while true; do python scripts/retry_stripe_webhooks.py; sleep 300; done'"
 
 # Process groups:
 #   app          — FastAPI HTTP server (public-facing)
