@@ -214,7 +214,10 @@ function _renderPaperCard(p) {
     : '';
   const saveBtn = `<button class="btn btn-sm live-ev-save" data-id="${p.id}">Save to library</button>`;
   const pmid = p.pmid ? `<a href="https://pubmed.ncbi.nlm.nih.gov/${_esc(p.pmid)}" target="_blank" rel="noopener" style="color:var(--text-tertiary,#7a8aa5);margin-right:6px">PMID ${_esc(p.pmid)}</a>` : '';
-  const doi = p.doi ? `<a href="https://doi.org/${_esc(p.doi)}" target="_blank" rel="noopener" style="color:var(--text-tertiary,#7a8aa5)">DOI</a>` : '';
+  const doi = p.doi ? `<a href="https://doi.org/${_esc(p.doi)}" target="_blank" rel="noopener" style="color:var(--text-tertiary,#7a8aa5);margin-right:6px">DOI</a>` : '';
+  const epmc = p.europe_pmc_url
+    ? `<a href="${_esc(p.europe_pmc_url)}" target="_blank" rel="noopener" style="color:var(--text-tertiary,#7a8aa5);margin-right:6px">Europe PMC</a>`
+    : '';
   const cites = (p.cited_by_count ?? null) !== null ? `<span style="color:var(--text-tertiary,#7a8aa5);margin-right:6px">${p.cited_by_count} cites</span>` : '';
 
   return `
@@ -229,6 +232,7 @@ function _renderPaperCard(p) {
         ${cites}
         ${pmid}
         ${doi}
+        ${epmc}
       </div>
       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">${oaBtn}${saveBtn}</div>
     </div>`;
