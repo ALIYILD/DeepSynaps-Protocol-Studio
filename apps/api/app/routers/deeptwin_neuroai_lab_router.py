@@ -69,12 +69,14 @@ def _audit_neuroai_attempt(
         _log.exception("neuroai_lab audit skipped")
 
 
+# core-schema-exempt: NeuroAI Lab safety envelope; not reused outside this router
 class NeuroAiEnvelope(BaseModel):
     research_only: bool = True
     requires_clinician_review: bool = True
     safety: DeepTwinSafetyMetadata = Field(default_factory=DeepTwinSafetyMetadata)
 
 
+# core-schema-exempt: NeuroAI Lab status response; not reused outside this router
 class NeuroAiStatusResponse(BaseModel):
     module: str = "deeptwin_neuroai_lab"
     research_only: bool = True
@@ -85,26 +87,31 @@ class NeuroAiStatusResponse(BaseModel):
     )
 
 
+# core-schema-exempt: NeuroAI Lab timeline preview request; not reused outside this router
 class TimelinePreviewRequest(BaseModel):
     events: list[PatientDataEvent]
     patient_id: str | None = None
 
 
+# core-schema-exempt: NeuroAI Lab timeline preview response; not reused outside this router
 class TimelinePreviewResponse(BaseModel):
     summary: dict[str, Any]
     dashboard_series: list[dict[str, Any]]
     envelope: NeuroAiEnvelope = Field(default_factory=NeuroAiEnvelope)
 
 
+# core-schema-exempt: NeuroAI Lab features preview request; not reused outside this router
 class FeaturesPreviewRequest(BaseModel):
     events: list[PatientDataEvent]
 
 
+# core-schema-exempt: NeuroAI Lab features preview response; not reused outside this router
 class FeaturesPreviewResponse(BaseModel):
     results: list[dict[str, Any]]
     envelope: NeuroAiEnvelope = Field(default_factory=NeuroAiEnvelope)
 
 
+# core-schema-exempt: NeuroAI Lab simulation preview request; not reused outside this router
 class SimulationPreviewRequest(BaseModel):
     patient_id: str | None = None
     baseline_events: list[PatientDataEvent] = Field(default_factory=list)
@@ -114,6 +121,7 @@ class SimulationPreviewRequest(BaseModel):
     evidence_context: str = ""
 
 
+# core-schema-exempt: NeuroAI Lab simulation preview response; not reused outside this router
 class SimulationPreviewResponse(BaseModel):
     result: dict[str, Any]
     envelope: NeuroAiEnvelope = Field(default_factory=NeuroAiEnvelope)
