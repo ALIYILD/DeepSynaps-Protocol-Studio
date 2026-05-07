@@ -193,6 +193,8 @@ let _modLabsAnalyzer = null;
 async function loadLabsAnalyzer() { return (_modLabsAnalyzer ??= await import('./pages-labs-analyzer.js')); }
 let _modNutritionAnalyzer = null;
 async function loadNutritionAnalyzer() { return (_modNutritionAnalyzer ??= await import('./pages-nutrition-analyzer.js')); }
+let _modBehaviour = null;
+async function loadBehaviour() { return (_modBehaviour ??= await import('./pages-behaviour.js')); }
 async function loadPractice()   { return (_modPractice  ??= await import('./pages-practice.js')); }
 async function loadCourses()    { return (_modCourses   ??= await import('./pages-courses.js')); }
 async function loadOnboarding() { return (_modOnboarding ??= await import('./pages-onboarding.js')); }
@@ -563,6 +565,7 @@ const NAV = [
   { id: 'movement-analyzer', label: 'Movement', icon: '🏃', ai: true },
   { id: 'labs-analyzer',     label: 'Labs',      icon: '🧪', ai: true },
   { id: 'nutrition-analyzer', label: 'Nutrition', icon: '🥗', ai: true },
+  { id: 'behaviour', label: 'Behaviour', icon: '📝', ai: true },
   { id: 'digital-phenotyping-analyzer', label: 'Behavior', icon: '📱', ai: true },
 
   // ── MARKETPLACE — devices, agents, apps & learning ──────────────────────────
@@ -661,6 +664,7 @@ NAV_ICONS['phenotype-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="
 NAV_ICONS['movement-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="13" cy="4" r="2"/><path d="M4 22l4-7 3 2 4-5 4 4"/><path d="M11 8l-2 4 3 2 2-3 3 1"/><path d="M9 22l1-5"/></svg>`;
 NAV_ICONS['labs-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6"/><path d="M10 2v13.5a3.5 3.5 0 0 0 7 0V2"/><path d="M10 11h7"/><circle cx="12.5" cy="14.5" r="0.6" fill="currentColor"/><circle cx="15" cy="13" r="0.6" fill="currentColor"/><circle cx="13.5" cy="17" r="0.6" fill="currentColor"/></svg>`;
 NAV_ICONS['nutrition-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4c-1.2-2-4-2.5-5.5-1S5 7 7 8.5"/><path d="M12 4c1.2-2 4-2.5 5.5-1S19 7 17 8.5"/><path d="M12 6c-3 0-6 2-6 6 0 4 3 9 6 9s6-5 6-9c0-4-3-6-6-6z"/><path d="M12 4v3"/></svg>`;
+NAV_ICONS['behaviour'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`;
 NAV_ICONS['digital-phenotyping-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2"/><line x1="12" y1="19" x2="12.01" y2="19"/><polyline points="8.5 11 10 11 11 8.5 13 13.5 14 11 15.5 11"/></svg>`;
 NAV_ICONS['academy']         = `<svg viewBox="0 0 24 24"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>`;
 NAV_ICONS['marketplace']     = `<svg viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" x2="21" y1="6" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>`;
@@ -1059,6 +1063,7 @@ const PAGE_TITLES = {
   'data-import': 'Data Import & Migration',
   'risk-analyzer': 'Risk Analyzer',
   'nutrition-analyzer': 'Nutrition & Diet Analyzer',
+  'behaviour': 'Behaviour Workspace',
   'wearables': 'Wearable & Biosensor Integration',
   'home-task-manager': 'Home Task Manager',
   'patient-queue': 'Today\'s Queue',
@@ -1947,6 +1952,7 @@ async function renderPage() {
     case 'text-analyzer':      { const m = await loadTextAnalyzer(); await m.pgTextAnalyzer(setTopbar, navigate); break; }
     case 'risk-analyzer':      { const m = await loadRiskAnalyzer(); await m.pgRiskAnalyzer(setTopbar, navigate); break; }
     case 'nutrition-analyzer': { const m = await loadNutritionAnalyzer(); await m.pgNutritionAnalyzer(setTopbar, navigate); break; }
+    case 'behaviour': { const m = await loadBehaviour(); await m.pgBehaviour(setTopbar, navigate); break; }
     case 'medication-analyzer': { const m = await loadMedicationAnalyzer(); await m.pgMedicationAnalyzer(setTopbar, navigate); break; }
     case 'bio-database':       { const m = await loadBioDatabase(); await m.pgBioDatabase(setTopbar, navigate); break; }
     case 'treatment-sessions-analyzer': { const m = await loadTreatmentSessionsAnalyzer(); await m.pgTreatmentSessionsAnalyzer(setTopbar, navigate); break; }
@@ -3191,6 +3197,9 @@ window.addEventListener('popstate', (e) => {
     { type: 'nav', icon: '🥗', title: 'Nutrition Analyzer', page: 'nutrition-analyzer' },
     { type: 'nav', icon: '🥗', title: 'Diet & Supplements', page: 'nutrition-analyzer' },
     { type: 'nav', icon: '🥗', title: 'Diet-Drug Interactions', page: 'nutrition-analyzer' },
+    { type: 'nav', icon: '📝', title: 'Behaviour Workspace', page: 'behaviour' },
+    { type: 'nav', icon: '📝', title: 'Behavioural Interventions', page: 'behaviour' },
+    { type: 'nav', icon: '📝', title: 'Observation Log', page: 'behaviour' },
     { type: 'nav', icon: '📱', title: 'Digital Phenotyping Analyzer', page: 'digital-phenotyping-analyzer' },
     { type: 'nav', icon: '📱', title: 'Behavioral Signals (Sleep / Mobility / Social)', page: 'digital-phenotyping-analyzer' },
     { type: 'nav', icon: '📱', title: 'Passive Smartphone & Wearable Phenotype', page: 'digital-phenotyping-analyzer' },

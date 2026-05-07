@@ -2430,6 +2430,116 @@ function _nutritionClinicSummary() {
   };
 }
 
+// ── Behaviour fixtures ───────────────────────────────────────────────────────
+const _BEHAVIOUR_PROFILES = {
+  'demo-patient-1': {
+    patient_id: 'demo-patient-1',
+    patient_name: 'Elena Rossi',
+    protocols: [
+      { type: 'cbt_i', status: 'active', started_at: '2026-03-15T00:00:00Z', notes: 'Sleep restriction + stimulus control. Compliance good.' },
+      { type: 'relaxation_training', status: 'active', started_at: '2026-03-20T00:00:00Z', notes: 'Progressive muscle relaxation before bed.' },
+    ],
+    observations: [
+      { recorded_at: '2026-05-01T09:00:00Z', category: 'Sleep hygiene', note: 'Patient reports 2 nights of shortened sleep latency (20→12 min).', recorded_by: 'Dr. Chen' },
+      { recorded_at: '2026-04-28T09:00:00Z', category: 'Mood', note: 'Mild irritability noted; no aggression. Linked to caffeine increase.', recorded_by: 'Dr. Chen' },
+      { recorded_at: '2026-04-25T09:00:00Z', category: 'Adherence', note: 'Completed sleep diary 6/7 days. Missed Sunday.', recorded_by: 'Nurse Okonkwo' },
+    ],
+    outcomes: [
+      { type: 'sleep_efficiency', latest_value: 78.5, previous_value: 62.0, trend: 'improving', history: [55, 58, 60, 62, 65, 72, 78.5] },
+      { type: 'phq9', latest_value: 8, previous_value: 12, trend: 'improving', history: [14, 13, 12, 11, 10, 9, 8] },
+      { type: 'gad7', latest_value: 9, previous_value: 10, trend: 'improving', history: [13, 12, 11, 10, 10, 9, 9] },
+    ],
+    safety_flags: [],
+    last_reviewed_at: '2026-05-01T10:00:00Z',
+    reviewed_by: 'Dr. Chen',
+  },
+  'demo-patient-2': {
+    patient_id: 'demo-patient-2',
+    patient_name: 'Marcus Johnson',
+    protocols: [
+      { type: 'behavioral_activation', status: 'active', started_at: '2026-02-10T00:00:00Z', notes: 'Activity scheduling + values-based activation.' },
+      { type: 'dbt_skills', status: 'paused', started_at: '2026-01-05T00:00:00Z', notes: 'Paused while patient stabilises on neuromodulation protocol.' },
+    ],
+    observations: [
+      { recorded_at: '2026-05-02T08:30:00Z', category: 'Activity', note: 'Resumed morning walks 4/5 days. Reports improved energy.', recorded_by: 'Dr. Patel' },
+      { recorded_at: '2026-04-20T08:30:00Z', category: 'Safety', note: 'No SI/HI this week. C-SSRS score stable.', recorded_by: 'Dr. Patel' },
+    ],
+    outcomes: [
+      { type: 'activation', latest_value: 18.5, previous_value: 14.0, trend: 'improving', history: [10, 11, 12, 13, 14, 16, 18.5] },
+      { type: 'phq9', latest_value: 11, previous_value: 13, trend: 'improving', history: [18, 16, 15, 14, 13, 12, 11] },
+    ],
+    safety_flags: [
+      { level: 'moderate', category: 'Suicide risk history', description: 'History of C-SSRS ideation; currently stable with plan in place.', raised_at: '2026-02-10T00:00:00Z', raised_by: 'Dr. Patel' },
+    ],
+    last_reviewed_at: '2026-05-02T09:00:00Z',
+    reviewed_by: 'Dr. Patel',
+  },
+  'demo-patient-3': {
+    patient_id: 'demo-patient-3',
+    patient_name: 'Aisha Okafor',
+    protocols: [
+      { type: 'exposure_therapy', status: 'active', started_at: '2026-04-01T00:00:00Z', notes: 'Graded exposure for panic-related agoraphobia.' },
+    ],
+    observations: [
+      { recorded_at: '2026-05-03T10:00:00Z', category: 'Exposure', note: 'Completed supermarket visit (20 min) with moderate distress. No panic.', recorded_by: 'Dr. Müller' },
+      { recorded_at: '2026-04-27T10:00:00Z', category: 'Exposure', note: 'Short walk to bus stop — mild anticipatory anxiety, used breathing technique.', recorded_by: 'Dr. Müller' },
+    ],
+    outcomes: [
+      { type: 'panic_frequency', latest_value: 1, previous_value: 3, trend: 'improving', history: [5, 4, 4, 3, 3, 2, 1] },
+      { type: 'gad7', latest_value: 6, previous_value: 8, trend: 'improving', history: [12, 11, 10, 9, 8, 7, 6] },
+    ],
+    safety_flags: [],
+    last_reviewed_at: '2026-05-03T11:00:00Z',
+    reviewed_by: 'Dr. Müller',
+  },
+};
+
+function _behaviourProfileFor(patientId) {
+  return _BEHAVIOUR_PROFILES[patientId] || null;
+}
+
+function _behaviourAuditFor(patientId) {
+  const p = _BEHAVIOUR_PROFILES[patientId];
+  if (!p) return { patient_id: patientId, items: [] };
+  const items = (p.observations || []).map((obs, idx) => ({
+    id: `bh-audit-${patientId}-${idx}`,
+    kind: 'observation_recorded',
+    actor: obs.recorded_by || 'clinician',
+    message: `${obs.category}: ${obs.note || ''}`.slice(0, 200),
+    created_at: obs.recorded_at,
+  }));
+  return { patient_id: patientId, items };
+}
+
+function _behaviourClinicSummary() {
+  return {
+    captured_at: '2026-05-03T08:00:00Z',
+    patients: Object.values(_BEHAVIOUR_PROFILES).map((p) => {
+      const activeCount = (p.protocols || []).filter((pr) => String(pr.status || '').toLowerCase() === 'active').length;
+      const flags = p.safety_flags || [];
+      const lastObs = p.observations?.[0]?.recorded_at || null;
+      const worstFlag = flags.length ? flags.reduce((w, f) => {
+        const rank = { critical: 0, high: 1, moderate: 2, low: 3 };
+        return (rank[String(f.level || '').toLowerCase()] ?? 99) < (rank[String(w.level || '').toLowerCase()] ?? 99) ? f : w;
+      }, flags[0]) : null;
+      return {
+        patient_id: p.patient_id,
+        patient_name: p.patient_name,
+        active_protocol_count: activeCount,
+        flag_count: flags.length,
+        worst_flag: worstFlag?.level || null,
+        last_observation_at: lastObs,
+      };
+    }),
+  };
+}
+
+const _BEHAVIOUR = {
+  clinic_summary: _behaviourClinicSummary,
+  patient_profile: _behaviourProfileFor,
+  patient_audit: _behaviourAuditFor,
+};
+
 const _NUTRITION = {
   clinic_summary: _nutritionClinicSummary,
   patient_profile: _nutritionProfileFor,
@@ -2453,6 +2563,7 @@ export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   movement: _MOVEMENT,
   labs: _LABS,
   nutrition: _NUTRITION,
+  behaviour: _BEHAVIOUR,
 });
 
 /** Alias without `demo_fixture` substring when lowercased — safe for clinical-page source scans. */

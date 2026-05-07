@@ -3039,7 +3039,7 @@ function _qeegClinicalSafetyFooter() {
   return '<div data-testid="qeeg-safety-footer" class="qeeg-safety-footer" style="margin-top:24px;padding:14px 16px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border);font-size:12px;color:var(--text-secondary);line-height:1.6">'
     + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:6px">Clinical safety disclaimers</div>'
     + '<ul style="margin:0;padding-left:18px">'
-    + '<li>qEEG findings <strong>support clinical decision-making and require clinician review</strong>.</li>'
+    + '<li>qEEG findings <strong>support interpretation and require clinician review</strong>.</li>'
     + '<li>Z-scores are referenced against the embedded normative dataset (see Normative Model Card).</li>'
     + '<li>Protocol-fit suggestions are decision-support and <strong>are not prescriptive</strong>.</li>'
     + '<li>Red flags require clinician review per local policy before any treatment action.</li>'
@@ -6833,7 +6833,7 @@ window._qeegExportJSON = function () {
       demo: _isDemoExport,
       disclaimer: _isDemoExport
         ? 'DEMO — not for clinical use. Synthetic sample recording.'
-        : 'qEEG findings support clinical decision-making and require clinician review.',
+        : 'qEEG findings support interpretation and require clinician review.',
     },
     analysis: _currentAnalysis,
   };

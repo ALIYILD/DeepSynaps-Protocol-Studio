@@ -45,7 +45,7 @@
 - Band power is not diagnostic by itself.
 - Asymmetry requires montage and artifact awareness.
 - Coherence and average coherence require adequate channel quality and artifact control.
-- Bicoherence, bispectrum, LORETA, and sLORETA remain reference-only or future-module labels unless a validated computation path is active.
+- Bicoherence, bispectrum, LORETA, and sLORETA remain reference-only or future-module labels unless the corresponding computation path is active and configured.
 
 ## Window spectral review
 

@@ -122,15 +122,15 @@ test('renderBrainMapHeader includes patient meta', function () {
 
 test('renderIndicatorGrid renders all 5 indicator cards', function () {
   var html = tpl.renderIndicatorGrid(fixtureReport().indicators);
-  assert.match(html, /Frontal Lobe Development/);
-  assert.match(html, /Information Processing Speed/);
+  assert.match(html, /Theta\/Beta Ratio \(TBR\)/);
+  assert.match(html, /Occipital Peak Alpha Frequency/);
   assert.match(html, /Alpha Wave Reactivity/);
   // The "Brain Balance" indicator was renamed to "Frontal Alpha Asymmetry (FAA)"
   // per the QEEG evidence-citation audit (2026-04-30). The contract field
   // `brain_balance` is unchanged; only the user-facing label moved.
   assert.match(html, /Frontal Alpha Asymmetry/);
   assert.equal(/Brain Balance/.test(html), false, 'old "Brain Balance" UI label must not appear');
-  assert.match(html, /AI Brain Development Age/);
+  assert.match(html, /Brain Age Estimate/);
 });
 
 test('renderLobeTable renders 4 lobes with L/R percentiles', function () {
@@ -172,7 +172,7 @@ test('emptyState renders without errors', function () {
 test('renderPatientReport renders all sections of the contract', function () {
   var html = patient.renderPatientReport(fixtureReport());
   assert.match(html, /Brain Function Mapping/);                // header
-  assert.match(html, /Frontal Lobe Development/);              // indicators
+  assert.match(html, /Theta\/Beta Ratio \(TBR\)/);             // indicators
   assert.match(html, /Brain Source Image/);                    // source map
   assert.match(html, /Brain Activity by Hemisphere/);          // lobe table
   assert.match(html, /Standardized Brain Function Score/);     // BFS

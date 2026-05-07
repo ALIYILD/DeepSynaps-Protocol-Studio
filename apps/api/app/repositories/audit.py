@@ -104,6 +104,28 @@ def latest_video_assessment_historical_summary_audit(
         return row, None
 
 
+def video_assessment_historical_summary_audit_by_event_id(
+    session: Session,
+    *,
+    session_id: str,
+    event_id: str,
+) -> Optional["AuditEventRecord"]:
+    """Return the video-assessment historical-summary audit row matching
+    ``(session_id, event_id)``, or None. Routers use this to look up a
+    specific summary instance for clinician-feedback writes.
+    """
+    return (
+        session.query(AuditEventRecord)
+        .filter(
+            AuditEventRecord.target_type == "video_assessment",
+            AuditEventRecord.target_id == session_id[:64],
+            AuditEventRecord.event_id == event_id,
+            AuditEventRecord.action == "video_assessment.historical_ai_summary_generated",
+        )
+        .first()
+    )
+
+
 def _to_schema(record: AuditEventRecord) -> AuditEvent:
     return AuditEvent(
         event_id=record.event_id,
