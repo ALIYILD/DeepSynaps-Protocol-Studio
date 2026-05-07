@@ -103,18 +103,19 @@ def _gate_session_clinic_access(actor: Any, patient_id: Optional[str], db: Any) 
     - uses resolve_patient_clinic_id + require_patient_owner from app.auth
     - cross-clinic ApiServiceError propagates as 403
 
-    No-op when actor is None (bare voice-engine environment with no auth wired).
+    Fail closed: if any auth dependency is missing, reject the request rather
+    than no-op the gate (matches audio_analysis_router._gate_patient_access behavior).
+    No-op only when actor is None (bare voice-engine environment with no auth wired).
     """
     if actor is None:
         return
     if not patient_id:
         return
-    try:
-        from app.repositories.patients import resolve_patient_clinic_id  # lazy
-        from app.auth import require_patient_owner  # lazy
-        from app.errors import ApiServiceError  # lazy
-    except ImportError:
-        return
+    # Fail closed: if any auth dependency is missing, raise 500 rather than
+    # silently returning and granting cross-clinic access.
+    from app.repositories.patients import resolve_patient_clinic_id  # lazy
+    from app.auth import require_patient_owner  # lazy
+    from app.errors import ApiServiceError  # lazy
 
     exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
     if exists:
@@ -188,6 +189,41 @@ async def upload_voice(
         logger.exception("preprocess_upload failed for patient_id=%s", patient_id)
         raise HTTPException(status_code=500, detail="preprocessing failed") from exc
 
+    # Persist an AudioAnalysis row so /voice/analyze and /voice/result resolve
+    # by session_id. Best-effort: skipped silently when the DB layer is absent
+    # (bare voice-engine tests) or fails. Without this, analyze 404s on every
+    # uploaded session because the security fix from PR #552 requires a DB row.
+    if db is not None:
+        try:
+            import uuid as _uuid  # lazy
+            from app.persistence.models import AudioAnalysis  # lazy
+
+            existing = (
+                db.query(AudioAnalysis)
+                .filter(AudioAnalysis.session_id == meta.session_id)
+                .first()
+            )
+            if existing is None:
+                row = AudioAnalysis(
+                    analysis_id=str(_uuid.uuid4()),
+                    patient_id=meta.patient_id,
+                    session_id=meta.session_id,
+                    status="uploaded",
+                    input_path=meta.processed_s3_key,
+                )
+                db.add(row)
+                db.commit()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "voice upload: failed to insert AudioAnalysis row for session=%s: %s",
+                meta.session_id,
+                exc,
+            )
+            try:
+                db.rollback()
+            except Exception:
+                pass
+
     return dataclasses.asdict(meta)
 
 
@@ -201,23 +237,24 @@ async def analyze_voice(
     """Trigger full voice analysis pipeline for a session (synchronous MVP).
 
     Clinic-scope gate: the session's patient must belong to the actor's clinic.
+    Requires the AudioAnalysis DB row to exist; 404 if missing (no client-supplied
+    patient_id fallback — that would allow IDOR via body spoofing).
 
     # TODO Background queue integration: replace inline call with task enqueue
     # when worker infra exists. Keep run_voice_analysis_for_session signature stable.
     """
-    patient_id = body.patient_id or session_id  # fall back to session_id as patient hint
-
-    # Gate: look up session row to get authoritative patient_id, then check clinic.
+    # Gate: require the DB row to exist so we gate on persisted patient_id only.
+    # Never fall back to body.patient_id — a malicious caller could spoof it.
     row = _lookup_audio_analysis(session_id, db)
-    if row is not None:
-        row_patient_id = getattr(row, "patient_id", None)
-        if row_patient_id is None:
-            raise HTTPException(status_code=404, detail="session not found")
-        _gate_session_clinic_access(actor, row_patient_id, db)
-        patient_id = row_patient_id
-    else:
-        # No DB row yet (first analyze call); gate on the patient_id from the body.
-        _gate_session_clinic_access(actor, body.patient_id, db)
+    if row is None:
+        raise HTTPException(status_code=404, detail="session not found")
+
+    row_patient_id = getattr(row, "patient_id", None)
+    if row_patient_id is None:
+        raise HTTPException(status_code=404, detail="session not found")
+
+    _gate_session_clinic_access(actor, row_patient_id, db)
+    patient_id = row_patient_id
 
     try:
         result = _pipeline.run_voice_analysis_for_session(
@@ -312,10 +349,6 @@ async def get_voice_result(
             blob = json.loads(raw)
         except Exception:
             blob = {}
-
-    # engine_version: use persisted value so historic reports trace to the engine that
-    # produced them; fall back to current constant if the blob pre-dates this field.
-    persisted_version = blob.get("engine_version") or _ENGINE_VERSION
 
     return {
         "status": "completed",

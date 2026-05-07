@@ -62,12 +62,18 @@ function summaryTotal(serverSummaryResp) {
     + Number(serverSummaryResp.resolved || 0);
 }
 
-function csvExportPath() {
-  return '/api/v1/wearables/workbench/flags/export.csv';
+function csvExportPath(filters = {}) {
+  const q = new URLSearchParams(
+    Object.entries(filters).filter(([, value]) => value != null && String(value) !== ''),
+  ).toString();
+  return `/api/v1/wearables/workbench/flags/export.csv${q ? '?' + q : ''}`;
 }
 
-function ndjsonExportPath() {
-  return '/api/v1/wearables/workbench/flags/export.ndjson';
+function ndjsonExportPath(filters = {}) {
+  const q = new URLSearchParams(
+    Object.entries(filters).filter(([, value]) => value != null && String(value) !== ''),
+  ).toString();
+  return `/api/v1/wearables/workbench/flags/export.ndjson${q ? '?' + q : ''}`;
 }
 
 function noteRequiredValid(note) {
@@ -139,6 +145,14 @@ test('Summary total: sums all four states (no fabrication)', () => {
 test('Export URLs: documented server endpoints (no blobs)', () => {
   assert.equal(csvExportPath(), '/api/v1/wearables/workbench/flags/export.csv');
   assert.equal(ndjsonExportPath(), '/api/v1/wearables/workbench/flags/export.ndjson');
+  assert.equal(
+    csvExportPath({ status: 'open', severity: 'urgent' }),
+    '/api/v1/wearables/workbench/flags/export.csv?status=open&severity=urgent',
+  );
+  assert.equal(
+    ndjsonExportPath({ status: 'resolved' }),
+    '/api/v1/wearables/workbench/flags/export.ndjson?status=resolved',
+  );
   // Sanity: blob URLs would start with 'blob:' — these MUST be server paths.
   assert.ok(csvExportPath().startsWith('/api/'));
   assert.ok(ndjsonExportPath().startsWith('/api/'));
@@ -186,6 +200,8 @@ test('Source contract: empty-state copy is honest (no AI happy-talk)', () => {
   const src = pagesMonitorSrc();
   assert.ok(src.includes('No alert flags pending review.'));
   assert.ok(src.includes('Empty queue does not mean clinically cleared'));
+  assert.ok(src.includes('Could not load wearable alert flags right now.'));
+  assert.ok(src.includes('clinic feed is offline, unauthorized, or degraded'));
   // We must NOT have invented "your clinic is doing great" style copy
   // anywhere in the workbench surface.
   assert.equal(/your clinic is doing great/i.test(src), false);
@@ -196,8 +212,19 @@ test('Source contract: workbench loader has localStorage-fallback honesty', () =
   const src = pagesMonitorSrc();
   // The loader must seed an honest empty payload (zeros) when the API
   // returns nothing — never fabricate alert rows on offline.
+  assert.ok(src.includes('workbenchError'));
+  assert.ok(src.includes('workbenchActionError'));
+  assert.ok(src.includes("s.workbenchError = 'empty_response'"));
   assert.ok(src.includes('open: 0'));
   assert.ok(src.includes('items: []'));
+});
+
+
+test('Source contract: workbench patient drill-out preserves profile handoff context', () => {
+  const src = pagesMonitorSrc();
+  assert.ok(src.includes("sessionStorage.setItem('ds_pat_selected_id'"));
+  assert.ok(src.includes("source: 'wearables_workbench'"));
+  assert.ok(src.includes("reason_text: 'wearable alert triage queue'"));
 });
 
 
@@ -216,5 +243,16 @@ test('Source contract: api.js exposes the workbench helpers', () => {
   assert.ok(src.includes('wearablesWorkbenchResolve'));
   assert.ok(src.includes('wearablesWorkbenchExportCsvUrl'));
   assert.ok(src.includes('wearablesWorkbenchExportNdjsonUrl'));
+  assert.ok(src.includes('new URLSearchParams'));
   assert.ok(src.includes('postWearablesWorkbenchAuditEvent'));
+});
+
+
+test('Source contract: action failures are surfaced with clinician-visible error copy', () => {
+  const src = pagesMonitorSrc();
+  assert.ok(src.includes('Could not acknowledge wearable alert flag:'));
+  assert.ok(src.includes('Could not escalate wearable alert flag:'));
+  assert.ok(src.includes('Could not resolve wearable alert flag:'));
+  assert.ok(src.includes('wearablesWorkbenchExportCsvUrl(s.workbenchFilters || {})'));
+  assert.ok(src.includes('wearablesWorkbenchExportNdjsonUrl(s.workbenchFilters || {})'));
 });

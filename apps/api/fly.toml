@@ -45,12 +45,22 @@ primary_region = "lhr"
   qeeg_worker = "celery -A app.jobs worker --workdir /app/apps/api --loglevel=INFO --without-gossip --without-mingle"
   stripe_worker = "sh -c 'while true; do python scripts/retry_stripe_webhooks.py; sleep 300; done'"
 
+# Process groups:
+#   app          — FastAPI HTTP server (public-facing)
+#   qeeg_worker  — Celery worker for qEEG/ERP async analysis jobs
+#   stripe_worker — Polls StripeWebhookLog outbox every 5 min for retries
+[processes]
+  app = "uvicorn app.main:app --host 0.0.0.0 --port 8080 --app-dir apps/api"
+  qeeg_worker = "celery -A app.jobs worker --workdir /app/apps/api --loglevel=INFO --without-gossip --without-mingle"
+  stripe_worker = "sh -c 'while true; do python scripts/retry_stripe_webhooks.py; sleep 300; done'"
+
 [http_service]
   internal_port = 8080
   force_https = true
   auto_stop_machines = true
   auto_start_machines = true
   min_machines_running = 1
+  processes = ["app"]
 
   [http_service.concurrency]
     type = "connections"

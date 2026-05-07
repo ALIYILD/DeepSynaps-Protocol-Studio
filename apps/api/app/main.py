@@ -208,6 +208,7 @@ from app.routers.command_center_router import router as command_center_router
 from app.routers.dashboard_router import router as dashboard_router
 from app.routers.schedules_router import router as schedules_router
 from app.routers.device_sync_router import router as device_sync_router
+from app.routers.bio_router import router as bio_router
 try:
     from app.routers.qa_router import router as qa_router
     _HAS_QA_ROUTER = True
@@ -276,7 +277,8 @@ from app.qeeg.workers.qeeg_analysis_worker import (
     start_worker_if_enabled as start_qeeg_105_worker,
 )
 from app.services.agent_skills_seed import seed_default_agent_skills
-from app.services.clinical_data import HandbookGenerateAPIResponse, seed_clinical_dataset
+from app.services.clinical_data import seed_clinical_dataset
+from app.services.demo_clinic_seed import demo_seed_enabled, seed_demo_clinic_data
 from app.services.devices import list_devices
 from app.services.evidence import list_evidence
 from app.services.generation import generate_handbook, generate_protocol_draft
@@ -377,11 +379,10 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
         # Seed demo Clinic + User rows so demo tokens resolve with a real
         # clinic_id and cross-clinic gates work in dev/test/smoke runs.
         _seed_demo_users_for_dev(session)
-        # Optional: deterministic synthetic demo data for Clinician Digest.
-        # Guarded by settings.app_env in {development,test} AND
-        # DEEPSYNAPS_DEMO_CLINIC_SEED=1 (never runs in staging/production).
-        from app.services.demo_clinic_seed import maybe_seed_demo_clinic_digest  # noqa: PLC0415
-        maybe_seed_demo_clinic_digest(session)
+        # Seed synthetic demo clinic operational data (patients/courses/queues).
+        # Gated by app_env allowlist + DEEPSYNAPS_DEMO_CLINIC_SEED=1.
+        if demo_seed_enabled(settings.app_env):
+            seed_demo_clinic_data(session)
         app_instance.state.clinical_snapshot_id = snapshot.snapshot_id
         logger.info(
             "application startup complete",
@@ -404,6 +405,27 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
     # QEEG-105 Analysis Worker (Phase 0 scaffold) — gated on
     # DEEPSYNAPS_QEEG_105_WORKER_ENABLED so tests / CI don't run background jobs.
     start_qeeg_105_worker()
+    # Voice engine warm-up — pre-load Whisper weights at startup so /api/v1/voice/analyze
+    # doesn't pay 30-90s of cold-load latency inside the request handler. Gated on
+    # DEEPSYNAPS_VOICE_WARMUP=1 so tests / CI don't load torch+whisper. Failures are
+    # logged and swallowed; the rule-based fallback still works without warm models.
+    if os.environ.get("DEEPSYNAPS_VOICE_WARMUP") == "1":
+        try:
+            import time as _voice_time
+            import sys as _voice_sys
+            from pathlib import Path as _VoicePath
+            _voice_engine_dir = _VoicePath(__file__).resolve().parents[3] / "packages" / "voice-engine"
+            if str(_voice_engine_dir) not in _voice_sys.path:
+                _voice_sys.path.insert(0, str(_voice_engine_dir))
+            import transcription as _voice_transcription  # noqa: PLC0415
+            _t0 = _voice_time.monotonic()
+            _voice_transcription.get_whisper_model()
+            logger.info(
+                "voice-engine warm-up complete",
+                extra={"elapsed_sec": round(_voice_time.monotonic() - _t0, 2)},
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("voice-engine warm-up failed (non-fatal): %s", exc)
     try:
         yield
     finally:
@@ -650,6 +672,7 @@ app.include_router(command_center_router)
 app.include_router(schedules_router)
 app.include_router(dashboard_router)
 app.include_router(device_sync_router)
+app.include_router(bio_router)
 if _HAS_QA_ROUTER and qa_router is not None:
     app.include_router(qa_router)
 app.include_router(qeeg_raw_router)

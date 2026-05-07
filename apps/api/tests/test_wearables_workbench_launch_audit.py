@@ -526,6 +526,19 @@ class TestResolve:
 
 
 class TestExports:
+    def test_csv_export_honors_active_filters(
+        self, client: TestClient, auth_headers: dict, home_clinic_patient: Patient
+    ) -> None:
+        urgent_id = _seed_flag(patient_id=home_clinic_patient.id, severity="urgent")
+        _seed_flag(patient_id=home_clinic_patient.id, severity="info")
+        r = client.get(
+            "/api/v1/wearables/workbench/flags/export.csv?severity=urgent",
+            headers=auth_headers["clinician"],
+        )
+        assert r.status_code == 200, r.text
+        assert urgent_id in r.text
+        assert ",info," not in r.text
+
     def test_csv_export_demo_prefix_when_any_patient_demo(
         self, client: TestClient, auth_headers: dict, home_clinic_patient: Patient
     ) -> None:
@@ -586,6 +599,23 @@ class TestExports:
         cd = r.headers.get("content-disposition", "")
         assert "DEMO-" not in cd
         assert r.headers.get("X-WearablesWorkbench-Demo") == "0"
+
+    def test_ndjson_export_honors_active_filters(
+        self, client: TestClient, auth_headers: dict, home_clinic_patient: Patient
+    ) -> None:
+        resolved_id = _seed_flag(
+            patient_id=home_clinic_patient.id,
+            workbench_status="resolved",
+            dismissed=True,
+        )
+        _seed_flag(patient_id=home_clinic_patient.id, workbench_status="acknowledged")
+        r = client.get(
+            "/api/v1/wearables/workbench/flags/export.ndjson?status=resolved",
+            headers=auth_headers["clinician"],
+        )
+        assert r.status_code == 200, r.text
+        assert resolved_id in r.text
+        assert '"status": "acknowledged"' not in r.text
 
 
 # ── Audit ingestion ─────────────────────────────────────────────────────────

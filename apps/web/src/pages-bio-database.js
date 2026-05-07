@@ -639,11 +639,11 @@ function _renderSubstancesPanel() {
         <label class="bio-db-field"><span>Catalog match</span><select id="bio-substance-catalog" class="bio-db-select"><option value="">Optional catalog item</option>${_catalogOptions(catalog)}</select></label>
         <label class="bio-db-field"><span>Type</span><select id="bio-substance-kind" class="bio-db-select"><option value="medication">Medication</option><option value="supplement">Supplement</option><option value="vitamin">Vitamin</option><option value="other">Other</option></select></label>
         <label class="bio-db-field"><span>Name</span><input id="bio-substance-name" class="bio-db-input" placeholder="Sertraline, magnesium glycinate, vitamin D3" required></label>
-        <label class="bio-db-field"><span>Status</span><select id="bio-substance-status" class="bio-db-select"><option value="active">Active</option><option value="paused">Paused</option><option value="stopped">Stopped</option></select></label>
+        <label class="bio-db-field"><span>Status</span><select id="bio-substance-status" class="bio-db-select"><option value="active"${hints.substanceStatusDefault === 'active' ? ' selected' : ''}>Active</option><option value="paused"${hints.substanceStatusDefault === 'paused' ? ' selected' : ''}>Paused</option><option value="stopped"${hints.substanceStatusDefault === 'stopped' ? ' selected' : ''}>Stopped</option></select></label>
         <label class="bio-db-field"><span>Dose</span><input id="bio-substance-dose" class="bio-db-input" placeholder="50 mg daily"></label>
         <label class="bio-db-field"><span>Started at</span><input id="bio-substance-started-at" class="bio-db-input" type="date"></label>
       </div>
-      <label class="bio-db-field"><span>Notes</span><textarea id="bio-substance-notes" class="bio-db-textarea" placeholder="Reason, response, adherence issues, seizure-threshold relevance"></textarea></label>
+      <label class="bio-db-field"><span>Notes</span><textarea id="bio-substance-notes" class="bio-db-textarea" placeholder="${esc(hints.substanceNotesPlaceholder)}"></textarea></label>
       <div class="bio-db-actions"><button class="btn btn-primary btn-sm" type="submit" ${STATE.busy ? 'disabled' : ''}>Add substance</button></div>
     </form>
     <div class="bio-db-list">

@@ -2926,10 +2926,14 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ note: note || '' }),
     }),
-  wearablesWorkbenchExportCsvUrl: () =>
-    `${API_BASE}/api/v1/wearables/workbench/flags/export.csv`,
-  wearablesWorkbenchExportNdjsonUrl: () =>
-    `${API_BASE}/api/v1/wearables/workbench/flags/export.ndjson`,
+  wearablesWorkbenchExportCsvUrl: (params = {}) => {
+    const q = new URLSearchParams(Object.entries(params || {}).filter(([, value]) => value != null && String(value) !== '')).toString();
+    return `${API_BASE}/api/v1/wearables/workbench/flags/export.csv${q ? '?' + q : ''}`;
+  },
+  wearablesWorkbenchExportNdjsonUrl: (params = {}) => {
+    const q = new URLSearchParams(Object.entries(params || {}).filter(([, value]) => value != null && String(value) !== '')).toString();
+    return `${API_BASE}/api/v1/wearables/workbench/flags/export.ndjson${q ? '?' + q : ''}`;
+  },
   postWearablesWorkbenchAuditEvent: (data) =>
     apiFetch('/api/v1/wearables/workbench/audit-events', {
       method: 'POST',
@@ -6035,6 +6039,40 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
+  getVideoAssessmentSession: (sessionId) =>
+    apiFetch(`/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}`),
+  patchVideoAssessmentSession: (sessionId, data) =>
+    apiFetch(`/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data || {}),
+    }),
+  finalizeVideoAssessmentSession: (sessionId, data) =>
+    apiFetch(`/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/finalize`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  uploadVideoAssessmentTaskVideo: (sessionId, taskId, blob, opts = {}) => {
+    const form = new FormData();
+    form.set('expected_revision', String(opts.expectedRevision || ''));
+    form.set(
+      'file',
+      blob,
+      opts.filename || `video-assessment-${encodeURIComponent(taskId)}.webm`,
+    );
+    return apiFetch(
+      `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}/upload`,
+      {
+        method: 'POST',
+        body: form,
+      },
+    );
+  },
+  getVideoAssessmentTaskVideo: (sessionId, taskId) =>
+    apiFetchBinary(
+      `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}/video`,
+    ),
+  exportVideoAssessmentSessionJson: (sessionId) =>
+    apiFetch(`/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/export.json`),
   getVideoAssessmentPriorFinalizedSessions: (sessionId) =>
     apiFetch(
       `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/prior-finalized-sessions`,
@@ -6042,6 +6080,18 @@ export const api = {
   generateVideoAssessmentHistoricalAiSummary: (sessionId, data) =>
     apiFetch(
       `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/historical-ai-summary`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data || {}),
+      },
+    ),
+  getVideoAssessmentHistoricalAiSummaryFeedback: (sessionId, summaryEventId) =>
+    apiFetch(
+      `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/historical-ai-summary-feedback/${encodeURIComponent(summaryEventId)}`,
+    ),
+  saveVideoAssessmentHistoricalAiSummaryFeedback: (sessionId, data) =>
+    apiFetch(
+      `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/historical-ai-summary-feedback`,
       {
         method: 'POST',
         body: JSON.stringify(data || {}),

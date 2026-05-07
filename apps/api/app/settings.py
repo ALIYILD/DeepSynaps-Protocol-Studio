@@ -266,6 +266,18 @@ def load_settings() -> AppSettings:
             file=sys.stderr,
         )
 
+    _cors = _parse_cors_origins(os.getenv("DEEPSYNAPS_CORS_ORIGINS"))
+    # Local demo/dev convenience: if operator didn't set an allow-list,
+    # permit the default Vite dev origins so preview/demo-login flows work.
+    # Production/staging still require explicit DEEPSYNAPS_CORS_ORIGINS.
+    if not _cors and _app_env in ("development", "test"):
+        _cors = [
+            "http://127.0.0.1:5173",
+            "http://localhost:5173",
+            "http://127.0.0.1:4173",
+            "http://localhost:4173",
+        ]
+
     try:
         return AppSettings.model_validate(
             {
@@ -282,7 +294,7 @@ def load_settings() -> AppSettings:
                     if os.getenv("DEEPSYNAPS_APP_ENV") == "production"
                     else "sqlite:///./deepsynaps_protocol_studio.db",
                 ),
-                "cors_origins": _parse_cors_origins(os.getenv("DEEPSYNAPS_CORS_ORIGINS")),
+                "cors_origins": _cors,
                 "clinical_data_root": Path(
                     os.getenv(
                         "DEEPSYNAPS_CLINICAL_DATA_ROOT",
