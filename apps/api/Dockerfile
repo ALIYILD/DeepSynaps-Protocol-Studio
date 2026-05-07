@@ -24,6 +24,7 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    ffmpeg \
     libcairo2 \
     libgdk-pixbuf-2.0-0 \
     libharfbuzz0b \
@@ -46,6 +47,17 @@ RUN mkdir -p /app/services
 COPY services/evidence-pipeline /app/services/evidence-pipeline
 RUN ls -la /app/services /app/services/evidence-pipeline | head -20
 ENV EVIDENCE_DB_PATH=/data/evidence.db
+
+# Install torch CPU-only wheels first to avoid pulling ~2 GB CUDA binaries.
+# Pin 2.2.2 — compatible with speechbrain >=1.0 and torchaudio 2.2.2.
+RUN pip install --no-cache-dir \
+    --index-url https://download.pytorch.org/whl/cpu \
+    torch==2.2.2 \
+    torchaudio==2.2.2
+
+# Install voice-engine third-party deps (speechbrain, whisper, librosa, etc.)
+# torch/torchaudio are already installed above so pip skips them here.
+RUN pip install --no-cache-dir -r ./packages/voice-engine/requirements.txt
 
 RUN pip install --no-cache-dir \
     -e ./packages/core-schema \
