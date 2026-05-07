@@ -33,8 +33,14 @@ primary_region = "lhr"
   # Evidence pipeline DB lives on the mounted volume below. Evidence routes
   # return 503 with a clear message until the file exists.
   EVIDENCE_DB_PATH = "/data/evidence.db"
-  # Voice engine: S3-compatible bucket for audio uploads and analysis artifacts.
-  DEEPSYNAPS_VOICE_BUCKET = "deepsynaps-voice"
+  # Voice engine: local volume directory for audio uploads and analysis artifacts.
+  # Matches the /data volume mounted below (PR #550 voice_volume_reader default).
+  DEEPSYNAPS_VOICE_DIR = "/data/voice"
+  # Whisper model size baked into the image. The 2GB Fly VM cannot host 'medium'
+  # (~1.5GB RAM). 'base' (~140MB) gives usable English ASR within VM headroom.
+  WHISPER_MODEL = "base"
+  # DEEPSYNAPS_CORS_ORIGINS, DEEPSYNAPS_DATABASE_URL, JWT_SECRET_KEY, and
+  # DEEPSYNAPS_SECRETS_KEY must be set as secrets before production boot.
 
 # Process groups:
 #   app          — FastAPI HTTP server (public-facing)

@@ -165,3 +165,19 @@ def test_generates_expected_storage_keys_format(monkeypatch: pytest.MonkeyPatch)
 
     assert result.original_s3_key == "voice/pt-42/sess-abc/original.wav"
     assert result.processed_s3_key == "voice/pt-42/sess-abc/processed.wav"
+
+
+def test_validate_id_rejects_path_traversal() -> None:
+    """_validate_id must raise HTTPException(400) for path-traversal payloads."""
+    from audio_io import _validate_id
+
+    bad_values = ["../../etc", "../passwd", "a/b", "a b", "", "a" * 65, "pt<script>"]
+    for val in bad_values:
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_id("patient_id", val)
+        assert exc_info.value.status_code == 400, f"expected 400 for {val!r}"
+
+    # Safe values must NOT raise.
+    good_values = ["pt-42", "sess_abc", "A1B2", "a" * 64, "x-y_z"]
+    for val in good_values:
+        _validate_id("patient_id", val)  # should not raise
