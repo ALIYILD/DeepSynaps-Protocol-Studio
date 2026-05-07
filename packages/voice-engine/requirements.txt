@@ -1,0 +1,11 @@
+openai-whisper
+praat-parselmouth
+speechbrain
+torch
+torchaudio
+xgboost
+librosa
+scipy
+numpy
+fastapi
+python-multipart
