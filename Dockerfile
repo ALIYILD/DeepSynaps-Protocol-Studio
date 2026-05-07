@@ -61,6 +61,7 @@ RUN pip install --no-cache-dir \
     -e ./packages/qa \
     -e ./packages/qeeg-pipeline \
     -e ./packages/mri-pipeline \
+    -e ./packages/neuro-engine \
     -e ./packages/biometrics-pipeline \
     -e ./apps/api
 

@@ -87,6 +87,32 @@ function _renderSectionState({
   `;
 }
 
+export function simulationHasRenderableOutput(sim) {
+  const curve = sim?.predicted_curve;
+  return Array.isArray(curve?.x_days)
+    && curve.x_days.length > 0
+    && Array.isArray(curve?.delta_outcome_score)
+    && curve.delta_outcome_score.length > 0;
+}
+
+function _simulationAvailabilityState(sim) {
+  return _sectionAvailability(sim, simulationHasRenderableOutput(sim));
+}
+
+function _renderSimulationStateBlock(sim) {
+  const state = _simulationAvailabilityState(sim);
+  if (!state) return '';
+  return _renderSectionState({
+    title: state.kind === 'unavailable' ? 'Simulation output withheld.' : 'Simulation output pending.',
+    body: state.summary
+      || (state.kind === 'unavailable'
+        ? (_humanizeReason(state.reason) || 'Patient-linked simulation output was withheld for this session.')
+        : 'No simulation trajectory was returned for this scenario yet.'),
+    status: state.status,
+    reason: state.reason,
+  });
+}
+
 // 1. Twin status header --------------------------------------------------
 export function renderHeader({ patientLabel, condition, summary, dataSources }) {
   const demoRibbon = (summary?.is_demo_view || dataSources?.is_demo_view)
@@ -572,6 +598,19 @@ export function renderSimulationLab(_state, hostId) {
 
 export function renderSimulationDetail(sim) {
   if (!sim) return '<div class="dt-muted">Run a scenario to see predicted output.</div>';
+  const stateBlock = _renderSimulationStateBlock(sim);
+  if (stateBlock) {
+    return `
+      <div class="dt-sim-detail">
+        <div class="dt-sim-detail-h">
+          <strong>${escHtml(sim.scenario_id || 'Simulation lab')}</strong>
+          ${approvalRequiredBadge()}
+        </div>
+        ${stateBlock}
+        <div class="dt-notice dt-notice-amber">${escHtml(sim.disclaimer || 'Decision-support only. Clinician must review.')}</div>
+      </div>
+    `;
+  }
   const bullet = arr => (arr || []).map(s => `<li>${escHtml(typeof s === 'string' ? s : (s.claim || s.detail || JSON.stringify(s)))}</li>`).join('');
   const tier = sim.confidence_tier ? confidenceTierChip(sim.confidence_tier) : '';
   const ev = evidenceStatusChip(sim.evidence_status || 'pending');
@@ -638,12 +677,20 @@ export function renderSimulationDetail(sim) {
 }
 
 export function mountSimulation(hostId, scenarios) {
-  if (!scenarios || !scenarios.length) {
+  const renderable = Array.isArray(scenarios) ? scenarios.filter(simulationHasRenderableOutput) : [];
+  if (!renderable.length) {
     const el = document.getElementById(hostId);
-    if (el) el.innerHTML = '<div class="dt-muted" style="padding:20px">Run a simulation to see the trajectory.</div>';
+    const statefulScenario = Array.isArray(scenarios)
+      ? scenarios.find(sim => _simulationAvailabilityState(sim))
+      : null;
+    if (el) {
+      el.innerHTML = statefulScenario
+        ? `<div style="padding:12px">${_renderSimulationStateBlock(statefulScenario)}</div>`
+        : '<div class="dt-muted" style="padding:20px">Run a simulation to see the trajectory.</div>';
+    }
     return;
   }
-  buildSimulationCurve(hostId, scenarios);
+  buildSimulationCurve(hostId, renderable);
 }
 
 // 9. Report center -------------------------------------------------------

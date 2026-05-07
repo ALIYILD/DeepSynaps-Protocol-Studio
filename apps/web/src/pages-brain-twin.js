@@ -176,6 +176,11 @@ function _hasSimulationOutputs(result) {
   );
 }
 
+function _simulationStatePayload(simulation) {
+  if (!simulation || typeof simulation !== 'object') return null;
+  return simulation?.outputs?.clinical_forecast || simulation;
+}
+
 function _hasTwinReportContent(report) {
   if (!report || typeof report !== 'object') return false;
   const body = report.body;
@@ -583,25 +588,7 @@ function _buildCrossModalHypotheses(context, analysis) {
 }
 
 function _buildPairRanking(analysis) {
-  const pairs = _toArray(analysis?.correlation?.priority_pairs);
-  if (pairs.length) return pairs;
-  const labels = _toArray(analysis?.correlation?.labels);
-  const matrix = _toArray(analysis?.correlation?.matrix);
-  const ranked = [];
-  for (let left = 0; left < labels.length; left += 1) {
-    for (let right = left + 1; right < labels.length; right += 1) {
-      const score = _num(matrix[left]?.[right]);
-      if (score == null) continue;
-      ranked.push({
-        left: labels[left],
-        right: labels[right],
-        score,
-        interpretation: score > 0 ? 'moves together' : 'moves in opposite directions',
-      });
-    }
-  }
-  ranked.sort((a, b) => Math.abs(b.score) - Math.abs(a.score));
-  return ranked.slice(0, 6);
+  return _analysisPairRanking(analysis);
 }
 
 function _buildReportDrafts(snapshot, findings, hypotheses, analysis, simulation) {
@@ -646,6 +633,148 @@ const TWIN_REPORT_TYPES = [
   { id: 'governance', label: 'Governance' },
   { id: 'data_completeness', label: 'Data completeness' },
 ];
+
+const ANALYSIS_UNAVAILABLE_STATUSES = new Set(['unavailable', 'withheld', 'not_implemented', 'not_available', 'disabled']);
+const ANALYSIS_SECTION_LABELS = {
+  prediction: 'prediction',
+  correlation: 'correlation',
+  causation: 'causation',
+};
+
+function _humanizeReason(reason) {
+  const raw = String(reason || '').trim();
+  if (!raw) return '';
+  return raw
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^./, (ch) => ch.toUpperCase());
+}
+
+function _analysisSectionState(payload, hasContent) {
+  if (!payload || typeof payload !== 'object') return null;
+  const status = String(
+    payload.status
+    || payload.availability_status
+    || payload.availability
+    || '',
+  ).toLowerCase();
+  const reason = payload.reason || payload.availability_reason || '';
+  const summary = payload.summary || payload.message || payload.detail || '';
+  if (payload.available === false || payload.withheld === true || ANALYSIS_UNAVAILABLE_STATUSES.has(status)) {
+    return { kind: 'unavailable', status, reason, summary };
+  }
+  if (!hasContent) {
+    return { kind: 'empty', status, reason, summary };
+  }
+  return null;
+}
+
+function _renderStateNotice({ title, body, status, reason, details, testId }) {
+  const meta = [status ? `status: ${status}` : '', reason ? `reason: ${reason}` : '']
+    .filter(Boolean)
+    .join(' · ');
+  return `<div data-testid="${_esc(testId || 'brain-twin-state-notice')}" style="padding:12px 14px;border-radius:14px;border:1px solid rgba(255,179,71,.22);background:rgba(255,179,71,.08)">
+    <div style="font-size:13px;font-weight:700;color:var(--text)">${_esc(title)}</div>
+    <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.7;margin-top:8px">${_esc(body)}</div>
+    ${details ? `<div style="font-size:11px;color:var(--text-tertiary);line-height:1.7;margin-top:8px">${_esc(details)}</div>` : ''}
+    ${meta ? `<div style="font-size:11px;color:var(--text-tertiary);line-height:1.7;margin-top:6px">${_esc(meta)}</div>` : ''}
+  </div>`;
+}
+
+function _analysisPairRanking(analysis) {
+  const pairs = _toArray(analysis?.correlation?.priority_pairs);
+  if (pairs.length) return pairs;
+  const labels = _toArray(analysis?.correlation?.labels);
+  const matrix = _toArray(analysis?.correlation?.matrix);
+  const ranked = [];
+  for (let left = 0; left < labels.length; left += 1) {
+    for (let right = left + 1; right < labels.length; right += 1) {
+      const score = _num(matrix[left]?.[right]);
+      if (score == null) continue;
+      ranked.push({
+        left: labels[left],
+        right: labels[right],
+        score,
+        interpretation: score > 0 ? 'moves together' : 'moves in opposite directions',
+      });
+    }
+  }
+  ranked.sort((a, b) => Math.abs(b.score) - Math.abs(a.score));
+  return ranked.slice(0, 6);
+}
+
+export function buildBrainTwinAnalysisState(analysis) {
+  if (!analysis || typeof analysis !== 'object') return null;
+  const sectionStates = {
+    prediction: _analysisSectionState(analysis.prediction, _toArray(analysis?.prediction?.key_predictions).length > 0),
+    correlation: _analysisSectionState(analysis.correlation, _analysisPairRanking(analysis).length > 0),
+    causation: _analysisSectionState(analysis.causation, _toArray(analysis?.causation?.hypotheses).length > 0),
+  };
+  const unavailableSections = Object.entries(sectionStates).filter(([, state]) => state?.kind === 'unavailable');
+  if (!unavailableSections.length) return null;
+  const sections = unavailableSections.map(([key]) => ANALYSIS_SECTION_LABELS[key] || key);
+  const first = unavailableSections[0][1];
+  const hasRenderableContent =
+    _toArray(analysis?.prediction?.key_predictions).length > 0
+    || _analysisPairRanking(analysis).length > 0
+    || _toArray(analysis?.causation?.hypotheses).length > 0;
+  return {
+    kind: hasRenderableContent ? 'partial' : 'unavailable',
+    sections,
+    status: first.status,
+    reason: first.reason,
+    summary: first.summary,
+    details: hasRenderableContent
+      ? 'Legacy cards below may still show observed patient context and local heuristics, but withheld backend analysis sections were not rendered as predictive output.'
+      : 'Legacy cards below may still show observed patient context and local heuristics, but no backend DeepTwin analysis output was rendered for this patient.',
+    sectionStates,
+  };
+}
+
+export function renderBrainTwinAnalysisNotice(analysis) {
+  const state = buildBrainTwinAnalysisState(analysis);
+  if (!state) return '';
+  return _renderStateNotice({
+    title: state.kind === 'partial' ? 'Some DeepTwin analysis outputs are unavailable.' : 'DeepTwin analysis output withheld.',
+    body: state.summary
+      || (state.kind === 'partial'
+        ? `Patient-linked ${state.sections.join(', ')} output was withheld for this clinician session.`
+        : `Patient-linked ${state.sections.join(', ')} output was withheld for this clinician session.`),
+    status: state.status,
+    reason: state.reason,
+    details: state.details,
+    testId: 'brain-twin-analysis-notice',
+  });
+}
+
+export function buildBrainTwinSimulationState(simulation) {
+  const hasContent = _hasSimulationOutputs(simulation);
+  const topLevelState = _analysisSectionState(simulation, hasContent);
+  const payloadState = _analysisSectionState(_simulationStatePayload(simulation), hasContent);
+  const state = topLevelState?.kind === 'unavailable'
+    ? topLevelState
+    : payloadState?.kind === 'unavailable'
+      ? payloadState
+      : null;
+  if (!state) return null;
+  return {
+    ...state,
+    details: 'Scenario forecasts were not rendered because the backend returned an explicit unavailable state for this patient-linked simulation.',
+  };
+}
+
+export function renderBrainTwinSimulationNotice(simulation) {
+  const state = buildBrainTwinSimulationState(simulation);
+  if (!state) return '';
+  return _renderStateNotice({
+    title: 'Simulation output withheld.',
+    body: state.summary || (_humanizeReason(state.reason) || 'Patient-linked simulation output was withheld for this clinician session.'),
+    status: state.status,
+    reason: state.reason,
+    details: state.details,
+    testId: 'brain-twin-simulation-notice',
+  });
+}
 
 function _analysisPayload(patientId) {
   return {
@@ -834,7 +963,7 @@ function _renderFindings(findings) {
     : '<div style="font-size:12.5px;color:var(--text-tertiary)">No patient data loaded yet.</div>');
 }
 
-function _renderHypotheses(hypotheses) {
+function _renderHypotheses(hypotheses, analysisState = null) {
   return _card('Mechanism Hypotheses', hypotheses.length
     ? `<div style="display:grid;gap:10px">
       ${hypotheses.map((item) => `<div style="padding:12px;border-radius:14px;border:1px solid rgba(255,255,255,.06);background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02))">
@@ -847,10 +976,22 @@ function _renderHypotheses(hypotheses) {
         <div style="font-size:12px;color:var(--text-tertiary);line-height:1.7;margin-top:8px">Caution: ${_esc(item.caution || '')}</div>
       </div>`).join('')}
     </div>`
+    : analysisState?.kind === 'unavailable'
+      ? _renderStateNotice({
+          title: 'Causal hypothesis output withheld.',
+          body: analysisState.summary || (_humanizeReason(analysisState.reason) || 'Patient-linked causal hypothesis output was withheld for this clinician session.'),
+          status: analysisState.status,
+          reason: analysisState.reason,
+          details: 'Local context cues may still appear elsewhere on this page, but no backend causation output was rendered here.',
+          testId: 'brain-twin-causation-notice',
+        })
+      : analysisState?.kind === 'empty'
+        ? '<div style="font-size:12.5px;color:var(--text-tertiary)">No backend causation hypotheses were returned for this patient yet.</div>'
     : '<div style="font-size:12.5px;color:var(--text-tertiary)">No ranked hypotheses yet. Run DeepTwin after loading patient context.</div>');
 }
 
-function _renderCorrelationPairs(pairs) {
+export function renderBrainTwinCorrelationPairs(pairs, analysis = null) {
+  const correlationState = _analysisSectionState(analysis?.correlation, pairs.length > 0);
   return _card('Cross-Modal Pair Ranking', pairs.length
     ? `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
       ${pairs.map((pair) => {
@@ -870,12 +1011,24 @@ function _renderCorrelationPairs(pairs) {
         </div>`;
       }).join('')}
     </div>`
+    : correlationState?.kind === 'unavailable'
+      ? _renderStateNotice({
+          title: 'Correlation pair ranking unavailable.',
+          body: correlationState.summary || (_humanizeReason(correlationState.reason) || 'Patient-linked correlation output was withheld for this clinician session.'),
+          status: correlationState.status,
+          reason: correlationState.reason,
+          details: 'No cross-modal ranking bars were rendered because the backend returned an explicit unavailable state.',
+          testId: 'brain-twin-correlation-notice',
+        })
+      : correlationState?.kind === 'empty'
+        ? '<div style="font-size:12.5px;color:var(--text-tertiary)">No backend correlation pairs were returned for this patient yet.</div>'
     : '<div style="font-size:12.5px;color:var(--text-tertiary)">Correlation pairs will appear after analysis runs.</div>');
 }
 
 function _renderSimulationLab(workspace) {
   const scenario = _scenarioState();
   const simulation = workspace.simulation;
+  const simulationState = buildBrainTwinSimulationState(simulation);
   const clinical = simulation?.outputs?.clinical_forecast || {};
   const biomarkers = _toArray(simulation?.outputs?.biomarker_forecast);
   const timeline = _toArray(simulation?.outputs?.timecourse);
@@ -912,9 +1065,11 @@ function _renderSimulationLab(workspace) {
           ${_pill(simulation?.engine?.name || 'Awaiting run', simulation ? 'blue' : 'slate')}
         </div>
         ${workspace.simulationError ? `<div style="font-size:12px;color:var(--amber);line-height:1.7;margin-top:8px">${_esc(workspace.simulationError)}</div>` : ''}
-        <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin-top:8px">${_esc(clinical.summary || 'No scenario has been executed yet. Use the structured fields on the left rather than an opaque protocol id so the workspace can explain the forecast.')}</div>
+        ${simulationState?.kind === 'unavailable'
+          ? `<div style="margin-top:8px">${renderBrainTwinSimulationNotice(simulation)}</div>`
+          : `<div style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin-top:8px">${_esc(clinical.summary || 'No scenario has been executed yet. Use the structured fields on the left rather than an opaque protocol id so the workspace can explain the forecast.')}</div>
         ${clinical.expected_direction ? `<div style="font-size:12px;color:var(--text-tertiary);margin-top:10px">Expected direction: ${_esc(clinical.expected_direction)}</div>` : ''}
-        ${clinical.caveat ? `<div style="font-size:12px;color:var(--text-tertiary);margin-top:6px">Uncertainty: ${_esc(clinical.caveat)}</div>` : ''}
+        ${clinical.caveat ? `<div style="font-size:12px;color:var(--text-tertiary);margin-top:6px">Uncertainty: ${_esc(clinical.caveat)}</div>` : ''}`}
         ${simulation?.outputs?.provenance?.components?.length ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:8px">Lineage: ${_esc(simulation.outputs.provenance.components.join(', '))}</div>` : ''}
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
@@ -922,7 +1077,9 @@ function _renderSimulationLab(workspace) {
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary)">${_esc(item.name || item.marker || 'Biomarker')}</div>
           <div style="font-size:16px;font-weight:700;color:var(--text);margin-top:6px">${_esc(item.direction || item.expected_direction || 'Shift expected')}</div>
           <div style="font-size:12px;color:var(--text-tertiary);margin-top:6px">${_esc(item.why || item.summary || '')}</div>
-        </div>`).join('') : '<div style="padding:12px;border-radius:12px;border:1px dashed rgba(255,255,255,.08);color:var(--text-tertiary)">Biomarker forecast will appear here after simulation.</div>'}
+        </div>`).join('') : simulationState?.kind === 'unavailable'
+          ? '<div style="padding:12px;border-radius:12px;border:1px dashed rgba(255,179,71,.24);color:var(--text-tertiary)">Biomarker forecast withheld for this clinician session.</div>'
+          : '<div style="padding:12px;border-radius:12px;border:1px dashed rgba(255,255,255,.08);color:var(--text-tertiary)">Biomarker forecast will appear here after simulation.</div>'}
       </div>
       <div style="padding:12px;border-radius:14px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02)">
         <div style="font-size:12px;font-weight:700;color:var(--text)">Timeline</div>
@@ -931,7 +1088,9 @@ function _renderSimulationLab(workspace) {
             <div style="font-size:11px;color:var(--text-tertiary)">Day ${_esc(point.day)}</div>
             <div class="bt-mono" style="font-size:15px;font-weight:700;color:${(_num(point.delta_symptom_score) || 0) <= 0 ? 'var(--teal)' : 'var(--amber)'};margin-top:6px">${(_num(point.delta_symptom_score) || 0) > 0 ? '+' : ''}${_esc(point.delta_symptom_score)}</div>
           </div>`).join('')}
-        </div>` : '<div style="font-size:12px;color:var(--text-tertiary);margin-top:10px">No timecourse yet.</div>'}
+        </div>` : simulationState?.kind === 'unavailable'
+          ? '<div style="font-size:12px;color:var(--text-tertiary);margin-top:10px">No simulation timecourse was rendered because the backend returned a withheld state.</div>'
+          : '<div style="font-size:12px;color:var(--text-tertiary);margin-top:10px">No timecourse yet.</div>'}
       </div>
       ${(uncertainty || guardrails.length) ? `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
         ${uncertainty ? `<div style="padding:12px;border-radius:14px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02)">
@@ -1024,6 +1183,8 @@ function _renderWorkspace(setTopbar) {
   const hypotheses = context ? _buildCrossModalHypotheses(context, workspace.analysis) : [];
   const reports = Array.isArray(workspace.reports) ? workspace.reports : [];
   const pairs = _buildPairRanking(workspace.analysis);
+  const analysisState = buildBrainTwinAnalysisState(workspace.analysis);
+  const causationState = analysisState?.sectionStates?.causation || null;
 
   setTopbar?.({
     title: 'Deeptwin',
@@ -1047,6 +1208,7 @@ function _renderWorkspace(setTopbar) {
   }
   element.innerHTML = `<div style="max-width:1380px;margin:0 auto;padding:18px 18px 36px">
     ${snapshot ? _renderHero(snapshot, findings, workspace) : `<div class="card" style="padding:18px">${spinner()}</div>`}
+    ${workspace.analysis ? `<div style="margin-top:14px">${renderBrainTwinAnalysisNotice(workspace.analysis)}</div>` : ''}
     <div class="bt-main-grid" style="margin-top:14px">
       <div style="display:grid;gap:14px">
         ${snapshot ? _renderSourceInventory(snapshot) : ''}
@@ -1056,8 +1218,8 @@ function _renderWorkspace(setTopbar) {
       </div>
       <div style="display:grid;gap:14px">
         ${context ? _renderFindings(findings) : ''}
-        ${context ? _renderHypotheses(hypotheses) : ''}
-        ${_renderCorrelationPairs(pairs)}
+        ${context ? _renderHypotheses(hypotheses, causationState) : ''}
+        ${renderBrainTwinCorrelationPairs(pairs, workspace.analysis)}
         ${_renderSimulationLab(workspace)}
         ${snapshot ? _renderEvidencePanel(workspace, snapshot, findings) : ''}
         ${snapshot ? _renderReportStudio(workspace, reports) : ''}
@@ -1125,7 +1287,7 @@ async function _runSimulation() {
   _renderWorkspace(window._brainTwinSetTopbar);
   try {
     const result = await api.brainTwinSimulate(_simulationPayload(patientId));
-    if (!_hasSimulationOutputs(result)) {
+    if (!buildBrainTwinSimulationState(result) && !_hasSimulationOutputs(result)) {
       throw new Error('Simulation completed without forecast outputs');
     }
     workspace.simulation = result;

@@ -30,7 +30,7 @@ import {
   renderCorrelations, mountCorrelations,
   renderCausal,
   renderPrediction, mountPrediction,
-  renderSimulationLab, renderSimulationDetail, mountSimulation,
+  renderSimulationLab, renderSimulationDetail, mountSimulation, simulationHasRenderableOutput,
   renderReportCenter, renderHandoff, renderSafetyFooter,
   renderHistoryPanel, renderClinicianNotesPanel,
   loadingBlock, errorBlock, emptyPatientBlock,
@@ -288,6 +288,12 @@ function _wireSimulationLab() {
         setTimeout(() => reject(new Error('Simulation timed out after 30s. The backend may still be processing — try again or refresh shortly.')), TIMEOUT_MS)
       );
       const sim = await Promise.race([runTwinSimulation(STATE.patientId, params), timeoutP]);
+      if (!simulationHasRenderableOutput(sim)) {
+        STATE.scenarios = [];
+        mountSimulation(HOST_SIM, [sim]);
+        if (detail) detail.innerHTML = renderSimulationDetail(sim);
+        return;
+      }
       // Persist the simulation run to backend for audit trail.
       try {
         await createSimulationRun(STATE.patientId, {

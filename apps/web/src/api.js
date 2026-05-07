@@ -1493,6 +1493,48 @@ export const api = {
     return URL.createObjectURL(blob);
   },
 
+  // ── Video Assessments (guided motor capture + persisted session JSON) ───
+  listVideoAssessmentSessions: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params || {}).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/video-assessments/sessions${q ? '?' + q : ''}`);
+  },
+  createVideoAssessmentSession: (payload = {}) =>
+    apiFetch('/api/v1/video-assessments/sessions', {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  getVideoAssessmentSession: (sessionId) =>
+    apiFetch(`/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}`),
+  patchVideoAssessmentSession: (sessionId, payload = {}) =>
+    apiFetch(`/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload || {}),
+    }),
+  uploadVideoAssessmentTaskClip: (sessionId, taskId, file, { expected_revision } = {}) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (expected_revision != null && expected_revision !== '') {
+      form.append('expected_revision', expected_revision);
+    }
+    return apiFetch(
+      `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}/upload`,
+      { method: 'POST', body: form },
+    );
+  },
+  fetchVideoAssessmentTaskVideo: (sessionId, taskId) =>
+    apiFetchBinary(
+      `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}/video`,
+    ),
+  finalizeVideoAssessmentSession: (sessionId, payload = {}) =>
+    apiFetch(`/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/finalize`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  exportVideoAssessmentSessionJson: (sessionId) =>
+    apiFetchBinary(`/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/export.json`),
+
   // ── Voice / Audio biomarker analyzer (deepsynaps-audio pipeline) ───────
   audioAnalyzeUpload: (file, { sessionId, patientId, taskProtocol, transcript } = {}) => {
     const form = new FormData();

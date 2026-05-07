@@ -16,8 +16,12 @@ relative orderings without needing trained weights.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi.testclient import TestClient
 
+from app.database import SessionLocal
+from app.persistence.models import Patient, User
 from app.services.deeptwin_tribe import (
     EMBED_DIM,
     ProtocolSpec,
@@ -27,6 +31,7 @@ from app.services.deeptwin_tribe import (
     simulate_protocol,
     to_jsonable,
 )
+from app.services.auth_service import create_access_token
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +176,55 @@ PROTO_B = {
     "current_ma": 2.0, "sessions_per_week": 5, "weeks": 5,
 }
 
+CLINIC_REAL = "clinic-real-tribe"
+
+
+def _seed_real_clinician(session, *, user_id: str, clinic_id: str = CLINIC_REAL) -> User:
+    user = User(
+        id=user_id,
+        email=f"{user_id}@example.com",
+        display_name="Real Clinician",
+        role="clinician",
+        clinic_id=clinic_id,
+        hashed_password="x",
+        package_id="clinician_pro",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    session.add(user)
+    session.commit()
+    return user
+
+
+def _seed_real_patient(session, *, patient_id: str, clinician_id: str) -> Patient:
+    patient = Patient(
+        id=patient_id,
+        clinician_id=clinician_id,
+        first_name="Taylor",
+        last_name="Rivers",
+        dob="1991-03-12",
+        email=f"{patient_id}@example.com",
+        primary_condition="ADHD",
+        secondary_conditions='["anxiety"]',
+        notes="Persistent executive dysfunction with intermittent sleep disruption.",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    session.add(patient)
+    session.commit()
+    return patient
+
+
+def _real_headers(user_id: str, clinic_id: str = CLINIC_REAL) -> dict[str, str]:
+    token = create_access_token(
+        user_id=user_id,
+        email=f"{user_id}@example.com",
+        role="clinician",
+        package_id="clinician_pro",
+        clinic_id=clinic_id,
+    )
+    return {"Authorization": f"Bearer {token}"}
+
 
 def test_endpoint_simulate_tribe(client: TestClient, auth_headers: dict[str, dict[str, str]]) -> None:
     r = client.post(
@@ -202,6 +256,102 @@ def test_endpoint_compare_protocols(
     assert cmp_out["winner"] in {"A", "B"}
     assert len(cmp_out["candidates"]) == 2
     assert cmp_out["confidence_gap"] >= 0.0
+
+
+def test_real_patient_tribe_protocol_surfaces_withhold_heuristic_outputs(
+    client: TestClient,
+) -> None:
+    patient_id = "pat-real-tribe-1"
+    user_id = "user-real-tribe-1"
+
+    session = SessionLocal()
+    try:
+        user = _seed_real_clinician(session, user_id=user_id)
+        _seed_real_patient(session, patient_id=patient_id, clinician_id=user.id)
+    finally:
+        session.close()
+
+    headers = _real_headers(user_id)
+
+    latent_resp = client.post(
+        "/api/v1/deeptwin/patient-latent",
+        headers=headers,
+        json={"patient_id": patient_id},
+    )
+    assert latent_resp.status_code == 200, latent_resp.text
+    latent_body = latent_resp.json()
+    assert latent_body["available"] is False
+    assert latent_body["status"] == "withheld"
+    assert latent_body["reason"] == "no_validated_latent_model"
+    assert latent_body["embeddings"] == []
+    assert latent_body["latent"]["status"] == "withheld"
+    assert latent_body["latent"]["vector"] == []
+    assert latent_body["adapted"]["status"] == "withheld"
+    assert latent_body["adapted"]["adapted_vector"] == []
+
+    simulate_resp = client.post(
+        "/api/v1/deeptwin/simulate-tribe",
+        headers=headers,
+        json={"patient_id": patient_id, "protocol": PROTO_A, "horizon_weeks": 6},
+    )
+    assert simulate_resp.status_code == 200, simulate_resp.text
+    simulate_body = simulate_resp.json()
+    assert simulate_body["available"] is False
+    assert simulate_body["status"] == "withheld"
+    assert simulate_body["reason"] == "no_validated_simulation_engine"
+    assert simulate_body["output"]["available"] is False
+    assert simulate_body["output"]["heads"]["response_probability"] is None
+    assert simulate_body["output"]["heads"]["symptom_trajectories"] == []
+    assert simulate_body["output"]["explanation"]["status"] == "withheld"
+
+    compare_resp = client.post(
+        "/api/v1/deeptwin/compare-protocols",
+        headers=headers,
+        json={"patient_id": patient_id, "protocols": [PROTO_A, PROTO_B], "horizon_weeks": 6},
+    )
+    assert compare_resp.status_code == 200, compare_resp.text
+    compare_body = compare_resp.json()
+    assert compare_body["available"] is False
+    assert compare_body["status"] == "withheld"
+    assert compare_body["reason"] == "no_validated_protocol_comparison_engine"
+    assert compare_body["comparison"]["available"] is False
+    assert compare_body["comparison"]["winner"] is None
+    assert compare_body["comparison"]["ranking"] == []
+    assert compare_body["comparison"]["candidates"] == []
+
+    explain_resp = client.post(
+        "/api/v1/deeptwin/explain",
+        headers=headers,
+        json={"patient_id": patient_id, "protocol": PROTO_A, "horizon_weeks": 6},
+    )
+    assert explain_resp.status_code == 200, explain_resp.text
+    explain_body = explain_resp.json()
+    assert explain_body["available"] is False
+    assert explain_body["status"] == "withheld"
+    assert explain_body["reason"] == "no_validated_simulation_engine"
+    assert explain_body["response_probability"] is None
+    assert explain_body["response_confidence"] is None
+    assert explain_body["evidence_grade"] is None
+    assert explain_body["explanation"]["status"] == "withheld"
+
+    report_resp = client.post(
+        "/api/v1/deeptwin/report-payload",
+        headers=headers,
+        json={
+            "patient_id": patient_id,
+            "protocol": PROTO_A,
+            "horizon_weeks": 6,
+            "kind": "clinician_intelligence",
+        },
+    )
+    assert report_resp.status_code == 200, report_resp.text
+    report_body = report_resp.json()
+    assert report_body["available"] is False
+    assert report_body["status"] == "withheld"
+    assert report_body["reason"] == "no_validated_simulation_engine"
+    assert report_body["title"] == "DeepTwin Protocol Report Unavailable"
+    assert report_body["sections"][0]["id"] == "status"
+    assert any("reason: no_validated_simulation_engine" in item for item in report_body["sections"][0]["items"])
 
 
 def test_endpoint_patient_latent(client: TestClient, auth_headers: dict[str, dict[str, str]]) -> None:

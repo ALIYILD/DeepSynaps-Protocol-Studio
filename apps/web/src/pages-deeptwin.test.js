@@ -9,11 +9,18 @@ import {
   deeptwinResolvedTab,
 } from './pages-deeptwin.js';
 import {
+  mountSimulation,
   renderCorrelations,
   renderPrediction,
   renderSignalMatrix,
+  renderSimulationDetail,
   renderTimeline,
+  simulationHasRenderableOutput,
 } from './deeptwin/components.js';
+import {
+  describeTribeComparisonStatus,
+  renderTribeComparisonResult,
+} from './deeptwin/tribe.js';
 import {
   applyDashboard360PatientContext,
   loadDashboard360,
@@ -247,6 +254,66 @@ test('DeepTwin overview renders explicit pending states for empty clinician payl
   }, 'dt-test-timeline');
   assert.match(timelineHtml, /No timeline events available yet/i);
   assert.equal(timelineHtml.includes('data-tl-kind='), false);
+});
+
+test('DeepTwin simulation lab renders withheld states without chartable output', () => {
+  const blocked = {
+    scenario_id: 'scn_real_patient_guard',
+    available: false,
+    status: 'withheld',
+    reason: 'no_validated_simulation_engine',
+    summary: 'Simulation output is withheld until a validated engine is connected for patient-linked rows.',
+    disclaimer: 'Clinician review remains required.',
+  };
+
+  assert.equal(simulationHasRenderableOutput(blocked), false);
+
+  const html = renderSimulationDetail(blocked);
+  assert.match(html, /Simulation output withheld/i);
+  assert.match(html, /validated engine is connected for patient-linked rows/i);
+  assert.match(html, /reason: no_validated_simulation_engine/i);
+  assert.match(html, /Clinician review remains required/i);
+});
+
+test('DeepTwin simulation chart host renders withheld notices instead of blank or stale charts', () => {
+  const { restore } = installDom();
+
+  try {
+    document.getElementById('content').innerHTML = '<div id="dt-sim-host"></div>';
+    mountSimulation('dt-sim-host', [{
+      available: false,
+      status: 'withheld',
+      reason: 'patient_scope_requires_validated_engine',
+      summary: 'No patient-linked simulation trajectory is available for this session.',
+    }]);
+
+    const html = document.getElementById('dt-sim-host').innerHTML;
+    assert.match(html, /Simulation output withheld/i);
+    assert.match(html, /No patient-linked simulation trajectory is available for this session/i);
+  } finally {
+    restore();
+  }
+});
+
+test('TRIBE compare renderer shows explicit withheld states for patient-linked rows', () => {
+  const payload = {
+    patient_id: 'pt-123',
+    comparison: {
+      available: false,
+      status: 'withheld',
+      reason: 'no_validated_protocol_comparison_model',
+      summary: 'Protocol comparison is withheld until a validated comparison model is connected.',
+    },
+  };
+
+  const html = renderTribeComparisonResult(payload);
+  assert.match(html, /Protocol comparison withheld/i);
+  assert.match(html, /validated comparison model is connected/i);
+  assert.match(html, /reason: no_validated_protocol_comparison_model/i);
+  assert.match(
+    describeTribeComparisonStatus(payload),
+    /Protocol comparison withheld\. Protocol comparison is withheld until a validated comparison model is connected/i,
+  );
 });
 
 test('loadDashboard360 fails closed for real clinician sessions when the API rejects', async () => {

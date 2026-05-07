@@ -17,6 +17,8 @@ const ESC = (s) => String(s ?? '')
   .replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
 
+const UNAVAILABLE_STATUSES = new Set(['unavailable', 'withheld', 'not_implemented', 'not_available', 'disabled']);
+
 const PRESETS = [
   {
     id: 'A',
@@ -48,6 +50,93 @@ const PRESETS = [
     },
   },
 ];
+
+function _humanizeReason(reason) {
+  const raw = String(reason || '').trim();
+  if (!raw) return '';
+  return raw
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^./, (ch) => ch.toUpperCase());
+}
+
+function _comparisonPayload(payload) {
+  return payload?.comparison && typeof payload.comparison === 'object'
+    ? payload.comparison
+    : payload;
+}
+
+function _comparisonState(payload) {
+  const comparison = _comparisonPayload(payload);
+  const ranked = Array.isArray(comparison?.ranking) ? comparison.ranking : [];
+  const status = String(
+    comparison?.status
+    || payload?.status
+    || comparison?.availability_status
+    || payload?.availability_status
+    || comparison?.availability
+    || payload?.availability
+    || '',
+  ).toLowerCase();
+  const reason = comparison?.reason
+    || payload?.reason
+    || comparison?.availability_reason
+    || payload?.availability_reason
+    || '';
+  const summary = comparison?.summary
+    || comparison?.message
+    || comparison?.detail
+    || payload?.summary
+    || payload?.message
+    || payload?.detail
+    || '';
+  if (
+    comparison?.available === false
+    || payload?.available === false
+    || comparison?.withheld === true
+    || payload?.withheld === true
+    || UNAVAILABLE_STATUSES.has(status)
+  ) {
+    return { kind: 'unavailable', status, reason, summary };
+  }
+  if (!ranked.length) {
+    return { kind: 'empty', status, reason, summary };
+  }
+  return null;
+}
+
+function _renderComparisonState(payload) {
+  const state = _comparisonState(payload);
+  if (!state) return '';
+  const bits = [];
+  if (state.status) bits.push(`status: ${state.status}`);
+  if (state.reason) bits.push(`reason: ${state.reason}`);
+  const meta = bits.length
+    ? `<div class="dt-muted" style="font-size:11px;margin-top:8px">${ESC(bits.join(' · '))}</div>`
+    : '';
+  return `
+    <div class="dt-notice dt-notice-amber" role="status">
+      <strong>${state.kind === 'unavailable' ? 'Protocol comparison withheld.' : 'No protocol comparison returned.'}</strong>
+      ${ESC(
+        state.summary
+          || (state.kind === 'unavailable'
+            ? (_humanizeReason(state.reason) || 'Patient-linked protocol ranking was withheld for this session.')
+            : 'The comparison request completed without ranked protocol candidates.')
+      )}
+      ${meta}
+    </div>
+  `;
+}
+
+function _normalizeCompareError(error) {
+  const details = error?.details || error?.body?.details || {};
+  return {
+    available: false,
+    status: error?.status === 404 ? 'not_available' : 'unavailable',
+    reason: details?.reason || details?.code || '',
+    summary: error?.message || 'Protocol comparison could not be completed.',
+  };
+}
 
 function _confidenceChip(conf) {
   const tone = conf === 'high' ? 'ok' : conf === 'moderate' ? 'warn' : 'low';
@@ -98,6 +187,27 @@ function _renderRankingCards(comparison) {
       </div>
     `;
   }).join('');
+}
+
+export function renderTribeComparisonResult(payload) {
+  const stateBlock = _renderComparisonState(payload);
+  if (stateBlock) {
+    return `<div class="dt-empty">${stateBlock}</div>`;
+  }
+  return _renderRankingCards(_comparisonPayload(payload) || {});
+}
+
+export function describeTribeComparisonStatus(payload) {
+  const state = _comparisonState(payload);
+  if (state) {
+    return state.kind === 'unavailable'
+      ? `Protocol comparison withheld. ${state.summary || _humanizeReason(state.reason) || 'No patient-linked ranking was returned.'}`
+      : (state.summary || 'No comparable protocol candidates were returned.');
+  }
+  const comparison = _comparisonPayload(payload) || {};
+  const top = comparison?.winner || comparison?.ranking?.[0]?.protocol_id || '—';
+  const gap = comparison?.confidence_gap ?? 0;
+  return `Top-ranked candidate (exploratory score): ${top} · score gap ${gap}. Not a treatment recommendation — clinician review required.`;
 }
 
 export function renderTribeCompare() {
@@ -164,16 +274,12 @@ export function wireTribeCompare(getPatientId) {
       const resp = await api.deeptwinCompareProtocols({
         patient_id: patientId, protocols, horizon_weeks,
       });
-      if (out) out.innerHTML = _renderRankingCards(resp.comparison || {});
-      if (status) {
-        const top = resp.comparison?.winner || resp.comparison?.ranking?.[0]?.protocol_id || '—';
-        const gap = resp.comparison?.confidence_gap ?? 0;
-        status.textContent =
-          `Top-ranked candidate (exploratory score): ${top} · score gap ${gap}. `
-          + 'Not a treatment recommendation — clinician review required.';
-      }
+      if (out) out.innerHTML = renderTribeComparisonResult(resp);
+      if (status) status.textContent = describeTribeComparisonStatus(resp);
     } catch (e) {
-      if (status) status.textContent = 'Compare failed: ' + (e.message || e);
+      const unavailable = _normalizeCompareError(e);
+      if (out) out.innerHTML = renderTribeComparisonResult(unavailable);
+      if (status) status.textContent = describeTribeComparisonStatus(unavailable);
     }
   });
 }

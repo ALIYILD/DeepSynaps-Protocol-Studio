@@ -1,6 +1,7 @@
 README.md
 pyproject.toml
 src/deepsynaps_safety_engine/__init__.py
+src/deepsynaps_safety_engine/clinical_skills.py
 src/deepsynaps_safety_engine/compatibility.py
 src/deepsynaps_safety_engine.egg-info/PKG-INFO
 src/deepsynaps_safety_engine.egg-info/SOURCES.txt
