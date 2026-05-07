@@ -1,7 +1,9 @@
-# To wire into the FastAPI app, add to apps/api/app/main.py:
-#     from packages.voice_engine.api import router as voice_router
-#     app.include_router(voice_router.router)
-# (Skipped here to avoid touching main.py while a concurrent session has it dirty.)
+# Wired into the FastAPI app via apps/api/app/routers/voice_engine_router.py
+# (a thin import shim; the directory packages/voice-engine/ has a hyphen and
+# cannot be imported as packages.voice_engine). Final paths under /api/v1:
+#   POST /api/v1/voice/upload
+#   POST /api/v1/voice/analyze/{session_id}
+#   GET  /api/v1/voice/result/{session_id}
 """FastAPI router for the Voice Analyzer: upload, analyze, result endpoints."""
 
 from __future__ import annotations
