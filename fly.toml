@@ -19,6 +19,7 @@ app = "deepsynaps-studio"
 primary_region = "lhr"
 
 [build]
+  dockerfile = "apps/api/Dockerfile"
 
 [env]
   DEEPSYNAPS_APP_ENV = "production"
