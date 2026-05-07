@@ -200,6 +200,8 @@ async def analyze_voice_upload(
     task_protocol = _normalize_required_text(task_protocol, field_name="task_protocol")
     transcript = _normalize_optional_text(transcript)
     require_minimum_role(actor, "clinician")
+    if not patient_id:
+        raise HTTPException(status_code=422, detail="patient_id is required for live analysis")
     _gate_patient_access(actor, patient_id, db)
     _require_pipeline()
 
@@ -323,6 +325,8 @@ def get_voice_report(
     require_minimum_role(actor, "clinician")
     row = load_voice_analysis(db, analysis_id)
     if row is None:
+        raise HTTPException(status_code=404, detail="analysis not found")
+    if row.patient_id is None:
         raise HTTPException(status_code=404, detail="analysis not found")
     try:
         _gate_patient_access(actor, row.patient_id, db)
