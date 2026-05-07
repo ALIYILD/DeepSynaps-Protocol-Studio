@@ -132,6 +132,25 @@ def _demo_mode_enabled() -> bool:
     return not mri_pipeline_facade.HAS_MRI_PIPELINE
 
 
+def _safe_filename_for_log(filename: str | None) -> str:
+    """Redact filenames that may contain PHI before logging.
+
+    Common clinical workflows embed patient names, DOB, or MRN in filenames.
+    We keep the extension for debugging but redact the basename when it looks
+    like it carries identifiers.
+    """
+    if not filename:
+        return ""
+    lower = filename.lower()
+    phi_keywords = ("patient", "name", "dob", "mrn", "ssn", "nhs", "birth")
+    if any(k in lower for k in phi_keywords):
+        ext = ""
+        if "." in filename:
+            ext = filename.rsplit(".", 1)[-1]
+        return f"[REDACTED_PHI_RISK].{ext}" if ext else "[REDACTED_PHI_RISK]"
+    return filename
+
+
 # ── JSON (de)serialisation helpers ───────────────────────────────────────────
 
 
@@ -405,6 +424,7 @@ def _report_from_row(row: MriAnalysis) -> dict[str, Any]:
         "findings": findings,
         "saved_evidence_citations": [],
         "disclaimer": _DISCLAIMER,
+        "demo_mode": bool(row.demo_mode),
     }
 
 
@@ -440,6 +460,7 @@ def _status_payload_from_row(row: MriAnalysis, job_id: str) -> dict[str, Any]:
         "job_id": job_id,
         "state": row.state,
         "info": info,
+        "demo_mode": bool(row.demo_mode),
     }
     if failure:
         payload["error"] = failure
@@ -660,7 +681,7 @@ async def upload_mri(
                 "event": "mri_upload_failed",
                 "patient_id": patient_id,
                 "actor_id": actor.actor_id,
-                "upload_filename": filename,
+                "upload_filename": _safe_filename_for_log(filename),
                 "error": str(exc),
             },
         )
@@ -689,7 +710,7 @@ async def upload_mri(
             "upload_id": upload_id,
             "patient_id": patient_id,
             "actor_id": actor.actor_id,
-            "upload_filename": filename,
+            "upload_filename": _safe_filename_for_log(filename),
             "file_size_bytes": len(file_bytes),
             "mimetype": file.content_type,
         },
@@ -765,6 +786,9 @@ async def analyze_mri(
         age=age,
         sex=sex,
     )
+    demo = _demo_mode_enabled()
+    if demo:
+        row.demo_mode = True
     db.add(row)
     db.commit()
 
@@ -787,7 +811,7 @@ async def analyze_mri(
                 "MRI demo-mode analyze: analysis_id=%s condition=%s",
                 analysis_id, condition_lower,
             )
-            return {"job_id": analysis_id, "state": "queued"}
+            return {"job_id": analysis_id, "state": "queued", "demo_mode": True}
 
     # Sync mode — for tests only; blocks the request thread.
     if run_mode == "sync":
@@ -812,7 +836,7 @@ async def analyze_mri(
             )
             row.failure_reason = str(_err_msg)[:1000]
         db.commit()
-        return {"job_id": analysis_id, "state": "queued"}
+        return {"job_id": analysis_id, "state": "queued", "demo_mode": demo}
 
     # Background mode — default. The row is in ``queued`` state; a real
     # Celery worker (or follow-up deployment) is expected to pick it up
@@ -822,7 +846,7 @@ async def analyze_mri(
         "MRI analyze enqueued: analysis_id=%s condition=%s run_mode=%s",
         analysis_id, condition_lower, run_mode,
     )
-    return {"job_id": analysis_id, "state": "queued"}
+    return {"job_id": analysis_id, "state": "queued", "demo_mode": demo}
 
 
 # ── 3. Status ────────────────────────────────────────────────────────────────
