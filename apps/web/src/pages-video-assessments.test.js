@@ -1236,6 +1236,175 @@ test('AI historical summary loading, success, and advisory panel render honestly
   }
 });
 
+test('AI historical summary feedback controls are clinician-only and keep advisory-only copy visible', async () => {
+  for (const role of ['clinician', 'supervisor', 'admin']) {
+    const page = await mountVideoPage({
+      role,
+      apiOverrides: {
+        getVideoAssessmentPriorFinalizedSessions: async () => ({
+          sessions: [makePriorSession({ sessionId: 'sess-prior-1', occurredAt: '2026-05-07T10:00:00Z' })],
+          trend_sessions: [makeTrendSession({ sessionId: 'sess-prior-1', occurredAt: '2026-05-07T10:00:00Z' })],
+        }),
+        generateVideoAssessmentHistoricalAiSummary: async () =>
+          makeHistoricalAiSummary({ sessionCount: 1, sourceSessionIds: ['sess-prior-1'] }),
+      },
+    });
+    try {
+      page.document.getElementById('va-mode-clinician').click();
+      await flush(4);
+      page.document.querySelector('[data-va-prior-select="sess-prior-1"]').click();
+      await flush(2);
+      page.document.getElementById('va-generate-history-ai').click();
+      await flush(6);
+      assert.ok(page.document.getElementById('va-save-history-feedback'));
+      assert.match(page.document.body.textContent, /Clinician feedback on advisory summary/i);
+      assert.match(page.document.body.textContent, /does not alter the persisted session review automatically/i);
+    } finally {
+      page.restore();
+    }
+  }
+
+  const patientPage = await mountVideoPage({
+    role: 'patient',
+    apiOverrides: {
+      getVideoAssessmentPriorFinalizedSessions: async () => ({
+        sessions: [makePriorSession({ sessionId: 'sess-prior-1', occurredAt: '2026-05-07T10:00:00Z' })],
+        trend_sessions: [makeTrendSession({ sessionId: 'sess-prior-1', occurredAt: '2026-05-07T10:00:00Z' })],
+      }),
+      generateVideoAssessmentHistoricalAiSummary: async () =>
+        makeHistoricalAiSummary({ sessionCount: 1, sourceSessionIds: ['sess-prior-1'] }),
+    },
+  });
+  try {
+    patientPage.document.getElementById('va-mode-clinician').click();
+    await flush(4);
+    assert.equal(patientPage.document.getElementById('va-save-history-feedback'), null);
+  } finally {
+    patientPage.restore();
+  }
+});
+
+test('AI historical summary feedback preloads existing actor feedback when available', async () => {
+  const page = await mountVideoPage({
+    role: 'clinician',
+    apiOverrides: {
+      getVideoAssessmentPriorFinalizedSessions: async () => ({
+        sessions: [makePriorSession({ sessionId: 'sess-prior-1', occurredAt: '2026-05-07T10:00:00Z' })],
+        trend_sessions: [makeTrendSession({ sessionId: 'sess-prior-1', occurredAt: '2026-05-07T10:00:00Z' })],
+      }),
+      generateVideoAssessmentHistoricalAiSummary: async () =>
+        makeHistoricalAiSummary({ sessionCount: 1, sourceSessionIds: ['sess-prior-1'] }),
+      getVideoAssessmentHistoricalAiSummaryFeedback: async () =>
+        makeHistoricalAiSummaryFeedback({
+          feedbackStatus: 'partially_accepted',
+          feedbackNote: 'Useful orientation, but chronology still needs manual review.',
+        }),
+    },
+  });
+  try {
+    page.document.getElementById('va-mode-clinician').click();
+    await flush(4);
+    page.document.querySelector('[data-va-prior-select="sess-prior-1"]').click();
+    await flush(2);
+    page.document.getElementById('va-generate-history-ai').click();
+    await flush(6);
+    assert.equal(page.document.getElementById('va-history-feedback-status').value, 'partially_accepted');
+    assert.match(page.document.getElementById('va-history-feedback-note').value, /chronology still needs manual review/i);
+  } finally {
+    page.restore();
+  }
+});
+
+test('AI historical summary feedback validates and saves honestly', async () => {
+  let savedPayload = null;
+  const page = await mountVideoPage({
+    role: 'clinician',
+    apiOverrides: {
+      getVideoAssessmentPriorFinalizedSessions: async () => ({
+        sessions: [makePriorSession({ sessionId: 'sess-prior-1', occurredAt: '2026-05-07T10:00:00Z' })],
+        trend_sessions: [makeTrendSession({ sessionId: 'sess-prior-1', occurredAt: '2026-05-07T10:00:00Z' })],
+      }),
+      generateVideoAssessmentHistoricalAiSummary: async () =>
+        makeHistoricalAiSummary({ sessionCount: 1, sourceSessionIds: ['sess-prior-1'] }),
+      saveVideoAssessmentHistoricalAiSummaryFeedback: async (sessionId, payload) => {
+        savedPayload = { sessionId, payload };
+        return makeHistoricalAiSummaryFeedback({
+          summaryEventId: payload.summary_event_id,
+          feedbackStatus: payload.feedback_status,
+          feedbackNote: payload.feedback_note,
+        });
+      },
+    },
+  });
+  try {
+    page.document.getElementById('va-mode-clinician').click();
+    await flush(4);
+    page.document.querySelector('[data-va-prior-select="sess-prior-1"]').click();
+    await flush(2);
+    page.document.getElementById('va-generate-history-ai').click();
+    await flush(6);
+
+    page.document.getElementById('va-save-history-feedback').click();
+    await flush(2);
+    assert.match(page.document.body.textContent, /Select a clinician feedback status before saving/i);
+
+    const status = page.document.getElementById('va-history-feedback-status');
+    status.value = 'accepted';
+    status.dispatchEvent(new page.window.Event('change', { bubbles: true }));
+    const note = page.document.getElementById('va-history-feedback-note');
+    note.value = 'Helpful historical framing.';
+    note.dispatchEvent(new page.window.Event('input', { bubbles: true }));
+
+    page.document.getElementById('va-save-history-feedback').click();
+    await flush(4);
+    assert.deepEqual(savedPayload, {
+      sessionId: 'sess-current-1',
+      payload: {
+        summary_event_id: 'va-historical-summary-test',
+        feedback_status: 'accepted',
+        feedback_note: 'Helpful historical framing.',
+      },
+    });
+    assert.match(page.document.body.textContent, /Saved/i);
+    assert.match(page.document.body.textContent, /Accepted/i);
+  } finally {
+    page.restore();
+  }
+});
+
+test('AI historical summary feedback error path stays honest', async () => {
+  const page = await mountVideoPage({
+    role: 'clinician',
+    apiOverrides: {
+      getVideoAssessmentPriorFinalizedSessions: async () => ({
+        sessions: [makePriorSession({ sessionId: 'sess-prior-1', occurredAt: '2026-05-07T10:00:00Z' })],
+        trend_sessions: [makeTrendSession({ sessionId: 'sess-prior-1', occurredAt: '2026-05-07T10:00:00Z' })],
+      }),
+      generateVideoAssessmentHistoricalAiSummary: async () =>
+        makeHistoricalAiSummary({ sessionCount: 1, sourceSessionIds: ['sess-prior-1'] }),
+      saveVideoAssessmentHistoricalAiSummaryFeedback: async () => {
+        throw new Error('feedback backend offline');
+      },
+    },
+  });
+  try {
+    page.document.getElementById('va-mode-clinician').click();
+    await flush(4);
+    page.document.querySelector('[data-va-prior-select="sess-prior-1"]').click();
+    await flush(2);
+    page.document.getElementById('va-generate-history-ai').click();
+    await flush(6);
+    const status = page.document.getElementById('va-history-feedback-status');
+    status.value = 'disagreed';
+    status.dispatchEvent(new page.window.Event('change', { bubbles: true }));
+    page.document.getElementById('va-save-history-feedback').click();
+    await flush(4);
+    assert.match(page.document.body.textContent, /feedback backend offline/i);
+  } finally {
+    page.restore();
+  }
+});
+
 test('changing selected sessions clears the current AI summary and shows honest stale-state copy', async () => {
   const page = await mountVideoPage({
     role: 'clinician',
@@ -1609,11 +1778,16 @@ test('historical comparison export button is visible for clinician, supervisor, 
   }
 });
 
-test('Video Assessments source wires linked module navigation ids', () => {
-  assert.match(VA_SRC, /va-link-profile/);
-  assert.match(VA_SRC, /navWithPatient\('assessments-v2'/);
-  assert.match(VA_SRC, /navWithPatient\('deeptwin'/);
-  assert.match(VA_SRC, /protocol-studio/);
+test('Video Assessments renders linked module navigation ids', async () => {
+  const page = await mountVideoPage({ role: 'clinician' });
+  try {
+    assert.ok(page.document.getElementById('va-link-profile'));
+    assert.ok(page.document.getElementById('va-link-assessments'));
+    assert.ok(page.document.getElementById('va-link-deeptwin'));
+    assert.ok(page.document.getElementById('va-link-protocol'));
+  } finally {
+    page.restore();
+  }
 });
 
 test('historical comparison export view includes comparison and trend sections without interactive controls', async () => {
@@ -1658,6 +1832,12 @@ test('historical comparison export view includes comparison and trend sections w
           limitations: ['This summary uses compact finalized-session comparison fields only.'],
           sessionCount: 2,
         }),
+      saveVideoAssessmentHistoricalAiSummaryFeedback: async (_, payload) =>
+        makeHistoricalAiSummaryFeedback({
+          summaryEventId: payload.summary_event_id,
+          feedbackStatus: payload.feedback_status,
+          feedbackNote: payload.feedback_note,
+        }),
     },
   });
   const exportStub = installExportWindowStub(page.window);
@@ -1668,6 +1848,14 @@ test('historical comparison export view includes comparison and trend sections w
     page.document.querySelector('[data-va-prior-select="sess-prior-2"]').click();
     await flush(2);
     page.document.getElementById('va-generate-history-ai').click();
+    await flush(6);
+    const status = page.document.getElementById('va-history-feedback-status');
+    status.value = 'accepted';
+    status.dispatchEvent(new page.window.Event('change', { bubbles: true }));
+    const note = page.document.getElementById('va-history-feedback-note');
+    note.value = 'Useful historical framing for case discussion.';
+    note.dispatchEvent(new page.window.Event('input', { bubbles: true }));
+    page.document.getElementById('va-save-history-feedback').click();
     await flush(4);
     page.document.getElementById('va-export-history').click();
     assert.match(exportStub.written.html, /Video assessment historical comparison/i);
@@ -1678,11 +1866,47 @@ test('historical comparison export view includes comparison and trend sections w
     assert.match(exportStub.written.html, /Regenerated: source data changed/i);
     assert.match(exportStub.written.html, /Provenance \/ generation metadata/i);
     assert.match(exportStub.written.html, /Logic video_assessment_historical_summary_v2/i);
+    assert.match(exportStub.written.html, /Clinician feedback on advisory summary/i);
+    assert.match(exportStub.written.html, /Useful historical framing for case discussion\./i);
     assert.match(exportStub.written.html, /Stable gait with mild tremor/i);
     assert.match(exportStub.written.html, /Severity trajectory:<\/strong>\s*improved\./i);
     assert.doesNotMatch(exportStub.written.html, /<button/i);
     assert.doesNotMatch(exportStub.written.html, /data-va-prior-select/i);
     assert.doesNotMatch(exportStub.written.html, /va-historical-summary-test/i);
+  } finally {
+    exportStub.restore();
+    page.restore();
+  }
+});
+
+test('historical comparison export excludes advisory feedback until it is saved in the current view', async () => {
+  const page = await mountVideoPage({
+    role: 'clinician',
+    apiOverrides: {
+      getVideoAssessmentPriorFinalizedSessions: async () => ({
+        sessions: [makePriorSession({ sessionId: 'sess-prior-1', occurredAt: '2026-05-07T10:00:00Z' })],
+        trend_sessions: [makeTrendSession({ sessionId: 'sess-prior-1', occurredAt: '2026-05-07T10:00:00Z' })],
+      }),
+      generateVideoAssessmentHistoricalAiSummary: async () =>
+        makeHistoricalAiSummary({ sessionCount: 1, sourceSessionIds: ['sess-prior-1'] }),
+      getVideoAssessmentHistoricalAiSummaryFeedback: async () =>
+        makeHistoricalAiSummaryFeedback({
+          feedbackStatus: 'accepted',
+          feedbackNote: 'Previously saved feedback.',
+        }),
+    },
+  });
+  const exportStub = installExportWindowStub(page.window);
+  try {
+    page.document.getElementById('va-mode-clinician').click();
+    await flush(4);
+    page.document.querySelector('[data-va-prior-select="sess-prior-1"]').click();
+    await flush(2);
+    page.document.getElementById('va-generate-history-ai').click();
+    await flush(6);
+    page.document.getElementById('va-export-history').click();
+    assert.doesNotMatch(exportStub.written.html, /Clinician feedback on advisory summary/i);
+    assert.doesNotMatch(exportStub.written.html, /Previously saved feedback\./i);
   } finally {
     exportStub.restore();
     page.restore();

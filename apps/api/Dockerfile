@@ -59,12 +59,6 @@ RUN pip install --no-cache-dir \
 # torch/torchaudio are already installed above so pip skips them here.
 RUN pip install --no-cache-dir -r ./packages/voice-engine/requirements.txt
 
-# Bake Whisper 'base' weights into the image (~140MB at /root/.cache/whisper/).
-# Without this, the first POST /api/v1/voice/analyze downloads them synchronously
-# inside the request handler — a 30-90s hang the doctor demo cannot tolerate.
-# WHISPER_MODEL=base is set in fly.toml so load_model() uses the cached file.
-RUN python -c "import whisper; whisper.load_model('base')"
-
 RUN pip install --no-cache-dir \
     -e ./packages/core-schema \
     -e ./packages/condition-registry \
