@@ -81,6 +81,45 @@ export function isStale(iso, staleDays = 90) {
   return { stale: days > staleDays, days: Math.floor(days), reason: null };
 }
 
+function _statusSeverity(status) {
+  const s = String(status || '').toLowerCase();
+  if (s === 'critical') return 3;
+  if (s === 'high' || s === 'low') return 2;
+  if (s === 'borderline') return 1;
+  return 0;
+}
+
+function _statusColor(status) {
+  const s = String(status || '').toLowerCase();
+  if (s === 'critical') return '#FF6B8B';
+  if (s === 'high' || s === 'low') return '#F6B23C';
+  if (s === 'borderline') return '#5BB6FF';
+  return '#3EE0C5';
+}
+
+function _sparklineSvg(values, opts) {
+  opts = opts || {};
+  const w = opts.width || 140;
+  const h = opts.height || 32;
+  const stroke = opts.stroke || '#3EE0C5';
+  const valid = values.filter((v) => v != null && !Number.isNaN(Number(v)));
+  if (valid.length < 2) {
+    return `<svg width="${w}" height="${h}" style="opacity:.4"><text x="${w/2}" y="${h/2}" text-anchor="middle" font-size="9" fill="var(--text-tertiary)">Insufficient data</text></svg>`;
+  }
+  const min = Math.min(...valid);
+  const max = Math.max(...valid);
+  const range = max - min || 1;
+  const pts = values.map((v, i) => {
+    const x = 1 + (i / (values.length - 1)) * (w - 2);
+    const y = isNaN(Number(v)) ? (h / 2) : ((h - 1) - ((Number(v) - min) / range) * (h - 2));
+    return [x, y];
+  });
+  const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  const id = 'sl-' + Math.random().toString(36).slice(2, 8);
+  const area = `${path} L${pts[pts.length - 1][0].toFixed(1)},${h} L${pts[0][0].toFixed(1)},${h} Z`;
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><defs><linearGradient id="${id}" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="${stroke}" stop-opacity="0.28"/><stop offset="100%" stop-color="${stroke}" stop-opacity="0"/></linearGradient></defs><path d="${area}" fill="url(#${id})"/><path d="${path}" fill="none" stroke="${stroke}" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
 function _downloadJson(filename, obj) {
   const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -592,6 +631,26 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
       const wearStale = lastWearable?.date ? isStale(`${lastWearable.date}T12:00:00Z`, 14) : { stale: true, reason: 'no wearable summaries' };
       const readiness = wearableOut?.readiness && typeof wearableOut.readiness === 'object' ? wearableOut.readiness : null;
 
+      const criticalCount = rows.filter((r) => _statusSeverity(r.status) === 3).length;
+      const abnormalCount = rows.filter((r) => _statusSeverity(r.status) >= 2).length;
+      const borderlineCount = rows.filter((r) => _statusSeverity(r.status) === 1).length;
+      const sortedRows = [...rows].sort((a, b) => _statusSeverity(b.status) - _statusSeverity(a.status));
+
+      const priorityItems = [];
+      if (criticalCount > 0) priorityItems.push(`<span style="color:#FF6B8B;font-weight:700">${criticalCount} critical</span>`);
+      if (abnormalCount > 0) priorityItems.push(`<span style="color:#F6B23C;font-weight:700">${abnormalCount} abnormal</span>`);
+      if (borderlineCount > 0) priorityItems.push(`<span style="color:#5BB6FF;font-weight:700">${borderlineCount} borderline</span>`);
+      if (stale.stale) priorityItems.push(`<span style="color:var(--amber)">Stale labs (&gt;90d)</span>`);
+      if (wearStale.stale) priorityItems.push(`<span style="color:var(--amber)">Stale wearables (&gt;14d)</span>`);
+      if (!rows.length) priorityItems.push(`<span style="color:var(--text-tertiary)">No lab data</span>`);
+
+      const suggestedActions = [];
+      if (criticalCount > 0) suggestedActions.push('Review critical values against source lab report and correlate clinically.');
+      if (abnormalCount > 0 && !criticalCount) suggestedActions.push('Review out-of-range values and confirm reference intervals.');
+      if (stale.stale) suggestedActions.push('Consider ordering updated labs.');
+      if (wearStale.stale) suggestedActions.push('Check device sync status with patient.');
+      if (!suggestedActions.length) suggestedActions.push('Continue monitoring. All parsed values within range.');
+
       bodyHtml = `
         <section aria-labelledby="bm-ctx-h" style="margin-bottom:18px;padding:14px 16px;border-radius:14px;border:1px solid var(--border);background:var(--bg-card)">
           <div id="bm-ctx-h" style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:6px">Patient context</div>
@@ -604,12 +663,24 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
           ${loadErr && !labsProfile ? `<div role="alert" style="margin-top:10px;font-size:12px;color:var(--amber)">Could not load live labs (${esc(loadErr)}). ${labsDemo ? 'Showing labelled demo labs.' : 'Use Labs Analyzer or enter results when the API is available.'}</div>` : ''}
         </section>
 
+        <section style="margin-bottom:18px;padding:14px 16px;border-radius:14px;border:1px solid var(--border);background:rgba(255,255,255,0.02)">
+          <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary)">Clinical priority summary</div>
+            <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:12px">
+              ${priorityItems.length ? priorityItems.join('<span style="color:var(--border)"> · </span>') : '<span style="color:var(--text-tertiary)">No flagged priorities</span>'}
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
+            ${suggestedActions.map((a) => `<div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:4px"><span style="color:var(--teal);flex-shrink:0">\u25b8</span><span>${esc(a)}</span></div>`).join('')}
+          </div>
+        </section>
+
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:18px">
           <section style="padding:14px;border-radius:14px;border:1px solid var(--border);background:rgba(255,255,255,0.02)">
             <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:8px">Data sources</div>
             <ul style="margin:0;padding-left:18px;font-size:12px;color:var(--text-secondary);line-height:1.55">
-              <li>Labs: ${rows.length ? `${rows.length} analytes in workspace` : 'No structured labs in this summary'}</li>
-              <li>Wearables: ${summaries.length ? `${summaries.length} daily summaries (30d)` : 'No wearable summaries'}</li>
+              <li>Labs: ${rows.length ? `${rows.length} analytes (${abnormalCount} abnormal)` : 'No structured labs in this summary'}</li>
+              <li>Wearables: ${summaries.length ? `${summaries.length} daily summaries` : 'No wearable summaries'}</li>
               <li>qEEG analyses: ${qeegItems.length} record(s)</li>
               <li>MRI analyses: ${mriItems.length} record(s)</li>
             </ul>
@@ -622,10 +693,11 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
                 Latest day: <strong style="color:var(--text-primary)">${esc(lastWearable.date)}</strong>
                 ${wearStale.stale ? '<span class="pill pill-pending" style="margin-left:6px">Stale stream</span>' : ''}
               </div>
-              <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;font-size:11px;color:var(--text-tertiary)">
-                ${lastWearable.hrv_ms != null ? `<span>HRV ${esc(String(lastWearable.hrv_ms))} ms</span>` : ''}
-                ${lastWearable.rhr_bpm != null ? `<span>Resting HR ${esc(String(lastWearable.rhr_bpm))} bpm</span>` : ''}
-                ${lastWearable.sleep_duration_h != null ? `<span>Sleep ${esc(String(lastWearable.sleep_duration_h))} h</span>` : ''}
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+                ${lastWearable.hrv_ms != null ? `<div style="font-size:11px"><div style="color:var(--text-tertiary)">HRV</div><div style="color:var(--text-primary);font-weight:600">${esc(String(lastWearable.hrv_ms))} ms</div>${_sparklineSvg(summaries.map((s) => s.hrv_ms), { width: 120, height: 28, stroke: '#3EE0C5' })}</div>` : ''}
+                ${lastWearable.rhr_bpm != null ? `<div style="font-size:11px"><div style="color:var(--text-tertiary)">Resting HR</div><div style="color:var(--text-primary);font-weight:600">${esc(String(lastWearable.rhr_bpm))} bpm</div>${_sparklineSvg(summaries.map((s) => s.rhr_bpm), { width: 120, height: 28, stroke: '#FF6B8B' })}</div>` : ''}
+                ${lastWearable.sleep_duration_h != null ? `<div style="font-size:11px"><div style="color:var(--text-tertiary)">Sleep</div><div style="color:var(--text-primary);font-weight:600">${esc(String(lastWearable.sleep_duration_h))} h</div>${_sparklineSvg(summaries.map((s) => s.sleep_duration_h), { width: 120, height: 28, stroke: '#5BB6FF' })}</div>` : ''}
+                ${lastWearable.steps != null ? `<div style="font-size:11px"><div style="color:var(--text-tertiary)">Steps</div><div style="color:var(--text-primary);font-weight:600">${esc(String(lastWearable.steps))}</div>${_sparklineSvg(summaries.map((s) => s.steps), { width: 120, height: 28, stroke: '#B6E66A' })}</div>` : ''}
               </div>
               <button type="button" class="btn btn-ghost btn-sm" id="bm-open-wear" style="margin-top:10px;min-height:40px">Open Biometrics</button>
             ` : `<div style="font-size:12px;color:var(--text-tertiary)">No wearable summary for this patient. Device data may be unavailable or not synced.</div>`}
@@ -651,8 +723,8 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
                   </tr>
                 </thead>
                 <tbody>
-                  ${rows.slice(0, 24).map((r) => `
-                    <tr>
+                  ${sortedRows.slice(0, 24).map((r) => `
+                    <tr style="border-left:3px solid ${_statusColor(r.status)};${['critical','high','low'].includes(String(r.status).toLowerCase()) ? 'background:rgba(255,107,107,0.03)' : ''}">
                       <td style="padding:10px 12px;border-bottom:1px solid var(--border)">${esc(r.panel)}</td>
                       <td style="padding:10px 12px;border-bottom:1px solid var(--border);font-weight:500">${esc(r.analyte)}</td>
                       <td style="padding:10px 12px;border-bottom:1px solid var(--border);font-variant-numeric:tabular-nums">
@@ -675,12 +747,44 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
         <section style="margin-bottom:18px">
           <h2 style="margin:0 0 10px;font-size:14px;font-weight:650;color:var(--text-primary)">Abnormal or out-of-range</h2>
           ${abnormal.length ? `
-            <ul style="margin:0;padding-left:18px;font-size:12px;color:var(--text-secondary);line-height:1.55">
-              ${abnormal.slice(0, 12).map((r) =>
-                `<li><strong style="color:var(--text-primary)">${esc(r.analyte)}</strong> \u2014 requires clinician interpretation (${esc(r.status)})</li>`
-              ).join('')}
-            </ul>
-          ` : `<div style="font-size:12px;color:var(--text-tertiary)">No abnormal flags in parsed labs, or reference intervals missing. Missing intervals are not shown as "normal."</div>`}
+            <div style="display:grid;gap:8px">
+              ${abnormal.slice(0, 12).map((r) => {
+                const sev = _statusSeverity(r.status);
+                const bg = sev === 3 ? 'rgba(255,107,107,0.08)' : sev === 2 ? 'rgba(246,178,60,0.08)' : 'rgba(91,182,255,0.06)';
+                const border = sev === 3 ? 'rgba(255,107,107,0.35)' : sev === 2 ? 'rgba(246,178,60,0.30)' : 'rgba(91,182,255,0.25)';
+                return `<div style="padding:10px 12px;border-radius:10px;background:${bg};border:1px solid ${border};display:flex;align-items:center;justify-content:space-between;gap:10px">
+                  <div>
+                    <div style="font-size:12px;font-weight:600;color:var(--text-primary)">${esc(r.analyte)} <span style="font-weight:400;color:var(--text-tertiary)">\u00b7 ${esc(r.panel)}</span></div>
+                    <div style="font-size:11px;color:var(--text-secondary)">Value: ${esc(String(r.value))} ${esc(r.unit || '')} \u00b7 Ref: ${esc(r.ref)}</div>
+                  </div>
+                  <div style="flex-shrink:0">${_statusPill(r.status)}</div>
+                </div>`;
+              }).join('')}
+            </div>
+            ${abnormal.length > 12 ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:8px">Showing 12 of ${abnormal.length} abnormal flags. Open Labs Analyzer for the full list.</div>` : ''}
+          ` : `<div style="padding:12px;border-radius:10px;border:1px dashed var(--border);font-size:12px;color:var(--text-tertiary)">No abnormal flags in parsed labs, or reference intervals missing. Missing intervals are not shown as "normal."</div>`}
+        </section>
+
+        <section style="margin-bottom:18px">
+          <h2 style="margin:0 0 10px;font-size:14px;font-weight:650;color:var(--text-primary)">Imaging &amp; neurophysiology</h2>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">
+            ${qeegItems.length ? `
+              <div style="padding:12px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,0.02)">
+                <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:6px">qEEG</div>
+                <div style="font-size:12px;color:var(--text-primary);font-weight:600">${qeegItems.length} analysis record(s)</div>
+                ${qeegItems[0]?.recording_date ? `<div style="font-size:11px;color:var(--text-secondary)">Latest: ${_fmtShortDate(qeegItems[0].recording_date)}</div>` : ''}
+                <button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="qeeg-launcher" style="margin-top:8px;min-height:36px">Open qEEG</button>
+              </div>
+            ` : `<div style="padding:12px;border-radius:10px;border:1px dashed var(--border);font-size:12px;color:var(--text-tertiary)">No qEEG analyses on file.</div>`}
+            ${mriItems.length ? `
+              <div style="padding:12px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,0.02)">
+                <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:6px">MRI</div>
+                <div style="font-size:12px;color:var(--text-primary);font-weight:600">${mriItems.length} analysis record(s)</div>
+                ${mriItems[0]?.acquired_at ? `<div style="font-size:11px;color:var(--text-secondary)">Latest: ${_fmtShortDate(mriItems[0].acquired_at)}</div>` : ''}
+                <button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="mri-analysis" style="margin-top:8px;min-height:36px">Open MRI</button>
+              </div>
+            ` : `<div style="padding:12px;border-radius:10px;border:1px dashed var(--border);font-size:12px;color:var(--text-tertiary)">No MRI analyses on file.</div>`}
+          </div>
         </section>
 
         <section style="margin-bottom:18px">
