@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deepsynaps-neuro-engine"
+version = "0.1.0"
+description = "DeepSynaps Neuro Engine scaffold for structural and functional neuroimaging workflows."
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+
+[project.optional-dependencies]
+api = [
+    "fastapi==0.115.12",
+    "pydantic==2.11.4",
+    "pydantic-settings==2.8.1",
+    "uvicorn[standard]==0.34.2",
+]
+neuro = [
+    "monai==1.4.0",
+    "nibabel==5.3.2",
+    "nilearn==0.10.4",
+    "numpy==1.26.4",
+    "pydicom==3.0.1",
+    "scipy==1.15.2",
+    "torch==2.5.1",
+    "torchio==0.20.4",
+]
+dev = [
+    "httpx==0.28.1",
+    "pytest==8.4.1",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
