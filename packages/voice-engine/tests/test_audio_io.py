@@ -6,7 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from packages.voice_engine import audio_io  # noqa: F401  # TODO: adjust import path once packaged
+# audio_io intentionally not imported at module level — scaffold module imports
+# librosa eagerly and isn't installed in CI. Re-enable the import alongside the
+# real implementation in the audio_io prompt.
 
 FIXTURE_WAV = Path(__file__).parent / "fixtures" / "sample_16k.wav"
 

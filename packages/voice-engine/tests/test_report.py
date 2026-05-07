@@ -89,7 +89,7 @@ def _minimal_emotion(overall: str = "neutral") -> EmotionResult:
             confidence=0.75,
             valence=0.1,
             arousal=0.2,
-            clinical_tag=None,
+            acoustic_affect_indicator=None,
         )
         for i in range(2)
     ]
