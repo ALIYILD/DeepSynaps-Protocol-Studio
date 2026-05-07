@@ -1158,54 +1158,6 @@ async function _generateHistoricalAiSummary() {
   _render();
 }
 
-async function _saveHistoricalAiSummaryFeedback() {
-  const role = currentUser?.role || '';
-  const sessionId = _currentPriorComparisonSessionId();
-  const summaryEventId = _currentAiSummaryEventId();
-  if (!_canReviewPriorSessions(role) || !sessionId || !summaryEventId) return;
-  const feedbackStatus = String(_vaPriorSessionsState.aiSummaryFeedbackStatus || '').trim();
-  const feedbackNote = String(_vaPriorSessionsState.aiSummaryFeedbackNote || '').trim();
-  if (!feedbackStatus) {
-    _vaPriorSessionsState = {
-      ..._vaPriorSessionsState,
-      aiSummaryFeedbackError: 'Select a clinician feedback status before saving.',
-    };
-    _render();
-    return;
-  }
-  _vaPriorSessionsState = {
-    ..._vaPriorSessionsState,
-    aiSummaryFeedbackSaving: true,
-    aiSummaryFeedbackError: null,
-  };
-  _render();
-  try {
-    const result = await api.saveVideoAssessmentHistoricalAiSummaryFeedback(sessionId, {
-      summary_event_id: summaryEventId,
-      feedback_status: feedbackStatus,
-      feedback_note: feedbackNote || null,
-    });
-    if (_currentPriorComparisonSessionId() !== sessionId || _currentAiSummaryEventId() !== summaryEventId) return;
-    _vaPriorSessionsState = {
-      ..._vaPriorSessionsState,
-      aiSummaryFeedbackSaving: false,
-      aiSummaryFeedbackError: null,
-      aiSummaryFeedbackResult: result || null,
-      aiSummaryFeedbackStatus: result?.feedback_status || feedbackStatus,
-      aiSummaryFeedbackNote: result?.feedback_note || '',
-      aiSummaryFeedbackSavedInView: true,
-    };
-  } catch (e) {
-    if (_currentPriorComparisonSessionId() !== sessionId || _currentAiSummaryEventId() !== summaryEventId) return;
-    _vaPriorSessionsState = {
-      ..._vaPriorSessionsState,
-      aiSummaryFeedbackSaving: false,
-      aiSummaryFeedbackError: e?.message || 'Could not save clinician feedback for this advisory summary.',
-    };
-  }
-  _render();
-}
-
 function _mimeForRecorder() {
   if (typeof MediaRecorder !== 'undefined') {
     if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) return 'video/webm;codecs=vp9';
