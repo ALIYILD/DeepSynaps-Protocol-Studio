@@ -1,7 +1,7 @@
 """Tests for packages/voice-engine/pipeline.py and api/router.py pipeline endpoints.
 
-All heavy deps (boto3, SQLAlchemy, whisper, parselmouth, etc.) are monkeypatched.
-No real S3, DB, or LLM calls are made.
+All heavy deps (SQLAlchemy, whisper, parselmouth, etc.) are monkeypatched.
+No real filesystem, DB, or LLM calls are made.
 """
 
 from __future__ import annotations
@@ -147,6 +147,17 @@ def _fake_voice_analysis_result() -> VoiceAnalysisResult:
 
 
 # ---------------------------------------------------------------------------
+# Fake actor helper for auth tests
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_actor(clinic_id: str, role: str = "clinician") -> Any:
+    """Build a minimal object that duck-types as AuthenticatedActor for gate tests."""
+    from types import SimpleNamespace
+    return SimpleNamespace(actor_id="actor-test", display_name="Test Actor", role=role, clinic_id=clinic_id)
+
+
+# ---------------------------------------------------------------------------
 # Test 1: Happy path — all 5 stages complete
 # ---------------------------------------------------------------------------
 
@@ -154,8 +165,8 @@ def _fake_voice_analysis_result() -> VoiceAnalysisResult:
 def test_run_voice_analysis_for_session_happy_path(monkeypatch):
     """All stages succeed; result has all 5 steps_completed, no failed_steps."""
 
-    # Patch S3 download to return the fixture WAV path.
-    monkeypatch.setattr("pipeline._download_processed_to_temp", lambda key: _FIXTURE_WAV)
+    # Patch volume path resolution to return the fixture WAV path.
+    monkeypatch.setattr("pipeline._resolve_processed_path", lambda key: _FIXTURE_WAV)
 
     # Patch each engine function on the pipeline module (the module that imports them).
     monkeypatch.setattr("pipeline.transcribe_audio", lambda path: _fake_transcript())
@@ -172,9 +183,6 @@ def test_run_voice_analysis_for_session_happy_path(monkeypatch):
         "pipeline.generate_clinical_report",
         lambda risk, biomarkers=None, emotion=None, transcript=None: _fake_report(),
     )
-
-    # Also patch os.unlink so we don't try to delete the real fixture.
-    monkeypatch.setattr("pipeline.os.unlink", lambda p: None)
 
     result = run_voice_analysis_for_session("pt-x", "sess-1", db_session=None)
 
@@ -196,7 +204,7 @@ def test_run_voice_analysis_for_session_happy_path(monkeypatch):
 def test_run_voice_analysis_handles_step_failure(monkeypatch):
     """biomarkers raises → scoring skipped (dependency), report skipped (risk is None)."""
 
-    monkeypatch.setattr("pipeline._download_processed_to_temp", lambda key: _FIXTURE_WAV)
+    monkeypatch.setattr("pipeline._resolve_processed_path", lambda key: _FIXTURE_WAV)
     monkeypatch.setattr("pipeline.transcribe_audio", lambda path: _fake_transcript())
     monkeypatch.setattr(
         "pipeline.analyze_emotion",
@@ -215,7 +223,6 @@ def test_run_voice_analysis_handles_step_failure(monkeypatch):
         "pipeline.generate_clinical_report",
         lambda risk, biomarkers=None, emotion=None, transcript=None: _fake_report(),
     )
-    monkeypatch.setattr("pipeline.os.unlink", lambda p: None)
 
     result = run_voice_analysis_for_session("pt-x", "sess-1", db_session=None)
 
@@ -265,6 +272,13 @@ def test_analyze_endpoint_runs_pipeline_and_returns_json(monkeypatch):
 
     app = FastAPI()
     app.include_router(voice_router_module.router)
+    # Override auth dependency to return None (no auth in bare test env).
+    try:
+        from app.auth import get_authenticated_actor
+        app.dependency_overrides[get_authenticated_actor] = lambda: None
+    except ImportError:
+        pass
+
     client = TestClient(app)
 
     resp = client.post("/voice/analyze/sess-1", json={"patient_id": "pt-x"})
@@ -325,6 +339,12 @@ def test_result_endpoint_pending_and_completed(monkeypatch):
 
     app = FastAPI()
     app.include_router(voice_router_module.router)
+    try:
+        from app.auth import get_authenticated_actor
+        app.dependency_overrides[get_authenticated_actor] = lambda: None
+    except ImportError:
+        pass
+
     client = TestClient(app)
 
     # Sub-test A: no row → 404
@@ -362,3 +382,245 @@ def test_result_endpoint_pending_and_completed(monkeypatch):
     assert "risk_tier" in data
     assert "flags" in data
     assert "data_quality_notes" in data
+
+
+# ---------------------------------------------------------------------------
+# Auth tests: cross-clinic 403 paths
+# ---------------------------------------------------------------------------
+
+
+def _load_voice_router_module():
+    """Helper: load api/router.py as a fresh module for each auth test."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "api.router_auth",
+        str(Path(__file__).parent.parent / "api" / "router.py"),
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class _FakeRowWithClinic:
+    """AudioAnalysis row stub with a patient in clinic-a."""
+
+    def __init__(self, session_id: str = "sess-x", patient_id: str = "pt-a"):
+        self.session_id = session_id
+        self.patient_id = patient_id
+        self.status = "completed"
+        self.voice_report_json = json.dumps({"risk_tier": "low", "summary": "ok"})
+
+
+def _make_cross_clinic_app(router_mod, actor_clinic_id: str, patient_clinic_id: str, db_row=None):
+    """Build a TestClient app wired with a cross-clinic actor and a DB row whose patient
+    is in a different clinic.  Patches _gate_session_clinic_access to perform a real
+    clinic comparison without importing the full app.auth stack.
+    """
+    from fastapi import HTTPException as _HTTPException
+
+    actor = _make_fake_actor(clinic_id=actor_clinic_id)
+
+    # Replace _gate_session_clinic_access with a thin local implementation that
+    # just compares clinic IDs directly — no app.auth import needed in tests.
+    def _fake_gate(gate_actor, patient_id, db):
+        if gate_actor is None or not patient_id:
+            return
+        if gate_actor.clinic_id != patient_clinic_id:
+            raise _HTTPException(status_code=403, detail="session not in your clinic")
+
+    router_mod._gate_session_clinic_access = _fake_gate
+    router_mod._get_optional_db = lambda: iter([object()])  # non-None DB placeholder
+
+    if db_row is not None:
+        router_mod._lookup_audio_analysis = lambda session_id, db=None: db_row
+
+    app = FastAPI()
+    app.include_router(router_mod.router)
+
+    # Override the auth dependency to inject our fake actor.
+    # _get_actor_dependency() returns Depends(get_authenticated_actor) when importable,
+    # but in this test env app.auth isn't importable — the dependency resolves to None
+    # by default. We patch at the router function level instead by re-wiring
+    # dependency_overrides if possible, else rely on the gate patch above being called
+    # with the actor we inject via a thin wrapper.
+
+    # The cleanest approach: replace _get_optional_db AND override the actor seam
+    # by wrapping the endpoint via dependency_overrides on the *app* level.
+    # Since actor comes from _get_actor_dependency() which returns Depends(fn),
+    # and fn is get_authenticated_actor (lazy), we re-patch the module-level
+    # _get_actor_dependency to return our actor directly.
+    router_mod._current_test_actor = actor
+
+    original_actor_dep = router_mod._get_actor_dependency
+
+    def _patched_actor_dep():
+        from fastapi import Depends
+        return Depends(lambda: router_mod._current_test_actor)
+
+    router_mod._get_actor_dependency = _patched_actor_dep
+
+    # Re-exec the router registration with the patched dependency.
+    # Actually we need to rebuild the app with updated routes.
+    # Simplest: rebuild entirely.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "api.router_rebuilt",
+        str(Path(__file__).parent.parent / "api" / "router.py"),
+    )
+    mod2 = importlib.util.module_from_spec(spec)
+    # Inject our actor factory before exec
+    import sys
+    # Temporarily make a fake app.auth importable so _get_actor_dependency resolves.
+    # We'll inject a fake module.
+    import types
+    fake_auth_mod = types.ModuleType("app.auth")
+    fake_auth_mod.get_authenticated_actor = lambda: router_mod._current_test_actor  # type: ignore[attr-defined]
+    fake_app_mod = types.ModuleType("app")
+    sys.modules.setdefault("app", fake_app_mod)
+    sys.modules["app.auth"] = fake_auth_mod
+
+    spec.loader.exec_module(mod2)
+    mod2._gate_session_clinic_access = _fake_gate
+    mod2._get_optional_db = lambda: iter([object()])
+    if db_row is not None:
+        mod2._lookup_audio_analysis = lambda session_id, db=None: db_row
+
+    app2 = FastAPI()
+    app2.include_router(mod2.router)
+
+    # Override get_authenticated_actor at app level.
+    app2.dependency_overrides[fake_auth_mod.get_authenticated_actor] = lambda: actor
+
+    return TestClient(app2)
+
+
+def test_result_endpoint_blocks_cross_clinic_access():
+    """GET /voice/result/{session_id}: actor from clinic-b gets 403 for session in clinic-a."""
+    import importlib.util, types, sys
+
+    actor_clinic = "clinic-b"
+    patient_clinic = "clinic-a"
+    actor = _make_fake_actor(clinic_id=actor_clinic)
+    row = _FakeRowWithClinic(session_id="sess-cross", patient_id="pt-clinic-a")
+
+    from fastapi import HTTPException as _HTTPException, FastAPI as _FastAPI, Depends as _Depends
+
+    def _fake_gate(gate_actor, patient_id, db):
+        if gate_actor is None or not patient_id:
+            return
+        if getattr(gate_actor, "clinic_id", None) != patient_clinic:
+            raise _HTTPException(status_code=403, detail="session not in your clinic")
+
+    # Build fresh module with fake app.auth injected
+    fake_auth_mod = types.ModuleType("app.auth")
+    fake_auth_mod.get_authenticated_actor = lambda: actor  # type: ignore[attr-defined]
+    fake_app_mod = sys.modules.get("app") or types.ModuleType("app")
+    sys.modules["app"] = fake_app_mod
+    sys.modules["app.auth"] = fake_auth_mod
+
+    spec = importlib.util.spec_from_file_location(
+        "api.router_result_test",
+        str(Path(__file__).parent.parent / "api" / "router.py"),
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    mod._gate_session_clinic_access = _fake_gate
+    mod._get_optional_db = lambda: iter([object()])
+    mod._lookup_audio_analysis = lambda session_id, db=None: row
+
+    app = _FastAPI()
+    app.include_router(mod.router)
+    app.dependency_overrides[fake_auth_mod.get_authenticated_actor] = lambda: actor
+
+    client = TestClient(app)
+    resp = client.get("/voice/result/sess-cross")
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "session not in your clinic"
+
+
+def test_analyze_endpoint_blocks_cross_clinic_access():
+    """POST /voice/analyze/{session_id}: actor from clinic-b gets 403 for session in clinic-a."""
+    import importlib.util, types, sys
+
+    actor_clinic = "clinic-b"
+    patient_clinic = "clinic-a"
+    actor = _make_fake_actor(clinic_id=actor_clinic)
+    row = _FakeRowWithClinic(session_id="sess-cross2", patient_id="pt-clinic-a")
+
+    from fastapi import HTTPException as _HTTPException, FastAPI as _FastAPI
+
+    def _fake_gate(gate_actor, patient_id, db):
+        if gate_actor is None or not patient_id:
+            return
+        if getattr(gate_actor, "clinic_id", None) != patient_clinic:
+            raise _HTTPException(status_code=403, detail="session not in your clinic")
+
+    fake_auth_mod = types.ModuleType("app.auth")
+    fake_auth_mod.get_authenticated_actor = lambda: actor  # type: ignore[attr-defined]
+    sys.modules["app.auth"] = fake_auth_mod
+
+    spec = importlib.util.spec_from_file_location(
+        "api.router_analyze_test",
+        str(Path(__file__).parent.parent / "api" / "router.py"),
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    mod._gate_session_clinic_access = _fake_gate
+    mod._get_optional_db = lambda: iter([object()])
+    mod._lookup_audio_analysis = lambda session_id, db=None: row
+
+    app = _FastAPI()
+    app.include_router(mod.router)
+    app.dependency_overrides[fake_auth_mod.get_authenticated_actor] = lambda: actor
+
+    client = TestClient(app)
+    resp = client.post("/voice/analyze/sess-cross2", json={})
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "session not in your clinic"
+
+
+def test_upload_endpoint_blocks_patient_outside_actor_clinic():
+    """POST /voice/upload: actor from clinic-b gets 403 for uploading to patient in clinic-a."""
+    import importlib.util, types, sys
+
+    actor_clinic = "clinic-b"
+    patient_clinic = "clinic-a"
+    actor = _make_fake_actor(clinic_id=actor_clinic)
+
+    from fastapi import HTTPException as _HTTPException, FastAPI as _FastAPI
+
+    def _fake_gate(gate_actor, patient_id, db):
+        if gate_actor is None or not patient_id:
+            return
+        # Simulate patient being in clinic-a
+        if getattr(gate_actor, "clinic_id", None) != patient_clinic:
+            raise _HTTPException(status_code=403, detail="session not in your clinic")
+
+    fake_auth_mod = types.ModuleType("app.auth")
+    fake_auth_mod.get_authenticated_actor = lambda: actor  # type: ignore[attr-defined]
+    sys.modules["app.auth"] = fake_auth_mod
+
+    spec = importlib.util.spec_from_file_location(
+        "api.router_upload_test",
+        str(Path(__file__).parent.parent / "api" / "router.py"),
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    mod._gate_session_clinic_access = _fake_gate
+    mod._get_optional_db = lambda: iter([object()])
+
+    app = _FastAPI()
+    app.include_router(mod.router)
+    app.dependency_overrides[fake_auth_mod.get_authenticated_actor] = lambda: actor
+
+    client = TestClient(app)
+    resp = client.post(
+        "/voice/upload",
+        data={"patient_id": "pt-clinic-a"},
+        files={"file": ("test.wav", b"RIFF\x00\x00\x00\x00WAVEfmt ", "audio/wav")},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "session not in your clinic"
