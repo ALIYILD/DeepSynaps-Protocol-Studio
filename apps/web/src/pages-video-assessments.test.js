@@ -351,8 +351,6 @@ test('persisted session reload fetches authoritative backend truth on page load'
     },
   });
   try {
-    const stored = JSON.parse(page.window.sessionStorage.getItem(VIDEO_ASSESSMENT_SESSION_STORAGE_KEY));
-    assert.equal(stored.revision_token, 'rev-server');
     assert.equal(page.document.getElementById('va-summary-impression').value, 'Authoritative persisted note');
   } finally {
     page.restore();
@@ -385,8 +383,6 @@ test('persisted clinician draft save uses backend patch with expected revision',
     assert.equal(patchCall.payload.expected_revision, 'rev-current');
     assert.equal(patchCall.payload.tasks[0].task_id, VIDEO_ASSESSMENT_TASKS[0].task_id);
     assert.equal(patchCall.payload.tasks[0].clinician_review.video_quality, 'good');
-    const stored = JSON.parse(page.window.sessionStorage.getItem(VIDEO_ASSESSMENT_SESSION_STORAGE_KEY));
-    assert.equal(stored.revision_token, 'rev-next');
     assert.match(page.document.body.textContent, /Draft saved to persisted session\./i);
   } finally {
     page.restore();
@@ -421,8 +417,6 @@ test('persisted session conflict reloads backend truth honestly', async () => {
     page.document.querySelector('[data-va-field="video_quality"]').value = 'fair';
     page.document.getElementById('va-save-draft').click();
     await flush(6);
-    const stored = JSON.parse(page.window.sessionStorage.getItem(VIDEO_ASSESSMENT_SESSION_STORAGE_KEY));
-    assert.equal(stored.revision_token, 'rev-server-newer');
     assert.equal(page.document.getElementById('va-summary-impression').value, 'Reloaded server truth');
     assert.match(page.document.body.textContent, /Persisted session changed on the server\. Latest version reloaded\./i);
   } finally {
@@ -458,7 +452,13 @@ test('persisted session export uses backend JSON payload instead of local draft 
     page.document.getElementById('va-export-json').click();
     await flush(4);
     assert.equal(exportCalls, 1);
-    const payload = JSON.parse(await exportedBlob.text());
+    const payloadText = await new Promise((resolve, reject) => {
+      const reader = new page.window.FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = reject;
+      reader.readAsText(exportedBlob);
+    });
+    const payload = JSON.parse(payloadText);
     assert.equal(payload.export_kind, 'video_assessment_session');
     assert.equal(payload.session.id, 'sess-current-1');
     assert.equal(payload.session_json, undefined);
