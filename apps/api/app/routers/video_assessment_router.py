@@ -55,6 +55,8 @@ _DEMO_ALLOWED_ENVS = frozenset({"development", "test"})
 _MAX_TASK_VIDEO_BYTES = 120 * 1024 * 1024  # 120 MB per task clip
 _ALLOWED_VIDEO_MIME = frozenset({"video/webm", "video/mp4", "video/quicktime"})
 _HISTORICAL_SUMMARY_LOGIC_VERSION = "video_assessment_historical_summary_v2"
+_ALLOWED_HISTORICAL_FEEDBACK_STATUS = frozenset({"accepted", "partially_accepted", "disagreed", "not_useful"})
+_MAX_HISTORICAL_FEEDBACK_NOTE_CHARS = 300
 
 
 def _audit_va(
@@ -374,6 +376,25 @@ class HistoricalSummaryResponse(BaseModel):
     limitations: list[str] = Field(default_factory=list)
     generated_at: str
     provenance: HistoricalSummaryProvenance
+
+
+class HistoricalSummaryFeedbackRequest(BaseModel):
+    """Compact clinician response to one advisory summary instance."""
+
+    summary_event_id: str = Field(min_length=8, max_length=128)
+    feedback_status: str = Field(min_length=1, max_length=32)
+    feedback_note: Optional[str] = Field(default=None, max_length=_MAX_HISTORICAL_FEEDBACK_NOTE_CHARS)
+
+
+class HistoricalSummaryFeedbackResponse(BaseModel):
+    """Actor-scoped feedback state for one advisory summary instance."""
+
+    has_feedback: bool = True
+    summary_event_id: str
+    feedback_status: str
+    feedback_note: Optional[str] = None
+    updated_at: Optional[str] = None
+    actor_role: str
 
 
 def _list_item_from_row(row: VideoAssessmentSession) -> SessionListItem:
@@ -738,6 +759,98 @@ def _latest_historical_summary_audit(
         return row, None
 
 
+def _historical_summary_audit_by_event_id(
+    db: Session,
+    *,
+    session_id: str,
+    event_id: str,
+) -> Optional[AuditEventRecord]:
+    return (
+        db.query(AuditEventRecord)
+        .filter(
+            AuditEventRecord.target_type == "video_assessment",
+            AuditEventRecord.target_id == session_id[:64],
+            AuditEventRecord.event_id == event_id,
+            AuditEventRecord.action == "video_assessment.historical_ai_summary_generated",
+        )
+        .first()
+    )
+
+
+def _sanitize_historical_feedback_note(note: Optional[str]) -> Optional[str]:
+    if note is None:
+        return None
+    text = " ".join(str(note).split()).strip()
+    return text or None
+
+
+def _validate_historical_feedback_status(value: str) -> str:
+    status = str(value or "").strip().lower()
+    if status not in _ALLOWED_HISTORICAL_FEEDBACK_STATUS:
+        raise ApiServiceError(
+            code="invalid_feedback_status",
+            message="Feedback status must be accepted, partially_accepted, disagreed, or not_useful.",
+            status_code=422,
+        )
+    return status
+
+
+def _latest_historical_summary_feedback_audit(
+    db: Session,
+    *,
+    actor_id: str,
+    session_id: str,
+    summary_event_id: str,
+) -> tuple[Optional[AuditEventRecord], Optional[dict[str, Any]]]:
+    rows = (
+        db.query(AuditEventRecord)
+        .filter(
+            AuditEventRecord.target_type == "video_assessment",
+            AuditEventRecord.target_id == session_id[:64],
+            AuditEventRecord.actor_id == actor_id,
+            AuditEventRecord.action == "video_assessment.historical_ai_summary_feedback_saved",
+        )
+        .order_by(AuditEventRecord.id.desc())
+        .all()
+    )
+    for row in rows:
+        try:
+            payload = json.loads(row.note or "{}")
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        if str(payload.get("summary_event_id") or "") != summary_event_id:
+            continue
+        return row, payload
+    return None, None
+
+
+def _historical_feedback_response_from_payload(
+    *,
+    actor_role: str,
+    summary_event_id: str,
+    payload: Optional[dict[str, Any]],
+) -> HistoricalSummaryFeedbackResponse:
+    if not isinstance(payload, dict):
+        return HistoricalSummaryFeedbackResponse(
+            has_feedback=False,
+            summary_event_id=summary_event_id,
+            feedback_status="",
+            feedback_note=None,
+            updated_at=None,
+            actor_role=actor_role,
+        )
+    return HistoricalSummaryFeedbackResponse(
+        has_feedback=True,
+        summary_event_id=summary_event_id,
+        feedback_status=str(payload.get("feedback_status") or "").strip().lower(),
+        feedback_note=_sanitize_historical_feedback_note(payload.get("feedback_note")),
+        updated_at=str(payload.get("timestamp") or ""),
+        actor_role=actor_role,
+    )
+
+
 def _historical_summary_status(
     *,
     previous_payload: Optional[dict[str, Any]],
@@ -872,6 +985,44 @@ def _write_historical_summary_audit(
     return event_id
 
 
+def _write_historical_summary_feedback_audit(
+    db: Session,
+    *,
+    actor: AuthenticatedActor,
+    session_id: str,
+    summary_event_id: str,
+    feedback_status: str,
+    feedback_note: Optional[str],
+) -> str:
+    created_at = datetime.now(timezone.utc).isoformat()
+    event_id = f"va-historical-summary-feedback-{uuid.uuid4().hex[:20]}"
+    # Feedback here records the clinician response to advisory output only.
+    # It is not a truth label, diagnosis, final outcome, or automatic session
+    # review update. Keep this provenance compact and privacy-conscious.
+    payload = {
+        "event_type": "historical_ai_summary_feedback_saved",
+        "session_id": session_id,
+        "summary_event_id": summary_event_id,
+        "actor_role": actor.role,
+        "feedback_status": feedback_status,
+        "feedback_note": feedback_note,
+        "note_present": bool(feedback_note),
+        "timestamp": created_at,
+    }
+    create_audit_event(
+        db,
+        event_id=event_id,
+        target_id=session_id[:64],
+        target_type="video_assessment",
+        action="video_assessment.historical_ai_summary_feedback_saved",
+        role=actor.role if actor.role in {"guest", "clinician", "admin"} else "clinician",
+        actor_id=actor.actor_id,
+        note=json.dumps(payload, separators=(",", ":"), sort_keys=True),
+        created_at=created_at,
+    )
+    return created_at
+
+
 @router.get("/sessions", response_model=SessionListResponse)
 def list_sessions(
     patient_id: Optional[str] = Query(None, description="Filter to one patient (clinician; must be in your clinic)"),
@@ -994,6 +1145,73 @@ def generate_historical_ai_summary(
         summary_status=summary_status,
     )
     return response
+
+
+@router.get(
+    "/sessions/{session_id}/historical-ai-summary-feedback/{summary_event_id}",
+    response_model=HistoricalSummaryFeedbackResponse,
+)
+def get_historical_ai_summary_feedback(
+    session_id: str = PathParam(..., min_length=8),
+    summary_event_id: str = PathParam(..., min_length=8, max_length=128),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> HistoricalSummaryFeedbackResponse:
+    require_minimum_role(actor, "clinician")
+    row = db.query(VideoAssessmentSession).filter(VideoAssessmentSession.id == session_id).first()
+    if row is None:
+        raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
+    _gate_session_clinician(actor, row, db)
+    if _historical_summary_audit_by_event_id(db, session_id=session_id, event_id=summary_event_id) is None:
+        raise ApiServiceError(code="not_found", message="Historical summary not found.", status_code=404)
+    _, payload = _latest_historical_summary_feedback_audit(
+        db,
+        actor_id=actor.actor_id,
+        session_id=session_id,
+        summary_event_id=summary_event_id,
+    )
+    return _historical_feedback_response_from_payload(
+        actor_role=actor.role,
+        summary_event_id=summary_event_id,
+        payload=payload,
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/historical-ai-summary-feedback",
+    response_model=HistoricalSummaryFeedbackResponse,
+)
+def save_historical_ai_summary_feedback(
+    body: HistoricalSummaryFeedbackRequest,
+    session_id: str = PathParam(..., min_length=8),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> HistoricalSummaryFeedbackResponse:
+    require_minimum_role(actor, "clinician")
+    row = db.query(VideoAssessmentSession).filter(VideoAssessmentSession.id == session_id).first()
+    if row is None:
+        raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
+    _gate_session_clinician(actor, row, db)
+    if _historical_summary_audit_by_event_id(db, session_id=session_id, event_id=body.summary_event_id) is None:
+        raise ApiServiceError(code="not_found", message="Historical summary not found.", status_code=404)
+    feedback_status = _validate_historical_feedback_status(body.feedback_status)
+    feedback_note = _sanitize_historical_feedback_note(body.feedback_note)
+    updated_at = _write_historical_summary_feedback_audit(
+        db,
+        actor=actor,
+        session_id=session_id,
+        summary_event_id=body.summary_event_id,
+        feedback_status=feedback_status,
+        feedback_note=feedback_note,
+    )
+    return HistoricalSummaryFeedbackResponse(
+        has_feedback=True,
+        summary_event_id=body.summary_event_id,
+        feedback_status=feedback_status,
+        feedback_note=feedback_note,
+        updated_at=updated_at,
+        actor_role=actor.role,
+    )
 
 
 @router.post("/sessions", status_code=201)

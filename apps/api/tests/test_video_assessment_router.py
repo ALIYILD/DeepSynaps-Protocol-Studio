@@ -11,11 +11,58 @@ from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
 from app.persistence.models import AuditEventRecord, Patient
+from app.repositories.audit import create_audit_event
 from app.repositories.video_assessments import VideoAssessmentSession
 from app.routers import video_assessment_router
 
 # Minimal WebM header (Matroska EBML) — passes looks_like_video
 _WEBM_HEAD = b"\x1a\x45\xdf\xa3" + b"\x00" * 100
+
+
+def _seed_historical_summary_event(
+    session_id: str,
+    *,
+    actor_id: str = "actor-clinician-demo",
+    actor_role: str = "clinician",
+) -> str:
+    event_id = f"va-historical-summary-test-{uuid.uuid4().hex[:12]}"
+    db = SessionLocal()
+    try:
+        create_audit_event(
+            db,
+            event_id=event_id,
+            target_id=session_id[:64],
+            target_type="video_assessment",
+            action="video_assessment.historical_ai_summary_generated",
+            role=actor_role if actor_role in {"guest", "clinician", "admin"} else "clinician",
+            actor_id=actor_id,
+            note=json.dumps(
+                {
+                    "event_type": "historical_ai_summary_generated",
+                    "event_id": event_id,
+                    "session_id": session_id,
+                    "actor_role": actor_role,
+                    "selected_prior_session_ids": [],
+                    "summary_logic_version": "video_assessment_historical_summary_v2",
+                    "summary_status": "fresh",
+                    "regeneration_reason": "fresh",
+                    "provenance": {
+                        "source_session_ids": [],
+                        "session_count": 0,
+                        "has_severity_data": False,
+                        "has_task_completion_data": False,
+                        "has_clip_availability_data": False,
+                        "source_input_fingerprint": "fingerprint-seeded",
+                    },
+                },
+                separators=(",", ":"),
+                sort_keys=True,
+            ),
+            created_at="2026-05-07T12:00:00Z",
+        )
+        return event_id
+    finally:
+        db.close()
 
 
 def _seed_video_assessment_row(
@@ -754,5 +801,207 @@ def test_historical_ai_summary_status_transitions_and_audit_regeneration_referen
         assert payload["provenance"]["source_input_fingerprint"] == logic_body["provenance"]["source_input_fingerprint"]
         assert "clinician_review" not in latest.note
         assert "free_text_comment" not in latest.note
+    finally:
+        db.close()
+
+
+def test_historical_ai_summary_feedback_access_control_and_save(
+    client: TestClient,
+    auth_headers: dict,
+    demo_patient_va: str,
+) -> None:
+    current_id = _seed_video_assessment_row(demo_patient_va, overall_status="in_progress")
+    summary_event_id = _seed_historical_summary_event(current_id)
+
+    forbidden = client.post(
+        f"/api/v1/video-assessments/sessions/{current_id}/historical-ai-summary-feedback",
+        headers=auth_headers["patient"],
+        json={
+            "summary_event_id": summary_event_id,
+            "feedback_status": "accepted",
+            "feedback_note": "Looks directionally useful.",
+        },
+    )
+    assert forbidden.status_code == 403, forbidden.text
+
+    for role in ("clinician", "supervisor", "admin"):
+        resp = client.post(
+            f"/api/v1/video-assessments/sessions/{current_id}/historical-ai-summary-feedback",
+            headers=auth_headers[role],
+            json={
+                "summary_event_id": summary_event_id,
+                "feedback_status": "partially_accepted",
+                "feedback_note": "  Useful framing.  Needs  manual clip review. ",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["has_feedback"] is True
+        assert body["summary_event_id"] == summary_event_id
+        assert body["feedback_status"] == "partially_accepted"
+        assert body["feedback_note"] == "Useful framing. Needs manual clip review."
+        assert body["updated_at"]
+        assert body["actor_role"] == role
+
+    db = SessionLocal()
+    try:
+        latest = (
+            db.query(AuditEventRecord)
+            .filter(
+                AuditEventRecord.target_type == "video_assessment",
+                AuditEventRecord.target_id == current_id,
+                AuditEventRecord.action == "video_assessment.historical_ai_summary_feedback_saved",
+            )
+            .order_by(AuditEventRecord.id.desc())
+            .first()
+        )
+        assert latest is not None
+        payload = json.loads(latest.note)
+        assert payload["event_type"] == "historical_ai_summary_feedback_saved"
+        assert payload["session_id"] == current_id
+        assert payload["summary_event_id"] == summary_event_id
+        assert payload["feedback_status"] == "partially_accepted"
+        assert payload["note_present"] is True
+        assert payload["feedback_note"] == "Useful framing. Needs manual clip review."
+        assert "clinician_review" not in latest.note
+        assert "free_text_comment" not in latest.note
+    finally:
+        db.close()
+
+
+def test_historical_ai_summary_feedback_validation_and_latest_preload(
+    client: TestClient,
+    auth_headers: dict,
+    demo_patient_va: str,
+) -> None:
+    current_id = _seed_video_assessment_row(demo_patient_va, overall_status="in_progress")
+    summary_event_id = _seed_historical_summary_event(current_id)
+
+    invalid = client.post(
+        f"/api/v1/video-assessments/sessions/{current_id}/historical-ai-summary-feedback",
+        headers=auth_headers["clinician"],
+        json={
+            "summary_event_id": summary_event_id,
+            "feedback_status": "strongly_agree",
+        },
+    )
+    assert invalid.status_code == 422, invalid.text
+
+    too_long = client.post(
+        f"/api/v1/video-assessments/sessions/{current_id}/historical-ai-summary-feedback",
+        headers=auth_headers["clinician"],
+        json={
+            "summary_event_id": summary_event_id,
+            "feedback_status": "accepted",
+            "feedback_note": "x" * 301,
+        },
+    )
+    assert too_long.status_code == 422, too_long.text
+
+    none_yet = client.get(
+        f"/api/v1/video-assessments/sessions/{current_id}/historical-ai-summary-feedback/{summary_event_id}",
+        headers=auth_headers["clinician"],
+    )
+    assert none_yet.status_code == 200, none_yet.text
+    assert none_yet.json() == {
+        "has_feedback": False,
+        "summary_event_id": summary_event_id,
+        "feedback_status": "",
+        "feedback_note": None,
+        "updated_at": None,
+        "actor_role": "clinician",
+    }
+
+    first = client.post(
+        f"/api/v1/video-assessments/sessions/{current_id}/historical-ai-summary-feedback",
+        headers=auth_headers["clinician"],
+        json={
+            "summary_event_id": summary_event_id,
+            "feedback_status": "accepted",
+            "feedback_note": "Useful overview.",
+        },
+    )
+    assert first.status_code == 200, first.text
+
+    second = client.post(
+        f"/api/v1/video-assessments/sessions/{current_id}/historical-ai-summary-feedback",
+        headers=auth_headers["clinician"],
+        json={
+            "summary_event_id": summary_event_id,
+            "feedback_status": "disagreed",
+            "feedback_note": "Chronology looks incomplete.",
+        },
+    )
+    assert second.status_code == 200, second.text
+    second_body = second.json()
+    assert second_body["feedback_status"] == "disagreed"
+
+    preload = client.get(
+        f"/api/v1/video-assessments/sessions/{current_id}/historical-ai-summary-feedback/{summary_event_id}",
+        headers=auth_headers["clinician"],
+    )
+    assert preload.status_code == 200, preload.text
+    assert preload.json()["has_feedback"] is True
+    assert preload.json()["feedback_status"] == "disagreed"
+    assert preload.json()["feedback_note"] == "Chronology looks incomplete."
+
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(AuditEventRecord)
+            .filter(
+                AuditEventRecord.target_type == "video_assessment",
+                AuditEventRecord.target_id == current_id,
+                AuditEventRecord.actor_id == "actor-clinician-demo",
+                AuditEventRecord.action == "video_assessment.historical_ai_summary_feedback_saved",
+            )
+            .order_by(AuditEventRecord.id.asc())
+            .all()
+        )
+        assert len(rows) == 2
+        payloads = [json.loads(row.note) for row in rows]
+        assert [payload["feedback_status"] for payload in payloads] == ["accepted", "disagreed"]
+    finally:
+        db.close()
+
+
+def test_historical_ai_summary_feedback_does_not_mutate_session_or_generated_summary(
+    client: TestClient,
+    auth_headers: dict,
+    demo_patient_va: str,
+) -> None:
+    current_id = _seed_video_assessment_row(demo_patient_va, overall_status="in_progress")
+    summary_event_id = _seed_historical_summary_event(current_id)
+
+    db = SessionLocal()
+    try:
+        row = db.query(VideoAssessmentSession).filter(VideoAssessmentSession.id == current_id).first()
+        assert row is not None
+        session_before = row.session_json
+        summary_before = db.query(AuditEventRecord).filter(AuditEventRecord.event_id == summary_event_id).first()
+        assert summary_before is not None
+        summary_before_note = summary_before.note
+    finally:
+        db.close()
+
+    save = client.post(
+        f"/api/v1/video-assessments/sessions/{current_id}/historical-ai-summary-feedback",
+        headers=auth_headers["clinician"],
+        json={
+            "summary_event_id": summary_event_id,
+            "feedback_status": "not_useful",
+            "feedback_note": "Needs more concrete basis labels.",
+        },
+    )
+    assert save.status_code == 200, save.text
+
+    db = SessionLocal()
+    try:
+        row = db.query(VideoAssessmentSession).filter(VideoAssessmentSession.id == current_id).first()
+        assert row is not None
+        assert row.session_json == session_before
+        summary_after = db.query(AuditEventRecord).filter(AuditEventRecord.event_id == summary_event_id).first()
+        assert summary_after is not None
+        assert summary_after.note == summary_before_note
     finally:
         db.close()
