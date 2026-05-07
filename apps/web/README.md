@@ -1,5 +1,7 @@
 # DeepSynaps Studio Web
 
+Web build note: Vite 7 requires Node >=20.19. Use Node 20.20.2+ or Node 22.x for `npm ci`, `npm run test:unit`, and `npm run build` (from `apps/web`). The repository root `.nvmrc` pins 20.20.2 for `nvm use`.
+
 React + TypeScript + Vite frontend for DeepSynaps Studio. The app keeps role, theme, and notification state in memory, but now prefers backend-backed evidence, device, protocol, handbook, upload-review, review-action, and audit-trail flows where those endpoints exist.
 
 ## Features
