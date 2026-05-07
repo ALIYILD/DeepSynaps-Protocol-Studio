@@ -32,7 +32,7 @@ class EmotionPoint:
     confidence: float
     valence: float
     arousal: float
-    clinical_tag: Optional[str]
+    acoustic_affect_indicator: Optional[str]
 
 
 @dataclass
@@ -89,7 +89,7 @@ _LABEL_NORMALISATION: dict[str, str] = {
     "pleased": "happy",
 }
 
-_CLINICAL_TAG_MAP: dict[str, str] = {
+_AFFECT_INDICATOR_MAP: dict[str, str] = {
     "sad": "depressed_affect",
     "fearful": "anxious",
     "calm": "normal",
@@ -136,9 +136,14 @@ def emotion_to_valence_arousal(label: str) -> tuple[float, float]:
     return v, a
 
 
-def emotion_to_clinical_tag(label: str) -> Optional[str]:
-    """Return the clinical tag for a canonical label, or None for unknown labels."""
-    return _CLINICAL_TAG_MAP.get(label, None)
+def emotion_to_affect_indicator(label: str) -> Optional[str]:
+    """Return the acoustic affect indicator for a canonical label, or None for unknown labels.
+
+    These strings are NOT clinical diagnoses — they are research-grade
+    affect labels derived from acoustic features. Consumers must wrap them
+    in a research-only envelope before exposing to clinicians.
+    """
+    return _AFFECT_INDICATOR_MAP.get(label, None)
 
 
 # ---------------------------------------------------------------------------
@@ -424,7 +429,7 @@ def analyze_emotion(
                 confidence=confidence,
                 valence=valence,
                 arousal=arousal,
-                clinical_tag=emotion_to_clinical_tag(label),
+                acoustic_affect_indicator=emotion_to_affect_indicator(label),
             ))
             continue
 
@@ -451,7 +456,7 @@ def analyze_emotion(
             confidence=confidence,
             valence=valence,
             arousal=arousal,
-            clinical_tag=emotion_to_clinical_tag(label),
+            acoustic_affect_indicator=emotion_to_affect_indicator(label),
         ))
 
     if not timeline:

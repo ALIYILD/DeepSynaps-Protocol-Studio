@@ -91,17 +91,17 @@ def test_emotion_mapping_returns_valid_valence_arousal():
 # Test 3
 # ---------------------------------------------------------------------------
 
-def test_clinical_tag_mapping_is_expected():
-    """Key clinical tag mappings are correct; unknown label returns None."""
-    assert em.emotion_to_clinical_tag("sad") == "depressed_affect"
-    assert em.emotion_to_clinical_tag("fearful") == "anxious"
-    assert em.emotion_to_clinical_tag("calm") == "normal"
-    assert em.emotion_to_clinical_tag("neutral") == "normal"
-    assert em.emotion_to_clinical_tag("angry") == "agitated"
-    assert em.emotion_to_clinical_tag("disgust") == "distressed"
-    assert em.emotion_to_clinical_tag("surprised") == "heightened_reactivity"
-    assert em.emotion_to_clinical_tag("happy") == "normal"
-    assert em.emotion_to_clinical_tag("not_a_real_label") is None
+def test_affect_indicator_mapping_is_expected():
+    """Key affect indicator mappings are correct; unknown label returns None."""
+    assert em.emotion_to_affect_indicator("sad") == "depressed_affect"
+    assert em.emotion_to_affect_indicator("fearful") == "anxious"
+    assert em.emotion_to_affect_indicator("calm") == "normal"
+    assert em.emotion_to_affect_indicator("neutral") == "normal"
+    assert em.emotion_to_affect_indicator("angry") == "agitated"
+    assert em.emotion_to_affect_indicator("disgust") == "distressed"
+    assert em.emotion_to_affect_indicator("surprised") == "heightened_reactivity"
+    assert em.emotion_to_affect_indicator("happy") == "normal"
+    assert em.emotion_to_affect_indicator("not_a_real_label") is None
 
 
 # ---------------------------------------------------------------------------

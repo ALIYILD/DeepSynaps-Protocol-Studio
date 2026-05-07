@@ -78,7 +78,7 @@ def _minimal_emotion(overall: str = "neutral", timeline_len: int = 2) -> Emotion
             confidence=0.7,
             valence=0.0,
             arousal=0.1,
-            clinical_tag=None,
+            acoustic_affect_indicator=None,
         )
         for i in range(timeline_len)
     ]
