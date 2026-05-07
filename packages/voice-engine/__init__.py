@@ -1,7 +1,7 @@
 """Voice Engine: clinical voice analysis pipeline.
 
 Stages: audio_io -> transcription -> emotion -> biomarkers -> scoring -> report.
-Orchestrated end-to-end by `pipeline.run`.
+Orchestrated end-to-end by `pipeline.run_voice_analysis_for_session`.
 """
 
 try:
@@ -13,7 +13,7 @@ try:
     )
 
     try:
-        from .pipeline import VoiceAnalysisResult, run
+        from .pipeline import VoiceAnalysisResult, PipelineStatus, run_voice_analysis_for_session
     except ImportError:
         # Heavy deps (librosa, parselmouth, etc.) not installed — skip pipeline exports.
         pass
@@ -29,5 +29,6 @@ __all__ = [
     "transcribe_audio",
     "get_whisper_model",
     "VoiceAnalysisResult",
-    "run",
+    "PipelineStatus",
+    "run_voice_analysis_for_session",
 ]
