@@ -135,6 +135,7 @@ def test_patient_create_with_clinical_context(client: TestClient, auth_headers: 
     assert r.status_code == 201, r.text
     body = r.json()
     sid = body["id"]
+    revision = body["revision_token"]
     assert body["clinical_context"]["preset_id"] == "essential_tremor"
     assert "ET" in body["clinical_context"].get("custom_indication", "")
 
@@ -142,6 +143,7 @@ def test_patient_create_with_clinical_context(client: TestClient, auth_headers: 
         f"/api/v1/video-assessments/sessions/{sid}",
         headers=auth_headers["patient"],
         json={
+            "expected_revision": revision,
             "tasks": [
                 {
                     "task_id": "rest_tremor",
@@ -173,12 +175,18 @@ def test_clinician_can_finalize(client: TestClient, auth_headers: dict, demo_pat
         headers=auth_headers["patient"],
         json={},
     )
-    sid = r.json()["id"]
+    body = r.json()
+    sid = body["id"]
+    revision = body["revision_token"]
 
     fin = client.post(
         f"/api/v1/video-assessments/sessions/{sid}/finalize",
         headers=auth_headers["clinician"],
-        json={"clinician_impression": "Stable motor exam on video.", "recommended_followup": "Routine"},
+        json={
+            "expected_revision": revision,
+            "clinician_impression": "Stable motor exam on video.",
+            "recommended_followup": "Routine",
+        },
     )
     assert fin.status_code == 200, fin.text
     assert fin.json()["overall_status"] == "finalized"
@@ -199,16 +207,20 @@ def test_export_json_endpoint(client: TestClient, auth_headers: dict, demo_patie
 def test_finalize_blocks_patch(client: TestClient, auth_headers: dict, demo_patient_va: str) -> None:
     del demo_patient_va
     r = client.post("/api/v1/video-assessments/sessions", headers=auth_headers["patient"], json={})
-    sid = r.json()["id"]
-    client.post(
+    body = r.json()
+    sid = body["id"]
+    revision = body["revision_token"]
+    fin = client.post(
         f"/api/v1/video-assessments/sessions/{sid}/finalize",
         headers=auth_headers["clinician"],
-        json={},
+        json={"expected_revision": revision},
     )
+    assert fin.status_code == 200, fin.text
+    finalized_revision = fin.json()["revision_token"]
     patch = client.patch(
         f"/api/v1/video-assessments/sessions/{sid}",
         headers=auth_headers["clinician"],
-        json={"summary": {"clinician_impression": "x"}},
+        json={"expected_revision": finalized_revision, "summary": {"clinician_impression": "x"}},
     )
     assert patch.status_code == 409, patch.text
 
@@ -216,11 +228,14 @@ def test_finalize_blocks_patch(client: TestClient, auth_headers: dict, demo_pati
 def test_upload_task_webm(client: TestClient, auth_headers: dict, demo_patient_va: str) -> None:
     del demo_patient_va
     r = client.post("/api/v1/video-assessments/sessions", headers=auth_headers["patient"], json={})
-    sid = r.json()["id"]
+    body = r.json()
+    sid = body["id"]
+    revision = body["revision_token"]
 
     up = client.post(
         f"/api/v1/video-assessments/sessions/{sid}/tasks/rest_tremor/upload",
         headers=auth_headers["patient"],
+        data={"expected_revision": revision},
         files={"file": ("t.webm", io.BytesIO(_WEBM_HEAD), "video/webm")},
     )
     assert up.status_code == 201, up.text
@@ -233,6 +248,143 @@ def test_upload_task_webm(client: TestClient, auth_headers: dict, demo_patient_v
     )
     assert vid.status_code == 200, vid.text
     assert "video" in (vid.headers.get("content-type") or "")
+
+
+def test_patch_session_advances_revision_token(
+    client: TestClient,
+    auth_headers: dict,
+    demo_patient_va: str,
+) -> None:
+    del demo_patient_va
+    created = client.post("/api/v1/video-assessments/sessions", headers=auth_headers["patient"], json={})
+    assert created.status_code == 201, created.text
+    body = created.json()
+    sid = body["id"]
+    revision = body["revision_token"]
+
+    patched = client.patch(
+        f"/api/v1/video-assessments/sessions/{sid}",
+        headers=auth_headers["patient"],
+        json={
+            "expected_revision": revision,
+            "summary": {"clinician_impression": "Patient added draft note."},
+        },
+    )
+    assert patched.status_code == 200, patched.text
+    patched_body = patched.json()
+    assert patched_body["revision_token"] != revision
+    assert patched_body["updated_at"]
+    assert patched_body["summary"]["clinician_impression"] == "Patient added draft note."
+
+
+def test_stale_patient_patch_returns_session_conflict(
+    client: TestClient,
+    auth_headers: dict,
+    demo_patient_va: str,
+) -> None:
+    del demo_patient_va
+    created = client.post("/api/v1/video-assessments/sessions", headers=auth_headers["patient"], json={})
+    assert created.status_code == 201, created.text
+    body = created.json()
+    sid = body["id"]
+    revision = body["revision_token"]
+
+    first_patch = client.patch(
+        f"/api/v1/video-assessments/sessions/{sid}",
+        headers=auth_headers["patient"],
+        json={
+            "expected_revision": revision,
+            "tasks": [{"task_id": "rest_tremor", "recording_status": "skipped", "skip_reason": "patient_pref"}],
+        },
+    )
+    assert first_patch.status_code == 200, first_patch.text
+    current_revision = first_patch.json()["revision_token"]
+
+    stale_patch = client.patch(
+        f"/api/v1/video-assessments/sessions/{sid}",
+        headers=auth_headers["patient"],
+        json={
+            "expected_revision": revision,
+            "summary": {"clinician_impression": "stale write"},
+        },
+    )
+    assert stale_patch.status_code == 409, stale_patch.text
+    payload = stale_patch.json()
+    assert payload["code"] == "session_conflict"
+    assert payload["details"]["session_id"] == sid
+    assert payload["details"]["current_revision"] == current_revision
+    assert payload["details"]["finalized"] is False
+
+
+def test_stale_clinician_finalize_returns_session_conflict(
+    client: TestClient,
+    auth_headers: dict,
+    demo_patient_va: str,
+) -> None:
+    del demo_patient_va
+    created = client.post("/api/v1/video-assessments/sessions", headers=auth_headers["patient"], json={})
+    assert created.status_code == 201, created.text
+    body = created.json()
+    sid = body["id"]
+    revision = body["revision_token"]
+
+    patch_resp = client.patch(
+        f"/api/v1/video-assessments/sessions/{sid}",
+        headers=auth_headers["clinician"],
+        json={
+            "expected_revision": revision,
+            "summary": {"clinician_impression": "newer clinician draft"},
+        },
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    current_revision = patch_resp.json()["revision_token"]
+
+    stale_finalize = client.post(
+        f"/api/v1/video-assessments/sessions/{sid}/finalize",
+        headers=auth_headers["clinician"],
+        json={"expected_revision": revision},
+    )
+    assert stale_finalize.status_code == 409, stale_finalize.text
+    payload = stale_finalize.json()
+    assert payload["code"] == "session_conflict"
+    assert payload["details"]["session_id"] == sid
+    assert payload["details"]["current_revision"] == current_revision
+
+
+def test_stale_patient_upload_returns_session_conflict(
+    client: TestClient,
+    auth_headers: dict,
+    demo_patient_va: str,
+) -> None:
+    del demo_patient_va
+    created = client.post("/api/v1/video-assessments/sessions", headers=auth_headers["patient"], json={})
+    assert created.status_code == 201, created.text
+    body = created.json()
+    sid = body["id"]
+    revision = body["revision_token"]
+
+    patch_resp = client.patch(
+        f"/api/v1/video-assessments/sessions/{sid}",
+        headers=auth_headers["patient"],
+        json={
+            "expected_revision": revision,
+            "tasks": [{"task_id": "rest_tremor", "recording_status": "skipped", "skip_reason": "patient_pref"}],
+        },
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    current_revision = patch_resp.json()["revision_token"]
+
+    stale_upload = client.post(
+        f"/api/v1/video-assessments/sessions/{sid}/tasks/rest_tremor/upload",
+        headers=auth_headers["patient"],
+        data={"expected_revision": revision},
+        files={"file": ("t.webm", io.BytesIO(_WEBM_HEAD), "video/webm")},
+    )
+    assert stale_upload.status_code == 409, stale_upload.text
+    payload = stale_upload.json()
+    assert payload["code"] == "session_conflict"
+    assert payload["details"]["session_id"] == sid
+    assert payload["details"]["current_revision"] == current_revision
 
 
 def test_prior_finalized_sessions_clinician_and_admin_access(
@@ -756,3 +908,216 @@ def test_historical_ai_summary_status_transitions_and_audit_regeneration_referen
         assert "free_text_comment" not in latest.note
     finally:
         db.close()
+
+
+def test_historical_ai_summary_feedback_access_and_save(
+    client: TestClient,
+    auth_headers: dict,
+    demo_patient_va: str,
+) -> None:
+    current_id = _seed_video_assessment_row(demo_patient_va, overall_status="in_progress")
+    prior_id = _seed_video_assessment_row(
+        demo_patient_va,
+        overall_status="finalized",
+        updated_offset_minutes=-15,
+        mutate_doc=lambda doc: doc["summary"].update({"severity_level": "mild", "tasks_completed": 8}),
+    )
+    summary = client.post(
+        f"/api/v1/video-assessments/sessions/{current_id}/historical-ai-summary",
+        headers=auth_headers["clinician"],
+        json={"selected_session_ids": [prior_id]},
+    )
+    assert summary.status_code == 200, summary.text
+    summary_event_id = summary.json()["provenance"]["event_id"]
+
+    forbidden = client.post(
+        f"/api/v1/video-assessments/sessions/{current_id}/historical-ai-summary-feedback",
+        headers=auth_headers["patient"],
+        json={
+            "summary_event_id": summary_event_id,
+            "feedback_status": "accepted",
+        },
+    )
+    assert forbidden.status_code == 403, forbidden.text
+
+    for role in ("clinician", "supervisor", "admin"):
+        resp = client.post(
+            f"/api/v1/video-assessments/sessions/{current_id}/historical-ai-summary-feedback",
+            headers=auth_headers[role],
+            json={
+                "summary_event_id": summary_event_id,
+                "feedback_status": "accepted",
+                "feedback_note": "Helpful descriptive summary.",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["summary_event_id"] == summary_event_id
+        assert body["feedback_status"] == "accepted"
+        assert body["feedback_note"] == "Helpful descriptive summary."
+        assert body["actor_role"] == role
+
+    preload = client.get(
+        f"/api/v1/video-assessments/sessions/{current_id}/historical-ai-summary-feedback/{summary_event_id}",
+        headers=auth_headers["clinician"],
+    )
+    assert preload.status_code == 200, preload.text
+    assert preload.json()["feedback_status"] == "accepted"
+
+
+def test_historical_ai_summary_feedback_validation_and_audit_safety(
+    client: TestClient,
+    auth_headers: dict,
+    demo_patient_va: str,
+) -> None:
+    current_id = _seed_video_assessment_row(demo_patient_va, overall_status="in_progress")
+    prior_id = _seed_video_assessment_row(
+        demo_patient_va,
+        overall_status="finalized",
+        updated_offset_minutes=-10,
+        mutate_doc=lambda doc: doc["summary"].update({"severity_level": "moderate", "tasks_completed": 6}),
+    )
+    summary = client.post(
+        f"/api/v1/video-assessments/sessions/{current_id}/historical-ai-summary",
+        headers=auth_headers["clinician"],
+        json={"selected_session_ids": [prior_id]},
+    )
+    assert summary.status_code == 200, summary.text
+    summary_event_id = summary.json()["provenance"]["event_id"]
+
+    db = SessionLocal()
+    try:
+        before_count = (
+            db.query(AuditEventRecord)
+            .filter(
+                AuditEventRecord.target_id == current_id,
+                AuditEventRecord.action == "video_assessment.historical_ai_summary_feedback_saved",
+            )
+            .count()
+        )
+    finally:
+        db.close()
+
+    missing_note = client.post(
+        f"/api/v1/video-assessments/sessions/{current_id}/historical-ai-summary-feedback",
+        headers=auth_headers["clinician"],
+        json={
+            "summary_event_id": summary_event_id,
+            "feedback_status": "disagreed",
+            "feedback_note": "   ",
+        },
+    )
+    assert missing_note.status_code == 422, missing_note.text
+    assert missing_note.json()["code"] == "feedback_note_required"
+
+    invalid_status = client.post(
+        f"/api/v1/video-assessments/sessions/{current_id}/historical-ai-summary-feedback",
+        headers=auth_headers["clinician"],
+        json={
+            "summary_event_id": summary_event_id,
+            "feedback_status": "override",
+        },
+    )
+    assert invalid_status.status_code == 422, invalid_status.text
+
+    too_long = client.post(
+        f"/api/v1/video-assessments/sessions/{current_id}/historical-ai-summary-feedback",
+        headers=auth_headers["clinician"],
+        json={
+            "summary_event_id": summary_event_id,
+            "feedback_status": "accepted",
+            "feedback_note": "x" * 501,
+        },
+    )
+    assert too_long.status_code == 422, too_long.text
+
+    accepted = client.post(
+        f"/api/v1/video-assessments/sessions/{current_id}/historical-ai-summary-feedback",
+        headers=auth_headers["clinician"],
+        json={
+            "summary_event_id": summary_event_id,
+            "feedback_status": "accepted",
+        },
+    )
+    assert accepted.status_code == 200, accepted.text
+
+    disagreed = client.post(
+        f"/api/v1/video-assessments/sessions/{current_id}/historical-ai-summary-feedback",
+        headers=auth_headers["clinician"],
+        json={
+            "summary_event_id": summary_event_id,
+            "feedback_status": "disagreed",
+            "feedback_note": "Needed direct clip review before agreeing.",
+        },
+    )
+    assert disagreed.status_code == 200, disagreed.text
+
+    db = SessionLocal()
+    try:
+        after_rows = (
+            db.query(AuditEventRecord)
+            .filter(
+                AuditEventRecord.target_id == current_id,
+                AuditEventRecord.actor_id == "actor-clinician-demo",
+                AuditEventRecord.action == "video_assessment.historical_ai_summary_feedback_saved",
+            )
+            .order_by(AuditEventRecord.id.asc())
+            .all()
+        )
+        assert len(after_rows) == before_count + 2
+        first_payload = json.loads(after_rows[-2].note)
+        second_payload = json.loads(after_rows[-1].note)
+        assert first_payload["feedback_status"] == "accepted"
+        assert first_payload["feedback_note"] == ""
+        assert second_payload["feedback_status"] == "disagreed"
+        assert second_payload["note_present"] is True
+        assert second_payload["summary_event_id"] == summary_event_id
+        assert "clinician_review" not in after_rows[-1].note
+        assert "free_text_comment" not in after_rows[-1].note
+        assert "tasks" not in after_rows[-1].note
+    finally:
+        db.close()
+
+
+def test_historical_ai_summary_feedback_does_not_mutate_summary_content(
+    client: TestClient,
+    auth_headers: dict,
+    demo_patient_va: str,
+) -> None:
+    current_id = _seed_video_assessment_row(demo_patient_va, overall_status="in_progress")
+    prior_id = _seed_video_assessment_row(
+        demo_patient_va,
+        overall_status="finalized",
+        updated_offset_minutes=-20,
+        mutate_doc=lambda doc: doc["summary"].update({"severity_level": "mild", "tasks_completed": 7}),
+    )
+    summary = client.post(
+        f"/api/v1/video-assessments/sessions/{current_id}/historical-ai-summary",
+        headers=auth_headers["clinician"],
+        json={"selected_session_ids": [prior_id]},
+    )
+    assert summary.status_code == 200, summary.text
+    summary_body = summary.json()
+    summary_event_id = summary_body["provenance"]["event_id"]
+
+    saved = client.post(
+        f"/api/v1/video-assessments/sessions/{current_id}/historical-ai-summary-feedback",
+        headers=auth_headers["clinician"],
+        json={
+            "summary_event_id": summary_event_id,
+            "feedback_status": "partially_accepted",
+            "feedback_note": "Useful for orientation, but not enough alone.",
+        },
+    )
+    assert saved.status_code == 200, saved.text
+
+    repeat_summary = client.post(
+        f"/api/v1/video-assessments/sessions/{current_id}/historical-ai-summary",
+        headers=auth_headers["clinician"],
+        json={"selected_session_ids": [prior_id]},
+    )
+    assert repeat_summary.status_code == 200, repeat_summary.text
+    repeat_body = repeat_summary.json()
+    assert repeat_body["summary_text"] == summary_body["summary_text"]
+    assert repeat_body["data_basis"] == summary_body["data_basis"]
+    assert "feedback_status" not in json.dumps(repeat_body)

@@ -1,29 +1,59 @@
 # Dependencies & build artifacts
 node_modules
+**/node_modules
 apps/web/node_modules
 apps/web/dist
+dist
+build
+.venv
+**/.venv
+**/.venv/**
+apps/api/.venv
+apps/api/.venv/**
+packages/qeeg-pipeline/.venv
+packages/qeeg-pipeline/.venv/**
+venv
+**/venv
+**/venv/**
 **/__pycache__
 **/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
 **/*.pyc
 **/*.pyo
 *.db
 *.db-journal
 .git
+.claude
 .gitignore
 .env
 .env.*
 
-# Large data directories (Docker only needs clinical-database CSVs)
-data/imports/neuromodulation-research/
-data/research/
-data/conditions/evidence-logs/
-data/evidence-matrix/*.xlsx
-data/snapshots/**/*.json
+# Large data directories
+data/*
+!data/imports/
+data/imports/*
+!data/imports/clinical-database/
+!data/imports/clinical-database/**
+!data/snapshots/
+data/snapshots/*
+!data/snapshots/clinical-database/
+!data/snapshots/clinical-database/**
+!data/conditions/
+!data/conditions/**
+!data/devices/
+!data/devices/**
+!data/modalities/
+!data/modalities/**
+!data/schemas/
+!data/schemas/**
 data/*.db
 data/*.db-journal
 
 # Evidence pipeline DB lives on persistent volume, not in image
 services/evidence-pipeline/evidence.db
+services/evidence-pipeline/*.db
+services/evidence-pipeline/*.db-journal
 services/evidence-pipeline/__pycache__/
 
 # Dev & docs
@@ -33,3 +63,9 @@ docs/
 **/*.ipynb
 **/*.json.gz
 Desktop/ds-worktrees/
+apps/api/tests/
+apps/api/.pytest_cache/
+apps/api/*.db
+apps/api/*.db.backup*
+apps/api/temp_*.db
+apps/api/_alembic_check.db

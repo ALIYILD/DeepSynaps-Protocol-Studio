@@ -10,14 +10,16 @@ pip install -e ./packages/core-schema \
             -e ./packages/condition-registry \
             -e ./packages/modality-registry \
             -e ./packages/device-registry \
+            -e ./packages/clinical-data-registry \
             -e ./packages/safety-engine \
             -e ./packages/generation-engine \
             -e ./packages/render-engine \
             -e ./packages/evidence \
             -e ./packages/qa \
+            -e './packages/qeeg-pipeline[reporting,source,rag]' \
             -e ./apps/api \
             -e ./apps/worker
-pip install pytest pytest-xdist httpx
+pip install pytest pytest-xdist httpx celery
 npm ci
 ```
 
@@ -44,6 +46,8 @@ cd apps/worker && python -m pytest -q
 - **10 tests**, <1 second
 - **Must run in a separate process from API tests** -- both apps use an `app`
   Python package, and combined runs cause namespace collision
+- qEEG async execution is only honest when the worker env also has
+  `apps/api`, `deepsynaps-qeeg`, and Celery installed
 - CI job: `worker-test` in `.github/workflows/ci.yml`
 
 ### QA package tests
@@ -134,6 +138,23 @@ python scripts/validate_production_readiness.py --env production --json
 
 Exit code 1 means at least one FAIL-level check failed. The script never
 prints secret values.
+
+## qEEG Deploy Smoke
+
+Run this after a staging/production deploy to prove the real async qEEG path:
+
+```bash
+uv run python scripts/qeeg_deploy_smoke.py \
+  --base-url https://deepsynaps-studio.fly.dev \
+  --token "$CLINICIAN_BEARER_TOKEN" \
+  --require-pdf
+```
+
+Success criteria:
+- `execution_mode=celery`
+- final `analysis_status=completed`
+- `report_html_generated=true`
+- `report_pdf_generated=true`
 
 ## Optional Dependency Groups
 

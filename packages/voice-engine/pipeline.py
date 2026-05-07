@@ -22,6 +22,9 @@ from report import ClinicalVoiceReport, generate_clinical_report
 
 logger = logging.getLogger(__name__)
 
+# Mirror of the package-level constant — avoids circular import through __init__.
+_ENGINE_VERSION = "0.1.0"
+
 # ---------------------------------------------------------------------------
 # Public dataclasses
 # ---------------------------------------------------------------------------
@@ -170,11 +173,12 @@ def _persist_analysis_result(
             status = "failed"
 
         blob: dict = {
+            "engine_version": _ENGINE_VERSION,
             "pipeline_status": {
                 "steps_completed": result.pipeline_status.steps_completed,
                 "failed_steps": result.pipeline_status.failed_steps,
                 "total_steps": result.pipeline_status.total_steps,
-            }
+            },
         }
         if result.report is not None:
             blob.update(

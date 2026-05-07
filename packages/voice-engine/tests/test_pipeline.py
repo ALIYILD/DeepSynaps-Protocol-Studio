@@ -127,6 +127,12 @@ def _fake_report() -> ClinicalVoiceReport:
         },
         raw_flags=[],
         data_quality_notes=["Fallback scoring used."],
+        disclaimer=(
+            "Voice-derived decision support; not a diagnostic device. "
+            "Patterns are statistical, not validated against clinical outcomes. "
+            "All findings require clinician interpretation."
+        ),
+        engine_version="0.1.0",
     )
 
 
@@ -300,6 +306,8 @@ def test_analyze_endpoint_runs_pipeline_and_returns_json(monkeypatch):
     assert "pipeline_status" in data
     assert data["status"] == "completed"
     assert data["session_id"] == "sess-1"
+    assert "disclaimer" in data
+    assert "engine_version" in data
 
 
 # ---------------------------------------------------------------------------

@@ -30,6 +30,7 @@ from app.services.openmed.schemas import (
     ClinicalTextInput,
     DeidentifyResponse,
     HealthResponse,
+    NeuromodulationExtractResponse,
     PIIExtractResponse,
     SourceType,
 )
@@ -121,6 +122,19 @@ def clinical_text_deidentify(
     require_minimum_role(actor, "clinician")
     _gate_patient_context(actor, payload.patient_id, db)
     return adapter.deidentify(_validated_input(payload))
+
+
+@router.post("/analyze-neuromodulation", response_model=NeuromodulationExtractResponse)
+@limiter.limit("30/minute")
+def clinical_text_analyze_neuromodulation(
+    request: Request,
+    payload: _TextRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> NeuromodulationExtractResponse:
+    require_minimum_role(actor, "clinician")
+    _gate_patient_context(actor, payload.patient_id, db)
+    return adapter.analyze_neuromodulation(_validated_input(payload))
 
 
 __all__ = ["router"]

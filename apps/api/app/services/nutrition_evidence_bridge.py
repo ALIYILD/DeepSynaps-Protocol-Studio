@@ -110,6 +110,9 @@ def _fts_search(q: str, *, limit: int = 8) -> list[sqlite3.Row]:
             "WHERE papers_fts MATCH ? LIMIT ?"
         )
         rows = conn.execute(sql, (q, limit * 4)).fetchall()
+    except sqlite3.OperationalError:
+        # Evidence DB exists but schema is older/mismatched — fail gracefully
+        rows = []
     finally:
         conn.close()
     ranked = sorted(rows, key=_score, reverse=True)[:limit]

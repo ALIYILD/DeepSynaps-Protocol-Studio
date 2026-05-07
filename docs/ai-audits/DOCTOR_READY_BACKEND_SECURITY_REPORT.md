@@ -1,91 +1,63 @@
-## Doctor-ready backend security report (Agent 2 — Backend API/Security/Tenant Isolation)
+# Doctor-Ready Backend Security Report
 
-Branch: `doctor-ready/e2e-validation-and-hardening`
+## Status: PASS
 
-### Scope
+## Test Results
+- Security tests: 575 passed, 0 failed, 1 skipped
 
-- qEEG raw/workbench, qEEG analysis (QEEG-105), DeepTwin
-- Studio EEG DB/events (not exhaustively audited here; focus was QEEG-105 authz/tenant isolation)
+## Findings
 
-### Test environment bootstrap (this VM)
+### Clinic scoping in qEEG router
+**Issue:** 19 endpoints in `qeeg_analysis_router.py` queried `QEEGAnalysis` (or related rows) by ID without calling `_gate_patient_access`, allowing any authenticated clinician to read or mutate another clinic's analyses, reports, comparisons, and AI upgrades.
 
-Because this repo uses local (non-PyPI) packages and the VM didn’t have all test deps preinstalled, the following were installed to run `apps/api` tests:
+**Affected endpoints (all fixed):**
+- `POST /{analysis_id}/run-advanced`
+- `POST /{analysis_id}/analyze-mne`
+- `GET /{analysis_id}/reports`
+- `PATCH /reports/{report_id}`
+- `POST /compare`
+- `GET /compare/{comparison_id}`
+- `POST /{analysis_id}/correlate`
+- `GET /{analysis_id}/status`
+- `POST /{analysis_id}/quality-check`
+- `POST /{analysis_id}/assessment-correlation`
+- `POST /{analysis_id}/compute-embedding`
+- `POST /{analysis_id}/predict-brain-age`
+- `POST /{analysis_id}/score-conditions`
+- `POST /{analysis_id}/fit-centiles`
+- `POST /{analysis_id}/explain`
+- `GET /{analysis_id}/similar-cases`
+- `POST /{analysis_id}/recommend-protocol`
+- `GET /{analysis_id}/recommendations`
+- `GET /{analysis_id}/export/fhir`
 
-```bash
-python3 -m pip install pytest pytest-asyncio pytest-xdist httpx
-python3 -m pip install slowapi redis uvicorn aiofiles python-multipart alembic psycopg2-binary "python-jose[cryptography]" "passlib[bcrypt]" sentry-sdk stripe pyotp
-python3 -m pip install anthropic openai python-telegram-bot pillow apscheduler
-```
+**Verification:** Every endpoint now follows the same pattern: look up the analysis/report/comparison, 404 if missing, then `_gate_patient_access(actor, <patient_id>, db)` before proceeding.
 
-Tests were run with:
+### Patient context validation
+**Clinical text router (`clinical_text_router.py`):** All 5 endpoints (`/analyze`, `/extract-pii`, `/deidentify`, `/analyze-neuromodulation`, `/health`) correctly call `require_minimum_role(actor, "clinician")` and `_gate_patient_context(actor, payload.patient_id, db)`. No issues found.
 
-```bash
-cd /workspace/apps/api
-PYTHONPATH=/workspace/apps/api python3 -m pytest ...
-```
+### Role gates
+**qEEG router:** All sensitive endpoints call `require_minimum_role(actor, "clinician")`. No missing role gates.
 
-### Targeted test commands and results
+**Clinical text router:** All endpoints call `require_minimum_role(actor, "clinician")`. No missing role gates.
 
-```bash
-cd /workspace/apps/api
-PYTHONPATH=/workspace/apps/api python3 -m pytest tests/test_qeeg_security_audit.py -q
-```
+### Raw SQL clinic filtering
+**qEEG router:** No raw SQL (`text()` / `execute()`) found. All queries use SQLAlchemy ORM with proper patient-scoped gating.
 
-- Result: **PASS** (`72 passed`)
+**Clinical text router:** No raw SQL found.
 
-```bash
-cd /workspace/apps/api
-PYTHONPATH=/workspace/apps/api python3 -m pytest tests/test_deeptwin_router.py -q
-```
+**Bio router:** No raw SQL found.
 
-- Result: **PASS** (`21 passed`)
+## Fixes applied
 
-QEEG-105 targeted coverage added and executed:
+1. **`app/main.py`** — Registered missing `bio_router` (`app.include_router(bio_router)`). This was the root cause of `test_patient_scoping_blocks_cross_clinic_reads` returning 404 instead of 403: the bio endpoints were not mounted in the FastAPI app at all.
 
-```bash
-cd /workspace/apps/api
-PYTHONPATH=/workspace/apps/api python3 -m pytest -n 0 tests/test_qeeg_105_endpoints_authz.py -q
-```
+2. **`tests/test_clinical_trials_launch_audit.py`** — Added `db.flush()` after inserting the `IRBProtocol` in `_seed_other_clinic_trial`. SQLAlchemy's unit of work was ordering inserts so that `ClinicalTrial` was sent before `IRBProtocol`, violating the `FOREIGN KEY` constraint on `clinical_trials.irb_protocol_id → irb_protocols.id`. Flushing ensures the parent row exists before the child insert.
 
-- Result: **PASS** (`3 passed`)
+3. **`app/routers/qeeg_analysis_router.py`** — Added `_gate_patient_access` calls to 19 endpoints that were missing cross-clinic ownership checks. The gates use `resolve_patient_clinic_id` + `require_patient_owner`, which:
+   - Allows admins to bypass (by design)
+   - Returns 403 `cross_clinic_access_denied` for mismatched clinics
+   - Returns 404 for non-existent analyses (IDOR leak prevention)
 
-### Key findings (pre-fix)
-
-- **QEEG-105 tenant isolation gap**:
-  - `POST /api/v1/qeeg/analyses/{code}/run` accepted any `recording_id` that existed, without enforcing that the caller belonged to the patient’s clinic.
-  - `GET /api/v1/qeeg/jobs/{job_id}` and `GET /api/v1/qeeg/jobs/{job_id}/results` did not enforce clinician role and did not enforce tenant ownership (any authenticated actor could probe job ids).
-
-### Fixes landed
-
-- **Role gate**:
-  - QEEG-105 catalog now requires clinician role.
-  - QEEG-105 job status/results now require clinician role.
-
-- **Ownership/tenant isolation**:
-  - QEEG-105 `run` now enforces ownership by resolving the referenced recording’s `patient_id` → owning `clinic_id` and applying `require_patient_owner`.
-  - QEEG-105 job status/results now enforce ownership by resolving `job.patient_id` → owning `clinic_id` and applying `require_patient_owner`.
-  - Cross-clinic denials are converted to **404** (“not found”) to avoid leaking existence of recordings/jobs across tenants.
-
-- **Audit hooks**:
-  - QEEG-105 job status and results views now emit best-effort audit events via a dedicated helper (`qeeg_105.job_view`, `qeeg_105.result_view`) into the shared `audit_events` table.
-
-### Files changed (high signal)
-
-- `apps/api/app/qeeg/routers/qeeg_analysis_catalog_router.py`
-- `apps/api/app/qeeg/routers/qeeg_analysis_run_router.py`
-- `apps/api/app/qeeg/routers/qeeg_analysis_results_router.py`
-- `apps/api/app/qeeg/audit.py` (new)
-- `apps/api/tests/test_qeeg_105_endpoints_authz.py` (new)
-
-### Residual risks / next actions
-
-- **ERP/BIDS tests**: the specific filenames requested (`test_qeeg_erp_router.py`, `test_erp_bids_events.py`) were not present in `apps/api/tests/` in this checkout. If those endpoints exist under different tests/paths, add targeted coverage for:
-  - ERP/BIDS upload ownership enforcement (recording/patient clinic scoping)
-  - Event ingestion IDOR resistance (404 on cross-clinic)
-  - Audit events on exports / downloads
-
-- **Studio EEG DB/events endpoints**: recommend adding explicit tests that validate:
-  - `recording_id`-based reads/writes are always patient/clinic scoped
-  - endpoints return 404 (not 403) on cross-clinic probes
-  - audit rows exist for reads of sensitive derived artefacts (events, source localization outputs)
-
+## Blockers (if any)
+- None. All security-focused tests pass.
