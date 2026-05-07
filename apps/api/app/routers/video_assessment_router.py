@@ -800,37 +800,6 @@ def _validate_historical_feedback_status(value: str) -> str:
     return status
 
 
-def _latest_historical_summary_feedback_audit(
-    db: Session,
-    *,
-    actor_id: str,
-    session_id: str,
-    summary_event_id: str,
-) -> tuple[Optional[AuditEventRecord], Optional[dict[str, Any]]]:
-    rows = (
-        db.query(AuditEventRecord)
-        .filter(
-            AuditEventRecord.target_type == "video_assessment",
-            AuditEventRecord.target_id == session_id[:64],
-            AuditEventRecord.actor_id == actor_id,
-            AuditEventRecord.action == "video_assessment.historical_ai_summary_feedback_saved",
-        )
-        .order_by(AuditEventRecord.id.desc())
-        .all()
-    )
-    for row in rows:
-        try:
-            payload = json.loads(row.note or "{}")
-        except Exception:
-            continue
-        if not isinstance(payload, dict):
-            continue
-        if str(payload.get("summary_event_id") or "") != summary_event_id:
-            continue
-        return row, payload
-    return None, None
-
-
 def _historical_feedback_response_from_payload(
     *,
     actor_role: str,
@@ -948,56 +917,18 @@ def _validate_historical_summary_feedback(body: HistoricalSummaryFeedbackRequest
     return note
 
 
-def _summary_event_row_or_404(
+def _historical_summary_event_or_404(
     db: Session,
     *,
     session_id: str,
     summary_event_id: str,
-) -> AuditEventRecord:
-    row = (
-        db.query(AuditEventRecord)
-        .filter(
-            AuditEventRecord.event_id == summary_event_id,
-            AuditEventRecord.target_type == "video_assessment",
-            AuditEventRecord.target_id == session_id[:64],
-            AuditEventRecord.action == "video_assessment.historical_ai_summary_generated",
-        )
-        .first()
+):
+    row = video_assessment_historical_summary_audit_by_event_id(
+        db, session_id=session_id, event_id=summary_event_id
     )
     if row is None:
         raise ApiServiceError(code="not_found", message="Historical summary not found.", status_code=404)
     return row
-
-
-def _latest_historical_summary_feedback_audit(
-    db: Session,
-    *,
-    actor_id: str,
-    session_id: str,
-    summary_event_id: str,
-) -> tuple[Optional[AuditEventRecord], Optional[dict[str, Any]]]:
-    rows = (
-        db.query(AuditEventRecord)
-        .filter(
-            AuditEventRecord.target_type == "video_assessment",
-            AuditEventRecord.target_id == session_id[:64],
-            AuditEventRecord.actor_id == actor_id,
-            AuditEventRecord.action == "video_assessment.historical_ai_summary_feedback_saved",
-        )
-        .order_by(AuditEventRecord.id.desc())
-        .all()
-    )
-    for row in rows:
-        try:
-            payload = json.loads(row.note or "{}")
-        except Exception:
-            continue
-        if not isinstance(payload, dict):
-            continue
-        if str(payload.get("summary_event_id") or "") != summary_event_id:
-            continue
-        return row, payload
-    return None, None
 
 
 def _feedback_response_from_payload(payload: dict[str, Any]) -> HistoricalSummaryFeedbackResponse:
@@ -1281,9 +1212,9 @@ def get_historical_ai_summary_feedback(
     if row is None:
         raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
     _gate_session_clinician(actor, row, db)
-    if _historical_summary_audit_by_event_id(db, session_id=session_id, event_id=summary_event_id) is None:
+    if video_assessment_historical_summary_audit_by_event_id(db, session_id=session_id, event_id=summary_event_id) is None:
         raise ApiServiceError(code="not_found", message="Historical summary not found.", status_code=404)
-    _, payload = _latest_historical_summary_feedback_audit(
+    _, payload = latest_video_assessment_summary_feedback_audit(
         db,
         actor_id=actor.actor_id,
         session_id=session_id,
@@ -1311,7 +1242,7 @@ def save_historical_ai_summary_feedback(
     if row is None:
         raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
     _gate_session_clinician(actor, row, db)
-    if _historical_summary_audit_by_event_id(db, session_id=session_id, event_id=body.summary_event_id) is None:
+    if video_assessment_historical_summary_audit_by_event_id(db, session_id=session_id, event_id=body.summary_event_id) is None:
         raise ApiServiceError(code="not_found", message="Historical summary not found.", status_code=404)
     feedback_status = _validate_historical_feedback_status(body.feedback_status)
     feedback_note = _sanitize_historical_feedback_note(body.feedback_note)

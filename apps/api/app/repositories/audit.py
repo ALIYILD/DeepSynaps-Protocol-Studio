@@ -104,6 +104,40 @@ def latest_video_assessment_historical_summary_audit(
         return row, None
 
 
+def latest_video_assessment_summary_feedback_audit(
+    session: Session,
+    *,
+    actor_id: str,
+    session_id: str,
+    summary_event_id: str,
+) -> tuple[Optional["AuditEventRecord"], Optional[dict[str, Any]]]:
+    """Return the most-recent feedback audit row + parsed payload for the
+    given (actor, session, summary_event_id) tuple, or (None, None).
+    """
+    rows = (
+        session.query(AuditEventRecord)
+        .filter(
+            AuditEventRecord.target_type == "video_assessment",
+            AuditEventRecord.target_id == session_id[:64],
+            AuditEventRecord.actor_id == actor_id,
+            AuditEventRecord.action == "video_assessment.historical_ai_summary_feedback_saved",
+        )
+        .order_by(AuditEventRecord.id.desc())
+        .all()
+    )
+    for row in rows:
+        try:
+            payload = json.loads(row.note or "{}")
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        if str(payload.get("summary_event_id") or "") != summary_event_id:
+            continue
+        return row, payload
+    return None, None
+
+
 def video_assessment_historical_summary_audit_by_event_id(
     session: Session,
     *,

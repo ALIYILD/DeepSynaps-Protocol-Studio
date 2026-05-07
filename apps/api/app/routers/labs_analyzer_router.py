@@ -494,6 +494,7 @@ def get_labs_analyzer_payload(
             timestamp=_ts(),
             payload={"source": "get_labs_analyzer_payload"},
         ),
+        db,
     )
     payload = build_labs_analyzer_payload(
         patient_id,
@@ -606,7 +607,7 @@ def post_labs_results_batch(
         timestamp=_ts(),
         payload={"kind": "lab_results_batch", "count": created},
     )
-    append_audit_event(patient_id, event)
+    append_audit_event(patient_id, event, db)
     # Return the audit-shaped event so the frontend can append it to its cache
     # (frontend `addLabResult` expects an audit-item-like object back; the
     # additional `inserted` count is additive context).
@@ -649,7 +650,7 @@ def post_labs_annotation(
             "tags": body.tags,
         },
     )
-    append_audit_event(patient_id, event)
+    append_audit_event(patient_id, event, db)
     return _audit_event_to_pr457(event)
 
 
@@ -684,7 +685,7 @@ def post_labs_review_note(
             "evidence_ack_ids": body.evidence_ack_ids,
         },
     )
-    append_audit_event(patient_id, event)
+    append_audit_event(patient_id, event, db)
     return _audit_event_to_pr457(event)
 
 
@@ -701,7 +702,7 @@ def get_labs_audit(
     if not exists:
         raise HTTPException(status_code=404, detail="Patient not found")
 
-    items = get_audit_trail(patient_id)
+    items = get_audit_trail(patient_id, db)
     # Newest-first to match the frontend cache convention.
     return {
         "patient_id": patient_id,

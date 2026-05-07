@@ -277,7 +277,7 @@ from app.qeeg.workers.qeeg_analysis_worker import (
     start_worker_if_enabled as start_qeeg_105_worker,
 )
 from app.services.agent_skills_seed import seed_default_agent_skills
-from app.services.clinical_data import seed_clinical_dataset
+from app.services.clinical_data import HandbookGenerateAPIResponse, seed_clinical_dataset
 from app.services.demo_clinic_seed import demo_seed_enabled, seed_demo_clinic_data
 from app.services.devices import list_devices
 from app.services.evidence import list_evidence
