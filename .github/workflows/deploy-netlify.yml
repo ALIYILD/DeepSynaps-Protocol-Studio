@@ -56,6 +56,11 @@ jobs:
       - name: Install Netlify CLI
         run: npm install -g netlify-cli
 
+      - name: Link Netlify site (monorepo fix)
+        run: |
+          mkdir -p .netlify
+          echo '{"siteId":"13baea11-07e8-4ab3-9c25-af1f045c845b"}' > .netlify/state.json
+
       - name: Deploy to Netlify (direct upload)
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
@@ -67,7 +72,6 @@ jobs:
           netlify deploy \
             --prod \
             --dir=apps/web/dist \
-            --site="$NETLIFY_SITE_ID" \
             --message="Deploy from GitHub Actions ${{ github.sha }}"
 
       - name: Trigger Netlify Build Hook (fallback)
