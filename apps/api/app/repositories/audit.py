@@ -1,4 +1,8 @@
+from __future__ import annotations
+
+import json
 from collections.abc import Iterable
+from typing import Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -66,6 +70,38 @@ def list_audit_events(session: Session) -> list[AuditEvent]:
 
 def count_audit_events(session: Session) -> int:
     return session.query(AuditEventRecord).count()
+
+
+def latest_video_assessment_historical_summary_audit(
+    session: Session,
+    *,
+    actor_id: str,
+    session_id: str,
+) -> tuple[Optional["AuditEventRecord"], Optional[dict[str, Any]]]:
+    """Return the most-recent video-assessment historical-summary audit row
+    (and parsed JSON payload) for ``(actor_id, session_id)``, or (None, None).
+    Routers use this to surface 'last AI summary generated at …' provenance.
+    """
+    row = (
+        session.query(AuditEventRecord)
+        .filter(
+            AuditEventRecord.target_type == "video_assessment",
+            AuditEventRecord.target_id == session_id[:64],
+            AuditEventRecord.actor_id == actor_id,
+            AuditEventRecord.action == "video_assessment.historical_ai_summary_generated",
+        )
+        .order_by(AuditEventRecord.id.desc())
+        .first()
+    )
+    if row is None:
+        return None, None
+    try:
+        payload = json.loads(row.note or "{}")
+        if not isinstance(payload, dict):
+            return row, None
+        return row, payload
+    except Exception:
+        return row, None
 
 
 def _to_schema(record: AuditEventRecord) -> AuditEvent:

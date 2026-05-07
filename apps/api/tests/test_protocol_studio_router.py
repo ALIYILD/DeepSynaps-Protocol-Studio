@@ -470,3 +470,34 @@ def test_generate_writes_audit_event(client: TestClient, auth_headers: dict, mon
     finally:
         db.close()
 
+
+def test_protocol_studio_recommend_returns_ranking_note(client: TestClient, auth_headers: dict) -> None:
+    res = client.post(
+        "/api/v1/protocol-studio/recommend",
+        headers=auth_headers["clinician"],
+        json={
+            "condition": "mdd",
+            "modalities": ["tdcs"],
+            "contraindications": [],
+            "available_devices": [],
+        },
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert "overall_top_3" in body
+    assert "ranking_note" in body
+    assert "decision-support" in body["ranking_note"].lower()
+
+
+def test_protocol_studio_simulate_is_explicitly_unavailable(client: TestClient, auth_headers: dict) -> None:
+    res = client.post(
+        "/api/v1/protocol-studio/simulate",
+        headers=auth_headers["clinician"],
+        json={"protocol_ids": []},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["available"] is False
+    assert "Simulation engine is not available" in body["message"]
+    assert body["deeptwin_simulation_enabled"] in (True, False)
+

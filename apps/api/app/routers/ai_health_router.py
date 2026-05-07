@@ -202,7 +202,7 @@ def ai_health() -> dict[str, Any]:
         _check_feature(
             name="deeptwin_simulation",
             real_ai=False,
-            safe_message="DeepTwin simulation is not implemented. Returns stub/placeholder data.",
+            safe_message="DeepTwin simulation is not implemented. Requests fail closed until a validated engine is connected.",
             override_status=_NOT_IMPLEMENTED,
         ),
         _check_feature(

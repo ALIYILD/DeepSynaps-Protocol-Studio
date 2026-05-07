@@ -81,3 +81,11 @@ def test_biometrics_route_is_registered(client: TestClient) -> None:
     assert resp.status_code != 404, (
         "biometrics_router is not registered — include it in main.py"
     )
+
+
+def test_audio_analysis_route_is_registered(client: TestClient) -> None:
+    """Voice upload endpoint must exist; a bare POST may fail validation/auth but not routing."""
+    resp = client.post("/api/v1/audio/analyze-upload")
+    assert resp.status_code != 404, (
+        "audio_analysis_router is not registered — include it in main.py"
+    )

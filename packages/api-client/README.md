@@ -50,6 +50,25 @@ shadow call inside `checkBackendHealth()` in `apps/web/src/app.js`. The
 legacy `api.health()` call drives the UI; the typed call runs in parallel
 so production logs reveal any drift before we cut over.
 
+## DeepTwin NeuroAI Lab (research previews)
+
+Typed routes are available under `/api/v1/deeptwin/neuroai/*`. Convenience wrappers:
+
+```ts
+import {
+  deeptwinNeuroAiLabStatus,
+  deeptwinNeuroAiLabTimelinePreview,
+} from '@deepsynaps/api-client';
+
+const status = await deeptwinNeuroAiLabStatus();
+const preview = await deeptwinNeuroAiLabTimelinePreview({
+  patient_id: 'pt-1',
+  events: [],
+});
+```
+
+Or call `apiClient.post('/api/v1/deeptwin/neuroai/timeline/preview', { body })` directly — paths are fully typed in `openapi-types.ts`.
+
 ## Regenerating types
 
 You need a fresh `openapi.json`. Two ways:

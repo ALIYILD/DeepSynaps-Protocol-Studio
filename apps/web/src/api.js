@@ -85,18 +85,27 @@ export function isDemoSession() {
 }
 
 // ── Demo inbox items (shared between inbox + digest shims) ──────────────────
+// Non-PHI synthetic examples for offline demo-token sessions only.
 const _DEMO_INBOX_ITEMS = [
-  { event_id: 'demo-inbox-1', surface: 'adherence_events', event_type: 'adherence.missed_session', note: 'Patient missed 3rd consecutive NFB session. Protocol requires escalation after 2 consecutive misses.', actor_id: 'system', patient_id: 'demo-pt-samantha-li', created_at: new Date(Date.now() - 3600000).toISOString(), is_acknowledged: false, is_demo: true },
-  { event_id: 'demo-inbox-2', surface: 'wearables', event_type: 'wearable.anomaly_detected', note: 'HRV dropped below baseline by 2.3 SD overnight. Sleep efficiency 52% (norm >85%). Possible autonomic stress response.', actor_id: 'system', patient_id: 'demo-pt-marcus-chen', created_at: new Date(Date.now() - 5400000).toISOString(), is_acknowledged: false, is_demo: true },
-  { event_id: 'demo-inbox-3', surface: 'adverse_events_hub', event_type: 'ae.new_report', note: 'Patient reported persistent headache (4/10) following rTMS session #8. Duration >24h. Grade 1 AE logged.', actor_id: 'system', patient_id: 'demo-pt-elena-vasquez', created_at: new Date(Date.now() - 9000000).toISOString(), is_acknowledged: false, is_demo: true },
-  { event_id: 'demo-inbox-4', surface: 'patient_messages', event_type: 'message.urgent', note: 'Urgent message from patient: "Feeling very dizzy since yesterday, should I continue home exercises?"', actor_id: 'demo-pt-samantha-li', patient_id: 'demo-pt-samantha-li', created_at: new Date(Date.now() - 14400000).toISOString(), is_acknowledged: false, is_demo: true },
-  { event_id: 'demo-inbox-5', surface: 'home_program_tasks', event_type: 'task.overdue', note: 'Home program task "Daily mindfulness breathing (10 min)" overdue by 3 days. Adherence trend declining.', actor_id: 'system', patient_id: 'demo-pt-marcus-chen', created_at: new Date(Date.now() - 21600000).toISOString(), is_acknowledged: true, is_demo: true },
-  { event_id: 'demo-inbox-6', surface: 'wearables_workbench', event_type: 'wearable.threshold_breach', note: 'Cortisol proxy elevated 1.8 SD above 30-day rolling mean. Combined with sleep disruption — flag for clinical review.', actor_id: 'system', patient_id: 'demo-pt-elena-vasquez', created_at: new Date(Date.now() - 28800000).toISOString(), is_acknowledged: true, is_demo: true },
+  // Unread / ACTION items (last 24h)
+  { event_id: 'demo-inbox-1', surface: 'adherence_events', event_type: 'adherence.missed_session', note: 'DEMO — priority=high; patient missed 2 consecutive home sessions; escalation threshold reached. Non-PHI synthetic scenario.', actor_id: 'system', patient_id: 'demo-pt-samantha-li', created_at: new Date(Date.now() - 60 * 60_000).toISOString(), is_acknowledged: false, is_demo: true },
+  { event_id: 'demo-inbox-2', surface: 'patient_messages', event_type: 'message.urgent', note: 'DEMO — priority=high; patient asks: “Dizzy since yesterday — should I continue home exercises?” Non-PHI synthetic message.', actor_id: 'demo-patient', patient_id: 'demo-pt-samantha-li', created_at: new Date(Date.now() - 2 * 60 * 60_000).toISOString(), is_acknowledged: false, is_demo: true },
+  { event_id: 'demo-inbox-3', surface: 'adverse_events_hub', event_type: 'ae.new_report', note: 'DEMO — priority=high; persistent headache after session; requires clinician review (not an emergency system). Non-PHI synthetic AE.', actor_id: 'system', patient_id: 'demo-pt-elena-vasquez', created_at: new Date(Date.now() - 3 * 60 * 60_000).toISOString(), is_acknowledged: false, is_demo: true },
+  { event_id: 'demo-inbox-4', surface: 'wearables_workbench', event_type: 'wearables.threshold_breach', note: 'DEMO — priority=high; monitoring threshold breach (sleep disruption + stress proxy). Requires review; decision support only.', actor_id: 'system', patient_id: 'demo-pt-marcus-chen', created_at: new Date(Date.now() - 5 * 60 * 60_000).toISOString(), is_acknowledged: false, is_demo: true },
+  { event_id: 'demo-inbox-5', surface: 'quality_assurance', event_type: 'qa.finding', note: 'DEMO — priority=high; QA finding requires clinician sign-off (workflow reminder). Non-PHI synthetic.', actor_id: 'system', patient_id: 'demo-pt-omar-haddad', created_at: new Date(Date.now() - 8 * 60 * 60_000).toISOString(), is_acknowledged: false, is_demo: true },
+  { event_id: 'demo-inbox-6', surface: 'patient_profile', event_type: 'consent.renewal_required', note: 'DEMO — priority=high; consent renewal required before next session scheduling. Non-PHI synthetic.', actor_id: 'system', patient_id: 'demo-pt-amelia-brown', created_at: new Date(Date.now() - 10 * 60 * 60_000).toISOString(), is_acknowledged: false, is_demo: true },
+  { event_id: 'demo-inbox-7', surface: 'wearables', event_type: 'wearables.anomaly_detected', note: 'DEMO — priority=high; HRV below baseline; correlate with symptoms. Non-PHI synthetic.', actor_id: 'system', patient_id: 'demo-pt-marcus-chen', created_at: new Date(Date.now() - 14 * 60 * 60_000).toISOString(), is_acknowledged: false, is_demo: true },
+  // Reviewed / acknowledged items (older)
+  { event_id: 'demo-inbox-8', surface: 'home_program_tasks', event_type: 'task.overdue', note: 'DEMO — priority=high; home program task overdue; reviewed previously. Non-PHI synthetic.', actor_id: 'system', patient_id: 'demo-pt-elena-vasquez', created_at: new Date(Date.now() - 2 * 86400_000).toISOString(), is_acknowledged: true, is_demo: true },
+  { event_id: 'demo-inbox-9', surface: 'course_detail', event_type: 'course.review_required', note: 'DEMO — priority=high; course review required due to pattern change. Non-PHI synthetic.', actor_id: 'system', patient_id: 'demo-pt-omar-haddad', created_at: new Date(Date.now() - 4 * 86400_000).toISOString(), is_acknowledged: true, is_demo: true },
+  { event_id: 'demo-inbox-10', surface: 'adherence_events', event_type: 'adherence.side_effect', note: 'DEMO — priority=high; mild side effect reported; reviewed and documented. Non-PHI synthetic.', actor_id: 'system', patient_id: 'demo-pt-amelia-brown', created_at: new Date(Date.now() - 6 * 86400_000).toISOString(), is_acknowledged: true, is_demo: true },
 ];
 const _DEMO_PT_NAMES = {
-  'demo-pt-samantha-li': 'Demo Patient A (synthetic)',
-  'demo-pt-marcus-chen': 'Demo Patient B (synthetic)',
-  'demo-pt-elena-vasquez': 'Demo Patient C (synthetic)',
+  'demo-pt-samantha-li': 'DEMO Patient (synthetic) — Samantha',
+  'demo-pt-elena-vasquez': 'DEMO Patient (synthetic) — Elena',
+  'demo-pt-marcus-chen': 'DEMO Patient (synthetic) — Marcus',
+  'demo-pt-omar-haddad': 'DEMO Patient (synthetic) — Omar',
+  'demo-pt-amelia-brown': 'DEMO Patient (synthetic) — Amelia',
 };
 function _buildDemoInboxGroups() {
   const grouped = {};
@@ -379,6 +388,65 @@ function _deeptwinDemoSyntheticResponse(path, method, bodyRaw) {
   const notesPath = path.match(/^\/api\/v1\/deeptwin\/patients\/([^/]+)\/clinician-notes$/);
   if (notesPath && methodU === 'GET') {
     return [];
+  }
+
+  if (path === '/api/v1/deeptwin/neuroai/status' && methodU === 'GET') {
+    return {
+      module: 'deeptwin_neuroai_lab',
+      research_only: true,
+      clinical_prediction_enabled: false,
+      note: 'Demo NeuroAI Lab status — connect a clinician API session for authenticated previews.',
+    };
+  }
+  if (path === '/api/v1/deeptwin/neuroai/timeline/preview' && methodU === 'POST') {
+    const events = body?.events || [];
+    return {
+      summary: {
+        patient_id: body?.patient_id,
+        event_count: events.length,
+        phases: events.map((e, i) => ({
+          timestamp: e.timestamp,
+          modality: e.modality,
+          label: `demo phase ${i + 1}`,
+          event_id: e.event_id || String(i),
+          association_notice:
+            'Patterns describe temporal co-occurrence or observed association; they do not imply causation.',
+        })),
+        wording: {
+          association:
+            'Observed association — insufficient evidence for causal conclusion without study design.',
+          hypothesis: 'Hypothesis for clinician review.',
+        },
+      },
+      dashboard_series: events.map((e, i) => ({
+        t: e.timestamp,
+        modality: e.modality,
+        event_id: e.event_id || String(i),
+        source: e.source || 'demo',
+      })),
+      envelope: {
+        research_only: true,
+        requires_clinician_review: true,
+        safety: { is_research_only: true },
+      },
+    };
+  }
+  if (path === '/api/v1/deeptwin/neuroai/features/preview' && methodU === 'POST') {
+    const events = body?.events || [];
+    return {
+      results: events.map((e) => ({
+        event_id: e.event_id,
+        modality: e.modality,
+        extraction: {
+          research_only: true,
+          features: { modality: e.modality, demo: true },
+          warnings: [],
+          missing_fields: [],
+          safety_flags: ['demo_stub'],
+        },
+      })),
+      envelope: { research_only: true, requires_clinician_review: true, safety: {} },
+    };
   }
 
   const cmpPath = path === '/api/v1/deeptwin/compare-protocols';
@@ -937,7 +1005,22 @@ async function apiFetchBlob(path, data) {
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error(`Export error ${res.status}`);
+  if (!res.ok) {
+    let msg = `Export error ${res.status}`;
+    let code;
+    try {
+      const ct = res.headers.get('Content-Type') || '';
+      if (ct.includes('application/json')) {
+        const j = await res.json();
+        code = j.code;
+        msg = j.message || (typeof j.detail === 'string' ? j.detail : '') || msg;
+      }
+    } catch (_) { /* ignore */ }
+    const err = new Error(msg);
+    err.status = res.status;
+    if (code) err.code = code;
+    throw err;
+  }
   return res.blob();
 }
 
@@ -1130,6 +1213,8 @@ export const api = {
   },
   protocolStudioProtocol: (protocolId) =>
     apiFetchWithRetry(`/api/v1/protocol-studio/protocols/${encodeURIComponent(protocolId)}`),
+  protocolStudioProtocolDetail: (protocolId) =>
+    apiFetchWithRetry(`/api/v1/protocol-studio/protocols/${encodeURIComponent(protocolId)}`),
   protocolStudioPatientContext: (patientId) =>
     apiFetchWithRetry(`/api/v1/protocol-studio/patients/${encodeURIComponent(patientId)}/context`),
   protocolStudioGenerate: (payload) =>
@@ -1137,6 +1222,18 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload || {}),
     }),
+  protocolStudioRecommend: (payload) =>
+    apiFetchWithRetry('/api/v1/protocol-studio/recommend', {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  protocolStudioSimulate: (payload) =>
+    apiFetchWithRetry('/api/v1/protocol-studio/simulate', {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  protocolsSaved: (patientId) =>
+    apiFetchWithRetry(`/api/v1/protocols/saved${patientId ? '?patient_id=' + encodeURIComponent(patientId) : ''}`),
   exportPatientCsv: (patientId) =>
     apiFetchBinary(`/api/v1/patients/${encodeURIComponent(patientId)}/export.csv`),
   exportPatientNdjson: (patientId) =>
@@ -1524,20 +1621,25 @@ export const api = {
   // Decision-support framing only — extracted entities are NLP candidates,
   // never validated clinical findings.
   clinicalTextHealth: () => apiFetch('/api/v1/clinical-text/health'),
-  clinicalTextAnalyze: ({ text, sourceType = 'free_text', locale = 'en' } = {}) =>
+  clinicalTextAnalyze: ({ text, sourceType = 'free_text', locale = 'en', patientId = null } = {}) =>
     apiFetch('/api/v1/clinical-text/analyze', {
       method: 'POST',
-      body: JSON.stringify({ text, source_type: sourceType, locale }),
+      body: JSON.stringify({ text, source_type: sourceType, locale, patient_id: patientId || undefined }),
     }),
-  clinicalTextExtractPII: ({ text, sourceType = 'free_text', locale = 'en' } = {}) =>
+  clinicalTextExtractPII: ({ text, sourceType = 'free_text', locale = 'en', patientId = null } = {}) =>
     apiFetch('/api/v1/clinical-text/extract-pii', {
       method: 'POST',
-      body: JSON.stringify({ text, source_type: sourceType, locale }),
+      body: JSON.stringify({ text, source_type: sourceType, locale, patient_id: patientId || undefined }),
     }),
-  clinicalTextDeidentify: ({ text, sourceType = 'free_text', locale = 'en' } = {}) =>
+  clinicalTextDeidentify: ({ text, sourceType = 'free_text', locale = 'en', patientId = null } = {}) =>
     apiFetch('/api/v1/clinical-text/deidentify', {
       method: 'POST',
-      body: JSON.stringify({ text, source_type: sourceType, locale }),
+      body: JSON.stringify({ text, source_type: sourceType, locale, patient_id: patientId || undefined }),
+    }),
+  clinicalTextAnalyzeNeuromodulation: ({ text, sourceType = 'free_text', locale = 'en', patientId = null } = {}) =>
+    apiFetch('/api/v1/clinical-text/analyze-neuromodulation', {
+      method: 'POST',
+      body: JSON.stringify({ text, source_type: sourceType, locale, patient_id: patientId || undefined }),
     }),
 
   // Custom document templates (clinician-authored, distinct from the bundled
@@ -1817,6 +1919,7 @@ export const api = {
   // ── Export ──────────────────────────────────────────────────────────────
   exportProtocolDocx: (data) => apiFetchBlob('/api/v1/export/protocol-docx', data),
   exportHandbookDocx: (data) => apiFetchBlob('/api/v1/export/handbook-docx', data),
+  exportHandbookPdf: (data) => apiFetchBlob('/api/v1/export/handbook-pdf', data),
   exportPatientGuideDocx: (data) => apiFetchBlob('/api/v1/export/patient-guide-docx', data),
 
   // ── Review & Audit ──────────────────────────────────────────────────────
@@ -1964,6 +2067,23 @@ export const api = {
     }),
   listClinicianNotes: (patientId) =>
     apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/clinician-notes`),
+
+  deeptwinNeuroAiStatus: () => apiFetch('/api/v1/deeptwin/neuroai/status'),
+  deeptwinNeuroAiTimelinePreview: (body) =>
+    apiFetch('/api/v1/deeptwin/neuroai/timeline/preview', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  deeptwinNeuroAiFeaturesPreview: (body) =>
+    apiFetch('/api/v1/deeptwin/neuroai/features/preview', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  deeptwinNeuroAiSimulationPreview: (body) =>
+    apiFetch('/api/v1/deeptwin/neuroai/simulation/preview', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   // ── Registry endpoints (public — no auth needed but token attached if present) ──
   conditions: () => apiFetchWithRetry('/api/v1/registry/conditions'),
@@ -2330,6 +2450,10 @@ export const api = {
   getQEEGRecord: (id) => apiFetch(`/api/v1/qeeg-records/${id}`),
   updateQEEGRecord: (id, data) =>
     apiFetch(`/api/v1/qeeg-records/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  // Phase 5b — POST /api/v1/qeeg-records/upload (multipart). Returns
+  // { record_id, raw_data_ref, suggested_path: "auto"|"manual", qc }.
+  uploadQEEGRecording: (formData) =>
+    apiFetch('/api/v1/qeeg-records/upload', { method: 'POST', body: formData }),
 
   // ── qEEG Analysis Pipeline ──────────────────────────────────────────────
   uploadQEEGAnalysis: (formData) =>
@@ -2802,10 +2926,14 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ note: note || '' }),
     }),
-  wearablesWorkbenchExportCsvUrl: () =>
-    `${API_BASE}/api/v1/wearables/workbench/flags/export.csv`,
-  wearablesWorkbenchExportNdjsonUrl: () =>
-    `${API_BASE}/api/v1/wearables/workbench/flags/export.ndjson`,
+  wearablesWorkbenchExportCsvUrl: (params = {}) => {
+    const q = new URLSearchParams(Object.entries(params || {}).filter(([, value]) => value != null && String(value) !== '')).toString();
+    return `${API_BASE}/api/v1/wearables/workbench/flags/export.csv${q ? '?' + q : ''}`;
+  },
+  wearablesWorkbenchExportNdjsonUrl: (params = {}) => {
+    const q = new URLSearchParams(Object.entries(params || {}).filter(([, value]) => value != null && String(value) !== '')).toString();
+    return `${API_BASE}/api/v1/wearables/workbench/flags/export.ndjson${q ? '?' + q : ''}`;
+  },
   postWearablesWorkbenchAuditEvent: (data) =>
     apiFetch('/api/v1/wearables/workbench/audit-events', {
       method: 'POST',
@@ -2973,6 +3101,11 @@ export const api = {
   createPatientBioLab: (patientId, body) =>
     apiFetch(`/api/v1/bio/patients/${encodeURIComponent(patientId)}/labs`, {
       method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  updatePatientBioLab: (patientId, labResultId, body) =>
+    apiFetch(`/api/v1/bio/patients/${encodeURIComponent(patientId)}/labs/${encodeURIComponent(labResultId)}`, {
+      method: 'PUT',
       body: JSON.stringify(body || {}),
     }),
   deletePatientBioLab: (patientId, labResultId) =>
@@ -3904,6 +4037,8 @@ export const api = {
   },
 
   // ── Digital Phenotyping Analyzer (passive behavioral signals) ────────────
+  getDigitalPhenotypingClinicSummary: () =>
+    apiFetch('/api/v1/digital-phenotyping/analyzer/clinic/summary'),
   getDigitalPhenotypingAnalyzer: (patientId) =>
     apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}`),
   getDigitalPhenotypingAudit: (patientId) =>
@@ -3951,14 +4086,10 @@ export const api = {
   addPhenotypingAnnotation: (patientId, body) => {
     const note = (body && (body.note || body.message)) || '';
     return apiFetch(
-      `/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/observations/manual`,
+      `/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/annotation`,
       {
         method: 'POST',
-        body: JSON.stringify({
-          kind: 'clinician_annotation',
-          notes: note,
-          ...(body && body.recorded_at ? { recorded_at: body.recorded_at } : {}),
-        }),
+        body: JSON.stringify({ note }),
       },
     );
   },
@@ -4008,6 +4139,8 @@ export const api = {
     apiFetch(`/api/v1/nutrition/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
 
   // ── Labs / Blood Biomarkers Analyzer (psych-med + neuromodulation safety) ─
+  getLabsClinicSummary: () =>
+    apiFetch('/api/v1/labs/analyzer/clinic/summary'),
   getLabsProfile: (patientId) =>
     apiFetch(`/api/v1/labs/analyzer/patient/${encodeURIComponent(patientId)}`),
   recomputeLabs: (patientId) =>
@@ -5906,6 +6039,64 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
+  getVideoAssessmentSession: (sessionId) =>
+    apiFetch(`/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}`),
+  patchVideoAssessmentSession: (sessionId, data) =>
+    apiFetch(`/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data || {}),
+    }),
+  finalizeVideoAssessmentSession: (sessionId, data) =>
+    apiFetch(`/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/finalize`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  uploadVideoAssessmentTaskVideo: (sessionId, taskId, blob, opts = {}) => {
+    const form = new FormData();
+    form.set('expected_revision', String(opts.expectedRevision || ''));
+    form.set(
+      'file',
+      blob,
+      opts.filename || `video-assessment-${encodeURIComponent(taskId)}.webm`,
+    );
+    return apiFetch(
+      `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}/upload`,
+      {
+        method: 'POST',
+        body: form,
+      },
+    );
+  },
+  getVideoAssessmentTaskVideo: (sessionId, taskId) =>
+    apiFetchBinary(
+      `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}/video`,
+    ),
+  exportVideoAssessmentSessionJson: (sessionId) =>
+    apiFetch(`/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/export.json`),
+  getVideoAssessmentPriorFinalizedSessions: (sessionId) =>
+    apiFetch(
+      `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/prior-finalized-sessions`,
+    ),
+  generateVideoAssessmentHistoricalAiSummary: (sessionId, data) =>
+    apiFetch(
+      `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/historical-ai-summary`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data || {}),
+      },
+    ),
+  getVideoAssessmentHistoricalAiSummaryFeedback: (sessionId, summaryEventId) =>
+    apiFetch(
+      `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/historical-ai-summary-feedback/${encodeURIComponent(summaryEventId)}`,
+    ),
+  saveVideoAssessmentHistoricalAiSummaryFeedback: (sessionId, data) =>
+    apiFetch(
+      `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/historical-ai-summary-feedback`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data || {}),
+      },
+    ),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).

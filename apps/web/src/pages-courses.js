@@ -13536,7 +13536,7 @@ const _CDG_SURFACE_ROUTE = {
   wearables_workbench: 'monitor',
   clinician_adherence_hub: 'clinician-adherence',
   clinician_wellness_hub: 'clinician-wellness',
-  adverse_events_hub: 'adverse-events-hub',
+  adverse_events_hub: 'adverse-events',
 };
 
 const _CDG_PRESETS = [
@@ -13660,7 +13660,7 @@ async function _cdgLoadData() {
   try {
     [summary, sections, events] = await Promise.all([
       api.clinicianDigestSummary(params),
-      api.clinicianDigestSections({ since: params.since || '', until: params.until || '' }),
+      api.clinicianDigestSections(params),
       api.clinicianDigestEvents(params),
     ]);
   } catch (e) {
@@ -13712,7 +13712,8 @@ function _cdgPaintDigestDom() {
 function _cdgRenderScopeNote() {
   return `
     <div class="notice notice-info" role="region" aria-label="Digest scope" style="margin-bottom:14px;font-size:12.5px;line-height:1.55">
-      <strong>Scope.</strong> KPIs and timelines below reflect <strong>Inbox, Wearables Workbench, Adherence, Wellness, and Adverse Events hub</strong> activity aggregated by the digest API. MRI, qEEG, video, biometrics, text analysis, protocol drafts, assessments, documents, and evidence governance <strong>are not counted here</strong> unless the backend adds them — they appear as <strong>shortcuts to open the source module</strong> (not yet aggregated into digest).
+      <strong>Scope.</strong> KPIs and timelines below reflect <strong>Inbox, Wearables Workbench, Adherence, Wellness, and Adverse Events hub</strong> activity aggregated by the digest API. This is <strong>not a full clinic census</strong> and it never implies “all clear” for patient care. MRI, qEEG, video, biometrics, text analysis, protocol drafts, assessments, documents, and evidence governance <strong>are not counted here</strong> unless the backend adds them — they appear as <strong>shortcuts to open the source module</strong> (navigation only; not yet aggregated into digest).
+      <div style="margin-top:6px;color:var(--text-tertiary)">Counts are <strong>audit/hub-backed aggregates</strong>, not AI-generated clinical conclusions.</div>
     </div>`;
 }
 
@@ -13725,6 +13726,8 @@ function _cdgRenderControls(state) {
   }).join('');
   const csvHref = api.clinicianDigestExportCsvUrl(_cdgBuildFilterParams(state));
   const ndjsonHref = api.clinicianDigestExportNdjsonUrl(_cdgBuildFilterParams(state));
+  const demoDlCsv = state?.isDemoView ? ' download="DEMO-clinician-digest.csv"' : '';
+  const demoDlNd = state?.isDemoView ? ' download="DEMO-clinician-digest.ndjson"' : '';
   return `
     <div class="card" style="padding:14px 16px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
       <div>
@@ -13752,8 +13755,8 @@ function _cdgRenderControls(state) {
         <button type="button" id="cdg-email-btn" class="btn btn-primary" aria-describedby="cdg-email-hint">Email digest</button>
         <span id="cdg-email-hint" class="sr-only">Requests digest email; delivery may be queued until SMTP is configured — not proof of delivery.</span>
         <button type="button" id="cdg-share-btn" class="btn btn-secondary">Share with colleague</button>
-        <a id="cdg-csv-btn" class="btn btn-link" href="${_cdgEsc(csvHref)}" target="_blank" rel="noopener noreferrer">Export CSV</a>
-        <a id="cdg-ndjson-btn" class="btn btn-link" href="${_cdgEsc(ndjsonHref)}" target="_blank" rel="noopener noreferrer">Export NDJSON</a>
+        <a id="cdg-csv-btn" class="btn btn-link" href="${_cdgEsc(csvHref)}"${demoDlCsv} target="_blank" rel="noopener noreferrer">Export CSV</a>
+        <a id="cdg-ndjson-btn" class="btn btn-link" href="${_cdgEsc(ndjsonHref)}"${demoDlNd} target="_blank" rel="noopener noreferrer">Export NDJSON</a>
       </div>
     </div>`;
 }
@@ -13761,7 +13764,7 @@ function _cdgRenderControls(state) {
 function _cdgRenderDemoBanner() {
   return `
     <div class="notice notice-warning" role="status" style="margin-bottom:14px;font-size:12.5px;line-height:1.55">
-      <strong>Demo session.</strong> Sample patient labels and counts are for product review only. Exports are DEMO-prefixed and are not regulator-submittable.
+      <strong>Demo session.</strong> Controlled preview using <strong>synthetic non-PHI</strong> sample patient labels and counts. Digest totals remain audit/hub-backed (not AI narrative). Exports are <strong>DEMO-prefixed</strong> and are <strong>not regulator-submittable</strong>.
     </div>`;
 }
 
@@ -14183,6 +14186,13 @@ function _cdgBindControls(navigate) {
 }
 
 function _cdgBindSectionDrillOuts(navigate) {
+  const navOrExplain = (route, msg) => {
+    if (route && typeof navigate === 'function') return navigate(route);
+    if (route && typeof window !== 'undefined' && window._nav) return window._nav(route);
+    if (typeof window !== 'undefined' && window.showToast) window.showToast(msg || 'This destination is not available in this build.', 'warn');
+    else if (typeof window !== 'undefined' && window.alert) window.alert(msg || 'This destination is not available in this build.');
+    return null;
+  };
   document.querySelectorAll('.cdg-drill-section-btn').forEach(btn => {
     if (btn._bound) return;
     btn._bound = true;
@@ -14190,8 +14200,7 @@ function _cdgBindSectionDrillOuts(navigate) {
       const surface = btn.getAttribute('data-surface');
       const route = _CDG_SURFACE_ROUTE[surface];
       try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('drill_out', { note: 'surface=' + surface })); } catch (_) {}
-      if (route && typeof navigate === 'function') navigate(route);
-      else if (route && typeof window !== 'undefined' && window._nav) window._nav(route);
+      navOrExplain(route, 'This source hub is not available in this build. No clinical action has been taken; digest item retained for review.');
     };
   });
   document.querySelectorAll('.cdg-drill-patient-btn').forEach(btn => {
@@ -14203,8 +14212,7 @@ function _cdgBindSectionDrillOuts(navigate) {
       const route = _CDG_SURFACE_ROUTE[surface] || 'patient-profile';
       try { api.postClinicianDigestAuditEvent(_cdgBuildAuditPayload('drill_out', { note: 'patient=' + pid + '; surface=' + surface })); } catch (_) {}
       if (pid) window._patientId = pid;
-      if (typeof navigate === 'function') navigate(route);
-      else if (typeof window !== 'undefined' && window._nav) window._nav(route);
+      navOrExplain(route, 'Patient view is not available in this build. No clinical action has been taken; digest item retained for review.');
     };
   });
   document.querySelectorAll('.cdg-drill-event-btn').forEach(btn => {
@@ -14219,8 +14227,7 @@ function _cdgBindSectionDrillOuts(navigate) {
       const m = url.match(/\?page=([a-z0-9_-]+)/i);
       const route = (m && m[1]) || _CDG_SURFACE_ROUTE[surface] || 'clinician-inbox';
       if (pid) window._patientId = pid;
-      if (typeof navigate === 'function') navigate(route);
-      else if (typeof window !== 'undefined' && window._nav) window._nav(route);
+      navOrExplain(route, 'This source module is not available in this build. No clinical action has been taken; digest item retained for review.');
     };
   });
 }

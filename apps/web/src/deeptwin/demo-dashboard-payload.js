@@ -49,7 +49,7 @@ export function buildDemoDashboard360Payload(patientId) {
     card('diagnosis', 'available', dx.join(' · ')),
     card('symptoms_goals', 'partial', 'Demo intake notes only.'),
     card('assessments', 'missing', 'No assessment scores in this demo seed.', {
-      upload_links: [{ label: 'Submit assessment', href: '/assessments', kind: 'assessment' }],
+      upload_links: [{ label: 'Submit assessment', href: '/?page=assessments-v2', kind: 'assessment' }],
     }),
     card('qeeg', 'missing', 'No qEEG records in this demo seed.', {
       upload_links: [{ label: 'Upload qEEG', href: '/qeeg-launcher', kind: 'qeeg' }],
@@ -88,8 +88,8 @@ export function buildDemoDashboard360Payload(patientId) {
     }),
     card('clinical_documents', 'partial', 'Document templates exist; per-patient generated documents not yet aggregated here.'),
     card('outcomes', 'missing', 'No outcome series or events on file.'),
-    card('twin_predictions', 'partial', 'DeepTwin predictions are model-estimated and uncalibrated.', {
-      warnings: ['DeepTwin model is currently a deterministic placeholder; no validated outcome calibration.'],
+    card('twin_predictions', 'unavailable', 'DeepTwin prediction output is withheld until a validated model is connected.', {
+      warnings: ['No validated DeepTwin prediction model or outcome calibration is connected.'],
     }),
   ];
   const available = domains.filter(d => d.status === 'available').length;
@@ -113,14 +113,16 @@ export function buildDemoDashboard360Payload(patientId) {
     timeline: [], correlations: [],
     outcomes: { series_count: 0, event_count: 0, summary: 'No outcomes on file (demo).' },
     prediction_confidence: {
-      status: 'placeholder', real_ai: false, confidence: null,
-      confidence_label: 'Not calibrated',
-      summary: 'Decision-support only. Requires clinician review.',
+      available: false,
+      status: 'not_implemented', real_ai: false, confidence: null,
+      confidence_label: 'Withheld',
+      summary: 'DeepTwin prediction output is withheld until a validated model is connected.',
+      reason: 'no_validated_prediction_model',
       drivers: [],
       limitations: [
-        'No validated outcome dataset bound to this engine.',
-        'Encoders are deterministic feature extractors, not trained ML.',
-        'Predictions must not be used as autonomous treatment recommendations.',
+        'No validated outcome dataset is bound to a production prediction engine.',
+        'Prediction output is intentionally withheld instead of rendering deterministic placeholders.',
+        'DeepTwin must not be used as an autonomous treatment recommendation engine.',
       ],
     },
     clinician_notes: [],

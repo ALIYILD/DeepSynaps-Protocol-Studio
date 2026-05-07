@@ -1,13 +1,17 @@
 # DeepSynaps Protocol Studio — API Fly.io configuration (apps/api)
 #
+# SOURCE OF TRUTH for Fly deploys. The deploy script uses this file:
+#   scripts/deploy-preview.sh --api
+#
 # Required secrets (set via `fly secrets set KEY=value`):
 #   DEEPSYNAPS_DATABASE_URL   — SQLite path or PostgreSQL URL for production DB
 #   JWT_SECRET_KEY            — Secret key for JWT signing (min 32 chars)
 #   DEEPSYNAPS_SECRETS_KEY    — Fernet key for persisted auth/2FA secrets
-#   DEEPSYNAPS_CORS_ORIGINS   — Comma-separated allowed frontend origins (for example https://deepsynaps-studio-preview.netlify.app)
+#   DEEPSYNAPS_CORS_ORIGINS   — Comma-separated allowed frontend origins
 #   STRIPE_SECRET_KEY         — Stripe secret key (when payments are enabled)
 #   STRIPE_WEBHOOK_SECRET     — Stripe webhook signing secret
 #   WEARABLE_TOKEN_ENC_KEY    — Fernet key required before enabling real wearable OAuth
+#   CELERY_BROKER_URL         — Redis broker URL for async qEEG/ERP workers
 #   SENTRY_DSN                — Sentry DSN for error tracking (optional)
 
 app = "deepsynaps-studio"
@@ -18,22 +22,31 @@ primary_region = "lhr"
 
 [env]
   DEEPSYNAPS_APP_ENV = "production"
+  DEEPSYNAPS_API_HOST = "0.0.0.0"
+  DEEPSYNAPS_API_PORT = "8080"
   DEEPSYNAPS_LOG_LEVEL = "INFO"
   PORT = "8080"
   # MRI Analyzer: when ``1``, ``POST /api/v1/mri/analyze`` persists the canned
-  # ``demo/sample_mri_report.json`` payload (same pattern as qEEG demo). Enables
-  # the Netlify preview + demo-login flow without installing FreeSurfer/FastSurfer
-  # on the VM. Set to ``0`` when the full ``deepsynaps_mri`` neuro stack is
-  # deployed and you want real pipeline jobs instead.
+  # ``demo/sample_mri_report.json`` payload. Set to ``0`` when the full
+  # ``deepsynaps_mri`` neuro stack is deployed.
   MRI_DEMO_MODE = "1"
-  # Evidence pipeline DB lives on the mounted volume below. The evidence_router
-  # serves 503 with a clear message until the file exists. Populate it once per
-  # machine (or weekly via cron) with:
-  #   fly ssh console -C "python3 /app/services/evidence-pipeline/ingest.py --all --unpaywall"
-  # Secrets to set: NCBI_API_KEY, UNPAYWALL_EMAIL, OPENFDA_API_KEY.
+  # Evidence pipeline DB lives on the mounted volume below. Evidence routes
+  # return 503 with a clear message until the file exists.
   EVIDENCE_DB_PATH = "/data/evidence.db"
+  # Voice engine: S3-compatible bucket for audio uploads and analysis artifacts.
+  # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set as secrets.
+  DEEPSYNAPS_VOICE_BUCKET = "deepsynaps-voice"
   # DEEPSYNAPS_CORS_ORIGINS, DEEPSYNAPS_DATABASE_URL, JWT_SECRET_KEY, and
   # DEEPSYNAPS_SECRETS_KEY must be set as secrets before production boot.
+
+# Process groups:
+#   app          — FastAPI HTTP server (public-facing)
+#   qeeg_worker  — Celery worker for qEEG/ERP async analysis jobs
+#   stripe_worker — Polls StripeWebhookLog outbox every 5 min for retries
+[processes]
+  app = "uvicorn app.main:app --host 0.0.0.0 --port 8080 --app-dir apps/api"
+  qeeg_worker = "celery -A app.jobs worker --workdir /app/apps/api --loglevel=INFO --without-gossip --without-mingle"
+  stripe_worker = "sh -c 'while true; do python scripts/retry_stripe_webhooks.py; sleep 300; done'"
 
 [http_service]
   internal_port = 8080
@@ -41,13 +54,14 @@ primary_region = "lhr"
   auto_stop_machines = true
   auto_start_machines = true
   min_machines_running = 1
+  processes = ["app"]
 
   [http_service.concurrency]
     type = "connections"
     hard_limit = 25
     soft_limit = 20
 
-  # NOTE: SSE connections (notifications endpoint) use long-lived HTTP connections.
+  # NOTE: SSE connections use long-lived HTTP connections.
   # With auto_stop_machines = true, machines may sleep and cut open SSE streams.
   # The frontend EventSource must handle reconnects on EventSource.CLOSED / onerror.
   [[http_service.checks]]
@@ -62,7 +76,7 @@ primary_region = "lhr"
   release_command = "sh -c 'cd /app/apps/api && python -m alembic upgrade head'"
 
 [[vm]]
-  memory = "1gb"
+  memory = "2gb"
   cpu_kind = "shared"
   cpus = 1
 

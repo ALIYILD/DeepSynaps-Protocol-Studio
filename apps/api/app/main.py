@@ -27,7 +27,6 @@ from deepsynaps_core_schema import (
     ErrorResponse,
     EvidenceListResponse,
     HandbookGenerateRequest,
-    HandbookGenerateResponse,
     IntakePreviewRequest,
     IntakePreviewResponse,
     ProtocolDraftRequest,
@@ -97,6 +96,8 @@ from app.routers.reports_router import router as reports_router
 from app.routers.documents_router import router as documents_router
 from app.routers.documents_router import patient_docs_router
 from app.routers.recordings_router import router as recordings_router
+from app.routers.audio_analysis_router import router as audio_analysis_router
+from app.routers.voice_engine_router import router as voice_engine_router
 from app.routers.protocols_saved_router import router as protocols_saved_router
 from app.routers.protocols_generate_router import router as protocols_generate_router
 from app.routers.protocol_studio_router import router as protocol_studio_router
@@ -199,6 +200,7 @@ from app.routers.agent_admin_router import router as agent_admin_router
 from app.routers.admin_pgvector_router import router as admin_pgvector_router
 from app.routers.monitor_router import router as monitor_router
 from app.routers.deeptwin_router import brain_twin_router, router as deeptwin_router
+from app.routers.deeptwin_neuroai_lab_router import router as deeptwin_neuroai_lab_router
 from app.routers.feature_store_router import router as feature_store_router
 from app.routers.citation_validator_router import router as citation_validator_router
 from app.routers.ai_health_router import router as ai_health_router
@@ -239,6 +241,7 @@ from app.routers.recording_eeg_events_router import router as recording_eeg_even
 from app.routers.montages_router import router as montages_router
 from app.routers.audit_trail_router import router as audit_trail_router
 from app.routers.biometrics_router import router as biometrics_router
+from app.routers.bio_router import router as bio_router
 from app.routers.qeeg_report_annotations_router import (
     router as qeeg_report_annotations_router,
 )
@@ -402,6 +405,27 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
     # QEEG-105 Analysis Worker (Phase 0 scaffold) — gated on
     # DEEPSYNAPS_QEEG_105_WORKER_ENABLED so tests / CI don't run background jobs.
     start_qeeg_105_worker()
+    # Voice engine warm-up — pre-load Whisper weights at startup so /api/v1/voice/analyze
+    # doesn't pay 30-90s of cold-load latency inside the request handler. Gated on
+    # DEEPSYNAPS_VOICE_WARMUP=1 so tests / CI don't load torch+whisper. Failures are
+    # logged and swallowed; the rule-based fallback still works without warm models.
+    if os.environ.get("DEEPSYNAPS_VOICE_WARMUP") == "1":
+        try:
+            import time as _voice_time
+            import sys as _voice_sys
+            from pathlib import Path as _VoicePath
+            _voice_engine_dir = _VoicePath(__file__).resolve().parents[3] / "packages" / "voice-engine"
+            if str(_voice_engine_dir) not in _voice_sys.path:
+                _voice_sys.path.insert(0, str(_voice_engine_dir))
+            import transcription as _voice_transcription  # noqa: PLC0415
+            _t0 = _voice_time.monotonic()
+            _voice_transcription.get_whisper_model()
+            logger.info(
+                "voice-engine warm-up complete",
+                extra={"elapsed_sec": round(_voice_time.monotonic() - _t0, 2)},
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("voice-engine warm-up failed (non-fatal): %s", exc)
     try:
         yield
     finally:
@@ -473,6 +497,8 @@ app.include_router(reports_router, prefix="/api/v1/reports", tags=["reports"])
 app.include_router(documents_router)
 app.include_router(patient_docs_router)
 app.include_router(recordings_router)
+app.include_router(audio_analysis_router)
+app.include_router(voice_engine_router, prefix="/api/v1")
 app.include_router(protocols_saved_router)
 app.include_router(protocols_generate_router)
 app.include_router(protocol_studio_router)
@@ -631,6 +657,7 @@ app.include_router(mri_analysis_router)
 app.include_router(fusion_router)
 app.include_router(monitor_router)
 app.include_router(deeptwin_router)
+app.include_router(deeptwin_neuroai_lab_router)
 app.include_router(brain_twin_router)
 app.include_router(patient_summary_router)
 app.include_router(patient_timeline_router)
@@ -680,6 +707,7 @@ app.include_router(rotation_policy_advisor_threshold_tuning_router)
 app.include_router(treatment_sessions_router)
 app.include_router(audit_trail_router)
 app.include_router(biometrics_router)
+app.include_router(bio_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -978,7 +1006,7 @@ def protocol_draft(
 
 @app.post(
     "/api/v1/handbooks/generate",
-    response_model=HandbookGenerateResponse,
+    response_model=HandbookGenerateAPIResponse,
     responses={403: {"model": ErrorResponse}},
 )
 @limiter.limit("10/minute")
@@ -986,7 +1014,7 @@ def handbook(
     request: Request,
     payload: HandbookGenerateRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
-) -> HandbookGenerateResponse:
+) -> HandbookGenerateAPIResponse:
     return generate_handbook(payload, actor)
 
 

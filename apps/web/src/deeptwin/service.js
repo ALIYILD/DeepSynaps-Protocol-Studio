@@ -1,9 +1,8 @@
 // DeepTwin frontend service layer.
 //
-// Wraps api.* calls and falls back to deterministic demo data when the
-// API errors or is unreachable. This mirrors the codebase's existing
-// "seed on empty roster" pattern in pages-clinical-hubs.js so demo mode
-// renders the page fully even without a live backend.
+// Wraps api.* calls and only falls back to deterministic demo data for
+// explicit demo/offline sessions. Real clinician sessions fail closed so
+// backend errors cannot silently degrade into seeded DeepTwin outputs.
 
 import { api } from '../api.js';
 import {
@@ -27,29 +26,25 @@ export function isDeepTwinDemoTokenSession() {
   return !!(t && String(t).endsWith('-demo-token'));
 }
 
+function _hasAccessToken() {
+  const t = _readAccessToken();
+  return !!String(t || '').trim();
+}
+
+export function shouldUseDeepTwinDemoFixtures() {
+  return isDeepTwinDemoTokenSession() || (DEMO_FORCED && !_hasAccessToken());
+}
+
 async function withFallback(fn, fallback) {
-  // Demo-token sessions always hit the client shim first — never substitute stale fixtures on HTTP errors.
-  if (isDeepTwinDemoTokenSession()) {
+  // Only explicit demo/offline sessions should ever synthesize DeepTwin data.
+  if (shouldUseDeepTwinDemoFixtures()) {
     try {
       return await fn();
     } catch {
       return fallback();
     }
   }
-  // Preview builds without a live API: allow seeded fixtures when the roster is empty or offline.
-  if (DEMO_FORCED) {
-    try {
-      const v = await fn();
-      return (v && (Array.isArray(v) ? v.length : Object.keys(v).length)) ? v : fallback();
-    } catch {
-      return fallback();
-    }
-  }
-  try {
-    return await fn();
-  } catch {
-    return fallback();
-  }
+  return fn();
 }
 
 export async function getTwinSummary(patientId) {
@@ -73,7 +68,10 @@ export async function getTwinPredictions(patientId, horizon = '6w') {
 }
 
 export async function runTwinSimulation(patientId, payload) {
-  return withFallback(() => api.runTwinSimulation(patientId, payload), () => demoSimulation(patientId, payload));
+  if (isDeepTwinDemoTokenSession() || DEMO_FORCED) {
+    return withFallback(() => api.runTwinSimulation(patientId, payload), () => demoSimulation(patientId, payload));
+  }
+  return api.runTwinSimulation(patientId, payload);
 }
 
 export async function generateTwinReport(patientId, payload) {

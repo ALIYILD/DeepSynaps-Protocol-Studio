@@ -1535,7 +1535,6 @@ export async function pgSettings(setTopbar, currentUser) {
   const savedCredentials = pref(serverProfile?.credentials,     'ds_user_credentials');
   const savedLicense     = pref(serverProfile?.license_number,  'ds_user_license');
   const twoFAEnabled     = !!(serverProfile?.two_factor_enabled) || lsGet('ds_2fa_enabled') === 'true';
-  const savedSecret      = lsGet('ds_2fa_secret');
 
   const browserTZ = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; } });
   const savedClinicName        = pref(serverClinic?.name,     'ds_clinic_name');
@@ -2732,7 +2731,8 @@ export async function pgSettings(setTopbar, currentUser) {
     const secret = setup?.secret || setup?.otp_secret || '';
     const qrUrl  = setup?.qr_url || setup?.otpauth_url || '';
     const backupCodes = Array.isArray(setup?.backup_codes) ? setup.backup_codes : [];
-    if (secret) { try { localStorage.setItem('ds_2fa_secret', secret); } catch {} }
+    // Secret is kept in memory only (closure scope) — not persisted to localStorage
+    // to avoid XSS exfiltration risk.
     panel.innerHTML = `
       <div style="font-size:12.5px;color:var(--text-primary);margin-bottom:8px;font-weight:600">Set up your authenticator</div>
       <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">Scan the QR code with Google Authenticator / Authy / 1Password, or enter the secret manually.</div>
@@ -2800,7 +2800,7 @@ export async function pgSettings(setTopbar, currentUser) {
       try {
         await api.disable2FA(pw, code);
         try { localStorage.setItem('ds_2fa_enabled', 'false'); } catch {}
-        try { localStorage.removeItem('ds_2fa_secret'); } catch {}
+        // No localStorage secret to remove (secret is never persisted)
         const wrap = document.getElementById('twofa-btn-wrap');
         if (wrap) wrap.innerHTML = '<button class="btn btn-primary btn-sm" id="twofa-enable-btn">Enable 2FA</button>';
         bindEnable2FA();

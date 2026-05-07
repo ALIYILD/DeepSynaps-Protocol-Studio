@@ -22,6 +22,20 @@ const DEMO_PATIENTS = Object.freeze([
     sex: 'F',
     presenting: 'Chronic pain (Fibromyalgia) · refractory to first-line pharmacology',
   }),
+  Object.freeze({
+    id: 'demo-pt-omar-haddad',
+    name: 'Demo Patient D (synthetic)',
+    age: 52,
+    sex: 'M',
+    presenting: 'Post-stroke fatigue · rehab-focused neuromodulation candidacy review',
+  }),
+  Object.freeze({
+    id: 'demo-pt-amelia-brown',
+    name: 'Demo Patient E (synthetic)',
+    age: 29,
+    sex: 'F',
+    presenting: 'Complex PTSD · insomnia + hypervigilance (demo persona)',
+  }),
 ]);
 
 export const DEMO_PATIENT_PERSONAS = DEMO_PATIENTS;
@@ -174,6 +188,61 @@ const _TEXT = {
 Hx: GAD x4 years, sleep-onset insomnia, somatic tension. Sertraline 100 mg PO daily and melatonin 3 mg qhs. BP 128/82, HR 78.
 
 Plan: trial neurofeedback (SMR uptraining at Cz) x10 sessions; repeat GAD-7 in 4 weeks.
+
+Contact (fictional): [EMAIL]`,
+  },
+};
+
+const _NEURO_NOTE = `Synthetic neuromodulation session note — Demo Patient A (33 y/o female), rTMS session 8 of 30, 2026-04-30.
+
+Protocol: 10 Hz rTMS, L-DLPFC (F3), figure-8 coil, 120% RMT. Train duration 4 s, ITI 26 s, 3000 pulses per session. Magstim Rapid² device.
+
+Pre-session: PHQ-9 = 14 (down from 19 at baseline). HAM-D = 12. No seizure history.
+
+Tolerance: mild scalp discomfort at stimulation site during first 2 trains; resolved by session 3. No headache post-session. No syncope.
+
+Plan: continue 10 Hz L-DLPFC rTMS 5×/week through week 6; repeat PHQ-9 and HAM-D at session 20. Monitor for manic switch or sleep worsening.
+
+Contact (fictional): demo-clinic-patient-a@example.invalid`;
+
+const _NEURO = {
+  source_text: _NEURO_NOTE,
+  patient: { patient_id: 'demo-pt-samantha-li', name: 'Demo Patient A (synthetic)' },
+  analyze: {
+    entities: [
+      { text: '10 Hz rTMS', label: 'stimulation_protocol', score: 0.96, start: 89, end: 99 },
+      { text: 'L-DLPFC', label: 'electrode_placement', score: 0.94, start: 101, end: 108 },
+      { text: 'F3', label: 'electrode_placement', score: 0.98, start: 110, end: 112 },
+      { text: 'figure-8 coil', label: 'device_parameter', score: 0.91, start: 114, end: 125 },
+      { text: '120% RMT', label: 'device_parameter', score: 0.93, start: 127, end: 135 },
+      { text: 'Train duration 4 s', label: 'device_parameter', score: 0.89, start: 137, end: 153 },
+      { text: 'ITI 26 s', label: 'device_parameter', score: 0.90, start: 155, end: 163 },
+      { text: '3000 pulses per session', label: 'device_parameter', score: 0.92, start: 165, end: 188 },
+      { text: 'Magstim Rapid²', label: 'neuromodulation_device', score: 0.95, start: 190, end: 204 },
+      { text: 'PHQ-9', label: 'outcome_measure', score: 0.97, start: 219, end: 224 },
+      { text: 'HAM-D', label: 'outcome_measure', score: 0.97, start: 254, end: 259 },
+      { text: 'scalp discomfort', label: 'adverse_event', score: 0.88, start: 334, end: 350 },
+      { text: 'headache', label: 'adverse_event', score: 0.85, start: 411, end: 419 },
+      { text: 'syncope', label: 'adverse_event', score: 0.82, start: 428, end: 435 },
+      { text: 'manic switch', label: 'adverse_event', score: 0.80, start: 504, end: 514 },
+      { text: 'sleep worsening', label: 'adverse_event', score: 0.79, start: 518, end: 533 },
+    ],
+  },
+  pii: {
+    pii_spans: [
+      { text: 'demo-clinic-patient-a@example.invalid', label: 'EMAIL', score: 0.99 },
+    ],
+  },
+  deidentify: {
+    deidentified_text: `Synthetic neuromodulation session note — [NAME] (33 y/o female), rTMS session 8 of 30, 2026-04-30.
+
+Protocol: 10 Hz rTMS, L-DLPFC (F3), figure-8 coil, 120% RMT. Train duration 4 s, ITI 26 s, 3000 pulses per session. Magstim Rapid² device.
+
+Pre-session: PHQ-9 = 14 (down from 19 at baseline). HAM-D = 12. No seizure history.
+
+Tolerance: mild scalp discomfort at stimulation site during first 2 trains; resolved by session 3. No headache post-session. No syncope.
+
+Plan: continue 10 Hz L-DLPFC rTMS 5×/week through week 6; repeat PHQ-9 and HAM-D at session 20. Monitor for manic switch or sleep worsening.
 
 Contact (fictional): [EMAIL]`,
   },
@@ -1126,10 +1195,69 @@ const _TS_DETAIL = {
       outcomes: { scale: 'HAM-D', scores: [28, 27, 25, 23, 21, 19, 18] },
     };
   },
+  'demo-pt-omar-haddad': () => {
+    const sessions = _tsBuildSessions('omar', 20, 12, {
+      modality: 'rTMS', intensity: '110% rMT · 1 Hz · 1800 pulses · right motor cortex',
+      duration: 30, comfort: 8, cadenceDays: 2, startISO: '2026-03-10T11:00:00Z',
+      deviationIndices: [6, 9], deviationDuration: 35,
+      aeIndices: [3],
+      unsignedIndices: [11, 12],
+    });
+    return {
+      course: {
+        id: 'demo-course-omar-rtms', patient_id: 'demo-pt-omar-haddad', patient_name: 'Demo Patient D (synthetic)',
+        protocol_name: '1 Hz rTMS · Right M1 for post-stroke fatigue', modality: 'rTMS', target_site: 'R-M1 (hand knob)',
+        total_sessions: 20, completed_sessions: 12, adherence_pct: 80,
+        current_week: 6, total_weeks: 8, started_at: '2026-03-10T11:00:00Z',
+      },
+      sessions,
+      summary: { signed_count: 10, delivered_count: 12 },
+      deviations: [
+        {
+          session_number: 6, scheduled_at: '2026-03-22T11:00:00Z',
+          parameter: 'Stimulus duration', prescribed: '30 min', delivered: '35 min',
+          note: 'Operator extended session per patient request; requires clinician review.',
+        },
+        {
+          session_number: 9, scheduled_at: '2026-03-28T11:00:00Z',
+          parameter: 'Stimulus duration', prescribed: '30 min', delivered: '35 min',
+          note: 'Repeated extension; flag for protocol adherence review.',
+        },
+      ],
+      outcomes: { scale: 'FSS', scores: [42, 40, 38, 37, 36, 35, 34, 33, 32, 31, 30, 29] },
+    };
+  },
+  'demo-pt-amelia-brown': () => {
+    const sessions = _tsBuildSessions('amelia', 30, 5, {
+      modality: 'tDCS', intensity: '2 mA · 30 min · F4-anodal / F3-cathodal',
+      duration: 30, comfort: 7, cadenceDays: 2, startISO: '2026-04-20T14:00:00Z',
+      aeIndices: [2],
+      unsignedIndices: [4, 5],
+    });
+    return {
+      course: {
+        id: 'demo-course-amelia-tdcs', patient_id: 'demo-pt-amelia-brown', patient_name: 'Demo Patient E (synthetic)',
+        protocol_name: 'Anodal tDCS · R-DLPFC for complex PTSD', modality: 'tDCS', target_site: 'R-DLPFC (F4)',
+        total_sessions: 30, completed_sessions: 5, adherence_pct: 45,
+        current_week: 3, total_weeks: 12, started_at: '2026-04-20T14:00:00Z',
+      },
+      sessions,
+      summary: { signed_count: 3, delivered_count: 5 },
+      deviations: [],
+      outcomes: {
+        scale: 'PCL-5',
+        scores: [62, 60, 58, 55, 53],
+        all_summaries: [
+          { template_id: 'pcl5', template_title: 'PCL-5', scores: [62, 60, 58, 55, 53] },
+          { template_id: 'isi', template_title: 'ISI', scores: [18, 17, 16, 15, 14] },
+        ],
+      },
+    };
+  },
 };
 
 const _TREATMENT_SESSIONS = {
-  patients: ['demo-pt-samantha-li', 'demo-pt-marcus-chen', 'demo-pt-elena-vasquez'],
+  patients: ['demo-pt-samantha-li', 'demo-pt-marcus-chen', 'demo-pt-elena-vasquez', 'demo-pt-omar-haddad', 'demo-pt-amelia-brown'],
   detail: (pid) => (_TS_DETAIL[pid] ? _TS_DETAIL[pid]() : null),
 };
 
@@ -1285,6 +1413,86 @@ const _PHENOTYPE_ASSIGNMENTS = [
     confidence: 'moderate',
     assigned_at: '2026-04-20T14:18:00Z',
     created_at: '2026-04-20T14:18:00Z',
+  },
+  /* Omar Haddad — rTMS, chronic pain + PTSD comorbid, inflammatory markers elevated */
+  {
+    id: 'demo-pha-omar-1',
+    patient_id: 'demo-pt-omar-haddad',
+    clinician_id: 'demo-clinician',
+    phenotype_id: 'demo-ph-anxious-depression',
+    phenotype_name: 'Anxious depression',
+    domain: 'Mood · Anxiety overlap',
+    rationale: 'PHQ-9 18, GAD-7 16, prominent catastrophic thinking about pain progression; somatic tension limits rTMS positioning comfort.',
+    qeeg_supported: true,
+    confidence: 'high',
+    assigned_at: '2026-04-15T09:30:00Z',
+    created_at: '2026-04-15T09:30:00Z',
+  },
+  {
+    id: 'demo-pha-omar-2',
+    patient_id: 'demo-pt-omar-haddad',
+    clinician_id: 'demo-clinician',
+    phenotype_id: 'demo-ph-trauma-related',
+    phenotype_name: 'Trauma-related dysregulation',
+    domain: 'Trauma · Stress',
+    rationale: 'PCL-5 44; combat-related hypervigilance and startle response complicate pain rehabilitation. Pain flare-ups trigger intrusive imagery.',
+    qeeg_supported: false,
+    confidence: 'high',
+    assigned_at: '2026-04-16T11:00:00Z',
+    created_at: '2026-04-16T11:00:00Z',
+  },
+  {
+    id: 'demo-pha-omar-3',
+    patient_id: 'demo-pt-omar-haddad',
+    clinician_id: 'demo-clinician',
+    phenotype_id: 'demo-ph-inflammatory',
+    phenotype_name: 'Inflammatory subtype',
+    domain: 'Neuroinflammation',
+    rationale: 'CRP 8.2 mg/L, IL-6 elevated; fatigue out of proportion to sleep duration. Anti-inflammatory adjunct discussed with rheumatology.',
+    qeeg_supported: false,
+    confidence: 'moderate',
+    assigned_at: '2026-04-28T14:45:00Z',
+    created_at: '2026-04-28T14:45:00Z',
+  },
+  /* Amelia Brown — tDCS, complex PTSD + insomnia, dual outcome scales, low adherence */
+  {
+    id: 'demo-pha-amelia-1',
+    patient_id: 'demo-pt-amelia-brown',
+    clinician_id: 'demo-clinician',
+    phenotype_id: 'demo-ph-trauma-related',
+    phenotype_name: 'Trauma-related dysregulation',
+    domain: 'Trauma · Stress',
+    rationale: 'PCL-5 62 (severe); complex developmental trauma with emotional flashbacks and dissociative episodes. tDCS tolerability fair but adherence poor due to schedule instability.',
+    qeeg_supported: false,
+    confidence: 'high',
+    assigned_at: '2026-04-10T08:15:00Z',
+    created_at: '2026-04-10T08:15:00Z',
+  },
+  {
+    id: 'demo-pha-amelia-2',
+    patient_id: 'demo-pt-amelia-brown',
+    clinician_id: 'demo-clinician',
+    phenotype_id: 'demo-ph-insomnia-dominant',
+    phenotype_name: 'Insomnia-dominant depression',
+    domain: 'Sleep · Mood',
+    rationale: 'ISI 22 (severe); sleep-onset insomnia 90+ min, nightmares 4–5 nights/week. Sleep disruption is primary functional complaint.',
+    qeeg_supported: false,
+    confidence: 'high',
+    assigned_at: '2026-04-12T10:30:00Z',
+    created_at: '2026-04-12T10:30:00Z',
+  },
+  {
+    id: 'demo-pha-amelia-3',
+    patient_id: 'demo-pt-amelia-brown',
+    clinician_id: 'demo-clinician',
+    phenotype_id: 'demo-ph-cognitive-control-deficit',
+    phenotype_name: 'Cognitive-control deficit',
+    domain: 'Executive function',
+    rationale: 'n-back 40th percentile, digit-span backwards 6→4 under distraction; PTSD-related attentional fragmentation.',
+    qeeg_supported: false,
+    confidence: 'low',
+    assigned_at: '2026-04-22T16:00:00Z',
+    created_at: '2026-04-22T16:00:00Z',
   },
 ];
 
@@ -1823,6 +2031,74 @@ const _LABS_PROFILES = {
       { captured_at: '2026-05-01T07:45:00Z', analyte: 'Hemoglobin', value: 11.4 },
     ],
   },
+  'demo-pt-omar-haddad': {
+    patient_id: 'demo-pt-omar-haddad',
+    patient_name: 'Demo Patient D (synthetic)',
+    captured_at: '2026-05-03T10:15:00Z',
+    panels: [
+      {
+        name: 'Synthetic chemistry (demo sample)',
+        results: [
+          {
+            analyte: 'HbA1c',
+            value: 5.6,
+            unit: '%',
+            ref_low: 4.0,
+            ref_high: 5.6,
+            status: 'normal',
+            captured_at: '2026-05-03T10:15:00Z',
+            note: 'Demo sample row — synthetic non-PHI; requires clinician review if mirrored to live workflows.',
+          },
+          {
+            analyte: 'Vitamin B12',
+            value: 412,
+            unit: 'pg/mL',
+            ref_low: 200,
+            ref_high: 900,
+            status: 'normal',
+            captured_at: '2026-05-03T10:15:00Z',
+            note: 'Demo sample row — illustrative only.',
+          },
+        ],
+      },
+    ],
+    flags: [],
+    prior_results: [],
+  },
+  'demo-pt-amelia-brown': {
+    patient_id: 'demo-pt-amelia-brown',
+    patient_name: 'Demo Patient E (synthetic)',
+    captured_at: '2026-05-04T14:22:00Z',
+    panels: [
+      {
+        name: 'Synthetic thyroid panel (demo sample)',
+        results: [
+          {
+            analyte: 'TSH',
+            value: 2.1,
+            unit: 'mIU/L',
+            ref_low: 0.4,
+            ref_high: 4.0,
+            status: 'normal',
+            captured_at: '2026-05-04T14:22:00Z',
+            note: 'Demo sample row — synthetic non-PHI.',
+          },
+          {
+            analyte: 'Free T4',
+            value: 1.1,
+            unit: 'ng/dL',
+            ref_low: 0.8,
+            ref_high: 1.8,
+            status: 'normal',
+            captured_at: '2026-05-04T14:22:00Z',
+            note: 'Demo sample row — illustrative only.',
+          },
+        ],
+      },
+    ],
+    flags: [],
+    prior_results: [],
+  },
 };
 
 const _LABS_AUDITS = {
@@ -1843,6 +2119,12 @@ const _LABS_AUDITS = {
     { id: 'lab-aud-ele-3', kind: 'review-note', actor: 'Demo clinician', message: '[Demo audit] Review note example — procedure/medication decisions occur in the chart.', created_at: '2026-05-01T08:18:00Z' },
     { id: 'lab-aud-ele-4', kind: 'annotation',  actor: 'Demo clinician', message: '[Demo audit] Annotation example: correlate Hb trend with clinical context.', created_at: '2026-05-01T08:25:00Z' },
     { id: 'lab-aud-ele-5', kind: 'result-add',  actor: 'Demo lab ingest', message: '[Demo audit] Synthetic INR/PT rows for UI exercise.', created_at: '2026-05-01T07:46:00Z' },
+  ],
+  'demo-pt-omar-haddad': [
+    { id: 'lab-aud-oma-1', kind: 'annotation', actor: 'Demo clinician', message: '[Demo audit] Synthetic chemistry panel for roster completeness — non-PHI.', created_at: '2026-05-03T10:20:00Z' },
+  ],
+  'demo-pt-amelia-brown': [
+    { id: 'lab-aud-ame-1', kind: 'annotation', actor: 'Demo clinician', message: '[Demo audit] Synthetic thyroid demo rows — illustrative only.', created_at: '2026-05-04T14:25:00Z' },
   ],
 };
 
@@ -2160,6 +2442,7 @@ export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   qeeg: _QEEG,
   voice: _VOICE,
   text: _TEXT,
+  neuro: _NEURO,
   risk: _RISK,
   biometrics: _BIOMETRICS,
   video: _VIDEO,

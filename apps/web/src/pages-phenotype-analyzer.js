@@ -11,6 +11,8 @@ import { currentUser } from './auth.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 
+const CLINICAL_PHENOTYPE_ANALYZER_ROLES = new Set(['clinician', 'admin']);
+
 function esc(s) {
   return String(s ?? '')
     .replace(/&/g, '&amp;')
@@ -19,10 +21,25 @@ function esc(s) {
     .replace(/"/g, '&quot;');
 }
 
+export function canUsePhenotypeAnalyzerWorkspace(role, opts = {}) {
+  const normalized = String(role || '').trim().toLowerCase();
+  if (!normalized) return !!opts.allowUnknown;
+  return CLINICAL_PHENOTYPE_ANALYZER_ROLES.has(normalized);
+}
+
 function _canEditAssignments() {
   const r = String(currentUser?.role || '').toLowerCase();
   /* Matches phenotype_router POST/DELETE: require_minimum_role(actor, "clinician"). */
   return r === 'clinician' || r === 'admin';
+}
+
+function _renderPhenotypeAnalyzerRestrictedCard() {
+  return `<div role="region" aria-label="Phenotype analyzer access restricted" style="max-width:560px;margin:48px auto;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);text-align:center">
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px">Clinician workspace</div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
+      Phenotype hypothesis review is restricted to clinician and admin roles because it surfaces clinic-wide and patient-linked stratification labels that require governed review.
+    </div>
+  </div>`;
 }
 
 const _CHIP_TINTS = [
@@ -368,12 +385,15 @@ function _renderPatientDetail(patientName, assignments, registry, selectedPhenot
       <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
         ${assignments.length ? _confidenceSummary(assignments) : ''}
         <button type="button" class="btn btn-ghost btn-sm" data-action="refresh-patient" style="min-height:44px">Refresh data</button>
-        <button type="button" class="btn btn-ghost btn-sm" data-action="export-summary" style="min-height:44px">Export summary (JSON)</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-action="export-summary" style="min-height:44px">Export (JSON)</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-action="export-csv" style="min-height:44px">Export (CSV)</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-action="export-md" style="min-height:44px">Export (Markdown)</button>
       </div>
     </div>
     ${_renderAssignmentsBlock(assignments, registry, patientName)}
     ${_renderAssignForm(registry)}
     <div data-registry-panel>${_renderRegistryPanel(def)}</div>
+    ${_renderConfidenceDistribution(assignments)}
     ${dataMatrixHtml}
     ${_renderQuickLinks()}
     ${_renderGovernancePanel(usingFixtures)}
@@ -393,6 +413,128 @@ function _confidenceSummary(assignments) {
   if (counts.low)      parts.push(`<span class="pill pill-review">${counts.low} low</span>`);
   if (!parts.length)   return '';
   return `<div style="display:flex;gap:6px;align-items:center" title="Clinician-entered confidence in the hypothesis label">${parts.join('')}</div>`;
+}
+
+function _renderConfidenceDistribution(assignments) {
+  const counts = { high: 0, moderate: 0, low: 0, none: 0 };
+  for (const a of assignments) {
+    const c = String(a.confidence || '').toLowerCase();
+    if (counts[c] != null) counts[c] += 1;
+    else counts.none += 1;
+  }
+  const total = assignments.length || 1;
+  const bar = (label, count, color) => {
+    const pct = Math.round((count / total) * 100);
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <div style="width:70px;font-size:11px;color:var(--text-tertiary);text-align:right">${esc(label)}</div>
+      <div style="flex:1;background:var(--bg-elevated);border-radius:6px;height:20px;overflow:hidden">
+        <div style="width:${pct}%;background:${color};height:100%;border-radius:6px;transition:width .4s ease"></div>
+      </div>
+      <div style="width:40px;font-size:11px;color:var(--text-secondary);font-variant-numeric:tabular-nums">${count}</div>
+    </div>`;
+  };
+  return `<div style="margin-top:16px;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--bg-card)">
+    <div style="font-size:12px;font-weight:600;margin-bottom:10px">Confidence distribution</div>
+    ${bar('High', counts.high, 'var(--green,#22c55e)')}
+    ${bar('Moderate', counts.moderate, 'var(--amber,#f59e0b)')}
+    ${bar('Low', counts.low, 'var(--red,#ef4444)')}
+    <div style="font-size:11px;color:var(--text-tertiary);margin-top:8px;line-height:1.45">
+      Clinician-entered confidence levels for hypothesis labels on this patient. Distribution does not imply diagnostic certainty — it reflects documentation judgement at the time of assignment.
+    </div>
+  </div>`;
+}
+
+function _renderCooccurrencePanel(allAssignments, registry) {
+  if (!Array.isArray(allAssignments) || allAssignments.length < 2) {
+    return `<div style="margin-top:16px;padding:14px;border:1px dashed var(--border);border-radius:12px;background:rgba(255,255,255,.02)">
+      <div style="font-size:12px;font-weight:600;margin-bottom:6px">Phenotype co-occurrence (clinic-wide)</div>
+      <div style="font-size:11px;color:var(--text-tertiary)">At least 2 assignments required to compute co-occurrence patterns.</div>
+    </div>`;
+  }
+  const patientPhenotypes = new Map();
+  for (const a of allAssignments) {
+    const pid = a.patient_id;
+    if (!patientPhenotypes.has(pid)) patientPhenotypes.set(pid, new Set());
+    patientPhenotypes.get(pid).add(a.phenotype_id);
+  }
+  const pairs = new Map();
+  for (const [, pSet] of patientPhenotypes) {
+    const arr = Array.from(pSet);
+    for (let i = 0; i < arr.length; i++) {
+      for (let j = i + 1; j < arr.length; j++) {
+        const key = [arr[i], arr[j]].sort().join('::');
+        pairs.set(key, (pairs.get(key) || 0) + 1);
+      }
+    }
+  }
+  if (!pairs.size) {
+    return `<div style="margin-top:16px;padding:14px;border:1px dashed var(--border);border-radius:12px;background:rgba(255,255,255,.02)">
+      <div style="font-size:12px;font-weight:600;margin-bottom:6px">Phenotype co-occurrence (clinic-wide)</div>
+      <div style="font-size:11px;color:var(--text-tertiary)">No co-occurring phenotype pairs found in current assignments.</div>
+    </div>`;
+  }
+  const sorted = Array.from(pairs.entries()).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const rows = sorted.map(([key, count]) => {
+    const [idA, idB] = key.split('::');
+    const defA = (registry || []).find((r) => r.id === idA);
+    const defB = (registry || []).find((r) => r.id === idB);
+    const nameA = esc(defA?.name || idA);
+    const nameB = esc(defB?.name || idB);
+    const tintA = _tintFor(idA);
+    const tintB = _tintFor(idB);
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:8px;border:1px solid var(--border);border-radius:10px;background:var(--bg-card)">
+      <span class="pill" style="background:${tintA.bg};color:${tintA.fg};border:1px solid ${tintA.border};font-size:11px;padding:2px 8px">${nameA}</span>
+      <span style="color:var(--text-tertiary);font-size:11px">+</span>
+      <span class="pill" style="background:${tintB.bg};color:${tintB.fg};border:1px solid ${tintB.border};font-size:11px;padding:2px 8px">${nameB}</span>
+      <span style="margin-left:auto;font-size:11px;color:var(--text-tertiary);font-variant-numeric:tabular-nums">${count} patient${count === 1 ? '' : 's'}</span>
+    </div>`;
+  }).join('');
+  return `<div style="margin-top:16px;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--bg-card)">
+    <div style="font-size:12px;font-weight:600;margin-bottom:8px">Phenotype co-occurrence (clinic-wide)</div>
+    <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:10px;line-height:1.45">
+      Pairs of hypothesis labels recorded for the same patient. Co-occurrence signals multimodal complexity — not diagnostic comorbidity. Review source data before drawing clinical conclusions.
+    </div>
+    ${rows}
+  </div>`;
+}
+
+function _buildPhenotypeCsv(assignments, patientName) {
+  const headers = ['patient_id', 'patient_name', 'phenotype_id', 'phenotype_name', 'domain', 'confidence', 'rationale', 'assigned_at', 'clinician_id'];
+  const rows = assignments.map((a) => [
+    esc(a.patient_id || ''),
+    esc(patientName || a.patient_name || ''),
+    esc(a.phenotype_id || ''),
+    esc(a.phenotype_name || ''),
+    esc(a.domain || ''),
+    esc(a.confidence || ''),
+    esc(a.rationale || '').replace(/\n/g, ' '),
+    esc(a.assigned_at || ''),
+    esc(a.clinician_id || ''),
+  ].map((v) => `"${v.replace(/"/g, '""')}"`).join(','));
+  return [headers.join(','), ...rows].join('\n');
+}
+
+function _buildPhenotypeMarkdown(assignments, patientName, registry) {
+  const safeName = esc(patientName || 'Patient');
+  let md = `# Phenotype Hypothesis Labels — ${safeName}\n\n`;
+  md += '> **Governance note:** These are clinician-documented hypothesis labels for team alignment. ';  md += 'They are not diagnoses, eligibility decisions, or autonomous treatment recommendations.\n\n';
+  md += `| Phenotype | Domain | Confidence | Rationale | Assigned |\n`;
+  md += `|-----------|--------|------------|-----------|----------|\n`;
+  for (const a of assignments) {
+    const def = (registry || []).find((r) => r.id === a.phenotype_id);
+    const name = esc(a.phenotype_name || def?.name || a.phenotype_id);
+    const domain = esc(a.domain || def?.domain || '—');
+    const conf = esc(a.confidence || '—');
+    const rat = esc(a.rationale || '—').replace(/\n/g, ' ');
+    const when = a.assigned_at ? new Date(a.assigned_at).toLocaleDateString() : '—';
+    md += `| ${name} | ${domain} | ${conf} | ${rat} | ${when} |\n`;
+  }
+  md += `\n**Total labels:** ${assignments.length}\n`;
+  const counts = { high: 0, moderate: 0, low: 0 };
+  for (const a of assignments) { const c = String(a.confidence || '').toLowerCase(); if (counts[c] != null) counts[c]++; }
+  md += `\n**Confidence breakdown:** high ${counts.high}, moderate ${counts.moderate}, low ${counts.low}\n`;
+  md += `\n---\n*Exported from DeepSynaps Protocol Studio — Phenotype Analyzer*\n`;
+  return md;
 }
 
 function _normaliseList(resp) {
@@ -485,17 +627,17 @@ function _renderPatientSelectOptions(patients, activeId) {
 }
 
 export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
-  try {
-    setTopbar({
-      title: 'Phenotype Analyzer',
-      subtitle: 'Clinician-reviewed hypothesis labels · multimodal context',
-    });
-  } catch {
-    try { setTopbar('Phenotype Analyzer', 'Hypothesis labels · review'); } catch {}
-  }
+  try { setTopbar('Phenotype Analyzer', 'Clinician-reviewed hypothesis labels · multimodal context'); } catch {}
 
   const el = document.getElementById('content');
   if (!el) return;
+
+  const demoMode = isDemoSession();
+  const actorRole = String(currentUser?.role || '').toLowerCase();
+  if (!canUsePhenotypeAnalyzerWorkspace(actorRole, { allowUnknown: demoMode })) {
+    el.innerHTML = _renderPhenotypeAnalyzerRestrictedCard();
+    return;
+  }
 
   let view = 'clinic';
   let registryCache = [];
@@ -527,13 +669,13 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
   function _syncDemoBanner() {
     const slot = $('ph-demo-banner');
     if (!slot) return;
-    slot.innerHTML = usingFixtures && isDemoSession() ? DEMO_FIXTURE_BANNER_HTML : '';
+    slot.innerHTML = usingFixtures && demoMode ? DEMO_FIXTURE_BANNER_HTML : '';
   }
 
   async function _emitPageAudit(event, note = '') {
     try {
       if (!api.getToken?.()) return;
-      if (usingFixtures && isDemoSession()) return;
+      if (usingFixtures && demoMode) return;
       await api.postPhenotypeAuditEvent({
         event,
         patient_id: activePatientId || undefined,
@@ -669,7 +811,7 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
     } catch {
       patientsRoster = [];
     }
-    if ((!patientsRoster.length) && isDemoSession() && ANALYZER_DEMO_FIXTURES?.patients?.length) {
+    if ((!patientsRoster.length) && demoMode && ANALYZER_DEMO_FIXTURES?.patients?.length) {
       patientsRoster = ANALYZER_DEMO_FIXTURES.patients.map((p) => ({ id: p.id, name: p.name }));
     }
   }
@@ -689,14 +831,14 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
       ]);
       registryCache = regResp || registryCache;
       assignments = _normaliseList(asgResp);
-      if ((!assignments || !assignments.length) && isDemoSession() && ANALYZER_DEMO_FIXTURES?.phenotype) {
+      if ((!assignments || !assignments.length) && demoMode && ANALYZER_DEMO_FIXTURES?.phenotype) {
         assignments = ANALYZER_DEMO_FIXTURES.phenotype.all_assignments.slice();
         usingFixtures = true;
       } else if (assignments && assignments.length) {
         usingFixtures = false;
       }
     } catch (e) {
-      if (isDemoSession() && ANALYZER_DEMO_FIXTURES?.phenotype) {
+      if (demoMode && ANALYZER_DEMO_FIXTURES?.phenotype) {
         assignments = ANALYZER_DEMO_FIXTURES.phenotype.all_assignments.slice();
         usingFixtures = true;
       } else {
@@ -711,14 +853,15 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
     allAssignmentsCache = _enrichAssignmentsWithNames(assignments || []);
     _syncDemoBanner();
     const rows = _aggregateClinicSummary(registryCache, allAssignmentsCache);
-    body.innerHTML = _renderClinicTable(rows, sortKey, sortDir);
+    const cooccurrenceHtml = _renderCooccurrencePanel(allAssignmentsCache, registryCache);
+    body.innerHTML = _renderClinicTable(rows, sortKey, sortDir) + cooccurrenceHtml;
     body.querySelectorAll('[data-sort-key]').forEach((th) => {
       th.addEventListener('click', () => {
         const k = th.getAttribute('data-sort-key');
         if (k === sortKey) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
         else { sortKey = k; sortDir = 'desc'; }
         const next = _aggregateClinicSummary(registryCache, allAssignmentsCache);
-        body.innerHTML = _renderClinicTable(next, sortKey, sortDir);
+        body.innerHTML = _renderClinicTable(next, sortKey, sortDir) + cooccurrenceHtml;
         wireClinicLinks();
       });
     });
@@ -753,12 +896,12 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
         api.listPhenotypeAssignments({ patient_id: activePatientId }).catch(() => null),
       ]);
       assignments = _normaliseList(asgResp);
-      if ((!assignments || !assignments.length) && isDemoSession() && ANALYZER_DEMO_FIXTURES?.phenotype) {
+      if ((!assignments || !assignments.length) && demoMode && ANALYZER_DEMO_FIXTURES?.phenotype) {
         assignments = ANALYZER_DEMO_FIXTURES.phenotype.assignments_for(activePatientId);
         usingFixtures = true;
       }
     } catch (e) {
-      if (isDemoSession() && ANALYZER_DEMO_FIXTURES?.phenotype) {
+      if (demoMode && ANALYZER_DEMO_FIXTURES?.phenotype) {
         assignments = ANALYZER_DEMO_FIXTURES.phenotype.assignments_for(activePatientId);
         usingFixtures = true;
       } else {
@@ -788,7 +931,7 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
       } catch {
         auditNote = 'Could not load server audit trail — check API session.';
       }
-    } else if (usingFixtures && isDemoSession()) {
+    } else if (usingFixtures && demoMode) {
       auditNote = 'Demo fixture session — phenotype audit API calls are skipped in offline preview.';
     }
     const auditHtml = _renderCombinedAudit(patientAssignmentsCache, auditItems, auditNote);
@@ -897,6 +1040,38 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
         const safeId = String(activePatientId || 'patient').replace(/[^\w.-]+/g, '_');
         a.href = URL.createObjectURL(blob);
         a.download = `phenotype-hypothesis-summary_${safeId}.json`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      } catch (e) {
+        alert((e && e.message) || String(e));
+      }
+    });
+
+    body.querySelector('[data-action="export-csv"]')?.addEventListener('click', () => {
+      try {
+        void _emitPageAudit('export_summary', 'csv_download');
+        const csv = _buildPhenotypeCsv(patientAssignmentsCache, activePatientName);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+        const a = document.createElement('a');
+        const safeId = String(activePatientId || 'patient').replace(/[^\w.-]+/g, '_');
+        a.href = URL.createObjectURL(blob);
+        a.download = `phenotype-hypothesis-summary_${safeId}.csv`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      } catch (e) {
+        alert((e && e.message) || String(e));
+      }
+    });
+
+    body.querySelector('[data-action="export-md"]')?.addEventListener('click', () => {
+      try {
+        void _emitPageAudit('export_summary', 'markdown_download');
+        const md = _buildPhenotypeMarkdown(patientAssignmentsCache, activePatientName, registryCache);
+        const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+        const a = document.createElement('a');
+        const safeId = String(activePatientId || 'patient').replace(/[^\w.-]+/g, '_');
+        a.href = URL.createObjectURL(blob);
+        a.download = `phenotype-hypothesis-summary_${safeId}.md`;
         a.click();
         URL.revokeObjectURL(a.href);
       } catch (e) {

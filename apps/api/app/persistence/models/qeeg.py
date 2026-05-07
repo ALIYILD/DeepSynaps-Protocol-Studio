@@ -532,3 +532,54 @@ class QEEGReportAnnotation(Base):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+
+
+# ── QEEG-ANN3: Evidence Gap Reconciliation (migration 089) ───────────────────
+#
+# Per-clinic governance metadata that lets a clinic prove which of the five
+# FDA-questioned findings (per ``deepsynaps-qeeg-evidence-gaps`` memory) have
+# been addressed before clinical-facing release. One row per
+# ``(clinic_id, gap_id)``; default state is ``still_active`` until the clinic
+# admin transitions the row to ``removed_from_report``, ``disclaimer_added``,
+# or ``under_review`` via :func:`update_reconciliation`.
+#
+# This is governance metadata only — the row records the *decision*, but
+# implementing the decision (e.g. removing AI Brain Age from the report
+# template) is a separate code change to ``qeeg_report_template.py``. The
+# disclaimer at the top of the page reminds the admin of this.
+
+class QEEGEvidenceGapReconciliation(Base):
+    """One row per ``(clinic_id, gap_id)`` carrying the clinic's
+    reconciliation decision for a single FDA-questioned finding.
+
+    Status transitions emit an audit row (action
+    ``qeeg.evidence_gap_status_changed``) so the regulatory paper
+    trail survives row mutation.
+    """
+
+    __tablename__ = "qeeg_evidence_gap_reconciliations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinic_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    gap_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="still_active", index=True)
+    justification: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    decided_by_user_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    related_annotation_ids: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "clinic_id", "gap_id",
+            name="uq_qeeg_evidence_gap_reconciliations_clinic_gap",
+        ),
+    )

@@ -10,7 +10,6 @@ Enrichment layers (best-effort, never fail the endpoint):
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -27,13 +26,18 @@ from app.logging_setup import get_logger
 from app.persistence.models import (
     AdverseEvent,
     AssessmentRecord,
+    AudioAnalysis,
+    BiometricsSnapshot,
     ClinicalSession,
     MriAnalysis,
     OutcomeSeries,
     Patient,
     PatientMedication,
+    PatientMediaUpload,
     QEEGAnalysis,
     TreatmentCourse,
+    VideoAssessmentSession,
+    WearableDailySummary,
 )
 from app.repositories.audit import create_audit_event
 from app.services.medication_interactions import (
@@ -56,10 +60,13 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _stable_float(seed: str, lo: float, hi: float) -> float:
-    h = hashlib.sha256(seed.encode()).digest()
-    x = int.from_bytes(h[:8], "big") / (2**64)
-    return lo + (hi - lo) * x
+def _collect_ids(rows: list[Any], attr: str = "id") -> list[str]:
+    ids: list[str] = []
+    for row in rows:
+        value = getattr(row, attr, None)
+        if value:
+            ids.append(str(value))
+    return ids
 
 
 def _phase_from_course(course: TreatmentCourse) -> str:
@@ -250,6 +257,74 @@ def build_treatment_sessions_analyzer_payload(
         med_q = med_q.filter(PatientMedication.clinician_id == actor.actor_id)
     medication_rows = med_q.order_by(PatientMedication.created_at.desc()).limit(80).all()
 
+    audio_analysis_rows = (
+        db.query(AudioAnalysis)
+        .filter(AudioAnalysis.patient_id == patient_id)
+        .order_by(AudioAnalysis.created_at.desc())
+        .limit(5)
+        .all()
+    )
+    media_upload_rows = (
+        db.query(PatientMediaUpload)
+        .filter(
+            PatientMediaUpload.patient_id == patient_id,
+            PatientMediaUpload.deleted_at.is_(None),
+        )
+        .order_by(PatientMediaUpload.created_at.desc())
+        .limit(24)
+        .all()
+    )
+    voice_upload_rows = [r for r in media_upload_rows if (r.media_type or "").lower() == "voice"][:5]
+    text_upload_rows = [r for r in media_upload_rows if (r.media_type or "").lower() == "text"][:5]
+    video_upload_rows = [r for r in media_upload_rows if (r.media_type or "").lower() == "video"][:5]
+    video_session_rows = (
+        db.query(VideoAssessmentSession)
+        .filter(VideoAssessmentSession.patient_id == patient_id)
+        .order_by(VideoAssessmentSession.updated_at.desc())
+        .limit(5)
+        .all()
+    )
+    wearable_daily_rows = (
+        db.query(WearableDailySummary)
+        .filter(WearableDailySummary.patient_id == patient_id)
+        .order_by(WearableDailySummary.date.desc())
+        .limit(5)
+        .all()
+    )
+    biometrics_snapshot_rows = (
+        db.query(BiometricsSnapshot)
+        .filter(BiometricsSnapshot.patient_id == patient_id)
+        .order_by(BiometricsSnapshot.recorded_at.desc())
+        .limit(5)
+        .all()
+    )
+
+    voice_artifact_ids = list(
+        dict.fromkeys(
+            [
+                *_collect_ids(audio_analysis_rows, "analysis_id"),
+                *_collect_ids(voice_upload_rows),
+            ]
+        )
+    )
+    video_artifact_ids = list(
+        dict.fromkeys(
+            [
+                *_collect_ids(video_session_rows),
+                *_collect_ids(video_upload_rows),
+            ]
+        )
+    )
+    text_artifact_ids = _collect_ids(text_upload_rows)
+    biometrics_artifact_ids = list(
+        dict.fromkeys(
+            [
+                *_collect_ids(wearable_daily_rows),
+                *_collect_ids(biometrics_snapshot_rows),
+            ]
+        )
+    )
+
     therapy_tokens = normalize_therapy_tokens(
         modality if modality != "unknown" else None,
         primary_course.protocol_id if primary_course else None,
@@ -295,10 +370,10 @@ def build_treatment_sessions_analyzer_payload(
         "assessments": [r.id for r in assessment_rows],
         "outcomes": [r.id for r in outcome_rows],
         "medications": [m.id for m in medication_rows],
-        "video": [],
-        "voice": [],
-        "text": [],
-        "biometrics": [],
+        "video": video_artifact_ids,
+        "voice": voice_artifact_ids,
+        "text": text_artifact_ids,
+        "biometrics": biometrics_artifact_ids,
     }
 
     # --- Evidence & research enrichment (live DB + CSV bundle + intelligence overview) ---
@@ -326,19 +401,6 @@ def build_treatment_sessions_analyzer_payload(
         },
     }
 
-    # --- Heuristic forecasts (deterministic given seed) ---
-    seed = f"{patient_id}:{modality}:{primary_course.id if primary_course else 'none'}"
-    resp_p = round(_stable_float(seed + ":p", 0.35, 0.78), 2)
-    ci_lo = max(0.1, round(resp_p - 0.18, 2))
-    ci_hi = min(0.95, round(resp_p + 0.15, 2))
-    planned_total = (
-        primary_course.planned_sessions_total if primary_course else 24
-    ) or 24
-    delivered = primary_course.sessions_delivered if primary_course else completed
-    median_sessions = int(round(planned_total * (0.85 + 0.1 * _stable_float(seed + ":n", 0, 1))))
-    range_lo = max(delivered, int(median_sessions * 0.75))
-    range_hi = max(range_lo + 1, int(median_sessions * 1.15))
-
     uncertainty_drivers: list[str] = []
     if not qeeg_rows:
         uncertainty_drivers.append("no_qeeg_in_chart")
@@ -358,6 +420,9 @@ def build_treatment_sessions_analyzer_payload(
         data_gaps.append(
             {"domain": "mri", "impact": "target_hypothesis_lower_confidence"}
         )
+    data_gaps.append(
+        {"domain": "forecasting", "impact": "no_calibrated_response_or_session_count_model"}
+    )
 
     # --- Multimodal contributors (template + DB-backed where present) ---
     contributors: list[dict[str, Any]] = [
@@ -430,20 +495,34 @@ def build_treatment_sessions_analyzer_payload(
             "id": "mmc_biometrics",
             "updated_at": generated_at,
             "provenance": {
-                "source": "rule",
-                "source_ref": "integration/wearables_stub",
+                "source": "api",
+                "source_ref": (
+                    "wearable_daily_summaries"
+                    if wearable_daily_rows
+                    else "biometrics_snapshots"
+                    if biometrics_snapshot_rows
+                    else "wearable_daily_summaries"
+                ),
                 "extracted_at": generated_at,
             },
             "domain": "biometrics",
             "biomarker_role": "responsive",
-            "summary": "Wearables and biosignals inform tolerability and adherence risk when connected.",
-            "relevance_score": 0.35,
-            "confidence": 0.4,
-            "data_quality": "unknown",
-            "linked_artifact_ids": [],
+            "summary": (
+                f"{len(biometrics_artifact_ids)} wearable / biometrics artifact(s) linked to this patient."
+                if biometrics_artifact_ids
+                else "No wearable summaries or biometrics snapshots linked for this patient."
+            ),
+            "relevance_score": 0.45 if biometrics_artifact_ids else 0.2,
+            "confidence": 0.5 if biometrics_artifact_ids else 0.25,
+            "data_quality": "good" if biometrics_artifact_ids else "missing",
+            "linked_artifact_ids": linked["biometrics"][:5],
             "linked_analyzer_route": "/?page=wearables",
             "impacted_predictions": ["dropout_risk"],
-            "caveats": ["Connect wearables for session-adjacent physiology context."],
+            "caveats": (
+                ["Consumer wearable data remains adjunctive and may lag source systems."]
+                if biometrics_artifact_ids
+                else ["Connect wearables or biometrics feeds for session-adjacent physiology context."]
+            ),
         },
         {
             "id": "mmc_meds",
@@ -477,58 +556,90 @@ def build_treatment_sessions_analyzer_payload(
             "id": "mmc_video",
             "updated_at": generated_at,
             "provenance": {
-                "source": "rule",
-                "source_ref": "integration/video_stub",
+                "source": "api",
+                "source_ref": (
+                    "video_assessment_sessions"
+                    if video_session_rows
+                    else "patient_media_uploads:video"
+                ),
                 "extracted_at": generated_at,
             },
             "domain": "video",
             "biomarker_role": "responsive",
-            "summary": "Video / movement analytics add motor activation context around sessions when uploaded.",
-            "relevance_score": 0.3,
-            "confidence": 0.35,
-            "data_quality": "unknown",
-            "linked_artifact_ids": [],
+            "summary": (
+                f"{len(video_artifact_ids)} video artifact(s) linked across assessment sessions or uploads."
+                if video_artifact_ids
+                else "No video assessment sessions or patient video uploads are linked."
+            ),
+            "relevance_score": 0.42 if video_artifact_ids else 0.18,
+            "confidence": 0.48 if video_artifact_ids else 0.22,
+            "data_quality": "good" if video_artifact_ids else "missing",
+            "linked_artifact_ids": linked["video"][:5],
             "linked_analyzer_route": "/?page=video-assessments",
             "impacted_predictions": [],
-            "caveats": [],
+            "caveats": (
+                ["Video findings remain adjunctive and require clinician interpretation."]
+                if video_artifact_ids
+                else ["Upload or complete a video assessment session to add motor/affect context."]
+            ),
         },
         {
             "id": "mmc_voice",
             "updated_at": generated_at,
             "provenance": {
-                "source": "rule",
-                "source_ref": "integration/voice_stub",
+                "source": "api",
+                "source_ref": (
+                    "audio_analyses"
+                    if audio_analysis_rows
+                    else "patient_media_uploads:voice"
+                ),
                 "extracted_at": generated_at,
             },
             "domain": "voice",
             "biomarker_role": "responsive",
-            "summary": "Voice prosody may covary with mood and fatigue alongside stimulation course.",
-            "relevance_score": 0.28,
-            "confidence": 0.32,
-            "data_quality": "unknown",
-            "linked_artifact_ids": [],
+            "summary": (
+                f"{len(voice_artifact_ids)} voice artifact(s) linked across analyzer runs or uploads."
+                if voice_artifact_ids
+                else "No voice analyzer reports or patient voice uploads are linked."
+            ),
+            "relevance_score": 0.4 if voice_artifact_ids else 0.16,
+            "confidence": 0.46 if voice_artifact_ids else 0.2,
+            "data_quality": "good" if voice_artifact_ids else "missing",
+            "linked_artifact_ids": linked["voice"][:5],
             "linked_analyzer_route": "/?page=voice-analyzer",
             "impacted_predictions": [],
-            "caveats": [],
+            "caveats": (
+                ["Prosody signals are adjunctive and should be reviewed with transcript/source audio."]
+                if voice_artifact_ids
+                else ["Run the voice analyzer or attach a voice sample to add session-adjacent prosody context."]
+            ),
         },
         {
             "id": "mmc_text",
             "updated_at": generated_at,
             "provenance": {
-                "source": "rule",
-                "source_ref": "integration/text_stub",
+                "source": "api",
+                "source_ref": "patient_media_uploads:text",
                 "extracted_at": generated_at,
             },
             "domain": "text",
             "biomarker_role": "unknown",
-            "summary": "Structured session records supersede free-text for analytics; NLP augments context.",
-            "relevance_score": 0.25,
-            "confidence": 0.4,
-            "data_quality": "unknown",
-            "linked_artifact_ids": [],
+            "summary": (
+                f"{len(text_artifact_ids)} text artifact(s) linked for NLP/context review."
+                if text_artifact_ids
+                else "No patient text uploads are linked for NLP/context review."
+            ),
+            "relevance_score": 0.34 if text_artifact_ids else 0.15,
+            "confidence": 0.44 if text_artifact_ids else 0.2,
+            "data_quality": "good" if text_artifact_ids else "missing",
+            "linked_artifact_ids": linked["text"][:5],
             "linked_analyzer_route": "/?page=text-analyzer",
             "impacted_predictions": ["confound_risk"],
-            "caveats": [],
+            "caveats": (
+                ["Structured session records still outrank free text for treatment analytics."]
+                if text_artifact_ids
+                else ["Upload text content or notes if NLP/context review is expected here."]
+            ),
         },
     ]
 
@@ -951,33 +1062,42 @@ def build_treatment_sessions_analyzer_payload(
                 "notes": "Hypothesis from course + imaging when available — verify clinically.",
             }
         ],
+        "forecast_status": {
+            "available": False,
+            "reason": "no_calibrated_model",
+            "note": "Forecast numbers are withheld until a calibrated response/session-count model is validated for this workflow.",
+        },
         "response_probability": {
-            "point": resp_p,
-            "ci": [ci_lo, ci_hi],
+            "available": False,
+            "point": None,
+            "ci": [],
             "horizon": "12_weeks",
+            "reason": "no_calibrated_model",
         },
         "session_count_estimate": {
-            "median": median_sessions,
-            "range": [range_lo, range_hi],
+            "available": False,
+            "median": None,
+            "range": [],
             "unit": "sessions",
+            "reason": "no_calibrated_model",
         },
         "modality_suitability": {
             "status": "unknown_without_full_intake",
             "flags": [],
         },
         "uncertainty": {
-            "level": "high" if uncertainty_drivers else "medium",
-            "drivers": uncertainty_drivers or ["model_placeholder"],
+            "level": "high",
+            "drivers": [*uncertainty_drivers, "no_calibrated_forecast_model"],
         },
         "why_summary": (
-            "Estimates combine course parameters on file with available multimodal context. "
-            "Wide uncertainty when EEG/MRI or session density is limited."
+            "Protocol and target suggestions reflect course data plus linked multimodal context. "
+            "Forecast numbers are intentionally withheld until a calibrated model is validated for this workflow."
         ),
         "biomarker_roles_used": {
             "predictive": ["mri", "qeeg"] if (mri_rows or qeeg_rows) else [],
             "responsive": ["assessments"] if assessment_rows else [],
         },
-        "confidence": 0.45 if not uncertainty_drivers else 0.35,
+        "confidence": 0.3,
     }
 
     if actor.role in ("admin", "clinician"):
@@ -1050,7 +1170,7 @@ def build_treatment_sessions_analyzer_payload(
         },
         "meta": {
             "rules_engine_version": "treatment_sessions_analyzer_v1",
-            "forecast_note": "Response probability is a seeded heuristic for UX wiring — replace with calibrated model.",
+            "forecast_note": "Forecast numbers are withheld because no calibrated response/session-count model is configured for this workflow.",
             "enrichment": "live_evidence_db + neuromodulation_research_bundle + evidence_intelligence overview (clinician)",
             "learning_feedback": "clinician views append audit_events + audit trail row treatment_sessions_analyzer.view",
         },

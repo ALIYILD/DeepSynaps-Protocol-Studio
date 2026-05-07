@@ -23,6 +23,7 @@ from app.database import SessionLocal, init_database
 from app.persistence.models import (
     AdverseEvent,
     AssessmentRecord,
+    Clinic,
     DeviceSessionLog,
     HomeDeviceAssignment,
     OutcomeSeries,
@@ -39,6 +40,7 @@ from app.persistence.models import (
 _CLINICIAN_EMAIL = "demo@deepsynaps.com"
 _PATIENT_EMAIL = "patient@deepsynaps.com"
 _DEMO_TAG = "[DEMO]"
+_DEMO_CLINIC_ID = "clinic-demo-default"
 
 # bcrypt hash for "demo2026"
 # Generated with: import bcrypt; bcrypt.hashpw(b"demo2026", bcrypt.gensalt()).decode()
@@ -51,6 +53,174 @@ def _make_id() -> str:
 
 def _demo_note(text: str) -> str:
     return f"{_DEMO_TAG} {text}"
+
+
+def _seed_demo_clinician_inbox_audit(
+    session,
+    *,
+    clinician: User,
+    patient_ids: list[str],
+    now: datetime,
+) -> None:
+    """Seed deterministic Clinician Inbox audit rows (DEMO, non-PHI).
+
+    The Clinician Inbox aggregates HIGH-priority audit/activity mirrors from
+    patient-facing surfaces. These demo rows make the inbox look alive for
+    local dev and demo clinics, while remaining clearly labelled DEMO.
+    """
+    from app.repositories.audit import create_audit_event  # noqa: PLC0415
+
+    # Pick 5 synthetic patients deterministically.
+    pts = (patient_ids or [])[:5]
+    if len(pts) < 3:
+        return
+    p1, p2, p3 = pts[0], pts[1], pts[2]
+    p4 = pts[3] if len(pts) > 3 else pts[0]
+    p5 = pts[4] if len(pts) > 4 else pts[1]
+
+    demo_rows = [
+        # Unread / action-required items in last 24h.
+        dict(
+            action="patient_messages.urgent_flag_to_clinician",
+            target_type="patient_messages",
+            target_id=p1,
+            created_at=now - timedelta(hours=2, minutes=10),
+            note=(
+                "DEMO — Synthetic patient message flagged urgent. "
+                "priority=high; patient="
+                + p1
+                + "; non-PHI; decision support only; requires clinician review."
+            ),
+        ),
+        dict(
+            action="adherence_events.escalated_to_clinician_mirror",
+            target_type="adherence_events",
+            target_id=p2,
+            created_at=now - timedelta(hours=6, minutes=30),
+            note=(
+                "DEMO — Missed adherence escalation (synthetic). "
+                "priority=high; patient="
+                + p2
+                + "; non-PHI; review outreach plan."
+            ),
+        ),
+        dict(
+            action="wearables.observation_anomaly_to_clinician",
+            target_type="wearables",
+            target_id=p3,
+            created_at=now - timedelta(hours=11, minutes=5),
+            note=(
+                "DEMO — Wearables anomaly marker (synthetic). "
+                "priority=high; patient="
+                + p3
+                + "; non-PHI; correlate with patient report."
+            ),
+        ),
+        dict(
+            action="wearables_workbench.flag_escalated",
+            target_type="wearables_workbench",
+            target_id=p3,
+            created_at=now - timedelta(hours=18, minutes=45),
+            note=(
+                "DEMO — Workbench threshold breach (synthetic). "
+                "priority=high; patient="
+                + p3
+                + "; non-PHI; requires clinician review."
+            ),
+        ),
+        dict(
+            action="adverse_events_hub.new_report_to_clinician_mirror",
+            target_type="adverse_events_hub",
+            target_id=p4,
+            created_at=now - timedelta(hours=20),
+            note=(
+                "DEMO — Adverse event report logged (synthetic). "
+                "priority=high; patient="
+                + p4
+                + "; non-PHI; requires clinician review."
+            ),
+        ),
+        # Some older items (last 7d) to populate KPIs.
+        dict(
+            action="home_program_tasks.task_help_urgent_to_clinician",
+            target_type="home_program_tasks",
+            target_id=p5,
+            created_at=now - timedelta(days=2, hours=3),
+            note=(
+                "DEMO — Home program task help request (synthetic). "
+                "priority=high; patient="
+                + p5
+                + "; non-PHI."
+            ),
+        ),
+        dict(
+            action="quality_assurance.finding_to_clinician_mirror",
+            target_type="quality_assurance",
+            target_id=p2,
+            created_at=now - timedelta(days=3, hours=2),
+            note=(
+                "DEMO — QA finding requires clinician sign-off (synthetic). "
+                "priority=high; patient="
+                + p2
+                + "; non-PHI."
+            ),
+        ),
+        dict(
+            action="course_detail.review_required_to_clinician_mirror",
+            target_type="course_detail",
+            target_id=p1,
+            created_at=now - timedelta(days=5, hours=6),
+            note=(
+                "DEMO — Course review required (synthetic). "
+                "priority=high; patient="
+                + p1
+                + "; non-PHI."
+            ),
+        ),
+        dict(
+            action="patient_profile.consent_renewal_required_to_clinician_mirror",
+            target_type="patient_profile",
+            target_id=p3,
+            created_at=now - timedelta(days=6, hours=1),
+            note=(
+                "DEMO — Consent renewal needed (synthetic). "
+                "priority=high; patient="
+                + p3
+                + "; non-PHI."
+            ),
+        ),
+    ]
+
+    created_event_ids: list[str] = []
+    for i, row in enumerate(demo_rows, start=1):
+        eid = f"demo-inbox-{i}-{uuid.uuid4().hex[:8]}"
+        create_audit_event(
+            session,
+            event_id=eid,
+            target_id=row["target_id"],
+            target_type=row["target_type"],
+            action=row["action"],
+            role=clinician.role,
+            actor_id=clinician.id,
+            note=row["note"],
+            created_at=row["created_at"].isoformat(),
+        )
+        created_event_ids.append(eid)
+
+    # Seed a couple of acknowledged rows so status filters are demoable.
+    for eid in created_event_ids[-2:]:
+        ack_id = f"demo-inbox-ack-{uuid.uuid4().hex[:8]}"
+        create_audit_event(
+            session,
+            event_id=ack_id,
+            target_id=f"audit-{eid}",
+            target_type="clinician_inbox",
+            action="clinician_inbox.item_acknowledged",
+            role=clinician.role,
+            actor_id=clinician.id,
+            note=f"DEMO; event={eid}; acknowledged during demo seed",
+            created_at=(now - timedelta(days=1, hours=1)).isoformat(),
+        )
 
 
 def _seed_primary_portal_patient(session, clinician_id: str, patient_user_id: str, now: datetime) -> str:
@@ -906,6 +1076,10 @@ def seed(session) -> None:
         print(f"Demo clinician already exists ({_CLINICIAN_EMAIL}). Skipping seed.")
         return
 
+    # Ensure the demo clinic exists so clinic-scoped queries work.
+    if session.query(Clinic).filter(Clinic.id == _DEMO_CLINIC_ID).first() is None:
+        session.add(Clinic(id=_DEMO_CLINIC_ID, name="Demo Clinic"))
+
     clinician_id = _make_id()
     clinician = User(
         id=clinician_id,
@@ -914,6 +1088,7 @@ def seed(session) -> None:
         hashed_password=_DEMO_PASSWORD_HASH,
         role="clinician",
         package_id="clinician_pro",
+        clinic_id=_DEMO_CLINIC_ID,
         is_verified=True,
         is_active=True,
     )
@@ -938,17 +1113,27 @@ def seed(session) -> None:
     now = datetime.now(timezone.utc)
 
     # ── 3. Primary portal-linked demo patient (historical parity) ─────────────
-    _seed_primary_portal_patient(session, clinician_id, patient_user_id, now)
+    seeded_patient_ids: list[str] = []
+    seeded_patient_ids.append(_seed_primary_portal_patient(session, clinician_id, patient_user_id, now))
 
     # ── 4. Additional cohort patients ─────────────────────────────────────────
     for entry in _DEMO_COHORT:
         pid = _seed_cohort_patient(session, clinician_id, entry, now)
+        seeded_patient_ids.append(pid)
         print(f"  + {entry['first_name']} {entry['last_name']:<12} {entry['condition']:<38} [{pid[:8]}]")
 
     # ── 5. Marketplace catalog ────────────────────────────────────────────────
     mp_count = _seed_marketplace(session)
     if mp_count:
         print(f"  + {mp_count} marketplace items seeded")
+
+    # ── 6. Clinician Inbox demo audit rows ────────────────────────────────────
+    _seed_demo_clinician_inbox_audit(
+        session,
+        clinician=clinician,
+        patient_ids=seeded_patient_ids,
+        now=now,
+    )
 
     session.commit()
     total = 1 + len(_DEMO_COHORT)

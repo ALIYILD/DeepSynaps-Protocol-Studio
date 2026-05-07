@@ -6,6 +6,7 @@ from deepsynaps_core_schema import (
     ClinicianHandbookPlan,
     ConditionProfile,
     DeviceProfile,
+    HandbookDocument,
     HandbookSection,
     ModalityProfile,
     ProtocolPlan,
@@ -14,6 +15,7 @@ from deepsynaps_core_schema import (
 )
 from deepsynaps_render_engine import (
     REPORT_GENERATOR_VERSION_DEFAULT,
+    CitationRef,
     InterpretationItem,
     ReportPayload,
     ReportSection,
@@ -305,6 +307,220 @@ def build_clinician_handbook_plan(
 # ---------------------------------------------------------------------------
 # Structured report payload builder
 # ---------------------------------------------------------------------------
+
+def _handbook_lines_or_placeholder(lines: list[str], *, empty_message: str) -> list[str]:
+    cleaned = [str(x).strip() for x in lines if str(x).strip()]
+    return cleaned if cleaned else [empty_message]
+
+
+def build_report_payload_from_handbook_document(
+    doc: HandbookDocument,
+    *,
+    patient_id: str | None = None,
+    report_id: str | None = None,
+    audience: str = "both",
+) -> ReportPayload:
+    """Map a server-built :class:`HandbookDocument` into a versioned
+    :class:`ReportPayload` for HTML/PDF/reporting surfaces.
+
+    The handbook already separates eligibility, workflow, safety, and escalation
+    into lists; this function mirrors those into report sections while keeping
+    the observed / interpretation / suggested-action contract used elsewhere.
+    """
+    audience_norm = audience if audience in ("clinician", "patient", "both") else "both"
+
+    kind_label = {
+        "clinician_handbook": "Clinician handbook",
+        "patient_guide": "Patient guide",
+        "technician_sop": "Technician SOP",
+    }.get(doc.document_type, str(doc.document_type))
+
+    overview_lines = _handbook_lines_or_placeholder(
+        [doc.overview] if doc.overview else [],
+        empty_message="No overview text returned by the handbook generator.",
+    )
+
+    eligibility_obs = _handbook_lines_or_placeholder(
+        doc.eligibility,
+        empty_message="No eligibility bullets returned — confirm population against source protocol.",
+    )
+    setup_obs = _handbook_lines_or_placeholder(
+        doc.setup,
+        empty_message="No setup steps returned — document device and montage during clinician review.",
+    )
+    workflow_obs = _handbook_lines_or_placeholder(
+        doc.session_workflow,
+        empty_message="No session workflow lines returned — define timing and monitoring before use.",
+    )
+    safety_obs = _handbook_lines_or_placeholder(
+        doc.safety,
+        empty_message="No safety lines returned — re-run contraindication screening manually.",
+    )
+    trouble_obs = _handbook_lines_or_placeholder(
+        doc.troubleshooting,
+        empty_message="No troubleshooting rows returned — record issues per clinic SOP.",
+    )
+    escalation_obs = _handbook_lines_or_placeholder(
+        doc.escalation,
+        empty_message="No escalation rows returned — define escalation before patient contact.",
+    )
+    ref_obs = _handbook_lines_or_placeholder(
+        doc.references,
+        empty_message="No reference pointers attached — verify literature independently.",
+    )
+
+    citations: list[CitationRef] = []
+    for idx, ref in enumerate(doc.references[:32]):
+        raw = (ref or "").strip()
+        if not raw:
+            continue
+        lower = raw.lower()
+        citations.append(
+            CitationRef(
+                citation_id=f"H{idx + 1}",
+                title=raw[:220] + ("..." if len(raw) > 220 else ""),
+                raw_text=raw,
+                url=raw if lower.startswith(("http://", "https://")) else None,
+                status="unverified",
+            )
+        )
+
+    sections: list[ReportSection] = [
+        ReportSection(
+            section_id="handbook-overview",
+            title=f"{kind_label} — overview",
+            observed=overview_lines,
+            interpretations=[
+                InterpretationItem(
+                    text=(
+                        "Content is assembled from imported registry and clinical dataset fields; "
+                        "it does not add independent GRADE-style review unless separately documented."
+                    ),
+                    evidence_strength="Evidence pending",
+                )
+            ],
+            suggested_actions=[
+                SuggestedAction(
+                    text="Cross-check every narrative bullet against primary literature and site policy.",
+                    rationale="Registry-derived handbook text is decision-support, not authorization to treat.",
+                )
+            ],
+            cautions=["Treat as draft until reviewed and signed through your governance process."],
+            limitations=["This assembly path does not score individual claims."],
+        ),
+        ReportSection(
+            section_id="handbook-eligibility",
+            title="Patient selection & eligibility",
+            observed=eligibility_obs,
+            interpretations=[
+                InterpretationItem(text=item, evidence_strength="Evidence pending") for item in eligibility_obs
+            ],
+            suggested_actions=[
+                SuggestedAction(
+                    text="Confirm eligibility against the active chart and inclusion criteria.",
+                    rationale=item,
+                )
+                for item in eligibility_obs[:5]
+            ],
+        ),
+        ReportSection(
+            section_id="handbook-setup",
+            title="Assessment & setup",
+            observed=setup_obs,
+            interpretations=[],
+            suggested_actions=[
+                SuggestedAction(text=f"Execute setup step: {item[:280]}", rationale=item, requires_clinician_review=True)
+                for item in setup_obs
+                if item != "No setup steps returned — document device and montage during clinician review."
+            ],
+        ),
+        ReportSection(
+            section_id="handbook-session-workflow",
+            title="Session workflow",
+            observed=workflow_obs,
+            interpretations=[],
+            suggested_actions=[
+                SuggestedAction(
+                    text=f"Apply workflow item: {item[:240]}",
+                    rationale="Derived from imported protocol row or governance placeholder.",
+                    requires_clinician_review=True,
+                )
+                for item in workflow_obs
+                if "No session workflow" not in item
+            ],
+        ),
+        ReportSection(
+            section_id="handbook-safety",
+            title="Safety, contraindications & monitoring",
+            observed=safety_obs,
+            interpretations=[],
+            suggested_actions=[
+                SuggestedAction(
+                    text="Review safety item with patient and device-specific checklist.",
+                    rationale=item,
+                )
+                for item in safety_obs
+                if "No safety lines" not in item
+            ],
+            cautions=list(safety_obs) if safety_obs else [],
+        ),
+        ReportSection(
+            section_id="handbook-troubleshooting",
+            title="Troubleshooting",
+            observed=trouble_obs,
+            interpretations=[],
+            suggested_actions=[
+                SuggestedAction(text=item, requires_clinician_review=True)
+                for item in trouble_obs
+                if "No troubleshooting" not in item
+            ],
+        ),
+        ReportSection(
+            section_id="handbook-escalation",
+            title="Escalation pathways",
+            observed=escalation_obs,
+            interpretations=[],
+            suggested_actions=[
+                SuggestedAction(text=item, requires_clinician_review=True)
+                for item in escalation_obs
+                if "No escalation" not in item
+            ],
+        ),
+        ReportSection(
+            section_id="handbook-references",
+            title="Source pointers",
+            observed=ref_obs,
+            interpretations=[],
+            suggested_actions=[
+                SuggestedAction(
+                    text="Resolve each pointer to a primary citation before citing externally.",
+                    requires_clinician_review=True,
+                )
+            ],
+        ),
+    ]
+
+    summary = doc.overview.strip() if doc.overview.strip() else (
+        f"{kind_label} structured report derived from handbook generator output."
+    )
+
+    return ReportPayload(
+        generator_version=REPORT_GENERATOR_VERSION_DEFAULT,
+        report_id=report_id,
+        patient_id=patient_id,
+        title=doc.title,
+        audience=audience_norm,  # type: ignore[arg-type]
+        summary=summary,
+        sections=sections,
+        citations=citations,
+        global_cautions=[
+            "Handbook generator output is draft decision-support and must be reviewed before clinical reliance.",
+        ],
+        global_limitations=[
+            "Sections mirror generator fields only; they do not substitute for patient-specific assessment.",
+        ],
+    )
+
 
 def build_report_payload_from_protocol(
     protocol_plan: ProtocolPlan,

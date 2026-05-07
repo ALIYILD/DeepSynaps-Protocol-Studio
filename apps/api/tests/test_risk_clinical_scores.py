@@ -252,12 +252,14 @@ def test_brain_age_out_of_range_warns():
     assert "out-of-range-brain-age" in codes
 
 
-def test_brain_age_stub_flag_surfaces_caution():
+def test_brain_age_stub_flag_withholds_output():
     score = build_brain_age_score(brain_age_payload=_brain_age_payload(is_stub=True))
     _assert_contract(score, "brain_age")
+    assert score.value is None
+    assert score.confidence == "no_data"
     codes = {c.code for c in score.cautions}
-    assert "stub-model-fallback" in codes
-    assert score.method_provenance.upstream_is_stub is True
+    assert "no_calibrated_model" in codes
+    assert score.method_provenance.model_id == "brain-age-qeeg-withheld"
 
 
 def test_brain_age_missing_payload_returns_no_data():
@@ -354,18 +356,19 @@ def test_adherence_missing_planned_sessions_warns():
 # ── Response probability ─────────────────────────────────────────────────────
 
 
-def test_response_probability_research_grade_and_capped():
+def test_response_probability_is_withheld_until_validated_model_exists():
     score = build_response_probability_score(
         qeeg_risk_payload=_qeeg_payload(),
         primary_target="depression",
     )
     _assert_contract(score, "response_probability")
     assert score.scale == "research_grade"
-    assert score.value is not None and 0.0 <= score.value <= 1.0
-    assert score.confidence in {"low", "med"}  # ceiling
+    assert score.value is None
+    assert score.confidence == "no_data"
     codes = {c.code for c in score.cautions}
-    assert "research-grade-score" in codes
+    assert "no_calibrated_model" in codes
     assert "evidence-pending" in codes
+    assert score.method_provenance.model_id == "response-cohort-prior-withheld-v1"
 
 
 def test_response_probability_no_payload_no_data():

@@ -123,11 +123,12 @@ def recompute_movement_analyzer(
 
     payload = build_movement_workspace_payload(patient_id, db)
     persist_snapshot(patient_id, payload, db)
+    reason = ((body.reason if body else None) or "").strip() or "manual"
     append_audit(
         patient_id,
         "recompute",
         actor.actor_id,
-        {"reason": (body.reason if body else None) or "manual"},
+        {"reason": reason},
         db,
     )
     out = dict(payload)
@@ -171,6 +172,9 @@ def review_ack_movement_analyzer(
     _gate_patient_access(actor, patient_id, db)
 
     note = body.note.strip()
+    if not note:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="review note required")
     append_audit(
         patient_id,
         "review_ack",

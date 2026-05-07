@@ -42,14 +42,23 @@ from app.schemas.protocol_studio import (
     ProtocolStatus,
     ProtocolStudioGenerateRequest,
     ProtocolStudioGenerateResponse,
+    ProtocolStudioRecommendRequest,
+    ProtocolStudioRecommendResponse,
+    ProtocolStudioSimulateRequest,
+    ProtocolStudioSimulateResponse,
+    RankedProtocolOption,
 )
 from app.services import evidence_rag
 from app.services.pgvector_bridge import HAS_PGVECTOR_RUNTIME, check_pgvector_enabled
 from app.services.protocol_studio_generation import DraftResponse as DraftResponseDict
 from app.services.protocol_studio_generation import GenerateRequest as GenerateRequestDict
+from app.services.protocol_studio_generation import _is_research_only
 from app.services.protocol_studio_generation import build_generation_preview_id, generate_deterministic_protocol_studio_draft
+from app.services.protocol_studio_recommend import build_protocol_recommendation
+from app.services.protocol_studio_recommend import registry_row_parameter_summary
 from app.services.registries import get_protocol as registry_get_protocol
 from app.services.registries import list_protocols as registry_list_protocols
+from app.settings import get_settings
 
 router = APIRouter(prefix="/api/v1/protocol-studio", tags=["protocol-studio"])
 
@@ -174,7 +183,7 @@ def protocol_studio_evidence_search(
         return EvidenceSearchResponse(
             results=[],
             status="unavailable",
-            message="Evidence corpus unavailable on this API host. No results returned.",
+            message="Evidence corpus unavailable or not connected in this environment.",
         )
 
     # NOTE: `target` is not indexed in evidence_rag today; we accept the param but do not filter on it.
@@ -245,6 +254,42 @@ _OFF_LABEL_WARNING = (
 )
 
 
+def _catalog_item_from_row(row: dict[str, Any]) -> ProtocolCatalogItem:
+    refs = [x for x in [row.get("source_url_primary"), row.get("source_url_secondary")] if x]
+    off_label = _normalize_off_label(row.get("on_label_vs_off_label"))
+    ev_grade = row.get("evidence_grade") or None
+    status = _protocol_status(off_label, refs, ev_grade)
+    research_only = _is_research_only(row)
+    dev_raw = row.get("device_id_if_specific") or row.get("device_slug") or ""
+    device = str(dev_raw).strip() or None
+    last_rev = row.get("last_reviewed") or row.get("reviewed_at") or None
+    last_reviewed = str(last_rev).strip() if last_rev else None
+    psum = registry_row_parameter_summary(row)
+    ev_ct = len(refs)
+    return ProtocolCatalogItem(
+        id=str(row.get("id") or ""),
+        title=str(row.get("name") or row.get("id") or ""),
+        condition=row.get("condition_id") or None,
+        modality=row.get("modality_id") or None,
+        device=device,
+        target=row.get("target_region") or None,
+        parameter_summary=psum or None,
+        status=status,
+        evidence_grade=ev_grade,
+        evidence_count=ev_ct,
+        regulatory_status=row.get("on_label_vs_off_label") or None,
+        off_label=off_label,
+        off_label_warning=_OFF_LABEL_WARNING if off_label else None,
+        research_only=research_only,
+        last_reviewed=last_reviewed,
+        has_evidence_links=ev_ct > 0,
+        contraindication_summary=(row.get("contraindication_check_required") or None),
+        clinician_review_required=True,
+        not_autonomous_prescription=True,
+        evidence_refs=refs,
+    )
+
+
 def _normalize_off_label(text: str | None) -> bool:
     raw = (text or "").strip().lower()
     if raw.startswith("off"):
@@ -283,28 +328,7 @@ def protocol_studio_protocols(
             break
         if not _match(row):
             continue
-        refs = [x for x in [row.get("source_url_primary"), row.get("source_url_secondary")] if x]
-        off_label = _normalize_off_label(row.get("on_label_vs_off_label"))
-        ev_grade = row.get("evidence_grade") or None
-        status = _protocol_status(off_label, refs, ev_grade)
-        items.append(
-            ProtocolCatalogItem(
-                id=str(row.get("id") or ""),
-                title=str(row.get("name") or row.get("id") or ""),
-                condition=row.get("condition_id") or None,
-                modality=row.get("modality_id") or None,
-                target=row.get("target_region") or None,
-                status=status,
-                evidence_grade=ev_grade,
-                regulatory_status=row.get("on_label_vs_off_label") or None,
-                off_label=off_label,
-                off_label_warning=_OFF_LABEL_WARNING if off_label else None,
-                contraindication_summary=(row.get("contraindication_check_required") or None),
-                clinician_review_required=True,
-                not_autonomous_prescription=True,
-                evidence_refs=refs,
-            )
-        )
+        items.append(_catalog_item_from_row(row))
 
     _audit(
         db,
@@ -331,34 +355,14 @@ def protocol_studio_protocol_detail(
 
         raise ApiServiceError(code="not_found", message="Protocol not found.", status_code=404)
 
-    refs = [x for x in [row.get("source_url_primary"), row.get("source_url_secondary")] if x]
-    off_label = _normalize_off_label(row.get("on_label_vs_off_label"))
-    ev_grade = row.get("evidence_grade") or None
-    status = _protocol_status(off_label, refs, ev_grade)
-
-    item = ProtocolCatalogItem(
-        id=str(row.get("id") or ""),
-        title=str(row.get("name") or row.get("id") or ""),
-        condition=row.get("condition_id") or None,
-        modality=row.get("modality_id") or None,
-        target=row.get("target_region") or None,
-        status=status,
-        evidence_grade=ev_grade,
-        regulatory_status=row.get("on_label_vs_off_label") or None,
-        off_label=off_label,
-        off_label_warning=_OFF_LABEL_WARNING if off_label else None,
-        contraindication_summary=(row.get("contraindication_check_required") or None),
-        clinician_review_required=True,
-        not_autonomous_prescription=True,
-        evidence_refs=refs,
-    )
+    item = _catalog_item_from_row(row)
 
     _audit(
         db,
         actor=actor,
         action="protocol_studio.protocol_viewed",
         target_id=str(protocol_id),
-        note=f"off_label={int(off_label)}; status={status}",
+        note=f"off_label={int(item.off_label)}; status={item.status}",
     )
     return item
 
@@ -506,3 +510,108 @@ def protocol_studio_generate(
     )
 
     return ProtocolStudioGenerateResponse(**out)
+
+
+@router.post("/recommend", response_model=ProtocolStudioRecommendResponse)
+def protocol_studio_recommend(
+    body: ProtocolStudioRecommendRequest,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ProtocolStudioRecommendResponse:
+    require_minimum_role(actor, "clinician")
+
+    patient_id = (body.patient_id or "").strip() or None
+    if patient_id:
+        exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+        if not exists:
+            from app.errors import ApiServiceError
+
+            raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+        require_patient_owner(actor, clinic_id)
+
+    payload = {
+        "patient_id": patient_id,
+        "condition": body.condition,
+        "modalities": body.modalities,
+        "qeeg_summary": body.qeeg_summary,
+        "mri_summary": body.mri_summary,
+        "contraindications": body.contraindications,
+        "available_devices": body.available_devices,
+        "desired_outcome_domain": body.desired_outcome_domain,
+    }
+    raw = build_protocol_recommendation(payload)
+
+    def _rank_list(key: str) -> list[RankedProtocolOption]:
+        return [RankedProtocolOption(**x) for x in raw.get(key, [])]
+
+    try:
+        _audit(
+            db,
+            actor=actor,
+            action="protocol_studio.recommend_attempt",
+            target_id="recommend",
+            patient_id=patient_id,
+            note=f"condition_len={len(body.condition or '')}; modalities={len(body.modalities or [])}",
+        )
+    except Exception:
+        pass
+
+    return ProtocolStudioRecommendResponse(
+        evidence_backed_options=_rank_list("evidence_backed_options"),
+        personalized_options=_rank_list("personalized_options"),
+        imaging_guided_options=_rank_list("imaging_guided_options"),
+        overall_top_3=_rank_list("overall_top_3"),
+        not_recommended=list(raw.get("not_recommended") or []),
+        missing_data=list(raw.get("missing_data") or []),
+        safety_flags=list(raw.get("safety_flags") or []),
+        ranking_note=str(raw.get("ranking_note") or ""),
+    )
+
+
+@router.post("/simulate", response_model=ProtocolStudioSimulateResponse)
+def protocol_studio_simulate(
+    body: ProtocolStudioSimulateRequest,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ProtocolStudioSimulateResponse:
+    """Protocol Studio does not embed DeepTwin predictions — returns explicit unavailable state."""
+
+    require_minimum_role(actor, "clinician")
+
+    patient_id = (body.patient_id or "").strip() or None
+    if patient_id:
+        exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+        if not exists:
+            from app.errors import ApiServiceError
+
+            raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+        require_patient_owner(actor, clinic_id)
+
+    settings = get_settings()
+    enabled = bool(getattr(settings, "enable_deeptwin_simulation", False))
+
+    try:
+        _audit(
+            db,
+            actor=actor,
+            action="protocol_studio.simulate_attempt",
+            target_id="simulate",
+            patient_id=patient_id,
+            note=f"protocol_ids={len(body.protocol_ids or [])}",
+        )
+    except Exception:
+        pass
+
+    return ProtocolStudioSimulateResponse(
+        available=False,
+        message=(
+            "Simulation engine is not available in this build. No clinical prediction has been made."
+        ),
+        deeptwin_simulation_enabled=enabled,
+        assumptions=[
+            "DeepTwin simulation is a what-if modelling aid. "
+            "It is not a validated clinical outcome prediction, diagnosis, or treatment approval."
+        ],
+        missing_data=["simulation_engine_not_wired_in_protocol_studio_preview"],
+        safety_flags=["no_clinical_prediction_returned"],
+    )

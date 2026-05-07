@@ -12,19 +12,25 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 from app.auth import (
     AuthenticatedActor,
     get_authenticated_actor,
     require_minimum_role,
+    require_patient_owner,
 )
+from app.database import get_db_session
+from app.errors import ApiServiceError
 from app.limiter import limiter
+from app.repositories.patients import resolve_patient_clinic_id
 from app.services.openmed import adapter
 from app.services.openmed.schemas import (
     AnalyzeResponse,
     ClinicalTextInput,
     DeidentifyResponse,
     HealthResponse,
+    NeuromodulationExtractResponse,
     PIIExtractResponse,
     SourceType,
 )
@@ -36,11 +42,39 @@ class _TextRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=200_000)
     source_type: SourceType = "free_text"
     locale: str = "en"
+    patient_id: str | None = None
 
     def to_input(self) -> ClinicalTextInput:
         return ClinicalTextInput(
             text=self.text, source_type=self.source_type, locale=self.locale
         )
+
+
+def _validated_input(payload: _TextRequest) -> ClinicalTextInput:
+    text = (payload.text or "").strip()
+    if not text:
+        raise ApiServiceError(
+            code="invalid_text",
+            message="Text must not be blank.",
+            status_code=422,
+        )
+    return ClinicalTextInput(
+        text=text,
+        source_type=payload.source_type,
+        locale=payload.locale,
+    )
+
+
+def _gate_patient_context(
+    actor: AuthenticatedActor,
+    patient_id: str | None,
+    db: Session,
+) -> None:
+    if not patient_id:
+        return
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -57,9 +91,11 @@ def clinical_text_analyze(
     request: Request,
     payload: _TextRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> AnalyzeResponse:
     require_minimum_role(actor, "clinician")
-    return adapter.analyze(payload.to_input())
+    _gate_patient_context(actor, payload.patient_id, db)
+    return adapter.analyze(_validated_input(payload))
 
 
 @router.post("/extract-pii", response_model=PIIExtractResponse)
@@ -68,9 +104,11 @@ def clinical_text_extract_pii(
     request: Request,
     payload: _TextRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> PIIExtractResponse:
     require_minimum_role(actor, "clinician")
-    return adapter.extract_pii(payload.to_input())
+    _gate_patient_context(actor, payload.patient_id, db)
+    return adapter.extract_pii(_validated_input(payload))
 
 
 @router.post("/deidentify", response_model=DeidentifyResponse)
@@ -79,9 +117,24 @@ def clinical_text_deidentify(
     request: Request,
     payload: _TextRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> DeidentifyResponse:
     require_minimum_role(actor, "clinician")
-    return adapter.deidentify(payload.to_input())
+    _gate_patient_context(actor, payload.patient_id, db)
+    return adapter.deidentify(_validated_input(payload))
+
+
+@router.post("/analyze-neuromodulation", response_model=NeuromodulationExtractResponse)
+@limiter.limit("30/minute")
+def clinical_text_analyze_neuromodulation(
+    request: Request,
+    payload: _TextRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> NeuromodulationExtractResponse:
+    require_minimum_role(actor, "clinician")
+    _gate_patient_context(actor, payload.patient_id, db)
+    return adapter.analyze_neuromodulation(_validated_input(payload))
 
 
 __all__ = ["router"]
