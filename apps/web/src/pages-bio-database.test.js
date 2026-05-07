@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bioNormalizeArray, buildBioAnalyzerModel } from './pages-bio-database.js';
+import {
+  applyBioReviewScope,
+  bioNormalizeArray,
+  buildBioAnalyzerModel,
+  buildBioReviewHandoffSummary,
+  buildBioScopeFormHints,
+  filterBioRowsForReviewScope,
+} from './pages-bio-database.js';
 
 test('bioNormalizeArray unwraps common API list shapes', () => {
   assert.deepEqual(bioNormalizeArray({ items: [{ id: 1 }] }), [{ id: 1 }]);
@@ -180,4 +187,97 @@ test('buildBioAnalyzerModel emits analyte-specific threshold signals', () => {
   assert.ok(cautionIds.has('vitamin-d-caution'));
   assert.ok(cautionIds.has('inflammation-caution'));
   assert.ok(cautionIds.has('b12-caution'));
+});
+
+test('applyBioReviewScope narrows analyzer content for lab cleanup', () => {
+  const stale = new Date(Date.now() - 220 * 86400000).toISOString();
+  const model = buildBioAnalyzerModel({
+    patient: { primary_modality: 'tdcs' },
+    catalog: [{ name: 'Vitamin D' }, { name: 'TSH' }, { name: 'Ferritin' }],
+    substances: [
+      { name: 'Clonazepam', status: 'active', started_at: stale },
+      { name: 'Methylphenidate', status: 'active', started_at: stale },
+    ],
+    labs: [
+      { name: 'TSH', collected_at: stale, value_numeric: 7.2, unit: 'mIU/L', reference_range_text: '0.4 - 4.5' },
+      { name: 'Magnesium', collected_at: stale, value_numeric: 2.1, unit: 'ng/mL', reference_range_text: '1.7 - 2.2' },
+    ],
+  });
+  const scoped = applyBioReviewScope(model, 'labs');
+  assert.equal(scoped.reviewScopeId, 'labs');
+  assert.equal(scoped.reviewScopeLabel, 'Lab cleanup');
+  assert.equal(scoped.findings.some((item) => item.id === 'sedating-exposure'), false);
+  assert.equal(scoped.findings.some((item) => item.id === 'unit-mismatch-review'), true);
+  assert.equal(scoped.protocolCautions.some((item) => item.id === 'lab-unit-caution'), true);
+  assert.equal(scoped.repeatedLabTrends.length, model.repeatedLabTrends.length);
+  assert.equal(scoped.labInsights.length, model.labInsights.length);
+});
+
+test('buildBioReviewHandoffSummary reflects narrowed review scope', () => {
+  const stale = new Date(Date.now() - 220 * 86400000).toISOString();
+  const scoped = applyBioReviewScope(buildBioAnalyzerModel({
+    patient: { primary_modality: 'tms' },
+    substances: [{ name: 'Clonazepam', status: 'active', started_at: stale }],
+    labs: [{ name: 'TSH', flag: 'critical', collected_at: stale, value_numeric: 6.9 }],
+    reviewNotes: { note: 'Prioritize med reconciliation.', updatedAt: stale },
+  }), 'meds');
+  const summary = buildBioReviewHandoffSummary({
+    patientLabel: 'Example Patient',
+    patientSubtitle: 'MRN-7',
+    patientId: 'pt-7',
+    model: scoped,
+  });
+  assert.match(summary, /Review scope: Med reconciliation/);
+  assert.match(summary, /Patient: Example Patient · MRN-7/);
+  assert.match(summary, /Sedating exposure present/);
+  assert.doesNotMatch(summary, /Critical lab flags need clinician confirmation/);
+  assert.match(summary, /Prioritize med reconciliation\./);
+});
+
+test('filterBioRowsForReviewScope narrows raw rows for meds and labs views', () => {
+  const rows = {
+    substances: [
+      { name: 'Clonazepam', status: 'active' },
+      { name: 'Fish Oil', status: 'stopped' },
+      { name: 'Methylphenidate', status: 'paused' },
+    ],
+    labs: [
+      { name: 'CBC', flag: 'normal', value_numeric: 1.2, reference_range_text: '0.5 - 2.0', unit: 'x10' },
+      { name: 'TSH', flag: 'abnormal', value_numeric: 7.0, reference_range_text: '0.4 - 4.5', unit: 'mIU/L' },
+      { name: 'Magnesium', flag: 'normal', value_numeric: 2.1, reference_range_text: '1.7 - 2.2', unit: 'ng/mL' },
+    ],
+  };
+
+  const medsScoped = filterBioRowsForReviewScope({ scopeId: 'meds', ...rows });
+  assert.deepEqual(medsScoped.substances.map((item) => item.name), ['Clonazepam', 'Methylphenidate']);
+  assert.equal(medsScoped.labs.length, 3);
+
+  const labsScoped = filterBioRowsForReviewScope({ scopeId: 'labs', ...rows });
+  assert.deepEqual(labsScoped.labs.map((item) => item.name), ['TSH', 'Magnesium']);
+  assert.equal(labsScoped.substances.length, 3);
+
+  const protocolScoped = filterBioRowsForReviewScope({ scopeId: 'protocol', ...rows });
+  assert.deepEqual(protocolScoped.substances.map((item) => item.name), ['Clonazepam', 'Methylphenidate']);
+  assert.deepEqual(protocolScoped.labs.map((item) => item.name), ['TSH']);
+});
+
+test('buildBioScopeFormHints adds scope-aware defaults and cleanup warnings', () => {
+  const hints = buildBioScopeFormHints({
+    scopeId: 'labs',
+    labs: [
+      { name: 'TSH', flag: 'abnormal', value_numeric: 7.0, unit: 'mIU/L', reference_range_text: '', source_lab: '' },
+      { name: 'CBC', flag: 'normal', value_numeric: 1.2, reference_range_text: '0.5 - 2.0', source_lab: 'Quest' },
+    ],
+  });
+  assert.equal(hints.scopeId, 'labs');
+  assert.match(hints.labHelperText, /structured source data/);
+  assert.match(hints.labReferencePlaceholder, /Required for cleanup/);
+  assert.match(hints.labSourcePlaceholder, /Required for cleanup/);
+  assert.match(hints.labWarning, /1 scoped lab missing reference range/);
+  assert.match(hints.labWarning, /1 scoped lab missing source lab/);
+
+  const medHints = buildBioScopeFormHints({ scopeId: 'meds' });
+  assert.equal(medHints.substanceStatusDefault, 'active');
+  assert.match(medHints.substanceHelperText, /refreshing the active list/);
+  assert.match(medHints.substanceNotesPlaceholder, /last confirmed date/);
 });
