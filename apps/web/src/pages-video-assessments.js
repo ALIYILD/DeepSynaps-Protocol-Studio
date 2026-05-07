@@ -1479,6 +1479,49 @@ function _renderLongitudinalTrendSummary() {
   </div>`;
 }
 
+function _renderHistoricalAiSummaryFeedbackSection() {
+  const role = currentUser?.role || '';
+  if (!_canReviewPriorSessions(role)) return '';
+  const state = _vaPriorSessionsState;
+  const saved = state.aiSummaryFeedbackResult;
+  const statusOptions = [
+    ['accepted', 'Accepted'],
+    ['partially_accepted', 'Partially accepted'],
+    ['disagreed', 'Disagreed'],
+    ['not_useful', 'Not useful'],
+  ].map(([value, label]) => `<option value="${value}" ${state.aiSummaryFeedbackStatus === value ? 'selected' : ''}>${label}</option>`).join('');
+  const savedLine = saved?.has_feedback && saved?.updated_at
+    ? `<p class="va-muted" role="status" style="font-size:12px;margin:8px 0 0;color:var(--teal)">Saved ${esc(_formatPriorSessionDate(saved.updated_at))} · ${esc(_historicalFeedbackStatusLabel(saved.feedback_status))}</p>`
+    : '';
+  const loadingLine = state.aiSummaryFeedbackLoading
+    ? '<p class="va-muted" style="font-size:12px;margin:0 0 8px">Loading saved clinician feedback…</p>'
+    : '';
+  const errorLine = state.aiSummaryFeedbackError
+    ? `<p class="va-muted" role="alert" style="font-size:12px;margin:8px 0 0;color:var(--amber)">${esc(state.aiSummaryFeedbackError)}</p>`
+    : '';
+  return `<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+      <strong style="display:block;margin-bottom:6px">Clinician feedback on advisory summary</strong>
+      <p class="va-muted" style="font-size:12px;line-height:1.5;margin:0 0 10px">This records the clinician's response to the advisory summary. It does not alter the persisted session review automatically.</p>
+      ${loadingLine}
+      <div class="form-group" style="margin-bottom:10px">
+        <label class="form-label" for="va-history-feedback-status">Feedback status</label>
+        <select id="va-history-feedback-status" class="form-control" ${state.aiSummaryFeedbackSaving ? 'disabled' : ''}>
+          <option value="">Select…</option>
+          ${statusOptions}
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:10px">
+        <label class="form-label" for="va-history-feedback-note">Optional note</label>
+        <textarea id="va-history-feedback-note" class="form-control" rows="2" maxlength="${HISTORICAL_AI_FEEDBACK_NOTE_MAX}" placeholder="Optional short note" ${state.aiSummaryFeedbackSaving ? 'disabled' : ''}>${esc(state.aiSummaryFeedbackNote || '')}</textarea>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button type="button" class="btn btn-secondary btn-sm" id="va-save-history-feedback" ${state.aiSummaryFeedbackSaving || state.aiSummaryFeedbackLoading ? 'disabled' : ''}>${state.aiSummaryFeedbackSaving ? 'Saving…' : 'Save feedback'}</button>
+        ${savedLine}
+      </div>
+      ${errorLine}
+    </div>`;
+}
+
 function _renderHistoricalAiSummaryPanel() {
   const role = currentUser?.role || '';
   if (!_canReviewPriorSessions(role) || !_currentPriorComparisonSessionId()) return '';
@@ -1535,6 +1578,7 @@ function _renderHistoricalAiSummaryPanel() {
         <ul style="margin:0;padding-left:18px">${limitations.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>
       </div>
       <p class="va-muted" style="margin:12px 0 0">Advisory summary generated from persisted finalized-session comparison data. Not a diagnosis or treatment recommendation.</p>
+      ${_renderHistoricalAiSummaryFeedbackSection()}
     </div>
   </div>`;
 }
