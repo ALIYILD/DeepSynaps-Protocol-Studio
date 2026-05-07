@@ -19,6 +19,7 @@ from __future__ import annotations
 import io
 import logging
 import os
+import re
 import tempfile
 import uuid
 from dataclasses import dataclass
@@ -31,6 +32,23 @@ if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# ID validation (path-traversal defence)
+# ---------------------------------------------------------------------------
+
+_SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def _validate_id(name: str, value: str) -> None:
+    """Raise HTTPException(400) if *value* is not a safe slug.
+
+    Prevents path-traversal attacks: patient_id/session_id must only contain
+    alphanumerics, hyphens, and underscores (1-64 characters).
+    """
+    if not value or _SAFE_ID.fullmatch(value) is None:
+        raise HTTPException(status_code=400, detail=f"Invalid {name}")
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -83,11 +101,7 @@ def _validate_extension(filename: str) -> str:
 
 
 def _measure_upload_size(upload_file: UploadFile, max_bytes: int = MAX_FILE_BYTES) -> int:
-    """Read upload in 1 MB chunks, accumulate total, seek(0) to reset.
-
-    Short-circuits and raises HTTPException(413) as soon as the cumulative
-    read exceeds *max_bytes* — avoids loading the entire oversize file into memory.
-    """
+    """Read upload in 1 MB chunks, accumulate total, seek(0) to reset."""
     chunk_size = 1 << 20  # 1 MB
     total = 0
     while True:
@@ -108,7 +122,6 @@ def _ensure_duration_limit(segment: Any) -> None:
     """Raise HTTPException(400) if the audio segment exceeds MAX_DURATION_SEC."""
     duration = getattr(segment, "duration_seconds", None)
     if duration is None:
-        # pydub stores duration in milliseconds via len(segment)
         duration = len(segment) / 1000.0
     if duration > MAX_DURATION_SEC:
         raise HTTPException(
@@ -128,7 +141,6 @@ def _ensure_duration_limit(segment: Any) -> None:
 def _load_audio_segment(data: bytes, ext: str) -> Any:
     """Load audio bytes into a pydub AudioSegment. Monkeypatch seam."""
     import pydub  # lazy
-
     return pydub.AudioSegment.from_file(io.BytesIO(data), format=ext.lstrip("."))
 
 
@@ -145,25 +157,22 @@ def _export_to_wav_bytes(segment: Any) -> bytes:
 
 
 def _get_voice_storage_dir() -> Path:
-    """Return the base Path for voice storage. Monkeypatch seam.
-
-    Reads DEEPSYNAPS_VOICE_DIR from the environment; defaults to /data/voice
-    (the Fly volume mount point in production).  In local dev set the env var
-    to e.g. /tmp/deepsynaps-voice.
-    """
+    """Return the base Path for voice storage. Monkeypatch seam."""
     return Path(os.environ.get("DEEPSYNAPS_VOICE_DIR", "/data/voice"))
 
 
 def _write_audio_blob(relative_key: str, data: bytes, content_type: Optional[str] = None) -> None:
-    """Write *data* atomically to the Fly volume at *relative_key*. Monkeypatch seam.
-
-    *relative_key* is a forward-slash path relative to _get_voice_storage_dir()
-    (e.g. "voice/pt-1/sess-abc/processed.wav").  Parent directories are created
-    automatically.  The write is atomic: bytes go to a temp file in the same
-    directory then renamed into place, so readers never see partial content.
-    """
+    """Write *data* atomically to the Fly volume at *relative_key*. Monkeypatch seam."""
     base = _get_voice_storage_dir()
     dest = base / relative_key
+
+    # Defense-in-depth: ensure the resolved destination stays inside base.
+    # Catches any future caller that bypasses _validate_id.
+    try:
+        dest.resolve().relative_to(base.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid storage path")
+
     dest.parent.mkdir(parents=True, exist_ok=True)
 
     # Write to a sibling temp file then rename — atomic on POSIX (same filesystem).
@@ -192,24 +201,14 @@ def preprocess_upload(
 ) -> AudioMeta:
     """Validate, normalise, and store an audio file on the Fly volume.
 
-    Steps
-    -----
-    1. Validate filename extension.
-    2. Generate session_id (uuid4 hex) if None.
-    3. Measure stream size — reject > 100 MB → HTTPException(413).
-    4. Read raw bytes, decode via ``_load_audio_segment`` seam.
-    5. Validate duration ≤ 30 min.
-    6. Normalise: 16 kHz mono, export to WAV bytes via ``_export_to_wav_bytes``.
-    7. Write original + processed WAV to volume via ``_write_audio_blob``.
-    8. Build and return AudioMeta.
-
-    Raises
-    ------
-    HTTPException(400)
-        Bad extension, undecodable audio, or excessive duration.
-    HTTPException(413)
-        File exceeds 100 MB.
+    Raises HTTPException(400) for bad patient_id/session_id slug, bad extension,
+    undecodable audio, or excessive duration. HTTPException(413) for >100 MB.
     """
+    # Validate IDs before any path construction (path-traversal defence).
+    _validate_id("patient_id", patient_id)
+    if session_id is not None:
+        _validate_id("session_id", session_id)
+
     filename = upload_file.filename or "upload"
     ext = _validate_extension(filename)
 
@@ -224,10 +223,7 @@ def preprocess_upload(
     try:
         segment = _load_audio_segment(raw_bytes, ext)
     except Exception as exc:
-        raise HTTPException(
-            status_code=400,
-            detail="Unable to decode audio file",
-        ) from exc
+        raise HTTPException(status_code=400, detail="Unable to decode audio file") from exc
 
     _ensure_duration_limit(segment)
 

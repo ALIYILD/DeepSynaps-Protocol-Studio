@@ -269,11 +269,18 @@ def test_analyze_endpoint_runs_pipeline_and_returns_json(monkeypatch):
         lambda patient_id, session_id, db_session=None: _fake_voice_analysis_result(),
     )
 
-    # Monkeypatch DB dependency to return None (no DB).
+    # Monkeypatch DB dependency to return a non-None placeholder so the row lookup runs.
     monkeypatch.setattr(
         voice_router_module,
         "_get_optional_db",
-        lambda: iter([None]),
+        lambda: iter([object()]),
+    )
+
+    # Supply a fake DB row so the handler does not 404 (Blocker 3 behavior).
+    monkeypatch.setattr(
+        voice_router_module,
+        "_lookup_audio_analysis",
+        lambda session_id, db=None: _FakeRow(status="completed", session_id=session_id, patient_id="pt-x"),
     )
 
     app = FastAPI()
@@ -634,3 +641,133 @@ def test_upload_endpoint_blocks_patient_outside_actor_clinic():
     )
     assert resp.status_code == 403
     assert resp.json()["detail"] == "session not in your clinic"
+
+
+# ---------------------------------------------------------------------------
+# Security regression tests (Blocker 2, 3, 4)
+# ---------------------------------------------------------------------------
+
+
+def test_gate_real_cross_clinic_403():
+    """Real _gate_session_clinic_access raises 403 when actor is in a different clinic.
+
+    Exercises the gate without stubbing it out — monkeypatches only the three
+    lazy imports (app.auth, app.repositories.patients, app.errors).
+    """
+    import importlib.util, types, sys
+    from fastapi import HTTPException as _HTTPException
+
+    actor = _make_fake_actor(clinic_id="clinic-b")
+
+    # Fake app.auth — get_authenticated_actor returns our actor; require_patient_owner
+    # raises ApiServiceError with code="cross_clinic_access_denied" on mismatch.
+    class _FakeApiServiceError(Exception):
+        def __init__(self, code: str):
+            self.code = code
+
+    fake_auth_mod = types.ModuleType("app.auth")
+    fake_auth_mod.get_authenticated_actor = lambda: actor  # type: ignore[attr-defined]
+
+    def _require_patient_owner(act, clinic_id):
+        if getattr(act, "clinic_id", None) != clinic_id:
+            raise _FakeApiServiceError(code="cross_clinic_access_denied")
+
+    fake_auth_mod.require_patient_owner = _require_patient_owner  # type: ignore[attr-defined]
+
+    # Fake app.repositories.patients — patient is in clinic-a.
+    fake_repo_patients_mod = types.ModuleType("app.repositories.patients")
+    fake_repo_patients_mod.resolve_patient_clinic_id = lambda db, pid: (True, "clinic-a")  # type: ignore[attr-defined]
+
+    # Fake app.errors — ApiServiceError is our local class.
+    fake_errors_mod = types.ModuleType("app.errors")
+    fake_errors_mod.ApiServiceError = _FakeApiServiceError  # type: ignore[attr-defined]
+
+    fake_app_mod = sys.modules.get("app") or types.ModuleType("app")
+    sys.modules.setdefault("app", fake_app_mod)
+    sys.modules["app.auth"] = fake_auth_mod
+    sys.modules["app.repositories"] = types.ModuleType("app.repositories")
+    sys.modules["app.repositories.patients"] = fake_repo_patients_mod
+    sys.modules["app.errors"] = fake_errors_mod
+
+    # Load a fresh router module so it picks up the injected sys.modules.
+    spec = importlib.util.spec_from_file_location(
+        "api.router_real_gate_test",
+        str(Path(__file__).parent.parent / "api" / "router.py"),
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    # Call the real gate directly — actor in clinic-b, patient in clinic-a.
+    with pytest.raises(_HTTPException) as exc_info:
+        mod._gate_session_clinic_access(actor, "pt-clinic-a", object())
+    assert exc_info.value.status_code == 403
+    assert "clinic" in exc_info.value.detail
+
+
+def test_gate_fail_closed_on_missing_import():
+    """_gate_session_clinic_access raises (propagates ImportError as 500) when
+    app.repositories.patients is missing — it must NOT silently return.
+    """
+    import importlib.util, types, sys
+
+    actor = _make_fake_actor(clinic_id="clinic-b")
+
+    # app.auth is importable but app.repositories.patients is NOT.
+    fake_auth_mod = types.ModuleType("app.auth")
+    fake_auth_mod.get_authenticated_actor = lambda: actor  # type: ignore[attr-defined]
+    fake_app_mod = sys.modules.get("app") or types.ModuleType("app")
+    sys.modules.setdefault("app", fake_app_mod)
+    sys.modules["app.auth"] = fake_auth_mod
+    # Ensure the patients sub-module is absent so the lazy import fails.
+    sys.modules.pop("app.repositories.patients", None)
+    sys.modules.pop("app.repositories", None)
+    sys.modules.pop("app.errors", None)
+
+    spec = importlib.util.spec_from_file_location(
+        "api.router_fail_closed_test",
+        str(Path(__file__).parent.parent / "api" / "router.py"),
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    # Gate must raise — NOT silently return — when a required dep is absent.
+    with pytest.raises((ImportError, Exception)) as exc_info:
+        mod._gate_session_clinic_access(actor, "pt-x", object())
+    # Must not be a silent no-op: an exception was raised (ImportError propagates).
+    assert exc_info.value is not None
+
+
+def test_analyze_returns_404_when_no_db_row():
+    """POST /voice/analyze/{session_id} returns 404 when no AudioAnalysis row exists.
+
+    Verifies Blocker 3: the handler must not fall back to body.patient_id for
+    gating when the DB has no record.
+    """
+    import importlib.util, types, sys
+    from fastapi import FastAPI as _FastAPI
+
+    fake_auth_mod = types.ModuleType("app.auth")
+    fake_auth_mod.get_authenticated_actor = lambda: None  # type: ignore[attr-defined]
+    fake_app_mod = sys.modules.get("app") or types.ModuleType("app")
+    sys.modules.setdefault("app", fake_app_mod)
+    sys.modules["app.auth"] = fake_auth_mod
+
+    spec = importlib.util.spec_from_file_location(
+        "api.router_404_test",
+        str(Path(__file__).parent.parent / "api" / "router.py"),
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    # DB always returns None — no row exists.
+    mod._lookup_audio_analysis = lambda session_id, db=None: None
+    mod._get_optional_db = lambda: iter([object()])
+
+    app = _FastAPI()
+    app.include_router(mod.router)
+    app.dependency_overrides[fake_auth_mod.get_authenticated_actor] = lambda: None
+
+    client = TestClient(app)
+    resp = client.post("/voice/analyze/no-such-session", json={"patient_id": "pt-spoof"})
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "session not found"
