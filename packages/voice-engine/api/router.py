@@ -51,6 +51,74 @@ def _get_optional_db():
 
 
 # ---------------------------------------------------------------------------
+# Auth dependency (lazy — only used when the app has auth wired)
+# ---------------------------------------------------------------------------
+
+
+def _get_optional_actor():
+    """Return the authenticated actor if auth is configured, else None.
+
+    Monkeypatch seam: tests replace this via app.dependency_overrides.
+    """
+    try:
+        from app.auth import get_authenticated_actor  # lazy
+
+        return get_authenticated_actor
+    except ImportError:
+        return lambda: None
+
+
+def _get_actor_dependency():
+    """FastAPI Depends target for the authenticated actor.
+
+    Returns a real AuthenticatedActor when app.auth is importable (i.e.
+    when the router is mounted inside the main API app), None otherwise
+    (bare voice-engine test environment).
+    """
+    try:
+        from app.auth import get_authenticated_actor  # lazy
+        return Depends(get_authenticated_actor)
+    except ImportError:
+        return Depends(lambda: None)
+
+
+# ---------------------------------------------------------------------------
+# Clinic-scope gate (mirrors audio_analysis_router._gate_patient_access)
+# ---------------------------------------------------------------------------
+
+
+def _gate_session_clinic_access(actor: Any, patient_id: Optional[str], db: Any) -> None:
+    """Enforce that actor belongs to the same clinic as the patient.
+
+    Mirrors audio_analysis_router._gate_patient_access exactly:
+    - null/missing patient_id: no-op (caller should 404 before reaching this)
+    - uses resolve_patient_clinic_id + require_patient_owner from app.auth
+    - cross-clinic ApiServiceError propagates as 403
+
+    No-op when actor is None (bare voice-engine environment with no auth wired).
+    """
+    if actor is None:
+        return
+    if not patient_id:
+        return
+    try:
+        from app.repositories.patients import resolve_patient_clinic_id  # lazy
+        from app.auth import require_patient_owner  # lazy
+        from app.errors import ApiServiceError  # lazy
+    except ImportError:
+        return
+
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        try:
+            require_patient_owner(actor, clinic_id)
+        except ApiServiceError as exc:
+            if exc.code == "cross_clinic_access_denied":
+                raise HTTPException(status_code=403, detail="session not in your clinic") from exc
+            raise
+
+
+# ---------------------------------------------------------------------------
 # DB lookup helper (seam for /voice/result)
 # ---------------------------------------------------------------------------
 
@@ -90,14 +158,16 @@ async def upload_voice(
     patient_id: str = Form(...),
     session_id: str | None = Form(None),
     file: UploadFile = File(...),
+    actor: Any = _get_actor_dependency(),
+    db: Any = Depends(_get_optional_db),
 ) -> dict[str, Any]:
-    """Validate, normalise and upload an audio file; return AudioMeta as a dict.
+    """Validate, normalise and store an audio file on the Fly volume; return AudioMeta as dict.
 
-    TODO: Once the `voice_sessions` (or `audio_analyses`) table is wired up,
-    persist a row here with the returned AudioMeta fields so downstream
-    analyze calls can look up the processed S3 key by session_id.
-    See apps/api/app/persistence/models/media.py :: AudioAnalysis.
+    Clinic-scope gate: if actor is from a different clinic than the patient, returns 403.
     """
+    # Gate: actor must belong to the same clinic as the patient being written to.
+    _gate_session_clinic_access(actor, patient_id, db)
+
     try:
         meta = audio_io.preprocess_upload(
             upload_file=file,
@@ -117,14 +187,29 @@ async def upload_voice(
 async def analyze_voice(
     session_id: str,
     body: AnalyzeRequest = AnalyzeRequest(),
+    actor: Any = _get_actor_dependency(),
     db: Any = Depends(_get_optional_db),
 ) -> dict[str, Any]:
     """Trigger full voice analysis pipeline for a session (synchronous MVP).
+
+    Clinic-scope gate: the session's patient must belong to the actor's clinic.
 
     # TODO Background queue integration: replace inline call with task enqueue
     # when worker infra exists. Keep run_voice_analysis_for_session signature stable.
     """
     patient_id = body.patient_id or session_id  # fall back to session_id as patient hint
+
+    # Gate: look up session row to get authoritative patient_id, then check clinic.
+    row = _lookup_audio_analysis(session_id, db)
+    if row is not None:
+        row_patient_id = getattr(row, "patient_id", None)
+        if row_patient_id is None:
+            raise HTTPException(status_code=404, detail="session not found")
+        _gate_session_clinic_access(actor, row_patient_id, db)
+        patient_id = row_patient_id
+    else:
+        # No DB row yet (first analyze call); gate on the patient_id from the body.
+        _gate_session_clinic_access(actor, body.patient_id, db)
 
     try:
         result = _pipeline.run_voice_analysis_for_session(
@@ -171,13 +256,24 @@ async def analyze_voice(
 @router.get("/result/{session_id}")
 async def get_voice_result(
     session_id: str,
+    actor: Any = _get_actor_dependency(),
     db: Any = Depends(_get_optional_db),
 ) -> dict[str, Any]:
-    """Retrieve voice analysis result for a session from the DB."""
+    """Retrieve voice analysis result for a session from the DB.
+
+    Clinic-scope gate: the session's patient must belong to the actor's clinic.
+    """
     row = _lookup_audio_analysis(session_id, db)
 
     if row is None:
         raise HTTPException(status_code=404, detail="session not found")
+
+    patient_id = getattr(row, "patient_id", None)
+    if patient_id is None:
+        raise HTTPException(status_code=404, detail="session not found")
+
+    # Gate: cross-clinic access on result is blocked.
+    _gate_session_clinic_access(actor, patient_id, db)
 
     status = getattr(row, "status", "uploaded")
 
@@ -199,8 +295,6 @@ async def get_voice_result(
             blob = json.loads(raw)
         except Exception:
             blob = {}
-
-    patient_id = getattr(row, "patient_id", None)
 
     return {
         "status": "completed",
