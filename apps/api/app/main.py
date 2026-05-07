@@ -27,7 +27,6 @@ from deepsynaps_core_schema import (
     ErrorResponse,
     EvidenceListResponse,
     HandbookGenerateRequest,
-    HandbookGenerateResponse,
     IntakePreviewRequest,
     IntakePreviewResponse,
     ProtocolDraftRequest,
@@ -274,7 +273,7 @@ from app.qeeg.workers.qeeg_analysis_worker import (
     start_worker_if_enabled as start_qeeg_105_worker,
 )
 from app.services.agent_skills_seed import seed_default_agent_skills
-from app.services.clinical_data import seed_clinical_dataset
+from app.services.clinical_data import HandbookGenerateAPIResponse, seed_clinical_dataset
 from app.services.devices import list_devices
 from app.services.evidence import list_evidence
 from app.services.generation import generate_handbook, generate_protocol_draft
@@ -978,7 +977,7 @@ def protocol_draft(
 
 @app.post(
     "/api/v1/handbooks/generate",
-    response_model=HandbookGenerateResponse,
+    response_model=HandbookGenerateAPIResponse,
     responses={403: {"model": ErrorResponse}},
 )
 @limiter.limit("10/minute")
@@ -986,7 +985,7 @@ def handbook(
     request: Request,
     payload: HandbookGenerateRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
-) -> HandbookGenerateResponse:
+) -> HandbookGenerateAPIResponse:
     return generate_handbook(payload, actor)
 
 

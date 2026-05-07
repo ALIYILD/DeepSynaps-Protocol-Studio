@@ -946,7 +946,22 @@ async function apiFetchBlob(path, data) {
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error(`Export error ${res.status}`);
+  if (!res.ok) {
+    let msg = `Export error ${res.status}`;
+    let code;
+    try {
+      const ct = res.headers.get('Content-Type') || '';
+      if (ct.includes('application/json')) {
+        const j = await res.json();
+        code = j.code;
+        msg = j.message || (typeof j.detail === 'string' ? j.detail : '') || msg;
+      }
+    } catch (_) { /* ignore */ }
+    const err = new Error(msg);
+    err.status = res.status;
+    if (code) err.code = code;
+    throw err;
+  }
   return res.blob();
 }
 
@@ -1840,6 +1855,7 @@ export const api = {
   // ── Export ──────────────────────────────────────────────────────────────
   exportProtocolDocx: (data) => apiFetchBlob('/api/v1/export/protocol-docx', data),
   exportHandbookDocx: (data) => apiFetchBlob('/api/v1/export/handbook-docx', data),
+  exportHandbookPdf: (data) => apiFetchBlob('/api/v1/export/handbook-pdf', data),
   exportPatientGuideDocx: (data) => apiFetchBlob('/api/v1/export/patient-guide-docx', data),
 
   // ── Review & Audit ──────────────────────────────────────────────────────
