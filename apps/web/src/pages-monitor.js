@@ -376,6 +376,8 @@ function state() {
       fleet: null,
       workbenchFlags: null,
       workbenchSummary: null,
+      workbenchError: null,
+      workbenchActionError: null,
       workbenchFilters: { status: 'open', severity: '' },
       monitorHeavyLoaded: false,
       biometricsReportSchedules: [],
@@ -807,11 +809,18 @@ function renderWorkbenchFilters(filters) {
     + '</div>';
 }
 
-function renderWorkbenchTable(flags, isDemoView) {
+function renderWorkbenchTable(flags, isDemoView, loadError) {
   var rows = Array.isArray(flags) ? flags : [];
   var demoBanner = isDemoView
     ? '<div class="monitor-empty-inline" style="background:#fff7e6;border:1px solid #ffd591;color:#874d00;margin-bottom:12px">DEMO data — exports will be DEMO-prefixed and are not regulator-submittable.</div>'
     : '';
+
+  if (loadError) {
+    return demoBanner
+      + '<div class="monitor-empty-inline" role="alert" style="background:#fff1f0;border:1px solid #ffa39e;color:#a8071a">'
+      + 'Could not load wearable alert flags right now. Queue contents may be unavailable because the clinic feed is offline, unauthorized, or degraded.'
+      + '</div>';
+  }
 
   if (!rows.length) {
     return demoBanner + '<div class="monitor-empty-inline">No alert flags pending review. No wearable alert flags are queued for review in this filter. Empty queue does not mean clinically cleared.</div>';
@@ -852,14 +861,15 @@ function renderWorkbenchTable(flags, isDemoView) {
     + head + '<tbody>' + body + '</tbody></table></div>';
 }
 
-function renderWorkbench(summary, flags, isDemoView, filters) {
+function renderWorkbench(summary, flags, isDemoView, filters, loadError, actionError) {
   var hasData = Array.isArray(flags);
   return renderWorkbenchKpis(summary || {})
     + '<section class="monitor-panel">'
     + '<div class="monitor-panel-head"><h3>Wearable alert triage</h3>'
     + '<span>' + (hasData ? flags.length : 0) + ' shown</span></div>'
     + renderWorkbenchFilters(filters || {})
-    + (hasData ? renderWorkbenchTable(flags, isDemoView) : '<div class="monitor-empty-inline">Loading triage queue...</div>')
+    + (actionError ? '<p class="monitor-inline-error" role="alert">' + esc(actionError) + '</p>' : '')
+    + (hasData ? renderWorkbenchTable(flags, isDemoView, loadError) : '<div class="monitor-empty-inline">Loading triage queue...</div>')
     + '</section>';
 }
 
@@ -2530,7 +2540,7 @@ function render() {
     var flagsList = Array.isArray(s.workbenchFlags?.items) ? s.workbenchFlags.items : null;
     var isDemoView = !!(s.workbenchFlags?.is_demo_view || summary?.is_demo_view);
     tabBody = `<div class="monitor-main-grid"><div class="monitor-main-col">${
-      renderWorkbench(summary, flagsList, isDemoView, s.workbenchFilters)
+      renderWorkbench(summary, flagsList, isDemoView, s.workbenchFilters, s.workbenchError, s.workbenchActionError)
     }</div></div>`;
   } else {
     tabBody = renderDevicesKpis(integrations) +
@@ -2908,6 +2918,7 @@ function disconnectMonitorLiveStream() {
 
 async function loadWorkbench() {
   const s = state();
+  s.workbenchError = null;
   // Build filter params, dropping blanks so the server-side default
   // (no filter) kicks in instead of filtering by literal empty strings.
   var params = {};
@@ -2916,13 +2927,20 @@ async function loadWorkbench() {
   try {
     const flags = await api.wearablesWorkbenchListFlags(params);
     if (flags) s.workbenchFlags = flags;
-  } catch {}
+    else s.workbenchError = 'empty_response';
+  } catch (e) {
+    const msg = (e && e.message) ? String(e.message) : 'request failed';
+    s.workbenchError = msg;
+  }
   try {
     const summary = await api.wearablesWorkbenchSummary();
     if (summary) s.workbenchSummary = summary;
-  } catch {}
-  // Honest empty state when offline / API unreachable — no synthetic
-  // alerts. The render path shows a neutral empty queue message.
+  } catch (e) {
+    const msg = (e && e.message) ? String(e.message) : 'request failed';
+    if (!s.workbenchError) s.workbenchError = msg;
+  }
+  // Honest fallback: never synthesize alert rows, but also never let an
+  // offline/error condition masquerade as a true empty queue.
   if (!s.workbenchFlags) s.workbenchFlags = { items: [], total: 0, is_demo_view: false };
   if (!s.workbenchSummary) s.workbenchSummary = { open: 0, acknowledged: 0, escalated: 0, resolved: 0, incidence_7d: 0, is_demo_view: false };
   render();
@@ -3591,7 +3609,13 @@ export async function pgMonitor(setTopbar, navigate) {
     note = String(note || '').trim();
     if (!note) return;
     (async function () {
-      try { await api.wearablesWorkbenchAcknowledge(flagId, note); } catch {}
+      s.workbenchActionError = null;
+      try {
+        await api.wearablesWorkbenchAcknowledge(flagId, note);
+      } catch (e) {
+        var msg = (e && e.message) ? String(e.message) : 'request failed';
+        s.workbenchActionError = 'Could not acknowledge wearable alert flag: ' + msg;
+      }
       await loadWorkbench();
     })();
   };
@@ -3600,6 +3624,7 @@ export async function pgMonitor(setTopbar, navigate) {
     note = String(note || '').trim();
     if (!note) return;
     (async function () {
+      s.workbenchActionError = null;
       try {
         var resp = await api.wearablesWorkbenchEscalate(flagId, note, null);
         if (resp && resp.adverse_event_id && window.confirm) {
@@ -3607,7 +3632,10 @@ export async function pgMonitor(setTopbar, navigate) {
             window._nav?.('adverse-events-hub');
           }
         }
-      } catch {}
+      } catch (e) {
+        var msg = (e && e.message) ? String(e.message) : 'request failed';
+        s.workbenchActionError = 'Could not escalate wearable alert flag: ' + msg;
+      }
       await loadWorkbench();
     })();
   };
@@ -3616,7 +3644,13 @@ export async function pgMonitor(setTopbar, navigate) {
     note = String(note || '').trim();
     if (!note) return;
     (async function () {
-      try { await api.wearablesWorkbenchResolve(flagId, note); } catch {}
+      s.workbenchActionError = null;
+      try {
+        await api.wearablesWorkbenchResolve(flagId, note);
+      } catch (e) {
+        var msg = (e && e.message) ? String(e.message) : 'request failed';
+        s.workbenchActionError = 'Could not resolve wearable alert flag: ' + msg;
+      }
       await loadWorkbench();
     })();
   };
@@ -3624,6 +3658,8 @@ export async function pgMonitor(setTopbar, navigate) {
     if (!patientId) return;
     window._selectedPatientId = patientId;
     window._profilePatientId = patientId;
+    window._profileMonitorHandoff = { source: 'wearables_workbench', tab: 'wearables-workbench', reason_text: 'wearable alert triage queue' };
+    try { sessionStorage.setItem('ds_pat_selected_id', String(patientId)); } catch {}
     try { api.postWearablesWorkbenchAuditEvent({ event: 'deep_link_followed', note: 'target=patient_profile patient=' + patientId }); } catch {}
     window._nav?.('patient-profile');
   };
@@ -3635,10 +3671,10 @@ export async function pgMonitor(setTopbar, navigate) {
   };
   window._workbenchExportCsv = function () {
     try { api.postWearablesWorkbenchAuditEvent({ event: 'export_initiated', note: 'format=csv' }); } catch {}
-    window.open(api.wearablesWorkbenchExportCsvUrl(), '_blank');
+    window.open(api.wearablesWorkbenchExportCsvUrl(s.workbenchFilters || {}), '_blank');
   };
   window._workbenchExportNdjson = function () {
     try { api.postWearablesWorkbenchAuditEvent({ event: 'export_initiated', note: 'format=ndjson' }); } catch {}
-    window.open(api.wearablesWorkbenchExportNdjsonUrl(), '_blank');
+    window.open(api.wearablesWorkbenchExportNdjsonUrl(s.workbenchFilters || {}), '_blank');
   };
 }

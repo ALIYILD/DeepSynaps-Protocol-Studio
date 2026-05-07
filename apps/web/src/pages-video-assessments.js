@@ -76,6 +76,14 @@ var _vaRecordedChunks = [];
 var _vaPreviewUrl = null;
 /** @type {Record<string, string>} task_id -> object URL for last capture */
 var _vaBlobUrlByTask = {};
+/** @type {Record<string, Blob>} task_id -> last accepted local blob before persisted upload */
+var _vaBlobByTask = {};
+/** @type {Record<string, string>} task_id -> fetched persisted clip object URL */
+var _vaRemoteVideoUrlByTask = {};
+/** @type {Record<string, boolean>} task_id -> persisted clip fetch in flight */
+var _vaRemoteVideoLoadingByTask = {};
+/** @type {Record<string, string>} task_id -> persisted clip fetch error */
+var _vaRemoteVideoErrorByTask = {};
 var _vaRecordingDeadline = null;
 var _vaCountdownTimer = null;
 var _vaRecordingTimer = null;
@@ -163,6 +171,32 @@ function _setTaskBlobUrl(taskId, url) {
   else delete _vaBlobUrlByTask[taskId];
 }
 
+function _setTaskBlob(taskId, blob) {
+  if (blob) _vaBlobByTask[taskId] = blob;
+  else delete _vaBlobByTask[taskId];
+}
+
+function _setTaskRemoteVideoUrl(taskId, url) {
+  if (_vaRemoteVideoUrlByTask[taskId]) {
+    try {
+      URL.revokeObjectURL(_vaRemoteVideoUrlByTask[taskId]);
+    } catch (_) {}
+  }
+  if (url) _vaRemoteVideoUrlByTask[taskId] = url;
+  else delete _vaRemoteVideoUrlByTask[taskId];
+}
+
+function _clearLocalVideoState() {
+  Object.keys(_vaBlobUrlByTask).forEach((taskId) => _setTaskBlobUrl(taskId, null));
+  _vaBlobByTask = {};
+}
+
+function _clearRemoteVideoState() {
+  Object.keys(_vaRemoteVideoUrlByTask).forEach((taskId) => _setTaskRemoteVideoUrl(taskId, null));
+  _vaRemoteVideoLoadingByTask = {};
+  _vaRemoteVideoErrorByTask = {};
+}
+
 function _stopMedia() {
   if (_vaMediaRecorder && _vaMediaRecorder.state !== 'inactive') {
     try {
@@ -188,7 +222,14 @@ function _stopMedia() {
 function _persistSession() {
   try {
     if (_vaSession && _persistAllowed()) {
-      sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(_vaSession));
+      const payload = _sessionHasServerTruth(_vaSession)
+        ? {
+            session_id: _vaSession.id,
+            selected_patient_id: _vaSelectedPatientId || _vaSession.patient_id || null,
+            persisted_backend_session: true,
+          }
+        : _vaSession;
+      sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(payload));
     }
   } catch (_) {}
 }
@@ -196,7 +237,22 @@ function _persistSession() {
 function _loadPersistedSession() {
   try {
     const raw = sessionStorage.getItem(SESSION_STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        if (parsed.session_id && !parsed.tasks) {
+          return parsed;
+        }
+        if (parsed.id && _isPersistedSessionId(parsed.id)) {
+          return {
+            session_id: parsed.id,
+            selected_patient_id: parsed.patient_id || null,
+            persisted_backend_session: true,
+          };
+        }
+      }
+      return parsed;
+    }
     const legacy = sessionStorage.getItem('ds_video_assessment_session');
     if (legacy) return JSON.parse(legacy);
   } catch (_) {}
@@ -221,6 +277,39 @@ function _replaceSession(nextSession, { persist = true } = {}) {
   if (_vaSelectedPatientId) _vaSession.patient_id = _vaSelectedPatientId;
   _applySummary();
   if (persist) _persistSession();
+}
+
+function _taskLocalBlob(taskId) {
+  return _vaBlobByTask[taskId] || null;
+}
+
+function _taskRemoteVideoUrl(taskId) {
+  return _vaRemoteVideoUrlByTask[taskId] || '';
+}
+
+async function _ensureSelectedClinicianTaskVideoLoaded() {
+  if (_vaUiMode !== 'clinician') return;
+  const session = _ensureSession();
+  if (!_sessionHasServerTruth(session)) return;
+  const task = session.tasks?.[_vaSelectedClinicianTask];
+  if (!task?.task_id || !task?.recording_storage_ref) return;
+  if (_vaBlobUrlByTask[task.task_id] || _taskRemoteVideoUrl(task.task_id) || _vaRemoteVideoLoadingByTask[task.task_id]) {
+    return;
+  }
+  _vaRemoteVideoLoadingByTask[task.task_id] = true;
+  delete _vaRemoteVideoErrorByTask[task.task_id];
+  _render();
+  try {
+    const res = await api.getVideoAssessmentTaskVideo(session.id, task.task_id);
+    if (_vaSession?.id !== session.id) return;
+    const url = URL.createObjectURL(res.blob);
+    _setTaskRemoteVideoUrl(task.task_id, url);
+  } catch (error) {
+    _vaRemoteVideoErrorByTask[task.task_id] = error?.message || 'Could not load the stored clip.';
+  } finally {
+    delete _vaRemoteVideoLoadingByTask[task.task_id];
+    _render();
+  }
 }
 
 function _downloadSessionJsonPayload(payload, filename) {
@@ -248,7 +337,7 @@ async function _refreshPersistedSessionTruth(sessionId, { renderAfter = true } =
 
 async function _recoverPersistedSessionConflict(sessionId, error) {
   try {
-    await _refreshPersistedSessionTruth(sessionId, { silent: true });
+    await _refreshPersistedSessionTruth(sessionId, { renderAfter: false });
   } catch (_) {}
   if (error?.code === 'session_conflict') {
     showToast('Persisted session changed on the server. Latest version reloaded.', 'warning');
@@ -301,6 +390,15 @@ async function _finalizePersistedSession(successMessage) {
     _render();
     return null;
   }
+}
+
+async function _patchPersistedTaskState(taskId, taskPatch, successMessage) {
+  return _patchPersistedSession(
+    {
+      tasks: [{ task_id: taskId, ...taskPatch }],
+    },
+    successMessage,
+  );
 }
 
 function _applySummary() {
@@ -1095,12 +1193,25 @@ function _probeVideoBlob(blob) {
     const v = document.createElement('video');
     v.preload = 'metadata';
     v.muted = true;
+    let settled = false;
     const done = (payload) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
       try {
         URL.revokeObjectURL(url);
       } catch (_) {}
       resolve(payload);
     };
+    const timeoutId = setTimeout(() => {
+      done({
+        duration_seconds: null,
+        video_width: null,
+        video_height: null,
+        audio_track_present: null,
+        probe_error: 'metadata_timeout',
+      });
+    }, 250);
     v.onloadedmetadata = () => {
       try {
         const d = v.duration;
@@ -1172,6 +1283,7 @@ async function _beginRecording() {
     _cleanupPreviewUrl();
     _vaPreviewUrl = URL.createObjectURL(blob);
     _setTaskBlobUrl(task.task_id, _vaPreviewUrl);
+    _setTaskBlob(task.task_id, blob);
     task.recording_asset_id = 'blob:' + task.task_id + ':' + Date.now();
     task.recording_status = 'pending_review';
     void _probeVideoBlob(blob).then((meta) => {
@@ -1366,7 +1478,7 @@ function _renderVideoAvailabilityCard(session) {
   const tasks = session?.tasks || [];
   let withClip = 0;
   for (const t of tasks) {
-    if (t.recording_asset_id && _vaBlobUrlByTask[t.task_id]) withClip++;
+    if ((t.recording_asset_id && _vaBlobUrlByTask[t.task_id]) || t.recording_storage_ref) withClip++;
   }
   const ai = session?.future_ai_metrics_placeholder || {};
   const hasAiSlot = ai && typeof ai === 'object';
@@ -1543,7 +1655,7 @@ function _renderClinicianForm(task) {
       ? `<div class="va-skip-note">Skipped: ${esc(task.skip_reason || 'skipped')}</div>`
       : '';
 
-  const blobSrc = task.recording_asset_id ? _vaBlobUrlByTask[task.task_id] : null;
+  const blobSrc = (task.recording_asset_id ? _vaBlobUrlByTask[task.task_id] : null) || _taskRemoteVideoUrl(task.task_id) || null;
   const meta = task.video_capture_meta;
   const metaHtml =
     meta && typeof meta === 'object'
@@ -1554,9 +1666,16 @@ function _renderClinicianForm(task) {
         ${meta.probe_error ? ' · probe: ' + esc(meta.probe_error) : ''}
       </div>`
       : '';
+  const remoteLoading = !!_vaRemoteVideoLoadingByTask[task.task_id];
+  const remoteError = _vaRemoteVideoErrorByTask[task.task_id] || '';
+  const canLoadStoredClip = _sessionHasServerTruth() && !!task.recording_storage_ref;
   const videoBlock = blobSrc
     ? `${metaHtml}<video controls src="${esc(blobSrc)}" style="width:100%;border-radius:8px;background:#000"></video>`
-    : `<div class="va-video-placeholder">No recording in this browser session yet. Prior server-stored clips are not loaded in this build—record or accept a clip in Patient Capture Mode first.</div>`;
+    : remoteLoading
+      ? `<div class="va-video-placeholder">Loading stored persisted clip…</div>`
+      : canLoadStoredClip
+        ? `<div class="va-video-placeholder">Stored persisted clip is available for this task.${remoteError ? ' ' + esc(remoteError) : ''} <button type="button" class="btn btn-secondary btn-sm" id="va-load-stored-video" style="margin-left:8px">Load stored clip</button></div>`
+        : `<div class="va-video-placeholder">No recording is available for this task in the current session or persisted backend storage.</div>`;
 
   return `<div class="va-clinician-form">
     ${unsafeBadge}${skipBadge}
@@ -2135,6 +2254,7 @@ function _wire() {
   document.getElementById('va-mode-clinician')?.addEventListener('click', () => {
     _vaUiMode = 'clinician';
     _render();
+    void _ensureSelectedClinicianTaskVideoLoaded();
   });
 
   document.querySelectorAll('[data-va-prior-select]').forEach((btn) => {
@@ -2191,8 +2311,8 @@ function _wire() {
     showToast('Review the checklist, then press Start recording when you are set.');
   });
 
-  document.getElementById('va-skip-task')?.addEventListener('click', () => _skipCurrent('patient_pref'));
-  document.getElementById('va-unsafe-task')?.addEventListener('click', () => _skipCurrent('unsafe'));
+  document.getElementById('va-skip-task')?.addEventListener('click', () => void _skipCurrent('patient_pref'));
+  document.getElementById('va-unsafe-task')?.addEventListener('click', () => void _skipCurrent('unsafe'));
 
   document.getElementById('va-start-rec')?.addEventListener('click', async () => {
     try {
@@ -2226,12 +2346,50 @@ function _wire() {
     _stopRecordingClip();
   });
 
-  document.getElementById('va-use-clip')?.addEventListener('click', () => {
+  document.getElementById('va-use-clip')?.addEventListener('click', async () => {
+    const session = _ensureSession();
     const task = _currentTask();
-    if (task) {
-      task.recording_status = 'accepted';
-      task.unsafe_flag = false;
+    if (!task) return;
+    const lastTask = _vaTaskIndex >= ((session.tasks?.length || 1) - 1);
+    if (_sessionHasServerTruth(session)) {
+      const blob = _taskLocalBlob(task.task_id);
+      if (!blob) {
+        showToast('Accepted clip is no longer available in browser memory. Record or upload the clip again.', 'warning');
+        return;
+      }
+      try {
+        const uploaded = await api.uploadVideoAssessmentTaskVideo(
+          session.id,
+          task.task_id,
+          blob,
+          {
+            expectedRevision: _sessionRevisionToken(session),
+            filename: `${task.task_id}.${blob.type === 'video/mp4' ? 'mp4' : blob.type === 'video/quicktime' ? 'mov' : 'webm'}`,
+          },
+        );
+        if (uploaded?.session) _replaceSession(uploaded.session);
+        _setTaskBlob(task.task_id, null);
+        showToast('Clip uploaded to persisted session.');
+        if (lastTask) {
+          const completed = await _patchPersistedSession(
+            {
+              overall_status: 'completed',
+              completed_at: new Date().toISOString(),
+            },
+            null,
+          );
+          if (!completed) return;
+        }
+      } catch (error) {
+        await _recoverPersistedSessionConflict(session.id, error);
+        _render();
+        return;
+      }
+      _advanceTask(false);
+      return;
     }
+    task.recording_status = 'accepted';
+    task.unsafe_flag = false;
     _advanceTask();
   });
 
@@ -2241,13 +2399,18 @@ function _wire() {
     _render();
   });
 
-  document.getElementById('va-skip-post')?.addEventListener('click', () => _skipCurrent('patient_pref'));
+  document.getElementById('va-skip-post')?.addEventListener('click', () => void _skipCurrent('patient_pref'));
 
   document.querySelectorAll('[data-va-task-idx]').forEach((btn) => {
     btn.addEventListener('click', () => {
       _vaSelectedClinicianTask = parseInt(btn.getAttribute('data-va-task-idx'), 10);
       _render();
+      void _ensureSelectedClinicianTaskVideoLoaded();
     });
+  });
+
+  document.getElementById('va-load-stored-video')?.addEventListener('click', () => {
+    void _ensureSelectedClinicianTaskVideoLoaded();
   });
 
   document.getElementById('va-save-draft')?.addEventListener('click', async () => {
@@ -2375,6 +2538,7 @@ function _wire() {
       const blob = file.slice(0, file.size, file.type || 'video/mp4');
       const url = URL.createObjectURL(blob);
       _setTaskBlobUrl(task.task_id, url);
+      _setTaskBlob(task.task_id, blob);
       task.recording_asset_id = 'file:' + task.task_id + ':' + Date.now();
       task.recording_status = 'pending_review';
       const meta = await _probeVideoBlob(blob);
@@ -2398,14 +2562,45 @@ function _wire() {
 }
 
 
-function _skipCurrent(reason) {
+async function _skipCurrent(reason) {
   const task = _currentTask();
   if (!task) return;
-  task.recording_status = reason === 'unsafe' ? 'unsafe_skipped' : 'skipped';
-  task.skip_reason = reason;
-  task.unsafe_flag = reason === 'unsafe';
-  if (reason === 'unsafe') {
-    _ensureSession().safety_flags = [...new Set([...(_ensureSession().safety_flags || []), task.task_id])];
+  const session = _ensureSession();
+  const nextStatus = reason === 'unsafe' ? 'unsafe_skipped' : 'skipped';
+  const persisted = _sessionHasServerTruth(session);
+  const lastTask = _vaTaskIndex >= ((session.tasks?.length || 1) - 1);
+  if (persisted) {
+    const saved = await _patchPersistedTaskState(
+      task.task_id,
+      {
+        recording_status: nextStatus,
+        skip_reason: reason,
+        unsafe_flag: reason === 'unsafe',
+      },
+      null,
+    );
+    if (!saved) return;
+    if (lastTask) {
+      const completed = await _patchPersistedSession(
+        {
+          overall_status: 'completed',
+          completed_at: new Date().toISOString(),
+        },
+        null,
+      );
+      if (!completed) return;
+    }
+  }
+  if (!persisted) {
+    task.recording_status = nextStatus;
+    task.skip_reason = reason;
+    task.unsafe_flag = reason === 'unsafe';
+    if (reason === 'unsafe') {
+      session.safety_flags = [...new Set([...(session.safety_flags || []), task.task_id])];
+    }
+  } else {
+    _setTaskBlob(task.task_id, null);
+    _setTaskBlobUrl(task.task_id, null);
   }
   _cleanupPreviewUrl();
   _vaPatientPhase = 'task_intro';
@@ -2414,6 +2609,19 @@ function _skipCurrent(reason) {
 
 function _advanceTask(fromSkip) {
   const session = _ensureSession();
+  if (_sessionHasServerTruth(session)) {
+    if (_vaTaskIndex < session.tasks.length - 1) {
+      _vaTaskIndex++;
+      _vaPatientPhase = 'task_intro';
+    } else {
+      _vaTaskIndex = session.tasks.length;
+      _vaPatientPhase = 'setup';
+      showToast(fromSkip ? 'Last task handled—session complete.' : 'Session complete.');
+    }
+    _applySummary();
+    _render();
+    return;
+  }
   if (_vaTaskIndex < session.tasks.length - 1) {
     _vaTaskIndex++;
     _vaPatientPhase = 'task_intro';
@@ -2452,7 +2660,18 @@ export async function pgVideoAssessments(setTopbar, navigate) {
   _vaSession = null;
   const persisted = _loadPersistedSession();
   if (persisted) {
-    _vaSession = persisted;
+    if (persisted.session_id && !persisted.tasks) {
+      const pid =
+        persisted.selected_patient_id ||
+        _vaSelectedPatientId ||
+        (_demoTokenWorkspace() ? 'demo-workspace' : 'not-selected');
+      _vaSession = createEmptySession({
+        id: persisted.session_id,
+        patient_id: pid,
+      });
+    } else {
+      _vaSession = persisted;
+    }
     if (_vaSelectedPatientId) _vaSession.patient_id = _vaSelectedPatientId;
     else if (!_vaSession.patient_id || _vaSession.patient_id === 'demo-patient') {
       _vaSession.patient_id = _demoTokenWorkspace() ? 'demo-workspace' : 'not-selected';
@@ -2477,6 +2696,8 @@ export async function pgVideoAssessments(setTopbar, navigate) {
   _vaTaskIndex = 0;
   _vaSetupConfirmed = false;
   _vaSelectedClinicianTask = 0;
+  _clearLocalVideoState();
+  _clearRemoteVideoState();
   _stopMedia();
   _cleanupPreviewUrl();
 

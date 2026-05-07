@@ -62,6 +62,12 @@ function installDom() {
   globalThis.HTMLElement = dom.window.HTMLElement;
   globalThis.Node = dom.window.Node;
   globalThis.URL = dom.window.URL;
+  if (!globalThis.URL.createObjectURL) {
+    globalThis.URL.createObjectURL = () => `blob:test-${Math.random().toString(16).slice(2)}`;
+  }
+  if (!globalThis.URL.revokeObjectURL) {
+    globalThis.URL.revokeObjectURL = () => {};
+  }
   globalThis.File = dom.window.File;
   globalThis.Blob = dom.window.Blob;
   globalThis.open = dom.window.open?.bind(dom.window);
@@ -121,6 +127,8 @@ function stubVideoAssessmentApi(overrides = {}) {
     getVideoAssessmentSession: api.getVideoAssessmentSession,
     patchVideoAssessmentSession: api.patchVideoAssessmentSession,
     finalizeVideoAssessmentSession: api.finalizeVideoAssessmentSession,
+    uploadVideoAssessmentTaskVideo: api.uploadVideoAssessmentTaskVideo,
+    getVideoAssessmentTaskVideo: api.getVideoAssessmentTaskVideo,
     exportVideoAssessmentSessionJson: api.exportVideoAssessmentSessionJson,
     getVideoAssessmentPriorFinalizedSessions: api.getVideoAssessmentPriorFinalizedSessions,
     generateVideoAssessmentHistoricalAiSummary: api.generateVideoAssessmentHistoricalAiSummary,
@@ -157,6 +165,30 @@ function stubVideoAssessmentApi(overrides = {}) {
         overallStatus: 'finalized',
         revisionToken: 'rev-finalized',
       }));
+  api.uploadVideoAssessmentTaskVideo =
+    overrides.uploadVideoAssessmentTaskVideo ??
+    (async (sessionId, taskId) => {
+      const persisted = makeStoredPersistedSession({
+        id: sessionId,
+        patientId: 'pt-1',
+        revisionToken: 'rev-uploaded',
+      });
+      persisted.tasks[0].task_id = taskId;
+      persisted.tasks[0].recording_status = 'accepted';
+      persisted.tasks[0].recording_storage_ref = `video_assessments/pt-1/${sessionId}/${taskId}.webm`;
+      return {
+        recording_asset_id: `asset-${taskId}`,
+        recording_storage_ref: persisted.tasks[0].recording_storage_ref,
+        session: persisted,
+      };
+    });
+  api.getVideoAssessmentTaskVideo =
+    overrides.getVideoAssessmentTaskVideo ??
+    (async () => ({
+      blob: new Blob(['persisted-video'], { type: 'video/webm' }),
+      contentType: 'video/webm',
+      filename: 'stored.webm',
+    }));
   api.exportVideoAssessmentSessionJson =
     overrides.exportVideoAssessmentSessionJson ??
     (async (sessionId) => ({
@@ -312,9 +344,17 @@ async function mountVideoPage({
     email: `${role}@example.test`,
   });
   if (session) {
+    const storedPayload =
+      session?.id && !String(session.id).startsWith('vas_')
+        ? {
+            session_id: session.id,
+            selected_patient_id: session.patient_id || 'pt-1',
+            persisted_backend_session: true,
+          }
+        : session;
     env.window.sessionStorage.setItem(
       VIDEO_ASSESSMENT_SESSION_STORAGE_KEY,
-      JSON.stringify(session),
+      JSON.stringify(storedPayload),
     );
     env.window.sessionStorage.setItem('ds_pat_selected_id', session.patient_id || 'pt-1');
   }
@@ -352,6 +392,39 @@ test('persisted session reload fetches authoritative backend truth on page load'
   });
   try {
     assert.equal(page.document.getElementById('va-summary-impression').value, 'Authoritative persisted note');
+  } finally {
+    page.restore();
+  }
+});
+
+test('persisted session browser storage degrades to a minimal attachment token after backend save', async () => {
+  const page = await mountVideoPage({
+    role: 'clinician',
+    apiOverrides: {
+      patchVideoAssessmentSession: async (sessionId, payload) => {
+        const persisted = makeStoredPersistedSession({
+          id: sessionId,
+          revisionToken: 'rev-token-only',
+        });
+        persisted.tasks[0].clinician_review = payload.tasks[0].clinician_review;
+        return persisted;
+      },
+    },
+  });
+  try {
+    page.document.getElementById('va-mode-clinician').click();
+    await flush(2);
+    page.document.querySelector('[data-va-field="video_quality"]').value = 'good';
+    page.document.getElementById('va-save-draft').click();
+    await flush(4);
+    const stored = JSON.parse(page.window.sessionStorage.getItem(VIDEO_ASSESSMENT_SESSION_STORAGE_KEY));
+    assert.deepEqual(stored, {
+      session_id: 'sess-current-1',
+      selected_patient_id: 'pt-1',
+      persisted_backend_session: true,
+    });
+    assert.equal('tasks' in stored, false);
+    assert.equal('summary' in stored, false);
   } finally {
     page.restore();
   }
@@ -465,6 +538,135 @@ test('persisted session export uses backend JSON payload instead of local draft 
   } finally {
     page.window.URL.createObjectURL = originalCreateObjectUrl;
     page.window.HTMLAnchorElement.prototype.click = originalClick;
+    page.restore();
+  }
+});
+
+test('accepting a clip on a persisted session uploads it to backend truth', async () => {
+  let uploadCall = null;
+  const page = await mountVideoPage({
+    role: 'patient',
+    session: makeStoredPersistedSession({ id: 'sess-current-1', revisionToken: 'rev-current' }),
+    apiOverrides: {
+      uploadVideoAssessmentTaskVideo: async (sessionId, taskId, blob, opts) => {
+        uploadCall = { sessionId, taskId, blob, opts };
+        const persisted = makeStoredPersistedSession({
+          id: sessionId,
+          patientId: 'pt-1',
+          revisionToken: 'rev-uploaded',
+        });
+        persisted.tasks[0].recording_status = 'accepted';
+        persisted.tasks[0].recording_storage_ref = `video_assessments/pt-1/${sessionId}/${taskId}.webm`;
+        return {
+          recording_asset_id: `asset-${taskId}`,
+          recording_storage_ref: persisted.tasks[0].recording_storage_ref,
+          session: persisted,
+        };
+      },
+    },
+  });
+  try {
+    page.document.getElementById('va-mode-patient').click();
+    await flush(2);
+    const session = JSON.parse(page.window.sessionStorage.getItem(VIDEO_ASSESSMENT_SESSION_STORAGE_KEY));
+    assert.equal(session.session_id, 'sess-current-1');
+    page.document.getElementById('va-setup-safe').checked = true;
+    page.document.getElementById('va-setup-continue').click();
+    await flush(2);
+
+    const blob = new page.window.Blob(['video-bytes'], { type: 'video/webm' });
+    const input = page.document.getElementById('va-upload-file');
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [new page.window.File([blob], 'task.webm', { type: 'video/webm' })],
+    });
+    input.dispatchEvent(new page.window.Event('change', { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await flush(2);
+    page.document.getElementById('va-use-clip').click();
+    await flush(6);
+    assert.equal(uploadCall.sessionId, 'sess-current-1');
+    assert.equal(uploadCall.taskId, VIDEO_ASSESSMENT_TASKS[0].task_id);
+    assert.equal(uploadCall.opts.expectedRevision, 'rev-current');
+    assert.equal(uploadCall.blob instanceof page.window.Blob, true);
+    assert.match(page.document.body.textContent, /Clip uploaded to persisted session\./i);
+  } finally {
+    page.restore();
+  }
+});
+
+test('clinician review loads stored persisted task video when available', async () => {
+  let videoFetchCall = null;
+  const seededSession = makeStoredPersistedSession({ id: 'sess-current-1', revisionToken: 'rev-current' });
+  seededSession.tasks[0].recording_asset_id = 'asset-rest-tremor';
+  seededSession.tasks[0].recording_storage_ref = 'video_assessments/pt-1/sess-current-1/rest_tremor.webm';
+  const page = await mountVideoPage({
+    role: 'clinician',
+    session: seededSession,
+    apiOverrides: {
+      getVideoAssessmentSession: async (sessionId) => {
+        const persisted = makeStoredPersistedSession({
+          id: sessionId,
+          revisionToken: 'rev-server-video',
+        });
+        persisted.tasks[0].recording_asset_id = 'asset-rest-tremor';
+        persisted.tasks[0].recording_storage_ref = `video_assessments/pt-1/${sessionId}/rest_tremor.webm`;
+        return persisted;
+      },
+      getVideoAssessmentTaskVideo: async (sessionId, taskId) => {
+        videoFetchCall = { sessionId, taskId };
+        return {
+          blob: new Blob(['persisted-video'], { type: 'video/webm' }),
+          contentType: 'video/webm',
+          filename: 'stored.webm',
+        };
+      },
+    },
+  });
+  try {
+    page.document.getElementById('va-mode-clinician').click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await flush(4);
+    assert.deepEqual(videoFetchCall, {
+      sessionId: 'sess-current-1',
+      taskId: VIDEO_ASSESSMENT_TASKS[0].task_id,
+    });
+    assert.ok(page.document.querySelector('.va-clinician-form video'));
+    assert.doesNotMatch(page.document.body.textContent, /Prior server-stored clips are not loaded in this build/i);
+  } finally {
+    page.restore();
+  }
+});
+
+test('clinician review shows honest stored-video load error state', async () => {
+  const seededSession = makeStoredPersistedSession({ id: 'sess-current-1', revisionToken: 'rev-current' });
+  seededSession.tasks[0].recording_asset_id = 'asset-rest-tremor';
+  seededSession.tasks[0].recording_storage_ref = 'video_assessments/pt-1/sess-current-1/rest_tremor.webm';
+  const page = await mountVideoPage({
+    role: 'clinician',
+    session: seededSession,
+    apiOverrides: {
+      getVideoAssessmentSession: async (sessionId) => {
+        const persisted = makeStoredPersistedSession({
+          id: sessionId,
+          revisionToken: 'rev-server-video',
+        });
+        persisted.tasks[0].recording_asset_id = 'asset-rest-tremor';
+        persisted.tasks[0].recording_storage_ref = `video_assessments/pt-1/${sessionId}/rest_tremor.webm`;
+        return persisted;
+      },
+      getVideoAssessmentTaskVideo: async () => {
+        throw new Error('stored clip unavailable');
+      },
+    },
+  });
+  try {
+    page.document.getElementById('va-mode-clinician').click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await flush(4);
+    assert.match(page.document.body.textContent, /Stored persisted clip is available for this task/i);
+    assert.match(page.document.body.textContent, /stored clip unavailable/i);
+  } finally {
     page.restore();
   }
 });
