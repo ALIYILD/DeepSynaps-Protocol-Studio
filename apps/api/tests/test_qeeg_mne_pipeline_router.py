@@ -253,18 +253,16 @@ def test_analyze_mne_prefers_celery_enqueue_when_available(
     calls: list[str] = []
     queued_job_id = "celery-job-123"
 
-    # Create a fake worker module hierarchy so the router's
-    # ``from apps.worker.app.jobs import run_mne_pipeline_job`` succeeds.
+    # Create a fake queue module so the router's
+    # ``from app.jobs import run_mne_pipeline_job`` succeeds.
     fake_task = type("FakeTask", (), {
         "delay": staticmethod(
             lambda analysis_id: (calls.append(analysis_id), type("QueuedJob", (), {"id": queued_job_id})())[1]
         ),
     })()
-    jobs_mod = types.ModuleType("apps.worker.app.jobs")
+    jobs_mod = types.ModuleType("app.jobs")
     jobs_mod.run_mne_pipeline_job = fake_task  # type: ignore[attr-defined]
-    for mod_name in ("apps", "apps.worker", "apps.worker.app", "apps.worker.app.jobs"):
-        monkeypatch.setitem(sys.modules, mod_name, types.ModuleType(mod_name))
-    monkeypatch.setitem(sys.modules, "apps.worker.app.jobs", jobs_mod)
+    monkeypatch.setitem(sys.modules, "app.jobs", jobs_mod)
 
     monkeypatch.setattr(
         "app.services.qeeg_pipeline_job.run_mne_pipeline_job_sync",
@@ -305,8 +303,8 @@ def test_analyze_mne_falls_back_when_worker_module_is_unavailable(
     real_import = builtins.__import__
 
     def _patched_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if name == "apps.worker.app.jobs":
-            raise ModuleNotFoundError("simulated missing worker package")
+        if name == "app.jobs":
+            raise ModuleNotFoundError("simulated missing queue module")
         return real_import(name, globals, locals, fromlist, level)
 
     monkeypatch.setattr(builtins, "__import__", _patched_import)

@@ -41,7 +41,7 @@ const STEP_TOOLTIPS = [
   'Monitor analysis processing stages',
   'View and print the final qEEG report',
 ];
-const ACCEPTED_EXTENSIONS = ['.edf', '.bdf', '.eeg', '.vhdr', '.vmrk', '.fif', '.set', '.cnt', '.mff'];
+const ACCEPTED_EXTENSIONS = ['.edf', '.edf+', '.bdf', '.bdf+', '.fif'];
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB
 const CONDITIONS = ['Eyes Open', 'Eyes Closed', 'Task', 'Hyperventilation', 'Photic', 'Sleep', 'Custom'];
 const CONDITION_TO_BACKEND_ENUM = {
@@ -157,7 +157,7 @@ function _initials(first, last) {
 function _validateFile(file) {
   const errors = [];
   const ext = '.' + (file.name.split('.').pop() || '').toLowerCase();
-  if (!ACCEPTED_EXTENSIONS.includes(ext)) errors.push('Unsupported format');
+  if (!ACCEPTED_EXTENSIONS.includes(ext)) errors.push('Unsupported standalone format');
   if (file.size > MAX_FILE_SIZE) errors.push('Exceeds 100 MB');
   if (file.size === 0) errors.push('Empty file');
   return { valid: errors.length === 0, errors };

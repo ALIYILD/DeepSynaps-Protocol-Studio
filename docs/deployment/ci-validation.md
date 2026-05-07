@@ -10,14 +10,16 @@ pip install -e ./packages/core-schema \
             -e ./packages/condition-registry \
             -e ./packages/modality-registry \
             -e ./packages/device-registry \
+            -e ./packages/clinical-data-registry \
             -e ./packages/safety-engine \
             -e ./packages/generation-engine \
             -e ./packages/render-engine \
             -e ./packages/evidence \
             -e ./packages/qa \
+            -e './packages/qeeg-pipeline[reporting,source,rag]' \
             -e ./apps/api \
             -e ./apps/worker
-pip install pytest pytest-xdist httpx
+pip install pytest pytest-xdist httpx celery
 npm ci
 ```
 
@@ -44,6 +46,8 @@ cd apps/worker && python -m pytest -q
 - **10 tests**, <1 second
 - **Must run in a separate process from API tests** -- both apps use an `app`
   Python package, and combined runs cause namespace collision
+- qEEG async execution is only honest when the worker env also has
+  `apps/api`, `deepsynaps-qeeg`, and Celery installed
 - CI job: `worker-test` in `.github/workflows/ci.yml`
 
 ### QA package tests
