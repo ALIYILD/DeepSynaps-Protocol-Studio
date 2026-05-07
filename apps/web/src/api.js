@@ -1636,6 +1636,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ text, source_type: sourceType, locale, patient_id: patientId || undefined }),
     }),
+  clinicalTextAnalyzeNeuromodulation: ({ text, sourceType = 'free_text', locale = 'en', patientId = null } = {}) =>
+    apiFetch('/api/v1/clinical-text/analyze-neuromodulation', {
+      method: 'POST',
+      body: JSON.stringify({ text, source_type: sourceType, locale, patient_id: patientId || undefined }),
+    }),
 
   // Custom document templates (clinician-authored, distinct from the bundled
   // DOCUMENT_TEMPLATES read-only set in apps/web/src/documents-templates.js).

@@ -193,6 +193,61 @@ Contact (fictional): [EMAIL]`,
   },
 };
 
+const _NEURO_NOTE = `Synthetic neuromodulation session note — Demo Patient A (33 y/o female), rTMS session 8 of 30, 2026-04-30.
+
+Protocol: 10 Hz rTMS, L-DLPFC (F3), figure-8 coil, 120% RMT. Train duration 4 s, ITI 26 s, 3000 pulses per session. Magstim Rapid² device.
+
+Pre-session: PHQ-9 = 14 (down from 19 at baseline). HAM-D = 12. No seizure history.
+
+Tolerance: mild scalp discomfort at stimulation site during first 2 trains; resolved by session 3. No headache post-session. No syncope.
+
+Plan: continue 10 Hz L-DLPFC rTMS 5×/week through week 6; repeat PHQ-9 and HAM-D at session 20. Monitor for manic switch or sleep worsening.
+
+Contact (fictional): demo-clinic-patient-a@example.invalid`;
+
+const _NEURO = {
+  source_text: _NEURO_NOTE,
+  patient: { patient_id: 'demo-pt-samantha-li', name: 'Demo Patient A (synthetic)' },
+  analyze: {
+    entities: [
+      { text: '10 Hz rTMS', label: 'stimulation_protocol', score: 0.96, start: 89, end: 99 },
+      { text: 'L-DLPFC', label: 'electrode_placement', score: 0.94, start: 101, end: 108 },
+      { text: 'F3', label: 'electrode_placement', score: 0.98, start: 110, end: 112 },
+      { text: 'figure-8 coil', label: 'device_parameter', score: 0.91, start: 114, end: 125 },
+      { text: '120% RMT', label: 'device_parameter', score: 0.93, start: 127, end: 135 },
+      { text: 'Train duration 4 s', label: 'device_parameter', score: 0.89, start: 137, end: 153 },
+      { text: 'ITI 26 s', label: 'device_parameter', score: 0.90, start: 155, end: 163 },
+      { text: '3000 pulses per session', label: 'device_parameter', score: 0.92, start: 165, end: 188 },
+      { text: 'Magstim Rapid²', label: 'neuromodulation_device', score: 0.95, start: 190, end: 204 },
+      { text: 'PHQ-9', label: 'outcome_measure', score: 0.97, start: 219, end: 224 },
+      { text: 'HAM-D', label: 'outcome_measure', score: 0.97, start: 254, end: 259 },
+      { text: 'scalp discomfort', label: 'adverse_event', score: 0.88, start: 334, end: 350 },
+      { text: 'headache', label: 'adverse_event', score: 0.85, start: 411, end: 419 },
+      { text: 'syncope', label: 'adverse_event', score: 0.82, start: 428, end: 435 },
+      { text: 'manic switch', label: 'adverse_event', score: 0.80, start: 504, end: 514 },
+      { text: 'sleep worsening', label: 'adverse_event', score: 0.79, start: 518, end: 533 },
+    ],
+  },
+  pii: {
+    pii_spans: [
+      { text: 'demo-clinic-patient-a@example.invalid', label: 'EMAIL', score: 0.99 },
+    ],
+  },
+  deidentify: {
+    deidentified_text: `Synthetic neuromodulation session note — [NAME] (33 y/o female), rTMS session 8 of 30, 2026-04-30.
+
+Protocol: 10 Hz rTMS, L-DLPFC (F3), figure-8 coil, 120% RMT. Train duration 4 s, ITI 26 s, 3000 pulses per session. Magstim Rapid² device.
+
+Pre-session: PHQ-9 = 14 (down from 19 at baseline). HAM-D = 12. No seizure history.
+
+Tolerance: mild scalp discomfort at stimulation site during first 2 trains; resolved by session 3. No headache post-session. No syncope.
+
+Plan: continue 10 Hz L-DLPFC rTMS 5×/week through week 6; repeat PHQ-9 and HAM-D at session 20. Monitor for manic switch or sleep worsening.
+
+Contact (fictional): [EMAIL]`,
+  },
+};
+
 const _RISK_PATIENTS = [
   {
     patient_id: 'demo-pt-samantha-li',
@@ -2248,6 +2303,7 @@ export const ANALYZER_DEMO_FIXTURES = Object.freeze({
   qeeg: _QEEG,
   voice: _VOICE,
   text: _TEXT,
+  neuro: _NEURO,
   risk: _RISK,
   biometrics: _BIOMETRICS,
   video: _VIDEO,

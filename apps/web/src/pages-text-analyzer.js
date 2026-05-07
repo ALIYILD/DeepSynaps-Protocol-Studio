@@ -111,6 +111,10 @@ export function toApiSourceType(v) {
     discharge_summary: 'document_text',
     referral_letter: 'referral',
     research_note: 'transcript',
+    stimulation_log: 'stimulation_log',
+    device_interrogation: 'device_interrogation',
+    programming_note: 'programming_note',
+    session_note: 'session_note',
   };
   return m[v] || 'free_text';
 }
@@ -235,6 +239,81 @@ function _renderAnalyzeResult(res) {
   if (piiSidecar.length) {
     html += `<details style="margin-top:16px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:var(--bg-card)">
       <summary style="cursor:pointer;font-size:12px;font-weight:600">PII-like spans also detected in analyze response (${piiSidecar.length})</summary>
+      <div style="margin-top:10px">${_renderEntityTable(piiSidecar, { title: 'PII candidates' })}</div>
+    </details>`;
+  }
+  return html;
+}
+
+
+function _renderNeuromodulationResult(res) {
+  const entities = normaliseEntityRows(res, 'entity');
+  const meta = [];
+  if (res?.backend) meta.push(`Backend: ${res.backend}`);
+  if (res?.schema_id) meta.push(`Schema: ${res.schema_id}`);
+  if (res?.char_count != null) meta.push(`${res.char_count} characters`);
+  const summary = (res?.summary || '').trim();
+  const safeFooter = (res?.safety_footer || '').trim();
+
+  let html = '';
+  if (meta.length) {
+    html += `<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:12px">${esc(meta.join(' · '))}</div>`;
+  }
+  if (summary) {
+    html += `<div style="margin-bottom:16px;padding:12px 14px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,.02)">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-tertiary);margin-bottom:6px">AI-assisted roll-up (not a clinical interpretive report)</div>
+      <div style="font-size:13px;line-height:1.5;color:var(--text-secondary)">${esc(summary)}</div>
+      ${safeFooter ? `<div style="margin-top:8px;font-size:11px;color:var(--text-tertiary)">${esc(safeFooter)}</div>` : ''}
+    </div>`;
+  }
+
+  const neuromodLabels = new Set([
+    'stimulation_protocol', 'device_parameter', 'electrode_placement',
+    'outcome_measure', 'adverse_event', 'neuromodulation_device',
+  ]);
+  const neuroEnts = entities.filter((e) => neuromodLabels.has(String(e.label || '').toLowerCase()));
+  const otherEnts = entities.filter((e) => !neuromodLabels.has(String(e.label || '').toLowerCase()));
+
+  const colors = {
+    stimulation_protocol: '#818cf8',
+    device_parameter: '#34d399',
+    electrode_placement: '#fbbf24',
+    outcome_measure: '#f472b6',
+    adverse_event: '#f87171',
+    neuromodulation_device: '#60a5fa',
+  };
+
+  if (neuroEnts.length) {
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:16px">';
+    const byLabel = {};
+    for (const e of neuroEnts) {
+      const k = String(e.label || 'other');
+      if (!byLabel[k]) byLabel[k] = [];
+      byLabel[k].push(e);
+    }
+    for (const [label, items] of Object.entries(byLabel)) {
+      const color = colors[label] || 'var(--text-secondary)';
+      const title = label.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+      const chips = items.map((e) => `<span style="display:inline-block;padding:4px 8px;border-radius:6px;background:${color}15;border:1px solid ${color}40;font-size:12px;color:${color};margin:2px">${esc(e.text)}</span>`).join('');
+      html += `<div style="padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--bg-card)">
+        <div style="font-size:11px;font-weight:600;color:${color};margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">${esc(title)}</div>
+        <div style="line-height:1.6">${chips}</div>
+      </div>`;
+    }
+    html += '</div>';
+  }
+
+  if (otherEnts.length) {
+    html += _renderEntityTable(otherEnts, { title: 'Other extracted spans' });
+  }
+  if (!neuroEnts.length && !otherEnts.length) {
+    html += '<div style="color:var(--text-tertiary);font-size:12px;padding:8px 0">No neuromodulation-specific spans returned for this pass.</div>';
+  }
+
+  const piiSidecar = normaliseEntityRows(res, 'pii');
+  if (piiSidecar.length) {
+    html += `<details style="margin-top:16px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:var(--bg-card)">
+      <summary style="cursor:pointer;font-size:12px;font-weight:600">PII-like spans also detected (${piiSidecar.length})</summary>
       <div style="margin-top:10px">${_renderEntityTable(piiSidecar, { title: 'PII candidates' })}</div>
     </details>`;
   }
@@ -375,6 +454,10 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
               <option value="discharge_summary">Document text</option>
               <option value="referral_letter">Referral</option>
               <option value="research_note">Transcript / session text</option>
+              <option value="stimulation_log">Stimulation log</option>
+              <option value="device_interrogation">Device interrogation report</option>
+              <option value="programming_note">Programming note</option>
+              <option value="session_note">Session note</option>
             </select>
           </div>
           <div>
@@ -391,6 +474,7 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
           <button type="button" class="btn btn-primary" id="ta-analyze">Run extraction</button>
           <button type="button" class="btn btn-ghost" id="ta-pii">Detect PII spans</button>
           <button type="button" class="btn btn-ghost" id="ta-deid">De-identify preview</button>
+          <button type="button" class="btn btn-ghost" id="ta-analyze-neuromod" style="border-color:rgba(99,102,241,.45);color:#818cf8">Neuromodulation extraction</button>
           <button type="button" class="btn btn-ghost ${demoMode ? '' : 'is-disabled'}" id="ta-offline-demo"
             ${demoMode ? '' : 'disabled title="Available in demo-token preview sessions"'}>Show offline demo panel</button>
           <span id="ta-status" style="margin-left:4px;font-size:12px;color:var(--text-tertiary)" role="status" aria-live="polite"></span>
@@ -597,6 +681,15 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
     'text_analyzer_deidentify',
   ));
 
+  $('ta-analyze-neuromod')?.addEventListener('click', () => _runOp(
+    'Neuromodulation extraction',
+    api.clinicalTextAnalyzeNeuromodulation,
+    (res) => _renderResultSection('Neuromodulation extraction (requires review)', _renderNeuromodulationResult(res)),
+    true,
+    null,
+    'text_analyzer_neuromod_extract',
+  ));
+
   $('ta-offline-demo')?.addEventListener('click', () => {
     status('Showing labelled offline demo panel.');
     resultEl().innerHTML = _demoFixtureResultsHtml();
@@ -607,7 +700,15 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
 
   if (demoMode) {
     const ta = $('ta-text');
-    if (ta && !ta.value.trim()) ta.value = ANALYZER_DEMO_FIXTURES.text.source_text;
+    const src = $('ta-source')?.value || '';
+    if (ta && !ta.value.trim()) {
+      const neuroTypes = ['stimulation_log', 'device_interrogation', 'programming_note', 'session_note'];
+      if (neuroTypes.includes(src) && ANALYZER_DEMO_FIXTURES.text.neuro) {
+        ta.value = ANALYZER_DEMO_FIXTURES.text.neuro.source_text;
+      } else {
+        ta.value = ANALYZER_DEMO_FIXTURES.text.source_text;
+      }
+    }
     updateMetaHint();
   }
 }
