@@ -995,7 +995,7 @@ async def analyze_edf_mne(
 
     run_mne_pipeline_job = None
     try:
-        from apps.worker.app.jobs import run_mne_pipeline_job as _run_mne_pipeline_job
+        from app.jobs import run_mne_pipeline_job as _run_mne_pipeline_job
 
         run_mne_pipeline_job = _run_mne_pipeline_job
     except Exception as exc:
