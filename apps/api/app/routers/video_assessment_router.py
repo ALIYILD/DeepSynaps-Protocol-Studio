@@ -297,6 +297,7 @@ class SessionListResponse(BaseModel):
     total: int
 
 
+# core-schema-exempt: prior-finalized-session compact summary; not reused outside this router
 class PriorFinalizedSessionSummary(BaseModel):
     """Compact, comparison-ready summary. No task-level review JSON allowed here."""
     key_findings: str
@@ -305,6 +306,7 @@ class PriorFinalizedSessionSummary(BaseModel):
     tasks_total: int
 
 
+# core-schema-exempt: prior-finalized-session envelope; not reused outside this router
 class PriorFinalizedSessionItem(BaseModel):
     """Read-only prior-session envelope for longitudinal comparison cards/tables."""
     session_id: str
@@ -316,6 +318,7 @@ class PriorFinalizedSessionItem(BaseModel):
     finalized_at: Optional[str] = None
 
 
+# core-schema-exempt: trend point payload; not reused outside this router
 class PriorFinalizedTrendItem(BaseModel):
     """Compact oldest-to-newest trend point. No notes, tasks, or mutable payloads."""
     session_id: str
@@ -327,6 +330,7 @@ class PriorFinalizedTrendItem(BaseModel):
     has_clips: bool = False
 
 
+# core-schema-exempt: comparison + trend response shape; not reused outside this router
 class PriorFinalizedSessionsResponse(BaseModel):
     """Read-only comparison + trend payload from persisted finalized sessions only.
 
@@ -339,12 +343,14 @@ class PriorFinalizedSessionsResponse(BaseModel):
     trend_sessions: list[PriorFinalizedTrendItem] = Field(default_factory=list)
 
 
+# core-schema-exempt: historical summary request body; not reused outside this router
 class HistoricalSummaryRequest(BaseModel):
     """Read-only selector for already-authorized prior finalized sessions."""
 
     selected_session_ids: list[str] = Field(default_factory=list)
 
 
+# core-schema-exempt: historical summary data-basis section; not reused outside this router
 class HistoricalSummaryDataBasis(BaseModel):
     """Compact provenance basis for the advisory summary."""
 
@@ -354,6 +360,7 @@ class HistoricalSummaryDataBasis(BaseModel):
     has_clip_availability_data: bool
 
 
+# core-schema-exempt: historical summary provenance section; not reused outside this router
 class HistoricalSummaryProvenance(BaseModel):
     """Compact clinician-visible provenance reference for traceability only."""
 
@@ -364,6 +371,7 @@ class HistoricalSummaryProvenance(BaseModel):
     source_input_fingerprint: str
 
 
+# core-schema-exempt: historical summary response shape; not reused outside this router
 class HistoricalSummaryResponse(BaseModel):
     """Advisory-only historical summary over compact comparison/trend fields."""
 
