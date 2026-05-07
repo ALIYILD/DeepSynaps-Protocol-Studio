@@ -1492,9 +1492,10 @@ export async function pgDash(setTopbar, navigate) {
     : '';
 
   const _safetyStrip = `<div class="dh2-safety-strip" role="note">
-    <strong>This is a controlled preview using synthetic non-PHI data.</strong> It supports clinical workflow and decision support only.
-    It does not diagnose, prescribe, triage emergencies, or act autonomously.
-    ${(_isDemo || _viteEnableDemo) ? '<span class="dh2-safety-demo"> Demo data / not real patient data.</span>' : ''}
+    <strong>Clinical decision support only.</strong> Not autonomous diagnosis, prescribing, dosing, or treatment planning.
+    Not an emergency triage system — use your institution's emergency protocols for urgent or life-threatening concerns.
+    Outputs require clinician review and professional judgement.
+    ${(_isDemo || _viteEnableDemo) ? '<span class="dh2-safety-demo"> DEMO BUILD — demo data only, not real patient data.</span>' : ''}
   </div>`;
 
   // ── Page head: greeting + week tab + export ───────────────────────────────────
