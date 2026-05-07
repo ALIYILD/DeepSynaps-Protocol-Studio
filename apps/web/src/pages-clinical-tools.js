@@ -7691,6 +7691,122 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
     return h;
   }
 
+  // Structured readiness + product transparency for exports and the on-page report.
+  function _bmpBuildPlanningReportMeta() {
+    const pidCtx = (bmpState.patientId && String(bmpState.patientId).trim())
+      || (_bmpQEEGPatientId && String(_bmpQEEGPatientId).trim()) || '';
+    const patientLinked = !!pidCtx;
+    const rosterMatch = patientLinked && window._patientRoster && window._patientRoster.some(function(p) {
+      return p && String(p.id) === String(pidCtx);
+    });
+    const regionOk = !!(bmpState.region && BMP_REGION_SITES[bmpState.region]);
+    const anchor = regionOk ? _bmpResolveAnchor(bmpState.region) : null;
+    const anchorOk = !!(anchor || (bmpState.selectedSite && String(bmpState.selectedSite).trim()));
+    const protoOk = !!bmpState.protoId;
+    const qeegBridge = !!(_bmpQEEGAnalysisId || _bmpAnalyzerFit);
+    const paramsHint = !!(String(bmpState.freq || '').trim() || String(bmpState.intensity || '').trim()
+      || String(bmpState.pulses || '').trim());
+    const checklist = [
+      {
+        id: 'patient',
+        ok: patientLinked,
+        title: 'Patient context linked',
+        detail: patientLinked
+          ? (rosterMatch ? 'ID matches roster — ' + _bmpPatientLabelFromId(pidCtx) + '.' : 'Context linked — verify against roster / EHR (' + pidCtx.slice(0, 32) + ').')
+          : 'No patient ID — exports are demo-stamped; Send to session is blocked.',
+      },
+      {
+        id: 'target',
+        ok: regionOk && anchorOk,
+        title: 'Target region & 10-20 anchor',
+        detail: regionOk && anchorOk
+          ? (bmpState.region + ' → ' + (anchor || bmpState.selectedSite || '?'))
+          : 'Pick a region from the atlas or enter a site on the map.',
+      },
+      {
+        id: 'protocol',
+        ok: protoOk || paramsHint,
+        title: 'Protocol or parameters',
+        detail: protoOk
+          ? 'Catalog protocol selected — review intensity / course vs device limits.'
+          : (paramsHint ? 'Manual parameters entered — verify against prescription.' : 'No protocol row selected — choose one or fill parameters.'),
+      },
+      {
+        id: 'qeeg',
+        ok: qeegBridge,
+        title: 'qEEG Analyzer bridge',
+        detail: qeegBridge
+          ? (_bmpAnalyzerFit ? 'Protocol-fit loaded from Analyzer.' : 'Analyzer patient/analysis context present.')
+          : 'Optional — open qEEG Analyzer for graded suggestions.',
+      },
+    ];
+    const passed = checklist.filter(function(c) { return c.ok; }).length;
+    const readinessPct = checklist.length ? Math.round((100 * passed) / checklist.length) : 0;
+    return {
+      readiness_pct: readinessPct,
+      checklist_passed: passed,
+      checklist_total: checklist.length,
+      checklist: checklist,
+      capabilities: [
+        'Deterministic region → 10-20 anchor mapping (local atlas + brain-target registry when API is available).',
+        'Unified protocol catalog: curated presets, imported library, and backend registry rows.',
+        'Evidence-graded sibling protocols when a catalog target region is active.',
+        'Governed JSON export and print-to-PDF with fixed disclaimers; audit events under surface brain_map_planner.',
+        'Optional qEEG protocol-fit overlay when an Analyzer analysis is linked in-session.',
+        'Population T1 atlas MRI overlay projects catalog MNI anchors — not patient-specific imaging.',
+      ],
+      improvements: [
+        '3D cortex / inflated surface views — toolbar placeholders (ship when viewers are wired).',
+        'Finite-element or SimNIBS-class E-field estimates — current overlay is qualitative geometry only; labeled in UI.',
+        'Patient-specific MRI neuronavigation — run MRI Analyzer for imaging-linked targets; planner stays atlas-first.',
+        'Compare mode shows one catalog alternative per region — broader trial lookup remains in Protocol Studio.',
+      ],
+    };
+  }
+
+  function _buildPlanningReportPanel() {
+    const meta = _bmpBuildPlanningReportMeta();
+    const tier = meta.readiness_pct >= 75 ? 'var(--teal)' : meta.readiness_pct >= 50 ? 'var(--amber,#ffb547)' : 'var(--rose,#fb7185)';
+    let h = '<details class="bmp-planning-report" data-testid="bmp-planning-report" open style="margin:0 16px 12px;border:1px solid var(--border);border-radius:10px;background:rgba(155,127,255,0.06)">';
+    h += '<summary style="cursor:pointer;padding:12px 14px;list-style:none;font-size:10.5px;font-weight:700;letter-spacing:0.07em;color:var(--violet,#9b7fff);text-transform:uppercase;display:flex;align-items:center;gap:10px;flex-wrap:wrap">';
+    h += '<span>Planning report</span>';
+    h += '<span style="font-size:11px;font-weight:800;padding:2px 10px;border-radius:999px;background:' + tier + '22;color:' + tier + ';border:1px solid ' + tier + '55">';
+    h += 'Readiness ' + meta.readiness_pct + '% · ' + meta.checklist_passed + '/' + meta.checklist_total + '</span>';
+    h += '<span style="margin-left:auto;font-size:10px;font-weight:500;color:var(--text-tertiary);text-transform:none">What works · gaps · roadmap</span>';
+    h += '</summary>';
+    h += '<div style="padding:0 14px 14px;border-top:1px solid rgba(255,255,255,0.06)">';
+    h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px 18px;margin-top:12px">';
+    // Column 1 — checklist
+    h += '<div><div style="font-size:10.5px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Readiness checklist</div>';
+    meta.checklist.forEach(function(row) {
+      const icon = row.ok ? '<span style="color:var(--teal)">\u2713</span>' : '<span style="color:var(--amber)">\u25d0</span>';
+      h += '<div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px;font-size:11.5px;line-height:1.45">';
+      h += icon + '<div><strong style="color:var(--text-primary)">' + _esc(row.title) + '</strong>';
+      h += '<div style="color:var(--text-tertiary);margin-top:2px">' + _esc(row.detail) + '</div></div></div>';
+    });
+    h += '</div>';
+    // Column 2 — capabilities
+    h += '<div><div style="font-size:10.5px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Working now</div>';
+    h += '<ul style="margin:0;padding-left:18px;font-size:11.5px;color:var(--text-secondary);line-height:1.55">';
+    meta.capabilities.forEach(function(line) {
+      h += '<li style="margin-bottom:6px">' + _esc(line) + '</li>';
+    });
+    h += '</ul></div>';
+    // Column 3 — roadmap
+    h += '<div><div style="font-size:10.5px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Improvements &amp; roadmap</div>';
+    h += '<ul style="margin:0;padding-left:18px;font-size:11.5px;color:var(--text-secondary);line-height:1.55">';
+    meta.improvements.forEach(function(line) {
+      h += '<li style="margin-bottom:6px">' + _esc(line) + '</li>';
+    });
+    h += '</ul>';
+    h += '<div style="margin-top:10px;font-size:10.5px;color:var(--text-tertiary);line-height:1.45">';
+    h += 'Use <strong style="color:var(--text-secondary)">Export JSON</strong> or <strong style="color:var(--text-secondary)">Export PDF</strong> in the top bar to attach this plan ';
+    h += '(including this report section) to governance or supervision workflows.';
+    h += '</div></div>';
+    h += '</div></div></details>';
+    return h;
+  }
+
   function _siteRole(site) {
     if (!bmpState.region || !BMP_REGION_SITES[bmpState.region]) return 'inactive';
     const rs = BMP_REGION_SITES[bmpState.region];
@@ -8781,6 +8897,7 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
     _buildDemoBanner()
     + _buildQuickNavBar()
     + _buildDataChecklist()
+    + _buildPlanningReportPanel()
     + _buildTabStrip()
     + '<div class="bm-shell bm-shell-v2' + (hideAtlas ? ' bm-no-left' : '') + '">'
     + (hideAtlas ? '' : ('<aside class="bm-left" id="bm-left">' + _buildAtlasRail() + '</aside>'))
@@ -9588,6 +9705,7 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
         'Protocol parameters require device-specific safety review per local policy.',
         'Patient consent and contraindication screening required before stimulation.',
       ],
+      planning_report: _bmpBuildPlanningReportMeta(),
     };
   }
 
@@ -9692,6 +9810,32 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
             + (af.off_label_flag ? ' · OFF-LABEL flagged' : '')
             + '</div>'
             + '<div>' + _e(af.pattern_summary || '') + '</div>') : '')
+        + (function() {
+          const pr = plan.planning_report;
+          if (!pr) return '';
+          let s = '<h2>Planning report</h2>'
+            + '<div class="muted">Readiness ' + _e(pr.readiness_pct) + '% · checklist items passed '
+            + _e(pr.checklist_passed) + ' / ' + _e(pr.checklist_total) + '</div>'
+            + '<table>';
+          (pr.checklist || []).forEach(function(row) {
+            const mark = row.ok ? '\u2713 ' : '\u25d0 ';
+            s += '<tr><td class="k">' + _e(row.title) + '</td><td>' + mark + _e(row.detail) + '</td></tr>';
+          });
+          s += '</table>'
+            + '<h3 style="font-size:13px;margin:14px 0 6px;color:#0f766e">Working now</h3>'
+            + '<ul style="margin:8px 0;padding-left:20px;font-size:12px;line-height:1.5">';
+          (pr.capabilities || []).forEach(function(line) {
+            s += '<li>' + _e(line) + '</li>';
+          });
+          s += '</ul>'
+            + '<h3 style="font-size:13px;margin:14px 0 6px;color:#0f766e">Improvements &amp; roadmap</h3>'
+            + '<ul style="margin:8px 0;padding-left:20px;font-size:12px;line-height:1.5">';
+          (pr.improvements || []).forEach(function(line) {
+            s += '<li>' + _e(line) + '</li>';
+          });
+          s += '</ul>';
+          return s;
+        })()
         + '<div class="discl"><strong>Clinical safety disclaimers</strong>'
         + '<ul>' + plan.disclaimers.map(function(d) { return '<li>' + _e(d) + '</li>'; }).join('') + '</ul></div>'
         + '<script>window.addEventListener("load",function(){setTimeout(function(){window.print();},250);});</script>'
