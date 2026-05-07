@@ -86,10 +86,21 @@ primary_region = "lhr"
   release_command = "sh -c 'cd /app/apps/api && python -m alembic upgrade head'"
 
 [[vm]]
+  # Scope the 8GB to the FastAPI app process only. The qeeg_worker and
+  # stripe_worker machines on this Fly plan are capped at 2GB and Fly will
+  # reject deploys that try to scale them past that.
+  processes = ["app"]
   # 8gb required: Whisper base + Speechbrain emotion + librosa biomarkers +
   # parselmouth + the FastAPI app stack peak around ~3-4 GB on cold model loads.
   # 2gb crashed the worker on a 1-second WAV during prod smoke run.
   memory = "8gb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[[vm]]
+  # Default memory profile for non-app processes (qeeg_worker, stripe_worker).
+  processes = ["qeeg_worker", "stripe_worker"]
+  memory = "1gb"
   cpu_kind = "shared"
   cpus = 1
 
