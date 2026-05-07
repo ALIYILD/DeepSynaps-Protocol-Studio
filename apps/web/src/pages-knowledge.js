@@ -2079,7 +2079,7 @@ export async function pgAuditTrail(setTopbar) {
     if (surface === 'session_runner') return `?page=session-execution&id=${encodeURIComponent(id)}`;
     if (surface === 'qeeg') return `?page=qeeg-analysis&id=${encodeURIComponent(id)}`;
     if (surface === 'brain_map_planner') return `?page=brain-map-planner&plan_id=${encodeURIComponent(id)}`;
-    if (surface === 'assessments' || surface === 'assessment') return `?page=assessments&id=${encodeURIComponent(id)}`;
+    if (surface === 'assessments' || surface === 'assessment') return `?page=assessments-v2&id=${encodeURIComponent(id)}`;
     return null;
   }
 

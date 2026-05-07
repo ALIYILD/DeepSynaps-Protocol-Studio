@@ -544,7 +544,7 @@ function _renderQuickLinks() {
     <div class="ds-card__header"><h3 style="margin:0">Linked modules</h3><span class="va-muted" style="font-size:11px;font-weight:400">Opens existing Studio routes · context only</span></div>
     <div class="ds-card__body" style="display:flex;flex-wrap:wrap;gap:8px">
       <button type="button" class="btn btn-ghost btn-sm" id="va-link-profile" ${dis}>Patient profile</button>
-      <button type="button" class="btn btn-ghost btn-sm" id="va-link-assessments" ${dis}>Assessments hub</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="va-link-assessments" ${dis}>Assessments</button>
       <button type="button" class="btn btn-ghost btn-sm" id="va-link-documents" ${dis}>Documents</button>
       <button type="button" class="btn btn-ghost btn-sm" id="va-link-qeeg" ${dis}>qEEG launcher</button>
       <button type="button" class="btn btn-ghost btn-sm" id="va-link-mri" ${dis}>MRI analysis</button>
@@ -870,7 +870,7 @@ function _wire() {
   };
 
   document.getElementById('va-link-profile')?.addEventListener('click', () => navWithPatient('patient-profile'));
-  document.getElementById('va-link-assessments')?.addEventListener('click', () => navWithPatient('assessments'));
+  document.getElementById('va-link-assessments')?.addEventListener('click', () => navWithPatient('assessments-v2'));
   document.getElementById('va-link-documents')?.addEventListener('click', () => navWithPatient('documents-hub'));
   document.getElementById('va-link-qeeg')?.addEventListener('click', () => navWithPatient('qeeg-launcher'));
   document.getElementById('va-link-mri')?.addEventListener('click', () => navWithPatient('mri-analysis'));

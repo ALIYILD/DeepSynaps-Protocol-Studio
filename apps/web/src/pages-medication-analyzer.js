@@ -434,7 +434,7 @@ function _renderLinkedActions() {
     <div style="font-weight:600;font-size:13px;margin-bottom:10px">Linked workflows</div>
     <div style="display:flex;flex-wrap:wrap;gap:8px">
       <button type="button" class="btn btn-ghost btn-sm" data-nav="patient-profile" style="min-height:40px">Patient profile</button>
-      <button type="button" class="btn btn-ghost btn-sm" data-nav="assessments" style="min-height:40px">Assessments</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-nav="assessments-v2" style="min-height:40px">Assessments</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="documents-hub" style="min-height:40px">Documents</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="text-analyzer" style="min-height:40px">Text analyzer</button>
       <button type="button" class="btn btn-ghost btn-sm" data-nav="labs-analyzer" style="min-height:40px">Biomarkers / labs</button>
