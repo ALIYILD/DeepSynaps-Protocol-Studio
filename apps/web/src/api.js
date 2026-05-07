@@ -1139,6 +1139,8 @@ export const api = {
   },
   protocolStudioProtocol: (protocolId) =>
     apiFetchWithRetry(`/api/v1/protocol-studio/protocols/${encodeURIComponent(protocolId)}`),
+  protocolStudioProtocolDetail: (protocolId) =>
+    apiFetchWithRetry(`/api/v1/protocol-studio/protocols/${encodeURIComponent(protocolId)}`),
   protocolStudioPatientContext: (patientId) =>
     apiFetchWithRetry(`/api/v1/protocol-studio/patients/${encodeURIComponent(patientId)}/context`),
   protocolStudioGenerate: (payload) =>
@@ -1146,6 +1148,18 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload || {}),
     }),
+  protocolStudioRecommend: (payload) =>
+    apiFetchWithRetry('/api/v1/protocol-studio/recommend', {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  protocolStudioSimulate: (payload) =>
+    apiFetchWithRetry('/api/v1/protocol-studio/simulate', {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  protocolsSaved: (patientId) =>
+    apiFetchWithRetry(`/api/v1/protocols/saved${patientId ? '?patient_id=' + encodeURIComponent(patientId) : ''}`),
   exportPatientCsv: (patientId) =>
     apiFetchBinary(`/api/v1/patients/${encodeURIComponent(patientId)}/export.csv`),
   exportPatientNdjson: (patientId) =>

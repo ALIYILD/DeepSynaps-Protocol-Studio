@@ -3293,11 +3293,8 @@ export async function pgProtocolStudio(setTopbar, navigate) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// pgProtocolHub — 4-tab Protocol Studio entry point
-// Tab 1: Conditions   (from Library Hub)
-// Tab 2: Generate     (3-mode wizard: Evidence-Based AI / Brain Scan / Personalized)
-// Tab 3: Browse       (inline protocol search shell)
-// Tab 4: My Drafts    (GET /api/v1/protocols/saved)
+// pgProtocolHub — Protocol Studio entry point (evidence review + supervised drafts)
+// Tabs: Conditions · Browse · Evidence · Generate · Compare · DeepTwin Simulation · My Drafts
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgProtocolHub(setTopbar, navigate) {
   const esc = (s) => String(s == null ? '' : s)
@@ -3307,8 +3304,9 @@ export async function pgProtocolHub(setTopbar, navigate) {
   const el = document.getElementById('content');
   if (!el) return;
 
-  const VALID_TABS = ['conditions', 'generate', 'browse', 'drafts'];
+  const VALID_TABS = ['conditions', 'browse', 'evidence', 'generate', 'compare', 'simulation', 'drafts'];
   let _tab = VALID_TABS.includes(window._protocolHubTab) ? window._protocolHubTab : 'conditions';
+  window._protocolHubTab = _tab;
 
   // Pre-fill condition when coming from Library Hub "Find Protocol" link
   let _prefillCondition = window._protocolHubCondition || null;
@@ -3745,6 +3743,42 @@ export async function pgProtocolHub(setTopbar, navigate) {
     '</div>';
   }
 
+  /** Protocol Studio POST /api/v1/protocol-studio/generate JSON shape */
+  function _renderStudioDraftCard(draft, extraHtml) {
+    const rat = Array.isArray(draft.rationale) ? draft.rationale.join(' ') : String(draft.rationale || '');
+    const links = Array.isArray(draft.evidence_links) ? draft.evidence_links : [];
+    const linkHtml = links.length
+      ? links.map((x) => {
+          const id = typeof x === 'object' && x ? (x.id || x.paper_id || '') : '';
+          const title = typeof x === 'object' && x ? (x.title || '') : String(x || '');
+          const url = typeof x === 'object' && x ? (x.link || x.url || '') : '';
+          const safe = url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(title || id || 'reference')}</a>` : esc(title || id || 'reference');
+          return safe;
+        }).join('; ')
+      : '<span style="color:var(--text-tertiary)">Evidence links unavailable or not grounded for this query.</span>';
+    const miss = Array.isArray(draft.missing_data) ? draft.missing_data : [];
+    const missHtml = miss.length
+      ? `<div class="ps-result-section" data-testid="protocol-missing-data"><strong>Missing data:</strong> ${miss.map(esc).join(', ')}</div>`
+      : '';
+    const ol = draft.off_label ? `<div class="ps-result-section" style="color:#f59e0b" data-testid="protocol-off-label-warning"><strong>Off-label:</strong> ${esc(draft.off_label_warning || 'Clinician acknowledgement required.')}</div>` : '';
+    const rev = draft.clinician_review_required !== false;
+    const rx = draft.not_autonomous_prescription !== false;
+    return '<div class="ps-result-card" role="region" aria-label="Protocol Studio draft" data-testid="protocol-draft-output">' +
+      '<div class="ps-result-header"><span class="ps-result-title">Registry-grounded draft preview</span></div>' +
+      '<div class="ps-result-section"><strong>Summary:</strong> ' + esc(draft.protocol_summary || '') + '</div>' +
+      '<div class="ps-result-section"><strong>Status:</strong> ' + esc(draft.status || '') + ' · <strong>Uncertainty:</strong> ' + esc(draft.uncertainty || '') + '</div>' +
+      '<div class="ps-result-section"><strong>Rationale:</strong> ' + esc(rat) + '</div>' +
+      '<div class="ps-result-section" data-testid="protocol-evidence-links"><strong>Evidence links (local corpus / registry):</strong> ' + linkHtml + '</div>' +
+      ol + missHtml +
+      (extraHtml || '') +
+      '<div class="ps-result-section" style="font-size:11px">Clinician review required: ' + (rev ? 'yes' : 'recorded') +
+      ' · Not autonomous prescribing: ' + (rx ? 'yes' : 'no') + '</div>' +
+      '<div class="ps-disclaimer" data-testid="protocol-safety-banner">' +
+      esc('This is a controlled preview using synthetic or clinician-provided data where applicable. Protocol Studio supports evidence review and clinician-supervised draft generation only.') +
+      '</div>' +
+    '</div>';
+  }
+
   function _renderPatientBanner() {
     const pid = _psContextPatientId();
     if (!pid) {
@@ -3776,23 +3810,25 @@ export async function pgProtocolHub(setTopbar, navigate) {
     '</div>';
   }
 
-  function _renderClinicalShell(innerHtml) {
+  function _renderClinicalShell(innerHtml, shellOpts) {
+    const showEvidenceFacade = shellOpts && shellOpts.showEvidenceFacade === true;
     const hero =
       '<div class="ps-hero"' + _tid('protocol-studio-root') + '>' +
         '<h1 class="ps-hero-title">Protocol Studio</h1>' +
-        '<p class="ps-hero-sub">Clinician-reviewed protocol drafting and governance workspace. Use this surface to align indications, modalities, and evidence with clinic policy — not for autonomous diagnosis, prescribing, treatment approval, device control, or emergency triage. All AI-assisted output remains draft until your review and sign-off in your clinic workflow.</p>' +
+        '<p class="ps-hero-sub">Evidence-backed protocol intelligence — clinician-supervised drafts and comparisons only. Not for autonomous diagnosis, prescribing, treatment approval, emergency triage, or device programming.</p>' +
         '<div class="ps-quick-links" role="navigation" aria-label="Protocol Studio shortcuts">' +
           '<a href="#" onclick="event.preventDefault();window._nav(\'research-evidence\')">Research evidence</a>' +
           '<a href="#" onclick="event.preventDefault();window._nav(\'handbooks-v2\')">Handbooks</a>' +
           '<a href="#" onclick="event.preventDefault();window._nav(\'protocol-builder-full\')">5-step wizard</a>' +
         '</div>' +
       '</div>';
+    const controlledPreview =
+      '<div class="ps-role-banner" role="alert"' + _tid('protocol-studio-controlled-preview') + ' style="margin-bottom:12px;line-height:1.55;font-size:12px">' +
+      esc('This is a controlled preview using synthetic or clinician-provided data where applicable. Protocol Studio supports evidence review and clinician-supervised draft generation only. It does not diagnose, prescribe, approve treatment, triage emergencies, or act autonomously. All outputs require clinician review.') +
+      '</div>';
     const guestNote = (_role === 'guest')
       ? '<div class="ps-role-banner" role="note">Signed in as guest — browse conditions and library patterns. Connect with a clinician account to generate drafts, save to the backend, and export documents.</div>'
       : '';
-    // Phase-1 thin facades: show evidence health + evidence search + protocol catalog + patient context
-    // in a consistent, PHI-safe dashboard strip. These panels are best-effort and must be honest
-    // about unavailable sources.
     const facadeStrip =
       '<div style="display:grid;grid-template-columns:1.1fr 1.4fr;gap:14px;align-items:start">' +
         '<div>' +
@@ -3804,16 +3840,145 @@ export async function pgProtocolHub(setTopbar, navigate) {
           _renderProtocolCatalogPanel() +
         '</div>' +
       '</div>';
-    return hero + guestNote + _renderPatientBanner() + facadeStrip + innerHtml;
+    return hero + controlledPreview + guestNote + _renderPatientBanner() + (showEvidenceFacade ? facadeStrip : '') + innerHtml;
   }
 
   function _renderReadOnlyShell() {
     return _renderClinicalShell(
       '<div class="ps-empty" style="text-align:left;max-width:720px;margin:0 auto">' +
         '<strong style="color:var(--text-primary);display:block;margin-bottom:8px">Browse-only mode</strong>' +
-        'Open <strong>Conditions</strong> or <strong>Browse Protocols</strong> to explore registry-backed entries. Sign in as a clinician to run AI-assisted drafts, save to My Drafts, and export documents.' +
+        'Open <strong>Conditions</strong> or <strong>Browse Protocols</strong> to explore registry-backed entries. Sign in as a clinician to run supervised drafts, comparisons, and save to My Drafts.' +
       '</div>'
     );
+  }
+
+  async function _renderEvidenceTab() {
+    const host = document.getElementById('ps-tab-content');
+    if (!host) return;
+    host.innerHTML = _renderClinicalShell('<div class="ps-empty"><span class="ps-spin"></span>Loading evidence tools…</div>');
+    await _fetchEvidenceHealth();
+    await _fetchProtocolCatalog({});
+    await _fetchPatientContext();
+    host.innerHTML = _renderClinicalShell(
+      '<div class="ps-section-label">Evidence search &amp; catalog</div>' +
+      '<p class="ps-hero-sub" style="margin:0 0 12px;font-size:12px;color:var(--text-secondary)">Uses the local evidence corpus when the API host has it installed; otherwise search returns an honest unavailable state (no fabricated papers).</p>',
+      { showEvidenceFacade: true },
+    );
+  }
+
+  window._psRenderRankOut = function () {
+    const o = document.getElementById('ps-rank-out');
+    if (!o) return;
+    const err = window._psRankErr;
+    const r = window._psRankResult;
+    if (err) {
+      o.innerHTML = '<div class="ps-result-card" data-testid="protocol-rank-unavailable">Ranking unavailable: ' + esc(err) + '</div>';
+      return;
+    }
+    if (!r || !r.overall_top_3 || !r.overall_top_3.length) {
+      o.innerHTML = '<div class="ps-result-card" data-testid="protocol-rank-unavailable">No ranked options returned — refine condition/modality or verify registry data on the API.</div>';
+      return;
+    }
+    const top = r.overall_top_3.slice(0, 3);
+    o.innerHTML = '<div class="ps-result-card" data-testid="protocol-rank-top3">' +
+      '<div class="ps-result-title" style="margin-bottom:10px">Top 3 options</div>' +
+      top.map((x, i) => '<div style="border-bottom:1px solid var(--border);padding:10px 0">' +
+        '<strong>#' + (i + 1) + ' ' + esc(x.title || x.protocol_id) + '</strong>' +
+        '<div style="font-size:11px;color:var(--text-tertiary)">score=' + esc(String(x.score)) + ' · confidence ' + esc(String(x.confidence ?? '')) + ' · grade ' + esc(x.evidence_grade || '') + '</div>' +
+        '<div style="font-size:12px;margin-top:6px">' + esc(x.patient_fit_rationale || '') + '</div>' +
+        '<div style="font-size:11px;margin-top:6px;color:var(--text-tertiary)">Safety: ' + esc((x.safety_notes || []).join('; ') || 'see registry contraindications') + '</div>' +
+        '<div style="font-size:11px;margin-top:6px">Refs: ' + ((Array.isArray(x.paper_links) && x.paper_links.length)
+          ? x.paper_links.slice(0, 4).map((u) => '<a href="' + esc(u) + '" target="_blank" rel="noopener">link</a>').join(' ')
+          : 'none') + '</div>' +
+      '</div>').join('') +
+    '</div>';
+  };
+
+  window._psRunRecommendRank = async function () {
+    try {
+      window._psRankErr = null;
+      const cond = document.getElementById('ps-rank-condition')?.value?.trim() || '';
+      const mods = (document.getElementById('ps-rank-mods')?.value || '').split(',').map((s) => s.trim()).filter(Boolean);
+      const payload = {
+        patient_id: _psContextPatientId() || null,
+        condition: cond,
+        modalities: mods,
+        qeeg_summary: document.getElementById('ps-rank-qeeg')?.value || null,
+        mri_summary: document.getElementById('ps-rank-mri')?.value || null,
+        contraindications: (document.getElementById('ps-rank-contra')?.value || '').split(',').map((s) => s.trim()).filter(Boolean),
+        available_devices: (document.getElementById('ps-rank-devs')?.value || '').split(',').map((s) => s.trim()).filter(Boolean),
+      };
+      window._psRankResult = await api.protocolStudioRecommend(payload);
+      window._psRenderRankOut();
+    } catch (e) {
+      window._psRankErr = e?.message || 'request failed';
+      window._psRenderRankOut();
+    }
+  };
+
+  async function _renderCompare() {
+    const host = document.getElementById('ps-tab-content');
+    if (!host) return;
+    if (!_psCanAuthor()) {
+      host.innerHTML = _renderReadOnlyShell();
+      return;
+    }
+    window._psRankResult = window._psRankResult || null;
+    window._psRankErr = window._psRankErr || null;
+    const rankNote = 'Protocol rankings are decision-support summaries based on available registry/evidence data. They are not treatment orders and do not replace clinical judgement.';
+    const body =
+      '<div class="ps-section-label">Compare / ranking</div>' +
+      '<p class="ps-hero-sub" style="margin:0 0 12px;font-size:12px">' + esc(rankNote) + '</p>' +
+      '<div class="ps-form-row">' +
+        '<div class="ps-form-group"><label class="ps-form-label">Condition id *</label>' +
+        '<input class="ps-form-input" id="ps-rank-condition" data-testid="protocol-rank-condition" placeholder="e.g. major-depressive-disorder" value="major-depressive-disorder"></div>' +
+        '<div class="ps-form-group"><label class="ps-form-label">Modalities (comma)</label>' +
+        '<input class="ps-form-input" id="ps-rank-mods" data-testid="protocol-rank-modalities" placeholder="tdcs, rtms" value="tdcs"></div></div>' +
+      '<div class="ps-form-row">' +
+        '<div class="ps-form-group"><label class="ps-form-label">qEEG summary (optional)</label>' +
+        '<input class="ps-form-input" id="ps-rank-qeeg" placeholder="Key targets / montage notes"></div>' +
+        '<div class="ps-form-group"><label class="ps-form-label">MRI summary (optional)</label>' +
+        '<input class="ps-form-input" id="ps-rank-mri" placeholder="Structural read summary"></div></div>' +
+      '<div class="ps-form-row">' +
+        '<div class="ps-form-group"><label class="ps-form-label">Contraindications (comma)</label>' +
+        '<input class="ps-form-input" id="ps-rank-contra" placeholder="implant, seizure risk"></div>' +
+        '<div class="ps-form-group"><label class="ps-form-label">Devices available (comma)</label>' +
+        '<input class="ps-form-input" id="ps-rank-devs" placeholder="optional"></div></div>' +
+      '<button type="button" class="ps-save-btn" data-testid="protocol-rank-run" onclick="window._psRunRecommendRank()">Run deterministic ranking</button>' +
+      '<div id="ps-rank-out" style="margin-top:14px"></div>';
+    host.innerHTML = _renderClinicalShell(body);
+    window._psRenderRankOut();
+  }
+
+  async function _renderSimulation() {
+    const host = document.getElementById('ps-tab-content');
+    if (!host) return;
+    if (!_psCanAuthor()) {
+      host.innerHTML = _renderReadOnlyShell();
+      return;
+    }
+    const pid = _psContextPatientId();
+    host.innerHTML = _renderClinicalShell(
+      '<div class="ps-section-label">DeepTwin simulation</div>' +
+      '<p class="ps-hero-sub" style="margin:0 0 12px;font-size:12px">' +
+      esc('DeepTwin simulation is a what-if modelling aid. It is not a validated clinical outcome prediction, diagnosis, or treatment approval.') +
+      '</p>' +
+      '<div class="ps-result-card">' +
+      '<div><strong>Patient:</strong> ' + (pid ? esc(pid) : 'none selected') + '</div>' +
+      '<div style="margin-top:10px;font-size:12px;color:var(--text-secondary)">Data checklist: qEEG, MRI, assessments, outcomes, wearables, adverse events, prior sessions — verify in chart; Protocol Studio does not fabricate missing modalities.</div>' +
+      '<div id="ps-sim-out" style="margin-top:12px" data-testid="protocol-simulation-unavailable"><span class="ps-spin"></span> Checking simulation capability…</div></div>'
+    );
+    try {
+      const res = await api.protocolStudioSimulate({ patient_id: pid || null, protocol_ids: [] });
+      const el = document.getElementById('ps-sim-out');
+      if (el) {
+        el.innerHTML = '<strong>' + esc(res.message || '') + '</strong>' +
+          '<div style="margin-top:10px;font-size:12px;color:var(--text-secondary)">exploratory_only=true · deeptwin_gate=' + esc(String(!!res.deeptwin_simulation_enabled)) + '</div>';
+      }
+    } catch (e) {
+      const el = document.getElementById('ps-sim-out');
+      if (el) el.innerHTML = esc(e?.message || 'Simulation endpoint unavailable in this environment.');
+    }
   }
 
   // ── Tab 1: Conditions ──────────────────────────────────────────────────────
@@ -3997,10 +4162,8 @@ export async function pgProtocolHub(setTopbar, navigate) {
       return;
     }
 
-    // Phase 2: deterministic generation is enabled for the Evidence-Based card only.
-    // Brain-guided + personalized remain disabled until analyzers + governance wiring are complete.
     const _genDisabledEvidence = false;
-    const _genDisabledOther = true;
+    const _genDisabledOther = false;
 
     const prefill = _prefillCondition ? _prefillCondition.name : '';
     const prefillId = _prefillCondition ? _prefillCondition.id : '';
@@ -4010,20 +4173,26 @@ export async function pgProtocolHub(setTopbar, navigate) {
     const cardA = '<div class="ps-gen-card' + (W.mode === 'evidence' ? ' ps-gen-card--active' : '') + '" onclick="window._psOpenMode(\'evidence\')">' +
       '<div class="ps-gen-card-icon">&#129504;</div>' +
       '<div class="ps-gen-card-title">Evidence-Based AI</div>' +
-      '<div class="ps-gen-card-sub">Registry-aligned AI-assisted draft from indication + modality + evidence tier (POST /api/v1/protocols/generate-draft). Not a treatment order.</div>' +
+      '<div class="ps-gen-card-sub">Registry-aligned deterministic draft from indication + modality + evidence grounding (POST /api/v1/protocol-studio/generate). Not a treatment order.</div>' +
     '</div>';
-    // Card B = Brain Scan Guided
+    // Card B = qEEG / MRI guided (registry + patient-linked modalities via Protocol Studio generate)
     const cardB = '<div class="ps-gen-card' + (W.mode === 'brainscan' ? ' ps-gen-card--active' : '') + '" onclick="window._psOpenMode(\'brainscan\')">' +
       '<div class="ps-gen-card-icon">&#129504;</div>' +
-      '<div class="ps-gen-card-title">Brain Scan Guided</div>' +
-      '<div class="ps-gen-card-sub">Structured draft using imaging modality hints — link real scans under patient analyzers (POST /api/v1/protocols/generate-brain-scan).</div>' +
+      '<div class="ps-gen-card-title">qEEG / MRI-guided</div>' +
+      '<div class="ps-gen-card-sub">Uses counts of uploaded qEEG/MRI analyses for the selected patient — missing imaging lowers confidence (POST /api/v1/protocol-studio/generate).</div>' +
     '</div>';
     // Card C = Personalized
     const cardC = '<div class="ps-gen-card' + (W.mode === 'personalized' ? ' ps-gen-card--active' : '') + '" onclick="window._psOpenMode(\'personalized\')">' +
       '<div class="ps-gen-card-icon">&#129300;</div>' +
       '<div class="ps-gen-card-title">Personalized Protocol</div>' +
-      '<div class="ps-gen-card-sub">Scores adjust narrative emphasis only — still draft until clinician review (POST /api/v1/protocols/generate-personalized).</div>' +
+      '<div class="ps-gen-card-sub">Patient-linked deterministic draft — requires patient context and DeepTwin/multimodal signals when configured (POST /api/v1/protocol-studio/generate).</div>' +
     '</div>';
+
+    function _wizardDraftHtml(extraHtml) {
+      if (!W.result) return '';
+      if (W.result.protocol_summary != null) return _renderStudioDraftCard(W.result, extraHtml || '');
+      return _renderResultCard(W.result, extraHtml || '');
+    }
 
     let wizardPanel = '';
     if (W.mode === 'evidence') {
@@ -4069,7 +4238,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
           '</div>' +
         '</div>' +
         (W.error ? '<div style="color:#ef4444;font-size:12px;margin-bottom:10px">' + esc(W.error) + '</div>' : '') +
-        (W.mode === 'evidence' && W.result ? _renderResultCard(W.result, '') : '') +
+        (W.mode === 'evidence' && W.result ? _wizardDraftHtml() : '') +
         '<button type="button" class="ps-save-btn" id="ps-ev-generate-btn"' + _tid('protocol-generate-action') +
           (_genDisabledEvidence ? ' disabled title=\"Generation engine not enabled\"' : ' onclick=\"window._psGenerateEvidence()\"') + '>' +
           (_genDisabledEvidence ? 'Generation engine not enabled' : (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate draft (deterministic)')) +
@@ -4077,10 +4246,10 @@ export async function pgProtocolHub(setTopbar, navigate) {
       '</div>';
     } else if (W.mode === 'brainscan') {
       wizardPanel = '<div class="ps-wizard">' +
-        '<div class="ps-wizard-title">&#129308; Brain Scan Guided Generator</div>' +
-        (_genDisabledOther ? '<div class="ps-role-banner" role="note" style="margin-bottom:12px">' +
-          '<strong>Generation engine not enabled.</strong> Brain-guided draft generation will be enabled after MRI/qEEG linkage, contraindication checks, and evidence grounding are complete.' +
-        '</div>' : '') +
+        '<div class="ps-wizard-title">&#129308; qEEG / MRI-guided generator</div>' +
+        '<div class="ps-role-banner" role="note" style="margin-bottom:12px" data-testid="protocol-guided-guidance-banner">' +
+          '<strong>Imaging / neurophysiology guidance.</strong> Guidance is based on available uploaded or linked summaries and registry rows. Missing patient-linked qEEG/MRI rows lowers confidence — this workspace does not invent scan findings.' +
+        '</div>' +
         '<div class="ps-form-row">' +
           '<div class="ps-form-group">' +
             '<label class="ps-form-label">Condition *</label>' +
@@ -4115,23 +4284,18 @@ export async function pgProtocolHub(setTopbar, navigate) {
             '<input class="ps-form-input" id="ps-bs-device" type="text" placeholder="e.g. Soterix 1x1">' +
           '</div>' +
         '</div>' +
-        (W.error ? '<div style="color:#ef4444;font-size:12px;margin-bottom:10px">' + esc(W.error) + '</div>' : '') +
-        (W.mode === 'brainscan' && W.result ? _renderResultCard(W.result,
-          '<div class="ps-result-section"><strong>Recommended Montage: </strong>' + esc(W.result.recommended_montage || '') + '</div>' +
-          '<div class="ps-result-section"><strong>Scan Guidance: </strong>' + esc(W.result.scan_guidance || '') + '</div>' +
-          '<div class="ps-result-section"><strong>Marker Adjustment: </strong>' + esc(W.result.marker_adjustment || '') + '</div>'
-        ) : '') +
-        '<button type="button" class="ps-save-btn" id="ps-bs-generate-btn"' +
-          (_genDisabledOther ? ' disabled title=\"Generation engine not enabled\"' : ' onclick=\"window._psGenerateBrainScan()\"') + '>' +
-          (_genDisabledOther ? 'Generation engine not enabled' : (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate AI-assisted draft')) +
+        (W.error ? '<div style="color:#ef4444;font-size:12px;margin-bottom:10px" data-testid="protocol-guided-error">' + esc(W.error) + '</div>' : '') +
+        (W.mode === 'brainscan' && W.result ? _wizardDraftHtml() : '') +
+        '<button type="button" class="ps-save-btn" id="ps-bs-generate-btn" data-testid="protocol-guided-generate" onclick="window._psGenerateBrainScan()">' +
+          (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate imaging-guided draft (deterministic)') +
         '</button>' +
       '</div>';
     } else if (W.mode === 'personalized') {
       wizardPanel = '<div class="ps-wizard">' +
         '<div class="ps-wizard-title">&#129300; Personalized Protocol Generator</div>' +
-        (_genDisabledOther ? '<div class="ps-role-banner" role="note" style="margin-bottom:12px">' +
-          '<strong>Generation engine not enabled.</strong> Personalized drafts will be enabled after patient-context safety checks, off-label governance, and evidence linking are complete.' +
-        '</div>' : '') +
+        '<div class="ps-role-banner" role="note" style="margin-bottom:12px">' +
+          '<strong>Personalisation inputs.</strong> Uses structured assessments below plus patient context — missing chart data lowers confidence and may block personalised modes until signals exist.' +
+        '</div>' +
         '<div class="ps-form-row">' +
           '<div class="ps-form-group">' +
             '<label class="ps-form-label">Condition *</label>' +
@@ -4181,13 +4345,10 @@ export async function pgProtocolHub(setTopbar, navigate) {
           '<label class="ps-form-label">Treatment History</label>' +
           '<textarea class="ps-form-input" id="ps-pe-history" rows="2" placeholder="Prior treatments, responses, failures..."></textarea>' +
         '</div>' +
-        (W.error ? '<div style="color:#ef4444;font-size:12px;margin-bottom:10px">' + esc(W.error) + '</div>' : '') +
-        (W.mode === 'personalized' && W.result ? _renderResultCard(W.result,
-          '<div class="ps-result-section"><strong>Personalization Rationale: </strong>' + esc(W.result.personalization_rationale || '') + '</div>'
-        ) : '') +
-        '<button type="button" class="ps-save-btn" id="ps-pe-generate-btn"' +
-          (_genDisabledOther ? ' disabled title=\"Generation engine not enabled\"' : ' onclick=\"window._psGeneratePersonalized()\"') + '>' +
-          (_genDisabledOther ? 'Generation engine not enabled' : (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate AI-assisted draft')) +
+        (W.error ? '<div style="color:#ef4444;font-size:12px;margin-bottom:10px" data-testid="protocol-personalized-error">' + esc(W.error) + '</div>' : '') +
+        (W.mode === 'personalized' && W.result ? _wizardDraftHtml() : '') +
+        '<button type="button" class="ps-save-btn" id="ps-pe-generate-btn" data-testid="protocol-personalized-generate" onclick="window._psGeneratePersonalized()">' +
+          (W.saving ? '<span class="ps-spin"></span>Drafting...' : 'Generate personalised draft (deterministic)') +
         '</button>' +
       '</div>';
     }
@@ -4242,7 +4403,8 @@ export async function pgProtocolHub(setTopbar, navigate) {
 
     if (err) {
       host.innerHTML = _renderClinicalShell(
-        '<div class="ps-empty">Could not load drafts: ' + esc(err) + '<br><button type="button" class="ps-save-btn" style="margin-top:10px" onclick="window._psRenderCurrentTab()">Retry</button></div>'
+        '<div class="ps-empty" data-testid="protocol-drafts-unavailable">Saved drafts unavailable in this environment. ' + esc(err) +
+        '<br><button type="button" class="ps-save-btn" style="margin-top:10px" onclick="window._psRenderCurrentTab()">Retry</button></div>'
       );
       return;
     }
@@ -4286,18 +4448,16 @@ export async function pgProtocolHub(setTopbar, navigate) {
   // ── Tab switcher ───────────────────────────────────────────────────────────
   function _renderTabBar() {
     const tabs = [
-      { id: 'conditions', label: 'Conditions' },
-      { id: 'generate',   label: 'Generate Protocol' },
-      { id: 'browse',     label: 'Browse Protocols' },
-      { id: 'drafts',     label: 'My Drafts' },
+      { id: 'conditions', label: 'Conditions', tid: 'protocol-studio-tab-conditions' },
+      { id: 'browse', label: 'Browse', tid: 'protocol-studio-tab-browse' },
+      { id: 'evidence', label: 'Evidence', tid: 'protocol-studio-tab-evidence' },
+      { id: 'generate', label: 'Generate', tid: 'protocol-studio-tab-generate' },
+      { id: 'compare', label: 'Compare', tid: 'protocol-studio-tab-compare' },
+      { id: 'simulation', label: 'Simulation', tid: 'protocol-studio-tab-simulation' },
+      { id: 'drafts', label: 'My Drafts', tid: 'protocol-studio-tab-drafts' },
     ];
     return tabs.map(t =>
-      '<button class="ps-tab' + (_tab === t.id ? ' active' : '') + '" onclick="window._psTab(\'' + t.id + '\')"' +
-        (t.id === 'conditions' ? _tid('protocol-studio-tab-conditions') : '') +
-        (t.id === 'generate'   ? _tid('protocol-studio-tab-generate') : '') +
-        (t.id === 'browse'     ? _tid('protocol-studio-tab-browse') : '') +
-        (t.id === 'drafts'     ? _tid('protocol-studio-tab-drafts') : '') +
-        '>' + t.label + '</button>'
+      '<button type="button" class="ps-tab' + (_tab === t.id ? ' active' : '') + '" data-ps-tab="' + t.id + '" onclick="window._psTab(\'' + t.id + '\')"' + _tid(t.tid) + '>' + esc(t.label) + '</button>'
     ).join('');
   }
 
@@ -4310,20 +4470,23 @@ export async function pgProtocolHub(setTopbar, navigate) {
 
   // ── Window handlers ────────────────────────────────────────────────────────
   window._psTab = (tab) => {
+    if (!VALID_TABS.includes(tab)) return;
     _tab = tab;
     window._protocolHubTab = tab;
-    // Re-draw tab bar active state
-    document.querySelectorAll('.ps-tab').forEach(b => {
-      b.classList.toggle('active', b.textContent.trim() === { conditions:'Conditions', generate:'Generate Protocol', browse:'Browse Protocols', drafts:'My Drafts' }[tab]);
+    document.querySelectorAll('.ps-shell .ps-tab').forEach((b) => {
+      b.classList.toggle('active', b.getAttribute('data-ps-tab') === tab);
     });
     window._psRenderCurrentTab();
   };
 
   window._psRenderCurrentTab = () => {
-    if (_tab === 'conditions')  _renderConditions();
-    else if (_tab === 'generate')   _renderGenerate();
-    else if (_tab === 'browse')     _renderBrowse();
-    else if (_tab === 'drafts')     _renderDrafts();
+    if (_tab === 'conditions') _renderConditions();
+    else if (_tab === 'browse') _renderBrowse();
+    else if (_tab === 'evidence') _renderEvidenceTab();
+    else if (_tab === 'generate') _renderGenerate();
+    else if (_tab === 'compare') _renderCompare();
+    else if (_tab === 'simulation') _renderSimulation();
+    else if (_tab === 'drafts') _renderDrafts();
   };
 
   window._psCondToGenerate = (condId, condName) => {
@@ -4398,33 +4561,38 @@ export async function pgProtocolHub(setTopbar, navigate) {
     const devEl     = document.getElementById('ps-bs-device');
     const condition = (condEl && condEl.value.trim()) || '';
     if (!condition) { W.error = 'Condition is required.'; _renderGenerate(); return; }
+    const pid = _psContextPatientId();
+    if (!pid) {
+      W.error = 'Select a demo patient in context before imaging-guided drafts — patient linkage is required to verify qEEG/MRI availability.';
+      _renderGenerate();
+      return;
+    }
     W.saving = true; W.error = null; W.result = null;
     _renderGenerate();
     try {
       const markers = (markersEl && markersEl.value) ? markersEl.value.split(',').map(s => s.trim()).filter(Boolean) : [];
+      const scanType = (scanEl && scanEl.value) || 'qEEG';
+      const scanModMap = { qEEG: 'tdcs', EEG: 'tdcs', fMRI: 'rtms', NIRS: 'tdcs' };
+      const modality = scanModMap[scanType] || 'tdcs';
+      const mode = scanType === 'fMRI' ? 'mri_guided' : 'qeeg_guided';
       const payload = {
+        patient_id: pid,
+        mode,
         condition,
-        scan_type: (scanEl && scanEl.value) || 'qEEG',
-        primary_target: (targetEl && targetEl.value.trim()) || 'DLPFC',
-        eeg_markers: markers,
-        phenotype: (phenoEl && phenoEl.value.trim()) || '',
-        device: (devEl && devEl.value.trim()) || '',
+        modality,
+        target: (targetEl && targetEl.value.trim()) || null,
+        protocol_id: null,
+        include_off_label: false,
+        constraints: {
+          scan_type: scanType,
+          eeg_markers: markers,
+          phenotype: (phenoEl && phenoEl.value.trim()) || '',
+          device_hint: (devEl && devEl.value.trim()) || '',
+        },
       };
-      W.result = await api.generateBrainScanProtocol(payload);
+      W.result = await api.protocolStudioGenerate(payload);
       W.error = null;
-      const scanMod = (
-        { qEEG: 'tDCS', EEG: 'tDCS', fMRI: 'rTMS', NIRS: 'tDCS' }[payload.scan_type] || 'tDCS'
-      );
-      window._psLastGenPayload = {
-        kind: 'brainscan',
-        condition: payload.condition,
-        modality: scanMod,
-        device: payload.device || '',
-        evidence_threshold: 'Systematic Review',
-        off_label: false,
-        scan_type: payload.scan_type,
-        primary_target: payload.primary_target,
-      };
+      window._psLastGenPayload = { kind: 'protocol-studio-guided', ...payload };
     } catch (e) { W.error = e?.message || 'Generation failed.'; }
     W.saving = false;
     _renderGenerate();
@@ -4442,32 +4610,37 @@ export async function pgProtocolHub(setTopbar, navigate) {
     const histEl    = document.getElementById('ps-pe-history');
     const condition = (condEl && condEl.value.trim()) || '';
     if (!condition) { W.error = 'Condition is required.'; _renderGenerate(); return; }
+    const pid = (patEl && patEl.value.trim()) || _psContextPatientId();
+    if (!pid) {
+      W.error = 'Patient ID is required for personalised drafts — pick a patient or paste a roster UUID.';
+      _renderGenerate();
+      return;
+    }
     W.saving = true; W.error = null; W.result = null;
     _renderGenerate();
     try {
       const parseScore = (el) => { const v = el && el.value.trim(); return (v !== '' && !isNaN(v)) ? parseFloat(v) : null; };
       const payload = {
+        patient_id: pid,
+        mode: 'deeptwin_personalized',
         condition,
-        patient_id: (patEl && patEl.value.trim()) || 'demo',
-        phq9: parseScore(phq9El),
-        gad7: parseScore(gad7El),
-        moca: parseScore(mocaEl),
-        medication_load: (medsEl && medsEl.value.trim()) || '',
-        chronotype: (chrEl && chrEl.value) || '',
-        treatment_history: (histEl && histEl.value.trim()) || '',
-        device: (devEl && devEl.value.trim()) || '',
+        modality: 'tdcs',
+        target: null,
+        protocol_id: null,
+        include_off_label: false,
+        constraints: {
+          phq9: parseScore(phq9El),
+          gad7: parseScore(gad7El),
+          moca: parseScore(mocaEl),
+          medication_load: (medsEl && medsEl.value.trim()) || '',
+          chronotype: (chrEl && chrEl.value) || '',
+          treatment_history: (histEl && histEl.value.trim()) || '',
+          device: (devEl && devEl.value.trim()) || '',
+        },
       };
-      W.result = await api.generatePersonalizedProtocol(payload);
+      W.result = await api.protocolStudioGenerate(payload);
       W.error = null;
-      window._psLastGenPayload = {
-        kind: 'personalized',
-        condition: payload.condition,
-        modality: 'tDCS',
-        device: (devEl && devEl.value.trim()) || '',
-        evidence_threshold: 'Systematic Review',
-        off_label: false,
-        patient_id: payload.patient_id,
-      };
+      window._psLastGenPayload = { kind: 'protocol-studio-personalized', ...payload };
     } catch (e) { W.error = e?.message || 'Generation failed.'; }
     W.saving = false;
     _renderGenerate();
@@ -4586,7 +4759,11 @@ export async function pgProtocolHub(setTopbar, navigate) {
       window._showNotifToast?.({ title: 'No patient in context', body: 'Select a patient from the roster or profile so this draft can be scoped and audited.', severity: 'warn' });
       return;
     }
-    const modalitySlug = _psNormModality(payload.modality);
+    const modalitySlug = _psNormModality(payload.modality || (W.result.parameters && W.result.parameters.modality_id) || 'tDCS');
+    const rp = W.result.parameters || {};
+    const evRefs = Array.isArray(W.result.evidence_links)
+      ? W.result.evidence_links.map((x) => (typeof x === 'object' && x ? (x.link || x.id) : x)).filter(Boolean)
+      : [];
     try {
       await api.saveProtocol({
         patient_id: patientId,
@@ -4597,15 +4774,17 @@ export async function pgProtocolHub(setTopbar, navigate) {
         governance_state: 'draft',
         parameters_json: {
           generator: payload.kind || 'evidence',
-          target_region: W.result.target_region,
-          session_frequency: W.result.session_frequency,
-          duration: W.result.duration,
+          protocol_summary: W.result.protocol_summary || null,
+          target_region: W.result.target_region || rp.target_region,
+          session_frequency: W.result.session_frequency || rp.sessions_per_week,
+          duration: W.result.duration || rp.session_duration || rp.total_course,
           evidence_grade: W.result.evidence_grade,
           ai_assisted: true,
           registry_threshold: payload.evidence_threshold || null,
-          off_label: !!payload.off_label,
+          off_label: !!(payload.off_label ?? W.result.off_label),
+          protocol_studio_status: W.result.status || null,
         },
-        evidence_refs: [],
+        evidence_refs: evRefs.length ? evRefs : [],
       });
       _psRecordStudioAudit('protocol_draft_saved', 'generate tab save; modality=' + modalitySlug);
       window._showNotifToast?.({ title: 'Saved', body: 'Draft stored — review before any clinical use.', severity: 'success' });

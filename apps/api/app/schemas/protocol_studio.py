@@ -64,12 +64,18 @@ class ProtocolCatalogItem(BaseModel):
     title: str
     condition: str | None = None
     modality: str | None = None
+    device: str | None = None
     target: str | None = None
+    parameter_summary: str | None = None
     status: ProtocolStatus
     evidence_grade: str | None = None
+    evidence_count: int = 0
     regulatory_status: str | None = None
     off_label: bool
     off_label_warning: str | None = None
+    research_only: bool = False
+    last_reviewed: str | None = None
+    has_evidence_links: bool = False
     fillable_or_generate_mode: str = "registry_only"
     contraindication_summary: str | None = None
     clinician_review_required: bool = True
@@ -108,6 +114,61 @@ class ProtocolStudioGenerateRequest(BaseModel):
     protocol_id: str | None = None
     include_off_label: bool = False
     constraints: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProtocolStudioRecommendRequest(BaseModel):
+    patient_id: str | None = None
+    condition: str = ""
+    modalities: list[str] = Field(default_factory=list)
+    qeeg_summary: str | None = None
+    mri_summary: str | None = None
+    contraindications: list[str] = Field(default_factory=list)
+    available_devices: list[str] = Field(default_factory=list)
+    desired_outcome_domain: str | None = None
+
+
+class RankedProtocolOption(BaseModel):
+    protocol_id: str
+    title: str
+    score: float
+    rank_reasons: list[str] = Field(default_factory=list)
+    evidence_grade: str | None = None
+    evidence_count: int = 0
+    paper_links: list[str] = Field(default_factory=list)
+    patient_fit_rationale: str = ""
+    safety_notes: list[str] = Field(default_factory=list)
+    missing_data_hints: list[str] = Field(default_factory=list)
+    confidence: float = 0.0
+    off_label: bool = False
+    research_only: bool = False
+    modality: str | None = None
+    target_region: str | None = None
+    parameter_summary: str | None = None
+
+
+class ProtocolStudioRecommendResponse(BaseModel):
+    evidence_backed_options: list[RankedProtocolOption] = Field(default_factory=list)
+    personalized_options: list[RankedProtocolOption] = Field(default_factory=list)
+    imaging_guided_options: list[RankedProtocolOption] = Field(default_factory=list)
+    overall_top_3: list[RankedProtocolOption] = Field(default_factory=list)
+    not_recommended: list[dict[str, Any]] = Field(default_factory=list)
+    missing_data: list[str] = Field(default_factory=list)
+    safety_flags: list[str] = Field(default_factory=list)
+    ranking_note: str
+
+
+class ProtocolStudioSimulateRequest(BaseModel):
+    patient_id: str | None = None
+    protocol_ids: list[str] = Field(default_factory=list)
+
+
+class ProtocolStudioSimulateResponse(BaseModel):
+    available: bool
+    message: str
+    deeptwin_simulation_enabled: bool = False
+    assumptions: list[str] = Field(default_factory=list)
+    missing_data: list[str] = Field(default_factory=list)
+    safety_flags: list[str] = Field(default_factory=list)
 
 
 class ProtocolStudioGenerateResponse(BaseModel):
