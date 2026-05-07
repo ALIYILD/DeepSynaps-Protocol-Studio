@@ -2,6 +2,8 @@
 #
 # Required secrets (set via `fly secrets set KEY=value`):
 #   DEEPSYNAPS_DATABASE_URL   — PostgreSQL connection string for production DB
+#   CELERY_BROKER_URL         — Redis broker URL for async qEEG/ERP workers
+#   CELERY_RESULT_BACKEND     — Optional result backend (defaults to broker URL)
 #   STRIPE_SECRET_KEY         — Stripe secret key (when payments are enabled)
 #   STRIPE_WEBHOOK_SECRET     — Stripe webhook signing secret
 #   JWT_SECRET_KEY            — Secret key for JWT signing (when auth is enabled)
@@ -25,9 +27,11 @@ primary_region = "lhr"
 
 # Process groups:
 #   app          — FastAPI HTTP server (public-facing)
+#   qeeg_worker  — Celery worker for qEEG/ERP async analysis jobs
 #   stripe_worker — Polls StripeWebhookLog outbox every 5 min for retries
 [processes]
   app = "uvicorn app.main:app --host 0.0.0.0 --port 8080 --app-dir apps/api"
+  qeeg_worker = "celery -A app.jobs worker --workdir /app/apps/api --loglevel=INFO --without-gossip --without-mingle"
   stripe_worker = "sh -c 'while true; do python scripts/retry_stripe_webhooks.py; sleep 300; done'"
 
 [[services]]

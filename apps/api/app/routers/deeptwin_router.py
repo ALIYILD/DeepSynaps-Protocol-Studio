@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import importlib
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -892,11 +892,366 @@ def brain_twin_evidence(
 
 # ---------------------------------------------------------------------------
 # DeepTwin v1: rich endpoints powering the clinician page.
-# These return deterministic synthetic data seeded by patient_id. The shapes
-# are stable so the frontend can render fully without real ingestion.
-# Every prediction/simulation includes evidence grade, uncertainty band and
-# explicit "approval_required" / "decision-support only" labels.
+# These routes now operate in two modes:
+# - real patient row exists -> reuse persisted/backend-observed data and fail
+#   closed where no validated prediction output exists
+# - unknown/demo id -> retain deterministic synthetic builders for legacy
+#   stub flows and QA fixtures
+# Every prediction/simulation includes explicit "decision-support only" labels.
 # ---------------------------------------------------------------------------
+
+_REAL_PATIENT_PREDICTION_REASON = "no_validated_prediction_model"
+_REAL_PATIENT_PREDICTION_SUMMARY = (
+    "DeepTwin prediction output is withheld until a validated model is connected."
+)
+_REAL_PATIENT_SOURCE_EXCLUDE_KEYS = frozenset({"identity", "twin_predictions"})
+_REAL_PATIENT_SEVERE_FLAGS = frozenset({"serious", "severe", "urgent", "high", "critical"})
+_REAL_PATIENT_WATCH_FLAGS = frozenset({"warning", "warn", "moderate", "medium", "mild"})
+
+
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if not isinstance(value, str):
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _real_patient_dashboard_payload(session: Session, patient_id: str) -> tuple[Any | None, dict[str, Any] | None]:
+    patient = session.get(_DT360_Patient, patient_id)
+    if patient is None:
+        return None, None
+    return patient, build_dashboard_payload(session, patient)
+
+
+def _dashboard_latest_timestamp(payload: dict[str, Any]) -> str:
+    candidates: list[datetime] = []
+    generated_at = _parse_iso_datetime(payload.get("generated_at"))
+    if generated_at is not None:
+        candidates.append(generated_at)
+
+    for domain in payload.get("domains") or []:
+        parsed = _parse_iso_datetime(domain.get("last_updated"))
+        if parsed is not None:
+            candidates.append(parsed)
+
+    for event in payload.get("timeline") or []:
+        parsed = _parse_iso_datetime(event.get("ts"))
+        if parsed is not None:
+            candidates.append(parsed)
+
+    for note in payload.get("clinician_notes") or []:
+        parsed = _parse_iso_datetime(note.get("at"))
+        if parsed is not None:
+            candidates.append(parsed)
+
+    review = payload.get("review") or {}
+    parsed = _parse_iso_datetime(review.get("reviewed_at"))
+    if parsed is not None:
+        candidates.append(parsed)
+
+    if not candidates:
+        return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return max(candidates).replace(microsecond=0).isoformat()
+
+
+def _real_patient_risk_status(payload: dict[str, Any]) -> str:
+    review = payload.get("review") or {}
+    safety = payload.get("safety") or {}
+    severities = [
+        str(item.get("severity") or "").strip().lower()
+        for item in [*(safety.get("adverse_events") or []), *(safety.get("red_flags") or [])]
+    ]
+    if any(severity in _REAL_PATIENT_SEVERE_FLAGS for severity in severities):
+        return "elevated"
+    if any(severity in _REAL_PATIENT_WATCH_FLAGS for severity in severities):
+        return "watch"
+    if int(review.get("pending_items") or 0) > 0:
+        return "watch"
+    return "unknown"
+
+
+def _map_real_patient_sources(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    connected: list[dict[str, Any]] = []
+    missing: list[dict[str, Any]] = []
+
+    for domain in payload.get("domains") or []:
+        key = str(domain.get("key") or "")
+        if key in _REAL_PATIENT_SOURCE_EXCLUDE_KEYS:
+            continue
+        item = {
+            "key": key,
+            "label": domain.get("label"),
+            "status": domain.get("status"),
+            "record_count": int(domain.get("record_count") or 0),
+            "last_updated": domain.get("last_updated"),
+            "summary": domain.get("summary"),
+        }
+        if item["record_count"] > 0:
+            connected.append(item)
+        else:
+            missing.append(item)
+
+    connected.sort(key=lambda item: (item["record_count"], item["key"]), reverse=True)
+    missing.sort(key=lambda item: item["key"])
+    return connected, missing
+
+
+def _real_patient_summary_payload(patient_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    completeness = payload.get("completeness") or {}
+    review = payload.get("review") or {}
+    prediction = payload.get("prediction_confidence") or {}
+    connected, missing = _map_real_patient_sources(payload)
+
+    warnings: list[str] = []
+    high_priority_missing = [
+        str(key)
+        for key in (completeness.get("high_priority_missing") or [])
+        if key
+    ]
+    if high_priority_missing:
+        warnings.append(
+            "High-priority data missing: " + ", ".join(high_priority_missing) + "."
+        )
+    pending_items = int(review.get("pending_items") or 0)
+    if pending_items > 0:
+        warnings.append(f"{pending_items} persisted DeepTwin item(s) await clinician review.")
+    if prediction.get("available") is False:
+        warnings.append(str(prediction.get("summary") or _REAL_PATIENT_PREDICTION_SUMMARY))
+    if not connected:
+        warnings.append(
+            "No persisted DeepTwin-linked source data is available for this patient yet."
+        )
+
+    if pending_items > 0:
+        review_status = "awaiting_clinician_review"
+    elif review.get("reviewed"):
+        review_status = "reviewed"
+    else:
+        review_status = "no_persisted_deeptwin_review"
+
+    return {
+        "patient_id": patient_id,
+        "completeness_pct": round(float(completeness.get("score") or 0.0) * 100.0, 1),
+        "risk_status": _real_patient_risk_status(payload),
+        "last_updated": _dashboard_latest_timestamp(payload),
+        "sources_connected": connected,
+        "sources_missing": missing,
+        "review_status": review_status,
+        "warnings": warnings,
+        "disclaimer": payload.get("disclaimer")
+        or "Decision-support only. Requires clinician review.",
+    }
+
+
+def _real_patient_timeline_payload(
+    patient_id: str,
+    payload: dict[str, Any],
+    *,
+    days: int,
+) -> dict[str, Any]:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    events: list[dict[str, Any]] = []
+    for event in payload.get("timeline") or []:
+        parsed = _parse_iso_datetime(event.get("ts"))
+        if parsed is None or parsed < cutoff:
+            continue
+        events.append(event)
+    return {
+        "patient_id": patient_id,
+        "events": events,
+        "window_days": days,
+    }
+
+
+def _real_patient_signals_payload(patient_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    signals: list[dict[str, Any]] = []
+    for domain in payload.get("domains") or []:
+        key = str(domain.get("key") or "")
+        record_count = int(domain.get("record_count") or 0)
+        if key in _REAL_PATIENT_SOURCE_EXCLUDE_KEYS or record_count <= 0:
+            continue
+        signals.append({
+            "domain": key,
+            "name": f"{key}_records",
+            "unit": "records",
+            "baseline": None,
+            "current": record_count,
+            "delta": None,
+            "sparkline": [],
+            "n_observations": record_count,
+            "evidence_grade": "linked",
+            "evidence_status": "linked",
+            "measurement_type": "observed_count",
+            "last_updated": domain.get("last_updated"),
+            "status": domain.get("status"),
+            "summary": domain.get("summary"),
+        })
+
+    note_count = len(payload.get("clinician_notes") or [])
+    if note_count > 0:
+        signals.append({
+            "domain": "deeptwin",
+            "name": "clinician_notes",
+            "unit": "records",
+            "baseline": None,
+            "current": note_count,
+            "delta": None,
+            "sparkline": [],
+            "n_observations": note_count,
+            "evidence_grade": "linked",
+            "evidence_status": "linked",
+            "measurement_type": "observed_count",
+            "last_updated": (payload.get("clinician_notes") or [{}])[0].get("at"),
+            "status": "available",
+            "summary": f"{note_count} DeepTwin clinician note(s) on file.",
+        })
+
+    warnings: list[str] = []
+    if not signals:
+        warnings.append(
+            "No observed DeepTwin signal rows are persisted for this patient yet. "
+            "Synthetic signal generation is disabled for real patient sessions."
+        )
+
+    return {
+        "patient_id": patient_id,
+        "signals": signals,
+        "warnings": warnings,
+    }
+
+
+def _real_patient_correlations_payload(patient_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    cards = list(payload.get("correlations") or [])
+    labels = sorted({
+        str(value)
+        for card in cards
+        for value in (card.get("left"), card.get("right"))
+        if value
+    })
+    warnings = [
+        "Synthetic cross-modal correlation generation is disabled for real patient sessions.",
+        "Correlation cards reflect persisted DeepTwin analysis output only.",
+        "Correlation does not imply causation. Clinician interpretation required.",
+    ]
+    if not cards:
+        warnings[1] = "No persisted DeepTwin correlation cards are on file for this patient."
+
+    return {
+        "patient_id": patient_id,
+        "method": "persisted_analysis_runs",
+        "labels": labels,
+        "matrix": [],
+        "cards": cards,
+        "hypotheses": [],
+        "warnings": warnings,
+    }
+
+
+def _real_patient_prediction_payload(
+    patient_id: str,
+    payload: dict[str, Any],
+    *,
+    horizon: str,
+) -> dict[str, Any]:
+    horizon_days = {"2w": 14, "6w": 42, "12w": 84}.get(horizon, 42)
+    prediction = payload.get("prediction_confidence") or {}
+    completeness = payload.get("completeness") or {}
+    limitations = list(prediction.get("limitations") or [])
+    if not limitations:
+        limitations = [
+            "No validated outcome dataset is bound to a production prediction engine.",
+            "Prediction output is intentionally withheld instead of rendering deterministic placeholders.",
+            "DeepTwin must not be used as an autonomous treatment recommendation engine.",
+        ]
+
+    assumptions = [
+        "Prediction output is withheld until a validated model is connected.",
+    ]
+    high_priority_missing = [
+        str(key)
+        for key in (completeness.get("high_priority_missing") or [])
+        if key
+    ]
+    if high_priority_missing:
+        assumptions.append(
+            "High-priority data still missing: " + ", ".join(high_priority_missing) + "."
+        )
+
+    uncertainty = {
+        "method": "withheld_no_validated_model",
+        "components": {
+            "epistemic": {
+                "status": "unavailable",
+                "method": "not_estimated",
+                "note": "No validated prediction model is connected for this patient.",
+            },
+            "aleatoric": {
+                "status": "unavailable",
+                "method": "not_estimated",
+                "note": "No patient-specific forecast was emitted, so outcome variance is not estimated.",
+            },
+            "calibration": {
+                "status": "unavailable",
+                "method": "not_applicable",
+                "note": "Calibration is unavailable because no validated prediction output was produced.",
+            },
+        },
+        "ci95_interpretation": "Prediction withheld; no interval emitted.",
+    }
+    calibration = {
+        "method": "not_applicable",
+        "status": "withheld",
+        "note": (
+            "Calibration is unavailable because DeepTwin prediction output is "
+            "withheld until a validated model is connected."
+        ),
+    }
+
+    return {
+        "patient_id": patient_id,
+        "horizon": horizon,
+        "horizon_days": horizon_days,
+        "traces": [],
+        "assumptions": assumptions,
+        "evidence_grade": None,
+        "evidence_status": "unavailable",
+        "confidence_tier": None,
+        "top_drivers": [],
+        "rationale": str(prediction.get("summary") or _REAL_PATIENT_PREDICTION_SUMMARY),
+        "uncertainty": uncertainty,
+        "calibration": calibration,
+        "provenance": build_provenance(
+            surface="patients.predictions.withheld",
+            inputs={
+                "patient_id": patient_id,
+                "horizon": horizon,
+                "reason": _REAL_PATIENT_PREDICTION_REASON,
+            },
+            schema_version=SCHEMA_VERSION,
+            extra={
+                "model_id": "deeptwin.predictions.withheld",
+                "engine_mode": "withheld",
+                "calibration_status": "unavailable",
+            },
+        ),
+        "decision_support_only": True,
+        "uncertainty_widens_with_horizon": False,
+        "disclaimer": payload.get("disclaimer")
+        or "Decision-support only. Requires clinician review.",
+        "available": False,
+        "status": str(prediction.get("status") or "not_implemented"),
+        "reason": str(prediction.get("reason") or _REAL_PATIENT_PREDICTION_REASON),
+        "summary": str(prediction.get("summary") or _REAL_PATIENT_PREDICTION_SUMMARY),
+        "limitations": limitations,
+    }
 
 
 class TwinSummaryOut(BaseModel):
@@ -920,6 +1275,7 @@ class TwinTimelineOut(BaseModel):
 class TwinSignalsOut(BaseModel):
     patient_id: str
     signals: list[dict[str, Any]]
+    warnings: list[str] = Field(default_factory=list)
 
 
 class TwinCorrelationsOut(BaseModel):
@@ -938,7 +1294,7 @@ class TwinPredictionOut(BaseModel):
     horizon_days: int
     traces: list[dict[str, Any]]
     assumptions: list[str]
-    evidence_grade: str
+    evidence_grade: str | None = None
     evidence_status: str | None = None
     confidence_tier: str | None = None
     top_drivers: list[dict[str, Any]] = Field(default_factory=list)
@@ -949,6 +1305,11 @@ class TwinPredictionOut(BaseModel):
     decision_support_only: bool = True
     uncertainty_widens_with_horizon: bool
     disclaimer: str
+    available: bool | None = None
+    status: str | None = None
+    reason: str | None = None
+    summary: str | None = None
+    limitations: list[str] = Field(default_factory=list)
 
 
 class TwinSimulationRequest(BaseModel):
@@ -1043,9 +1404,13 @@ class TwinAgentHandoffOut(BaseModel):
 def deeptwin_get_summary(
     patient_id: str,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
 ) -> TwinSummaryOut:
     _require_clinician_review_actor(_actor)
-    _gate_patient_access(_actor, patient_id)
+    _gate_patient_access(_actor, patient_id, db=session)
+    _, dashboard = _real_patient_dashboard_payload(session, patient_id)
+    if dashboard is not None:
+        return TwinSummaryOut(**_real_patient_summary_payload(patient_id, dashboard))
     return TwinSummaryOut(**build_twin_summary(patient_id))
 
 
@@ -1054,10 +1419,14 @@ def deeptwin_get_timeline(
     patient_id: str,
     days: int = 90,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
 ) -> TwinTimelineOut:
     _require_clinician_review_actor(_actor)
-    _gate_patient_access(_actor, patient_id)
+    _gate_patient_access(_actor, patient_id, db=session)
     days = max(7, min(365, days))
+    _, dashboard = _real_patient_dashboard_payload(session, patient_id)
+    if dashboard is not None:
+        return TwinTimelineOut(**_real_patient_timeline_payload(patient_id, dashboard, days=days))
     return TwinTimelineOut(**align_timeline_events(patient_id, days=days))
 
 
@@ -1065,9 +1434,13 @@ def deeptwin_get_timeline(
 def deeptwin_get_signals(
     patient_id: str,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
 ) -> TwinSignalsOut:
     _require_clinician_review_actor(_actor)
-    _gate_patient_access(_actor, patient_id)
+    _gate_patient_access(_actor, patient_id, db=session)
+    _, dashboard = _real_patient_dashboard_payload(session, patient_id)
+    if dashboard is not None:
+        return TwinSignalsOut(**_real_patient_signals_payload(patient_id, dashboard))
     return TwinSignalsOut(**build_signal_matrix(patient_id))
 
 
@@ -1075,9 +1448,13 @@ def deeptwin_get_signals(
 def deeptwin_get_correlations(
     patient_id: str,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
 ) -> TwinCorrelationsOut:
     _require_clinician_review_actor(_actor)
-    _gate_patient_access(_actor, patient_id)
+    _gate_patient_access(_actor, patient_id, db=session)
+    _, dashboard = _real_patient_dashboard_payload(session, patient_id)
+    if dashboard is not None:
+        return TwinCorrelationsOut(**_real_patient_correlations_payload(patient_id, dashboard))
     corr = detect_correlations(patient_id)
     caus = generate_causal_hypotheses(patient_id)
     return TwinCorrelationsOut(
@@ -1096,9 +1473,17 @@ def deeptwin_get_predictions(
     patient_id: str,
     horizon: Literal["2w", "6w", "12w"] = "6w",
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
 ) -> TwinPredictionOut:
     _require_clinician_review_actor(_actor)
-    _gate_patient_access(_actor, patient_id)
+    _gate_patient_access(_actor, patient_id, db=session)
+    _, dashboard = _real_patient_dashboard_payload(session, patient_id)
+    if dashboard is not None:
+        return TwinPredictionOut(**_real_patient_prediction_payload(
+            patient_id,
+            dashboard,
+            horizon=horizon,
+        ))
     return TwinPredictionOut(**estimate_trajectory(patient_id, horizon=horizon))
 
 

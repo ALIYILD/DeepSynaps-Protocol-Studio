@@ -35,6 +35,12 @@ DEMO_ACTOR_TOKENS: dict[str, DemoActor] = {
         role="admin",
         package_id="enterprise",
     ),
+    "supervisor-demo-token": DemoActor(
+        actor_id="actor-supervisor-demo",
+        display_name="Supervisor Demo User",
+        role="supervisor",
+        package_id="enterprise",
+    ),
     # Package-specific demo tokens
     "explorer-demo-token": DemoActor(
         actor_id="actor-explorer-demo",

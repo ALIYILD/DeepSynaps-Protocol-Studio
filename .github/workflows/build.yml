@@ -45,6 +45,7 @@ jobs:
             -e packages/generation-engine \
             -e packages/render-engine \
             -e packages/biometrics-pipeline \
+            -e packages/deeptwin-neuroai-lab \
             -e apps/api
       - name: Check API syntax
         run: python -m py_compile apps/api/app/main.py
@@ -56,4 +57,14 @@ jobs:
       - name: Build production API image
         run: docker build -f apps/api/Dockerfile -t deepsynaps-api-smoke .
       - name: Smoke import app main in production image
-        run: docker run --rm deepsynaps-api-smoke python -c "import sys; sys.path.insert(0, '/app/apps/api'); import app.main"
+        run: |
+          docker run --rm deepsynaps-api-smoke python -c "
+          import sys
+          sys.path.insert(0, '/app/apps/api')
+          from app.main import app
+          paths = sorted(set(getattr(r, 'path', '') for r in app.routes))
+          print('Registered routes:', paths)
+          voice_routes = [p for p in paths if 'voice' in p]
+          assert voice_routes, 'No voice routes registered — check voice_engine_router shim'
+          print('Voice routes OK:', voice_routes)
+          "

@@ -15,6 +15,21 @@ import { isDemoSession } from './demo-session.js';
 
 const _e = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
+/** Synthetic Virtual Care demo rows: dev or VITE_ENABLE_DEMO=1 only — never silent production demo. */
+export function vcVirtualCareDemoRowsAllowed() {
+  try {
+    return !!(import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1');
+  } catch {
+    return false;
+  }
+}
+
+/** App topbar expects (title: string, rightHtml?) — objects stringify to "[object Object]". */
+function vcApplyTopbar(setTopbar, title, rightHtml = '') {
+  if (typeof setTopbar !== 'function') return;
+  setTopbar(String(title ?? 'Virtual Care'), rightHtml);
+}
+
 /** Demo-only fixture when VITE_ENABLE_DEMO + demo token and API has no current session. */
 function _lsDemoVcSessionFixture() {
   return {
@@ -67,15 +82,7 @@ function _lsPostVcAudit(event, note, usingDemo) {
 }
 
 function _lsRenderEmptyVirtualCare(mount, setTopbar, navigate) {
-  try {
-    setTopbar({
-      title: 'Virtual Care',
-      subtitle: 'Live Session — no appointment loaded',
-      right: '',
-    });
-  } catch {
-    try { setTopbar('Virtual Care', 'Live Session'); } catch {}
-  }
+  vcApplyTopbar(setTopbar, 'Virtual Care — Live Session', '');
   mount.innerHTML = `
     <div class="vc-ls-empty" style="max-width:720px;margin:32px auto;padding:0 20px">
       <div class="dv2-card" style="padding:28px;border:1px solid var(--border);border-radius:12px">
@@ -842,9 +849,9 @@ async function _vcSwitchTab(tabId) {
     if (tabId === 'messaging')   await pgVirtualCareLegacyFull(u.setTopbar, u.navigate, panel);
     if (tabId === 'livesession') await pgLiveSession(u.setTopbar, u.navigate, panel);
   }
-  // Update topbar subtitle
   const subtitles = { dashboard: 'Dashboard', messaging: 'Communications', livesession: 'Live Session' };
-  try { u.setTopbar({ title: 'Virtual Care', subtitle: subtitles[tabId] || '' }); } catch { try { u.setTopbar('Virtual Care', subtitles[tabId] || ''); } catch {} }
+  const sub = subtitles[tabId] || '';
+  vcApplyTopbar(u.setTopbar, sub ? `Virtual Care — ${sub}` : 'Virtual Care', '');
 }
 window._vcSwitchTab = _vcSwitchTab;
 
@@ -858,7 +865,7 @@ export async function pgVirtualCare(setTopbar, navigate) {
   _vcUnifiedState.initialized = { dashboard: false, messaging: false, livesession: false };
   _vcUnifiedState.shellMounted = true;
 
-  try { setTopbar({ title: 'Virtual Care', subtitle: '' }); } catch { try { setTopbar('Virtual Care', ''); } catch {} }
+  vcApplyTopbar(setTopbar, 'Virtual Care', '');
 
   mount.innerHTML = `
     <style>
@@ -921,7 +928,7 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
   if (!mount) return;
 
   if (!_vcUnifiedState.shellMounted) {
-    try { setTopbar({ title: 'Virtual Care', subtitle: 'Dashboard' }); } catch { try { setTopbar('Virtual Care', 'Dashboard'); } catch {} }
+    vcApplyTopbar(setTopbar, 'Virtual Care — Dashboard', '');
   }
 
   // ── Helper ────────────────────────────────────────────────────────────────
@@ -957,23 +964,25 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
 
   const ok = r => r.status === 'fulfilled' && r.value;
 
-  // ── Demo seed data ────────────────────────────────────────────────────────
+  const allowDemoRows = vcVirtualCareDemoRowsAllowed();
+
+  // ── Demo seed data (synthetic non-PHI — only when allowDemoRows) ───────────
   const DEMO_SCHEDULE = [
-    { time:'09:00', id:'db-p1', name:'Samantha L.',  initials:'SL', protocol:'tDCS · session 12/20',  condition:'MDD · stimulation phase',       room:'Room A',  consent:false },
-    { time:'10:00', id:'db-p2', name:'Marcus R.',    initials:'MR', protocol:'rTMS · session 6/30',   condition:'TRD · active course',            room:'Room B',  consent:false },
-    { time:'11:00', id:'db-p3', name:'Elena O.',     initials:'EO', protocol:'NF · session 4/12',     condition:'ADHD · baseline stabilisation',  room:'Remote',  consent:false },
-    { time:'12:00', id:'db-p4', name:'Jamal T.',     initials:'JT', protocol:'tDCS · session 8/20',   condition:'GAD · mid-course',               room:'Room A',  consent:true  },
-    { time:'14:00', id:'db-p5', name:'Priya N.',     initials:'PN', protocol:'CES · session 2/10',    condition:'Insomnia · initial phase',       room:'Home',    consent:false },
+    { time:'09:00', id:'demo-pt-samantha-li', name:'Samantha L.',  initials:'SL', protocol:'tDCS · session 12/20',  condition:'MDD · stimulation phase',       room:'Room A',  consent:false },
+    { time:'10:00', id:'demo-pt-marcus-chen', name:'Marcus C.',    initials:'MC', protocol:'rTMS · session 6/30',   condition:'TRD · active course',            room:'Room B',  consent:false },
+    { time:'11:00', id:'demo-pt-elena-vasquez', name:'Elena V.',     initials:'EV', protocol:'NF · session 4/12',     condition:'ADHD · baseline stabilisation',  room:'Remote',  consent:false },
+    { time:'12:00', id:'demo-pt-omar-haddad', name:'Omar H.',     initials:'OH', protocol:'tDCS · session 8/20',   condition:'GAD · mid-course',               room:'Room A',  consent:true  },
+    { time:'14:00', id:'demo-pt-amelia-brown', name:'Amelia B.',     initials:'AB', protocol:'CES · session 2/10',    condition:'Insomnia · initial phase',       room:'Home',    consent:false },
     { time:'15:00', id:'open',  name:null,            initials:null, protocol:null,                    condition:null,                             room:null,      consent:false },
   ];
 
   const DEMO_CASELOAD = [
-    { id:'db-p1', name:'Samantha Li',    condition:'MDD',     protocol:'tDCS · DLPFC-L',    progress:60, next:'Session 13',       urgency:'routine' },
-    { id:'db-p4', name:'Jamal Thompson', condition:'GAD',     protocol:'tDCS · PFC-R',       progress:40, next:'Consent refresh', urgency:'urgent'  },
-    { id:'db-p2', name:'Marcus Reilly',  condition:'TRD',     protocol:'rTMS · DLPFC-L',    progress:20, next:'Session 7',        urgency:'routine' },
-    { id:'db-p5', name:'Priya Nambiar',  condition:'Insomnia',protocol:'CES · bilateral',   progress:20, next:'PHQ-9 due',        urgency:'new'     },
-    { id:'db-p3', name:'Elena Okafor',   condition:'ADHD',    protocol:'NF · SMR',           progress:33, next:'Mid-course review',urgency:'routine' },
-    { id:'db-p6', name:'Terence Wu',     condition:'MDD',     protocol:'rTMS · deep-TMS',   progress:90, next:'Discharge plan',   urgency:'discharging' },
+    { id:'demo-pt-samantha-li', name:'Samantha Li',    condition:'MDD',     protocol:'tDCS · DLPFC-L',    progress:60, next:'Session 13',       urgency:'routine' },
+    { id:'demo-pt-omar-haddad', name:'Omar Haddad', condition:'GAD',     protocol:'tDCS · PFC-R',       progress:40, next:'Consent refresh', urgency:'urgent'  },
+    { id:'demo-pt-marcus-chen', name:'Marcus Chen',  condition:'TRD',     protocol:'rTMS · DLPFC-L',    progress:20, next:'Session 7',        urgency:'routine' },
+    { id:'demo-pt-amelia-brown', name:'Amelia Brown',  condition:'Insomnia',protocol:'CES · bilateral',   progress:20, next:'PHQ-9 due',        urgency:'new'     },
+    { id:'demo-pt-elena-vasquez', name:'Elena Vasquez',   condition:'ADHD',    protocol:'NF · SMR',           progress:33, next:'Mid-course review',urgency:'routine' },
+    { id:'demo-pt-demo-extra', name:'Demo cohort patient',     condition:'MDD',     protocol:'rTMS · deep-TMS',   progress:90, next:'Discharge plan',   urgency:'discharging' },
   ];
 
   const DB_EVIDENCE = [
@@ -1045,30 +1054,32 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
   const evidenceCardMeta = evidenceIsDemo
     ? `Active registry grades · ${evidencePaperCount.toLocaleString()} papers indexed · last synced 12 min ago`
     : `Live registry evidence · ${evidencePaperCount.toLocaleString()} papers indexed${evidenceConditionCount ? ` · ${evidenceConditionCount} conditions mapped` : ''}`;
-  const evidenceRowsData = evidenceIsDemo ? DB_EVIDENCE : liveEvidenceRows;
+  const evidenceRowsData = (evidenceIsDemo && !allowDemoRows)
+    ? []
+    : (evidenceIsDemo ? DB_EVIDENCE : liveEvidenceRows);
 
   const DEMO_ACTIVITY = [
-    { icon:'check',    text:'Samantha L. completed session 12/20 · tDCS. Side-effect check-in: clear.',    time:'8m'  },
-    { icon:'clip',     text:'Marcus R. pre-session note auto-generated by AI assistant.',                   time:'22m' },
-    { icon:'warn',     text:'Jamal T. consent refresh flagged — re-sign required before next session.',    time:'41m' },
+    { icon:'check',    text:'Samantha L. completed session 12/20 · tDCS. Side-effect check-in documented.',    time:'8m'  },
+    { icon:'clip',     text:'Marcus C. pre-session note queued for clinician review.',                   time:'22m' },
+    { icon:'warn',     text:'Omar H. consent refresh flagged — re-sign required before next session.',    time:'41m' },
     { icon:'sparkle',  text:'Evidence sync: rTMS iTBS downgraded B → C. 3 protocols affected.',            time:'1h'  },
-    { icon:'person',   text:'Elena O. joined remote session from home device. Connection stable.',          time:'2h'  },
+    { icon:'person',   text:'Elena V. joined remote session from home device. Connection logged.',          time:'2h'  },
   ];
 
-  // ── Ward biometrics demo data ────────────────────────────────────────────
+  // ── Ward biometrics demo data (synthetic — preview only) ─────────────────
   const DEMO_WARD_BIO = [
-    { pid:'p001', name:'Samantha L.', initials:'SL', hr:72,  hrv:42, spo2:98, impedance:4.8,  stress:24, protocol:'tDCS 2.0 mA' },
-    { pid:'p002', name:'Marcus R.',   initials:'MR', hr:68,  hrv:51, spo2:99, impedance:5.2,  stress:18, protocol:'rTMS DLPFC-L' },
-    { pid:'p003', name:'Elena O.',    initials:'EO', hr:78,  hrv:38, spo2:97, impedance:null, stress:45, protocol:'NF SMR 10 Hz' },
-    { pid:'p004', name:'Jamal T.',    initials:'JT', hr:80,  hrv:35, spo2:97, impedance:6.1,  stress:52, protocol:'tDCS PFC-R' },
-    { pid:'p005', name:'Priya N.',    initials:'PN', hr:65,  hrv:55, spo2:99, impedance:null, stress:12, protocol:'HD-tDCS' },
+    { pid:'demo-pt-samantha-li', name:'Samantha L.', initials:'SL', hr:72,  hrv:42, spo2:98, impedance:4.8,  stress:24, protocol:'tDCS 2.0 mA' },
+    { pid:'demo-pt-marcus-chen', name:'Marcus C.',   initials:'MC', hr:68,  hrv:51, spo2:99, impedance:5.2,  stress:18, protocol:'rTMS DLPFC-L' },
+    { pid:'demo-pt-elena-vasquez', name:'Elena V.',    initials:'EV', hr:78,  hrv:38, spo2:97, impedance:null, stress:45, protocol:'NF SMR 10 Hz' },
+    { pid:'demo-pt-omar-haddad', name:'Omar H.',    initials:'OH', hr:80,  hrv:35, spo2:97, impedance:6.1,  stress:52, protocol:'tDCS PFC-R' },
+    { pid:'demo-pt-amelia-brown', name:'Amelia B.',    initials:'AB', hr:65,  hrv:55, spo2:99, impedance:null, stress:12, protocol:'HD-tDCS' },
   ];
-  let DB_WARD_BIO = DEMO_WARD_BIO;
-  let wardBioIsDemo = true;
+  let DB_WARD_BIO = allowDemoRows ? DEMO_WARD_BIO : [];
+  let wardBioIsDemo = allowDemoRows;
 
   // ── Map API → schedule rows ───────────────────────────────────────────────
-  let DB_SCHEDULE = DEMO_SCHEDULE;
-  let scheduleIsDemo = true;
+  let DB_SCHEDULE = allowDemoRows ? DEMO_SCHEDULE : [];
+  let scheduleIsDemo = allowDemoRows;
   if (ok(rTodaySessions)) {
     const items = rTodaySessions.value?.items || rTodaySessions.value?.sessions || (Array.isArray(rTodaySessions.value) ? rTodaySessions.value : []);
     if (items.length > 0) {
@@ -1093,8 +1104,8 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
   }
 
   // ── Map API → caseload rows ───────────────────────────────────────────────
-  let DB_CASELOAD = DEMO_CASELOAD;
-  let caseloadIsDemo = true;
+  let DB_CASELOAD = allowDemoRows ? DEMO_CASELOAD : [];
+  let caseloadIsDemo = allowDemoRows;
   if (ok(rPatients)) {
     const items = rPatients.value?.items || rPatients.value?.patients || (Array.isArray(rPatients.value) ? rPatients.value : []);
     if (items.length > 0) {
@@ -1116,8 +1127,8 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
   }
 
   // ── Map API → activity rows ───────────────────────────────────────────────
-  let DB_ACTIVITY = DEMO_ACTIVITY;
-  let activityIsDemo = true;
+  let DB_ACTIVITY = allowDemoRows ? DEMO_ACTIVITY : [];
+  let activityIsDemo = allowDemoRows;
   if (ok(rAudit)) {
     const items = rAudit.value?.items || rAudit.value?.events || (Array.isArray(rAudit.value) ? rAudit.value : []);
     if (items.length > 0) {
@@ -1188,6 +1199,8 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
     }
   }
 
+  const kpiMasked = kpiIsDemo && !allowDemoRows;
+
   // ── Outcomes chart data ───────────────────────────────────────────────────
   let outcomeData = {
     '4w':  { phq:[14.2,12.1,9.8,7.9],  gad:[11.6,10.2,8.1,6.4],  labels:['W1','W2','W3','W4']  },
@@ -1208,20 +1221,31 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
     }
   }
 
+  const outcomesMasked = outcomesIsDemo && !allowDemoRows;
+
   // ── Alert banner ──────────────────────────────────────────────────────────
   let alertText = 'rTMS iTBS protocol downgraded B &#8594; C &mdash; 3 active protocols reference deprecated parameters. Review and re-render before next session.';
-  let alertVisible = true;
-  let alertIsDemo = true;
+  let alertVisible = !!allowDemoRows;
+  let alertIsDemo = !!allowDemoRows;
   if (ok(rAlerts)) {
     const a = rAlerts.value;
     const count = a?.critical_count ?? a?.alert_count ?? 0;
     if (count > 0) {
       alertIsDemo = false;
+      alertVisible = true;
       alertText = a.summary || a.message || `${count} wearable alert${count !== 1 ? 's' : ''} require review before next session.`;
     } else {
       alertVisible = false;
     }
   }
+
+  const previewBannerHtml = allowDemoRows
+    ? `<div class="vc-db-preview-banner" role="note" style="font-size:12px;line-height:1.5;color:rgba(255,255,255,0.88);padding:12px 14px;background:rgba(0,212,188,0.06);border:1px solid rgba(0,212,188,0.22);border-radius:10px;margin-bottom:4px"><strong>Controlled preview.</strong> Synthetic non-PHI demo rows may appear below where labelled. Virtual Care supports clinical workflow and remote review only. It does not diagnose, prescribe, triage emergencies, or act autonomously.</div>`
+    : `<div class="vc-db-preview-banner" role="note" style="font-size:12px;line-height:1.5;color:rgba(255,255,255,0.78);padding:12px 14px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;margin-bottom:4px"><strong>Workflow support.</strong> Virtual Care is not an emergency response system and is not continuous bedside monitoring. Missing readings do not indicate that a patient is safe or unsafe.</div>`;
+
+  const wardBioFeedLabel = (!wardBioIsDemo)
+    ? 'API snapshot'
+    : (allowDemoRows ? 'Preview refresh (synthetic)' : 'No feed');
 
   const demoChip = `<span style="display:inline-block;font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;background:rgba(155,127,255,0.1);border:1px solid rgba(155,127,255,0.25);color:#9b7fff;padding:1px 6px;border-radius:4px;vertical-align:middle;margin-left:6px">demo</span>`;
 
@@ -1239,10 +1263,10 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
 
   // ── Ward biometrics row renderer ─────────────────────────────────────────
   function wbStatusBadge(stress) {
-    if (stress == null) return '<span class="vc-db-wb-status vc-db-wb-status--normal">--</span>';
-    if (stress < 30) return '<span class="vc-db-wb-status vc-db-wb-status--normal">Normal</span>';
-    if (stress < 60) return '<span class="vc-db-wb-status vc-db-wb-status--elevated">Elevated</span>';
-    return '<span class="vc-db-wb-status vc-db-wb-status--alert">Alert</span>';
+    if (stress == null) return '<span class="vc-db-wb-status vc-db-wb-status--normal">\u2014</span>';
+    if (stress < 30) return '<span class="vc-db-wb-status vc-db-wb-status--normal">Lower band</span>';
+    if (stress < 60) return '<span class="vc-db-wb-status vc-db-wb-status--elevated">Mid band</span>';
+    return '<span class="vc-db-wb-status vc-db-wb-status--alert">Higher band</span>';
   }
   function wbColor(val, greenMax, amberMax) {
     if (val == null) return 'rgba(255,255,255,.3)';
@@ -1291,7 +1315,9 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
       </tr>`;
     }).join('');
   }
-  const wardBioRows = renderWardBioRows(DB_WARD_BIO);
+  const wardBioRows = DB_WARD_BIO.length
+    ? renderWardBioRows(DB_WARD_BIO)
+    : `<tr><td colspan="8" style="padding:18px;color:rgba(255,255,255,0.45);font-size:13px;line-height:1.45">No ward biometric snapshot. When wearable integrations return data, values appear here. Unavailable metrics show \u2014 (not a clinical \u201call clear\u201d).</td></tr>`;
 
   // ── Brain map SVG (10-20 positions, colour-coded) ─────────────────────────
   function dashboardBrainMap() {
@@ -1348,7 +1374,17 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
 
   // ── Launch handler ────────────────────────────────────────────────────────
   window._vcdbLaunch = function(id, name, modality, sessionNo, sessionTotal) {
-    window._lsSessionSeed = { patient_id: id, patient_name: name, modality, session_no: sessionNo, session_total: sessionTotal };
+    const allow = vcVirtualCareDemoRowsAllowed();
+    const sid = id != null ? String(id) : '';
+    if (!sid || sid === 'open') {
+      window._nav?.('scheduling-hub');
+      return;
+    }
+    if (sid.startsWith('demo-pt-') && !allow) {
+      window._nav?.('scheduling-hub');
+      return;
+    }
+    window._lsSessionSeed = { patient_id: sid, patient_name: name, modality, session_no: sessionNo, session_total: sessionTotal };
     if (_vcUnifiedState.shellMounted) {
       _vcUnifiedState.initialized.livesession = false;
       _vcSwitchTab('livesession');
@@ -1360,6 +1396,9 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
   // ── Schedule renderer (supports filter) ───────────────────────────────────
   function renderScheduleRows(filter) {
     const rows = filter === 'All' ? DB_SCHEDULE : DB_SCHEDULE.filter(r => !r.name || (r.room || '').toLowerCase().includes(filter.toLowerCase()));
+    if (!rows.some(r => r.name)) {
+      return `<div style="padding:16px;color:rgba(255,255,255,0.45);font-size:13px;line-height:1.5">No sessions scheduled. Use Scheduling to add appointments. Launch requires a configured session context.</div>`;
+    }
     return rows.map(row => {
       if (!row.name) {
         return `<div class="vc-db-sched-row vc-db-sched-open" data-open="1">
@@ -1390,6 +1429,9 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
   // ── Caseload renderer (supports filter) ───────────────────────────────────
   function renderCaseloadRows(filter) {
     const rows = filter === 'All' ? DB_CASELOAD : DB_CASELOAD.filter(r => r.urgency === filter.toLowerCase());
+    if (!rows.length) {
+      return `<tr><td colspan="4" style="padding:16px;color:rgba(255,255,255,0.45);font-size:13px">No caseload rows. Patient list may be empty or still loading.</td></tr>`;
+    }
     return rows.map(row => {
       const urgColor = row.urgency==='urgent'?'#ffb547':row.urgency==='new'?'#4a9eff':row.urgency==='discharging'?'#00d4bc':'rgba(255,255,255,0.3)';
       return `<tr class="vc-db-cl-row" data-pid="${_e(row.id)}" data-name="${_e(row.name)}">
@@ -1404,20 +1446,24 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
   const scheduleRows = renderScheduleRows('All');
   const caseloadRows = renderCaseloadRows('All');
 
-  const evidenceRows = evidenceRowsData.map(row => `
+  const evidenceRows = evidenceRowsData.length
+    ? evidenceRowsData.map(row => `
     <div class="vc-db-ev-row${row.rerender?' vc-db-ev-warn':''}">
       ${gradeBadge(row.grade)}
       <span class="vc-db-ev-name">${_e(row.name)}</span>
       ${row.rerender ? '<button class="vc-db-rerender-btn">Re-render</button>' : ''}
       <button class="vc-db-ev-arrow" title="View protocol">&#8250;</button>
-    </div>`).join('');
+    </div>`).join('')
+    : `<div style="padding:14px;color:rgba(255,255,255,0.42);font-size:12px;line-height:1.45">Evidence governance rows unavailable offline. Open Protocol Studio when the registry API is reachable.</div>`;
 
-  const activityRows = DB_ACTIVITY.map(row => `
+  const activityRows = DB_ACTIVITY.length
+    ? DB_ACTIVITY.map(row => `
     <div class="vc-db-act-row">
       ${actIcon(row.icon)}
       <span class="vc-db-act-text">${_e(row.text)}</span>
       <span class="vc-db-act-time">${_e(row.time)}</span>
-    </div>`).join('');
+    </div>`).join('')
+    : `<div style="padding:16px;color:rgba(255,255,255,0.42);font-size:12px">No recent activity in the connected audit stream.</div>`;
 
   // ── Inline styles ─────────────────────────────────────────────────────────
   const CSS = `<style>
@@ -1564,6 +1610,7 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
 
   mount.innerHTML = CSS + `
 <div class="vc-db-shell">
+  ${previewBannerHtml}
   <div class="vc-db-header">
     <div>
       <div class="vc-db-greeting">${_e(greeting)}, ${_e(clinicianName)}.</div>
@@ -1590,29 +1637,29 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
     <div class="vc-db-kpi">
       <div class="vc-db-kpi-label">Active Caseload${kpiIsDemo?demoChip:''}</div>
       <div class="vc-db-kpi-bottom">
-        <div><div class="vc-db-kpi-val" style="color:#00d4bc">${kpiCaseload}</div><div class="vc-db-kpi-sub">&#8593;${kpiCaseloadDelta}</div></div>
-        ${sparkline([118,122,128,131,134,138,kpiCaseload], '#00d4bc')}
+        <div><div class="vc-db-kpi-val" style="color:#00d4bc">${kpiMasked ? '\u2014' : kpiCaseload}</div><div class="vc-db-kpi-sub">${kpiMasked ? 'Connect cohort summary' : `\u2191 ${_e(kpiCaseloadDelta)}`}</div></div>
+        ${kpiMasked ? '' : sparkline([118,122,128,131,134,138,kpiCaseload], '#00d4bc')}
       </div>
     </div>
     <div class="vc-db-kpi">
       <div class="vc-db-kpi-label">Sessions This Week${kpiIsDemo?demoChip:''}</div>
       <div class="vc-db-kpi-bottom">
-        <div><div class="vc-db-kpi-val" style="color:#4a9eff">${kpiSessionsThis}<span style="font-size:15px;font-weight:500;color:rgba(255,255,255,0.3)">/${kpiSessionsTotal}</span></div><div class="vc-db-kpi-sub">${Math.round(kpiSessionsThis/kpiSessionsTotal*100)}% utilisation</div></div>
-        ${sparkline([72,78,80,83,85,86,kpiSessionsThis], '#4a9eff')}
+        <div><div class="vc-db-kpi-val" style="color:#4a9eff">${kpiMasked ? '\u2014' : `${kpiSessionsThis}`}<span style="font-size:15px;font-weight:500;color:rgba(255,255,255,0.3)">${kpiMasked ? '' : `/${kpiSessionsTotal}`}</span></div><div class="vc-db-kpi-sub">${kpiMasked ? 'Unavailable' : `${Math.round(kpiSessionsThis/kpiSessionsTotal*100)}% utilisation`}</div></div>
+        ${kpiMasked ? '' : sparkline([72,78,80,83,85,86,kpiSessionsThis], '#4a9eff')}
       </div>
     </div>
     <div class="vc-db-kpi">
       <div class="vc-db-kpi-label">Avg PHQ-9 &#916;${kpiIsDemo?demoChip:''}</div>
       <div class="vc-db-kpi-bottom">
-        <div><div class="vc-db-kpi-val" style="color:#00d4bc">${kpiPhqDelta}<span style="font-size:13px">pts</span></div><div class="vc-db-kpi-sub">${_e(kpiPhqSub)}</div></div>
-        ${sparkline([2.1,3.4,4.2,4.9,5.5,5.9,6.2], '#00d4bc')}
+        <div><div class="vc-db-kpi-val" style="color:#00d4bc">${kpiMasked ? '\u2014' : kpiPhqDelta}<span style="font-size:13px">${kpiMasked ? '' : 'pts'}</span></div><div class="vc-db-kpi-sub">${kpiMasked ? 'Unavailable' : _e(kpiPhqSub)}</div></div>
+        ${kpiMasked ? '' : sparkline([2.1,3.4,4.2,4.9,5.5,5.9,6.2], '#00d4bc')}
       </div>
     </div>
     <div class="vc-db-kpi">
       <div class="vc-db-kpi-label">Pending Review${kpiIsDemo?demoChip:''}</div>
       <div class="vc-db-kpi-bottom">
-        <div><div class="vc-db-kpi-val" style="color:#ffb547">${kpiPending}</div><div class="vc-db-kpi-sub">${_e(kpiPendingSub)}</div></div>
-        ${sparkline([5,7,9,8,10,11,kpiPending], '#ffb547')}
+        <div><div class="vc-db-kpi-val" style="color:#ffb547">${kpiMasked ? '\u2014' : kpiPending}</div><div class="vc-db-kpi-sub">${kpiMasked ? 'Unavailable' : _e(kpiPendingSub)}</div></div>
+        ${kpiMasked ? '' : sparkline([5,7,9,8,10,11,kpiPending], '#ffb547')}
       </div>
     </div>
   </div>
@@ -1623,7 +1670,7 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
         <div class="vc-db-card-title">Video motor assessments</div>
         <div class="vc-db-card-meta">Guided camera tasks for remote review · clinician scoring · literature-linked summaries</div>
       </div>
-      <button type="button" class="vc-db-launch-btn" onclick="window._nav('video-assessments')" title="Open guided video assessments">Open Video Assessments &#8594;</button>
+      <button type="button" class="vc-db-launch-btn vc-db-video-open-btn" onclick="window._nav('video-assessments')" title="Open guided video assessments">Open Video Assessments &#8594;</button>
     </div>
     <div class="vc-db-card-body" style="padding-top:0;font-size:12.5px;color:rgba(255,255,255,.55);line-height:1.45">
       Patients capture standardized movements from home; reviewers finalize structured findings and can pull related citations from the evidence corpus (${String(evidencePaperCount).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} papers indexed when the DB is available).
@@ -1638,7 +1685,7 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
         <div class="vc-db-card-title"><span class="vc-db-wb-pulse"></span>Ward Biometrics${wardBioIsDemo ? demoChip : ''}</div>
         <div class="vc-db-card-meta">${DB_WARD_BIO.length} patients on today's board &middot; neuromodulation virtual ward</div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,.3)" id="vc-db-wb-live-label">Live</div>
+      <div style="font-size:10px;color:rgba(255,255,255,.38);max-width:200px;text-align:right;line-height:1.35" id="vc-db-wb-live-label">${_e(wardBioFeedLabel)}</div>
     </div>
     <div class="vc-db-card-body" style="padding:0;overflow-x:auto">
       <table class="vc-db-wb-table">
@@ -1681,6 +1728,7 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
           <span><span class="vc-db-bmap-dot" style="background:transparent;border:1.5px dashed rgba(255,181,71,0.6)"></span>Target ring</span>
           <span><span class="vc-db-bmap-dot" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.2)"></span>Available</span>
         </div>
+        <p style="font-size:11px;color:rgba(255,255,255,0.38);margin:10px 0 0;line-height:1.45">Illustrative montage context only — does not approve stimulation parameters or replace clinician judgement.</p>
       </div>
     </div>
   </div>
@@ -1711,7 +1759,7 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
     <div class="vc-db-card">
       <div class="vc-db-card-hd">
         <div>
-          <div class="vc-db-card-title">Evidence governance${evidenceIsDemo?demoChip:''}</div>
+          <div class="vc-db-card-title">Evidence governance${(evidenceIsDemo && allowDemoRows && evidenceRowsData.length) ? demoChip : ''}</div>
           <div class="vc-db-card-meta">${evidenceCardMeta}</div>
         </div>
         <button class="vc-db-tab active" id="vc-db-ev-all-btn">All current</button>
@@ -1723,7 +1771,7 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
   <div class="vc-db-row2">
     <div class="vc-db-card">
       <div class="vc-db-card-hd">
-        <div class="vc-db-card-title">Clinic activity &mdash; Last 24 hours${activityIsDemo?demoChip:''}</div>
+        <div class="vc-db-card-title">Clinic activity &mdash; Last 24 hours${(activityIsDemo && allowDemoRows && DB_ACTIVITY.length) ? demoChip : ''}</div>
         <button class="vc-db-btn-ghost" id="vc-db-audit-btn">View audit log</button>
       </div>
       <div class="vc-db-card-body" id="vc-db-act-body">${activityRows}</div>
@@ -1745,10 +1793,10 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
           <span><span class="vc-db-legend-dot" style="background:#4a9eff"></span><span style="font-size:12px">PHQ-9 avg</span></span>
           <span><span class="vc-db-legend-dot" style="background:#00d4bc"></span><span style="font-size:12px">GAD-7 avg</span></span>
         </div>
-        <div id="vc-db-outcome-chart">${outcomeChart('4w')}</div>
+        <div id="vc-db-outcome-chart">${outcomesMasked ? '<div style="padding:20px;color:rgba(255,255,255,0.42);font-size:13px;line-height:1.45">Cohort outcome trends unavailable without outcomes API data.</div>' : outcomeChart('4w')}</div>
         <div id="vc-db-outcome-range" style="display:flex;justify-content:space-between;margin-top:10px;font-size:11px;color:rgba(255,255,255,0.3)">
-          <span>PHQ-9: ${outcomeData['4w'].phq[0].toFixed(1)} &#8594; ${outcomeData['4w'].phq.at(-1).toFixed(1)}</span>
-          <span>GAD-7: ${outcomeData['4w'].gad[0].toFixed(1)} &#8594; ${outcomeData['4w'].gad.at(-1).toFixed(1)}</span>
+          ${outcomesMasked ? '<span>Not computed</span><span></span>' : `<span>PHQ-9: ${outcomeData['4w'].phq[0].toFixed(1)} &#8594; ${outcomeData['4w'].phq.at(-1).toFixed(1)}</span>
+          <span>GAD-7: ${outcomeData['4w'].gad[0].toFixed(1)} &#8594; ${outcomeData['4w'].gad.at(-1).toFixed(1)}</span>`}
         </div>
       </div>
     </div>
@@ -1794,6 +1842,11 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
     const btn = e.target.closest('[data-period]'); if (!btn) return;
     mount.querySelectorAll('#vc-db-outcome-toggles .vc-db-chart-toggle').forEach(b => b.classList.remove('active')); btn.classList.add('active');
     const period = btn.dataset.period;
+    if (outcomesMasked) {
+      mount.querySelector('#vc-db-outcome-chart').innerHTML = '<div style="padding:20px;color:rgba(255,255,255,0.42);font-size:13px;line-height:1.45">Cohort outcome trends unavailable without outcomes API data.</div>';
+      mount.querySelector('#vc-db-outcome-range').innerHTML = '<span>Not computed</span><span></span>';
+      return;
+    }
     mount.querySelector('#vc-db-outcome-chart').innerHTML = outcomeChart(period);
     const d = outcomeData[period];
     mount.querySelector('#vc-db-outcome-range').innerHTML = `<span>PHQ-9: ${d.phq[0].toFixed(1)} &#8594; ${d.phq.at(-1).toFixed(1)}</span><span>GAD-7: ${d.gad[0].toFixed(1)} &#8594; ${d.gad.at(-1).toFixed(1)}</span>`;
@@ -1815,7 +1868,7 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
   wireEvidenceButtons();
 
   function wireLaunchButtons() {
-    mount.querySelectorAll('.vc-db-launch-btn').forEach(btn => {
+    mount.querySelectorAll('.vc-db-sched-row .vc-db-launch-btn').forEach(btn => {
       btn.addEventListener('click', () => window._vcdbLaunch(btn.dataset.pid, btn.dataset.name, btn.dataset.mod, +btn.dataset.sessno, +btn.dataset.sesstotal));
     });
   }
@@ -1829,7 +1882,13 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
   function wireCaseloadRows() {
     mount.querySelectorAll('#vc-db-cl-body .vc-db-cl-row').forEach(row => {
       row.style.cursor = 'pointer';
-      row.addEventListener('click', () => { if (row.dataset.pid) { window._patientDetailPid = row.dataset.pid; window._nav?.('patient-detail'); } });
+      row.addEventListener('click', () => {
+        if (row.dataset.pid) {
+          window._selectedPatientId = row.dataset.pid;
+          window._profilePatientId = row.dataset.pid;
+          window._nav?.('patient-profile');
+        }
+      });
     });
   }
   wireCaseloadRows();
@@ -1837,7 +1896,11 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
   // ── Wire ward bio rows + launch buttons + live update interval ──────────
   mount.querySelectorAll('.vc-db-wb-row').forEach(row => {
     row.addEventListener('click', () => {
-      if (row.dataset.pid) { window._patientDetailPid = row.dataset.pid; window._nav?.('patient-detail'); }
+      if (row.dataset.pid) {
+        window._selectedPatientId = row.dataset.pid;
+        window._profilePatientId = row.dataset.pid;
+        window._nav?.('patient-profile');
+      }
     });
   });
   mount.querySelectorAll('.vc-db-wb-launch').forEach(btn => {
@@ -1847,10 +1910,12 @@ async function pgVirtualCareDashboard(setTopbar, navigate, targetEl) {
     });
   });
 
-  // Simulated live jitter on ward biometrics (8-second interval)
+  // Preview-only jitter for synthetic ward rows — never mutate API-backed snapshots
   function jitter(val, pct) { if (val == null) return val; const d = val * pct * (Math.random() * 2 - 1); return Math.round((val + d) * 10) / 10; }
   if (_wardBioPollInt) clearInterval(_wardBioPollInt);
-  _wardBioPollInt = setInterval(() => {
+  _wardBioPollInt = null;
+  const _wardBioJitterOk = wardBioIsDemo && allowDemoRows && DB_WARD_BIO.length > 0;
+  if (_wardBioJitterOk) _wardBioPollInt = setInterval(() => {
     DB_WARD_BIO.forEach(p => {
       p.hr    = Math.round(jitter(p.hr, 0.03));
       p.hrv   = Math.round(jitter(p.hrv, 0.04));
@@ -1886,7 +1951,7 @@ export async function pgVirtualCareInbox(setTopbar, navigate, targetEl) {
 
 async function pgVirtualCareLegacyFull(setTopbar, navigate, targetEl) {
   if (!_vcUnifiedState.shellMounted) {
-    try { setTopbar('Virtual Care', '<button class="btn btn-primary btn-sm" onclick="window._nav(\'live-session-monitor\')">🖥 Live Session</button>'); } catch { try { setTopbar('Virtual Care', ''); } catch {} }
+    vcApplyTopbar(setTopbar, 'Virtual Care — Communications', '<button type="button" class="btn btn-primary btn-sm" onclick="window._nav(\'live-session-monitor\')">Live Session workspace</button>');
   }
 
   const el = targetEl || document.getElementById('main-content') || document.getElementById('content');
@@ -3228,20 +3293,15 @@ export async function pgLiveSession(setTopbar, navigate, targetEl) {
   };
 
   if (!_vcUnifiedState.shellMounted) {
-    try {
-      const subParts = [
-        patient.display_name || session.patient_name || '',
-        session.session_type || session.modality || '',
-        session.status || '',
-      ].filter(Boolean);
-      setTopbar({
-        title: 'Live Session',
-        subtitle: subParts.join(' \u00B7 ') + (session.session_no ? ` \u00B7 #${session.session_no}` : ''),
-        right: `<button type="button" class="btn btn-ghost btn-sm" onclick="window._lsPauseResume()" id="ls-pause-btn">${_lsState.paused ? 'Resume' : 'Pause'}</button><button type="button" class="btn btn-sm" style="color:#ff6b6b;border:1px solid rgba(255,107,107,0.3);background:transparent;margin-left:6px" onclick="window._lsEndSession()">End visit</button>`,
-      });
-    } catch {
-      try { setTopbar('Live Session', `<button class="btn btn-sm" onclick="window._lsPauseResume()" id="ls-pause-btn">Pause</button> <button class="btn btn-sm" style="color:#ff6b6b" onclick="window._lsEndSession()">End Session</button>`); } catch {}
-    }
+    const subParts = [
+      patient.display_name || session.patient_name || '',
+      session.session_type || session.modality || '',
+      session.status || '',
+    ].filter(Boolean);
+    const sessionBit = session.session_no ? ` · #${session.session_no}` : '';
+    const title = 'Live Session' + (subParts.length ? ` — ${subParts.join(' · ')}` : '') + sessionBit;
+    const right = `<button type="button" class="btn btn-ghost btn-sm" onclick="window._lsPauseResume()" id="ls-pause-btn">${_lsState.paused ? 'Resume' : 'Pause'}</button><button type="button" class="btn btn-sm" style="color:#ff6b6b;border:1px solid rgba(255,107,107,0.3);background:transparent;margin-left:6px" onclick="window._lsEndSession()">End visit</button>`;
+    vcApplyTopbar(setTopbar, title, right);
   }
 
   try {

@@ -7,8 +7,11 @@ name = "deepsynaps-worker"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
+    "celery>=5.4,<6.0",
     "pydantic>=2.11.0,<3.0.0",
+    "deepsynaps-api",
     "deepsynaps-generation-engine",
+    "deepsynaps-qeeg",
     "deepsynaps-render-engine",
 ]
 

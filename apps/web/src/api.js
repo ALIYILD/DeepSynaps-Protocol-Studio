@@ -390,6 +390,65 @@ function _deeptwinDemoSyntheticResponse(path, method, bodyRaw) {
     return [];
   }
 
+  if (path === '/api/v1/deeptwin/neuroai/status' && methodU === 'GET') {
+    return {
+      module: 'deeptwin_neuroai_lab',
+      research_only: true,
+      clinical_prediction_enabled: false,
+      note: 'Demo NeuroAI Lab status — connect a clinician API session for authenticated previews.',
+    };
+  }
+  if (path === '/api/v1/deeptwin/neuroai/timeline/preview' && methodU === 'POST') {
+    const events = body?.events || [];
+    return {
+      summary: {
+        patient_id: body?.patient_id,
+        event_count: events.length,
+        phases: events.map((e, i) => ({
+          timestamp: e.timestamp,
+          modality: e.modality,
+          label: `demo phase ${i + 1}`,
+          event_id: e.event_id || String(i),
+          association_notice:
+            'Patterns describe temporal co-occurrence or observed association; they do not imply causation.',
+        })),
+        wording: {
+          association:
+            'Observed association — insufficient evidence for causal conclusion without study design.',
+          hypothesis: 'Hypothesis for clinician review.',
+        },
+      },
+      dashboard_series: events.map((e, i) => ({
+        t: e.timestamp,
+        modality: e.modality,
+        event_id: e.event_id || String(i),
+        source: e.source || 'demo',
+      })),
+      envelope: {
+        research_only: true,
+        requires_clinician_review: true,
+        safety: { is_research_only: true },
+      },
+    };
+  }
+  if (path === '/api/v1/deeptwin/neuroai/features/preview' && methodU === 'POST') {
+    const events = body?.events || [];
+    return {
+      results: events.map((e) => ({
+        event_id: e.event_id,
+        modality: e.modality,
+        extraction: {
+          research_only: true,
+          features: { modality: e.modality, demo: true },
+          warnings: [],
+          missing_fields: [],
+          safety_flags: ['demo_stub'],
+        },
+      })),
+      envelope: { research_only: true, requires_clinician_review: true, safety: {} },
+    };
+  }
+
   const cmpPath = path === '/api/v1/deeptwin/compare-protocols';
   if (cmpPath && methodU === 'POST' && body?.patient_id) {
     const protos = Array.isArray(body.protocols) ? body.protocols : [];
@@ -1577,6 +1636,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ text, source_type: sourceType, locale, patient_id: patientId || undefined }),
     }),
+  clinicalTextAnalyzeNeuromodulation: ({ text, sourceType = 'free_text', locale = 'en', patientId = null } = {}) =>
+    apiFetch('/api/v1/clinical-text/analyze-neuromodulation', {
+      method: 'POST',
+      body: JSON.stringify({ text, source_type: sourceType, locale, patient_id: patientId || undefined }),
+    }),
 
   // Custom document templates (clinician-authored, distinct from the bundled
   // DOCUMENT_TEMPLATES read-only set in apps/web/src/documents-templates.js).
@@ -2003,6 +2067,23 @@ export const api = {
     }),
   listClinicianNotes: (patientId) =>
     apiFetch(`/api/v1/deeptwin/patients/${encodeURIComponent(patientId)}/clinician-notes`),
+
+  deeptwinNeuroAiStatus: () => apiFetch('/api/v1/deeptwin/neuroai/status'),
+  deeptwinNeuroAiTimelinePreview: (body) =>
+    apiFetch('/api/v1/deeptwin/neuroai/timeline/preview', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  deeptwinNeuroAiFeaturesPreview: (body) =>
+    apiFetch('/api/v1/deeptwin/neuroai/features/preview', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  deeptwinNeuroAiSimulationPreview: (body) =>
+    apiFetch('/api/v1/deeptwin/neuroai/simulation/preview', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   // ── Registry endpoints (public — no auth needed but token attached if present) ──
   conditions: () => apiFetchWithRetry('/api/v1/registry/conditions'),
@@ -5949,6 +6030,18 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
+  getVideoAssessmentPriorFinalizedSessions: (sessionId) =>
+    apiFetch(
+      `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/prior-finalized-sessions`,
+    ),
+  generateVideoAssessmentHistoricalAiSummary: (sessionId, data) =>
+    apiFetch(
+      `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/historical-ai-summary`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data || {}),
+      },
+    ),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).

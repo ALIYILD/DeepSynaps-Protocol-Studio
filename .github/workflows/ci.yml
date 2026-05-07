@@ -79,6 +79,7 @@ jobs:
             -e packages/generation-engine \
             -e packages/render-engine \
             -e packages/biometrics-pipeline \
+            -e packages/deeptwin-neuroai-lab \
             -e apps/api
       - name: Start FastAPI backend on :8000
         # vite.config.ts proxies /api and /health to 127.0.0.1:8000, so the
@@ -161,6 +162,7 @@ jobs:
             -e packages/generation-engine \
             -e packages/render-engine \
             -e packages/biometrics-pipeline \
+            -e packages/deeptwin-neuroai-lab \
             -e apps/api
       - name: Run tests
         working-directory: apps/api
@@ -193,6 +195,7 @@ jobs:
             -e packages/generation-engine \
             -e packages/render-engine \
             -e packages/biometrics-pipeline \
+            -e packages/deeptwin-neuroai-lab \
             -e apps/api
       - name: Run smoke tests
         working-directory: apps/api
@@ -216,12 +219,22 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest numpy pydantic
+          pip install pytest numpy pydantic celery
           pip install \
+            -e packages/evidence \
             -e packages/core-schema \
+            -e packages/condition-registry \
+            -e packages/modality-registry \
+            -e packages/device-registry \
+            -e packages/clinical-data-registry \
+            -e packages/qa \
             -e packages/safety-engine \
             -e packages/generation-engine \
             -e packages/render-engine \
+            -e packages/biometrics-pipeline \
+            -e packages/deeptwin-neuroai-lab \
+            -e 'packages/qeeg-pipeline[reporting,source,rag]' \
+            -e apps/api \
             -e apps/worker
       - name: Run worker tests
         working-directory: apps/worker

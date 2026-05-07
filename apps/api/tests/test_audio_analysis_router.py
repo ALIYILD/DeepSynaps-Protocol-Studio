@@ -207,3 +207,113 @@ def test_audio_analyze_upload_rejects_blank_session_id(client, auth_headers: dic
 
     assert resp.status_code == 422, resp.text
     assert resp.json()["detail"] == "session_id is required"
+
+
+def test_analyze_upload_rejects_null_patient_id_outside_demo(client) -> None:
+    """Non-admin clinician posting without patient_id must get 422 — patient scope is required."""
+    setup = _seed_audio_scope_setup()
+
+    resp = client.post(
+        "/api/v1/audio/analyze-upload",
+        headers=_auth(setup["token_clin_a"]),
+        data={
+            "session_id": "sess-null-pid-1",
+            # patient_id intentionally omitted
+        },
+        files={
+            "file": ("sample.wav", b"RIFFfakewave", "audio/wav"),
+        },
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert "patient_id" in resp.json().get("detail", "").lower()
+
+
+def test_analyze_rejects_null_patient_id_outside_demo(client) -> None:
+    """POST /analyze with no patient_id as a clinician must 422."""
+    setup = _seed_audio_scope_setup()
+
+    resp = client.post(
+        "/api/v1/audio/analyze",
+        headers=_auth(setup["token_clin_a"]),
+        json={
+            "audio_path": "/tmp/nonexistent.wav",
+            "session_id": "sess-null-pid-analyze",
+            # patient_id intentionally omitted
+        },
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert "patient_id" in resp.json().get("detail", "").lower()
+
+
+def test_analyze_recording_rejects_null_patient_id_outside_demo(client) -> None:
+    """POST /analyze-recording/{id} against a recording with no patient binding must 422."""
+    setup = _seed_audio_scope_setup()
+
+    db = SessionLocal()
+    try:
+        from app.persistence.models import Patient, SessionRecording as SR, User
+
+        patient = db.query(Patient).filter(Patient.id == setup["patient_id"]).first()
+        assert patient is not None
+        clinician = db.query(User).filter(User.id == patient.clinician_id).first()
+        assert clinician is not None
+
+        rec = SR(
+            id=str(uuid.uuid4()),
+            owner_clinician_id=clinician.id,
+            patient_id=None,
+            title="Orphan Recording",
+            file_path="recordings/orphan.wav",
+            mime_type="audio/wav",
+            byte_size=1024,
+        )
+        db.add(rec)
+        db.commit()
+        recording_id = rec.id
+    finally:
+        db.close()
+
+    resp = client.post(
+        f"/api/v1/audio/analyze-recording/{recording_id}",
+        headers=_auth(setup["token_clin_a"]),
+        params={"session_id": "sess-null-rec-1"},
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert "patient_id" in resp.json().get("detail", "").lower()
+
+
+def test_get_voice_report_returns_404_when_row_patient_id_is_null(client) -> None:
+    """A stored AudioAnalysis with patient_id=None must not be visible to any cross-clinic query."""
+    setup = _seed_audio_scope_setup()
+
+    # Insert a row whose patient_id is NULL directly into the DB.
+    db = SessionLocal()
+    try:
+        orphan_id = str(uuid.uuid4())
+        orphan = AudioAnalysis(
+            analysis_id=orphan_id,
+            patient_id=None,
+            session_id="sess-orphan-1",
+            run_id="run-orphan-1",
+            status="completed",
+            voice_report_json=json.dumps({"qc": {"snr_db": 0.0}}),
+            run_context_json=json.dumps({}),
+            pipeline_version="test-pipeline",
+            norm_db_version="test-norms",
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(orphan)
+        db.commit()
+    finally:
+        db.close()
+
+    resp = client.get(
+        f"/api/v1/audio/report/{orphan_id}",
+        headers=_auth(setup["token_clin_b"]),
+    )
+
+    assert resp.status_code == 404, resp.text
+    assert resp.json()["detail"] == "analysis not found"

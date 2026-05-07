@@ -13,6 +13,7 @@
 import { api } from '../api.js';
 import { VOICE_DECISION_SUPPORT_SHORT, VOICE_DEEPTWIN_DOMAIN_NOTE } from '../voice-decision-support.js';
 import { buildDemoDashboard360Payload } from './demo-dashboard-payload.js';
+import { shouldUseDeepTwinDemoFixtures } from './service.js';
 
 const ESC = (s) => String(s ?? '')
   .replace(/&/g, '&amp;')
@@ -515,11 +516,15 @@ export async function loadDashboard360(patientId) {
     if (payload && Array.isArray(payload.domains) && payload.domains.length === 22) {
       return payload;
     }
-    return _demoDashboardPayload(patientId);
+    if (shouldUseDeepTwinDemoFixtures()) {
+      return _demoDashboardPayload(patientId);
+    }
+    throw new Error('DeepTwin 360 dashboard returned an invalid payload.');
   } catch (e) {
-    // 404 (no DB row), 401, network error → fall back to demo seed so the
-    // tab still renders. Mirrors the rest of the DeepTwin page's behaviour.
-    return _demoDashboardPayload(patientId);
+    if (shouldUseDeepTwinDemoFixtures()) {
+      return _demoDashboardPayload(patientId);
+    }
+    throw e;
   }
 }
 
