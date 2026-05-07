@@ -156,10 +156,31 @@ def assign_speakers_to_segments(
 # ---------------------------------------------------------------------------
 
 
+def _get_audio_duration(audio_path: str) -> Optional[float]:
+    """Return WAV duration in seconds, or None if the header can't be read.
+
+    Uses stdlib ``wave`` so silent / segment-less audio still exposes a duration.
+    Returns None for non-WAV containers; callers may then derive duration from
+    segment timestamps as a fallback.
+    """
+    import wave  # stdlib
+
+    try:
+        with wave.open(audio_path, "rb") as wf:
+            frames = wf.getnframes()
+            rate = wf.getframerate()
+            if rate <= 0:
+                return None
+            return frames / float(rate)
+    except (wave.Error, OSError):
+        return None
+
+
 def _normalize_whisper_result(
     raw: dict,
     model_name: str,
     diarization_used: bool,
+    audio_path: Optional[str] = None,
 ) -> TranscriptResult:
     """Convert a raw Whisper result dict into a TranscriptResult."""
     raw_segments = raw.get("segments") or []
@@ -177,7 +198,9 @@ def _normalize_whisper_result(
         )
 
     duration_sec: Optional[float] = None
-    if segments:
+    if audio_path is not None:
+        duration_sec = _get_audio_duration(audio_path)
+    if duration_sec is None and segments:
         duration_sec = segments[-1].end
 
     return TranscriptResult(
@@ -228,7 +251,7 @@ def transcribe_audio(audio_path: str) -> TranscriptResult:
             f"Whisper inference failed for '{audio_path}': {exc}"
         ) from exc
 
-    result = _normalize_whisper_result(raw, model_name, diarization_used)
+    result = _normalize_whisper_result(raw, model_name, diarization_used, audio_path=str(path))
 
     if diarization_used:
         result.segments[:] = assign_speakers_to_segments(result.segments, diarization)
@@ -244,31 +267,3 @@ def transcribe_audio(audio_path: str) -> TranscriptResult:
     return result
 
 
-# ---------------------------------------------------------------------------
-# Legacy stubs (kept for pipeline.py compatibility — these will be replaced)
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class WordTimestamp:
-    word: str
-    start_sec: float
-    end_sec: float
-    confidence: float
-
-
-@dataclass(frozen=True)
-class Transcript:
-    text: str
-    language: str
-    words: list  # list[WordTimestamp]
-
-
-def load_model(name: str = "base") -> Any:
-    """Legacy stub — use get_whisper_model() instead."""
-    raise NotImplementedError
-
-
-def transcribe(audio_path: Path, model_name: str = "base") -> "Transcript":
-    """Legacy stub — use transcribe_audio() instead."""
-    raise NotImplementedError

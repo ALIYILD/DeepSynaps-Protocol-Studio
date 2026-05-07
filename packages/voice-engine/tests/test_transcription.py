@@ -47,6 +47,16 @@ def test_transcribe_audio_missing_file_raises():
         tr.transcribe_audio("/nonexistent/path/does_not_exist.wav")
 
 
+def test_get_audio_duration_reads_wav_header():
+    """`_get_audio_duration` reads the WAV header so silent fixtures still expose a duration."""
+    from pathlib import Path
+
+    fixture = Path(__file__).parent / "fixtures" / "sample_16k.wav"
+    duration = tr._get_audio_duration(str(fixture))
+
+    assert duration == 1.0
+
+
 def test_model_singleton_cache_returns_same_instance(monkeypatch):
     """Loader called exactly once; both calls return the same object."""
     call_count = {"n": 0}

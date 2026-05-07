@@ -9,13 +9,13 @@ from .biomarkers import Biomarkers
 from .emotion import EmotionTimeline
 from .report import ClinicalReport
 from .scoring import RiskScores
-from .transcription import Transcript
+from .transcription import TranscriptResult
 
 
 @dataclass(frozen=True)
 class VoiceAnalysisResult:
     audio_path: Path
-    transcript: Transcript
+    transcript: TranscriptResult
     emotions: EmotionTimeline
     biomarkers: Biomarkers
     risk: RiskScores
