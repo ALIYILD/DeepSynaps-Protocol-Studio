@@ -236,12 +236,12 @@ function _downloadSessionJsonPayload(payload, filename) {
   }, 4000);
 }
 
-async function _refreshPersistedSessionTruth(sessionId, { silent = false } = {}) {
+async function _refreshPersistedSessionTruth(sessionId, { renderAfter = true } = {}) {
   if (!_isPersistedSessionId(sessionId)) return null;
   const fresh = await api.getVideoAssessmentSession(sessionId);
   if (_vaSession?.id === sessionId) {
     _replaceSession(fresh);
-    _render();
+    if (renderAfter) _render();
   }
   return fresh;
 }
@@ -1916,11 +1916,13 @@ function _renderSummaryPanel() {
       <div class="form-group"><label class="form-label">Recommended follow-up</label>
         <textarea id="va-summary-followup" class="form-control" rows="2" placeholder="Optional">${esc(session.summary.recommended_followup || '')}</textarea></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <button type="button" class="btn btn-secondary" id="va-export-json">${persisted ? 'Download persisted session JSON' : 'Download session draft (JSON)'}</button>
         <button type="button" class="btn btn-primary" id="va-save-summary">${persisted ? 'Save summary to persisted session' : 'Save draft summary'}</button>
         ${persisted && !readOnly ? '<button type="button" class="btn btn-secondary" id="va-finalize-session">Finalize persisted review</button>' : ''}
       </div>
     </fieldset>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+      <button type="button" class="btn btn-secondary" id="va-export-json">${persisted ? 'Download persisted session JSON' : 'Download session draft (JSON)'}</button>
+    </div>
     <p class="va-muted" style="font-size:11px;margin-top:10px">${persisted ? 'JSON export reflects the persisted backend session for workflow handoff; it is not a signed clinical report or EHR upload.' : 'JSON export is a local draft for workflow handoff—not a signed report or EHR upload.'}</p>
   </div></div>`;
 }
@@ -2248,30 +2250,55 @@ function _wire() {
     });
   });
 
-  document.getElementById('va-save-draft')?.addEventListener('click', () => {
+  document.getElementById('va-save-draft')?.addEventListener('click', async () => {
     const session = _ensureSession();
     const task = session.tasks[_vaSelectedClinicianTask];
     if (!task) return;
-    task.clinician_review = {
-      ..._collectReviewFromDom(task),
-      reviewer_id: 'local',
+    const reviewBody = _collectReviewFromDom(task);
+    if (!reviewBody) return;
+    const nextReview = {
+      ...reviewBody,
+      reviewer_id: currentUser?.email || currentUser?.display_name || currentUser?.role || 'clinician',
       reviewed_at: null,
     };
+    if (_sessionHasServerTruth(session)) {
+      await _patchPersistedSession(
+        {
+          tasks: [{ task_id: task.task_id, clinician_review: nextReview }],
+        },
+        'Draft saved to persisted session.',
+      );
+      return;
+    }
+    task.clinician_review = nextReview;
     _persistSession();
     showToast('Draft saved locally');
     _applySummary();
     _render();
   });
 
-  document.getElementById('va-mark-reviewed')?.addEventListener('click', () => {
+  document.getElementById('va-mark-reviewed')?.addEventListener('click', async () => {
     const session = _ensureSession();
     const task = session.tasks[_vaSelectedClinicianTask];
     if (!task) return;
     const body = _collectReviewFromDom(task);
-    task.clinician_review = {
+    if (!body) return;
+    const nextReview = {
       ...body,
-      reviewer_id: 'local',
+      reviewer_id: currentUser?.email || currentUser?.display_name || currentUser?.role || 'clinician',
       reviewed_at: new Date().toISOString(),
+    };
+    if (_sessionHasServerTruth(session)) {
+      await _patchPersistedSession(
+        {
+          tasks: [{ task_id: task.task_id, clinician_review: nextReview }],
+        },
+        'Marked reviewed in persisted session.',
+      );
+      return;
+    }
+    task.clinician_review = {
+      ...nextReview,
     };
     _persistSession();
     showToast('Marked reviewed');
@@ -2279,17 +2306,41 @@ function _wire() {
     _render();
   });
 
-  document.getElementById('va-save-summary')?.addEventListener('click', () => {
+  document.getElementById('va-save-summary')?.addEventListener('click', async () => {
     const session = _ensureSession();
-    session.summary.clinician_impression = document.getElementById('va-summary-impression')?.value || '';
-    session.summary.recommended_followup = document.getElementById('va-summary-followup')?.value || '';
+    const clinicianImpression = document.getElementById('va-summary-impression')?.value || '';
+    const recommendedFollowup = document.getElementById('va-summary-followup')?.value || '';
+    if (_sessionHasServerTruth(session)) {
+      await _patchPersistedSession(
+        {
+          summary: {
+            clinician_impression: clinicianImpression,
+            recommended_followup: recommendedFollowup,
+          },
+        },
+        'Summary saved to persisted session.',
+      );
+      return;
+    }
+    session.summary.clinician_impression = clinicianImpression;
+    session.summary.recommended_followup = recommendedFollowup;
     _persistSession();
     showToast('Summary saved locally');
     _render();
   });
 
-  document.getElementById('va-export-json')?.addEventListener('click', () => {
+  document.getElementById('va-export-json')?.addEventListener('click', async () => {
     const session = _ensureSession();
+    if (_sessionHasServerTruth(session)) {
+      try {
+        const payload = await api.exportVideoAssessmentSessionJson(session.id);
+        _downloadSessionJsonPayload(payload, `video-assessment-session-${session.id || 'session'}.json`);
+        showToast('Persisted session JSON downloaded — review before sharing.');
+      } catch (error) {
+        showToast(error?.message || 'Could not export the persisted session JSON.', 'error');
+      }
+      return;
+    }
     session.summary.clinician_impression = document.getElementById('va-summary-impression')?.value || '';
     session.summary.recommended_followup = document.getElementById('va-summary-followup')?.value || '';
     const payload = {
@@ -2300,17 +2351,14 @@ function _wire() {
       session_json: session,
       blob_urls_not_included: true,
     };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `video-assessment-draft-${session.id || 'session'}.json`;
-    a.click();
-    setTimeout(() => {
-      try {
-        URL.revokeObjectURL(a.href);
-      } catch (_) {}
-    }, 4000);
+    _downloadSessionJsonPayload(payload, `video-assessment-draft-${session.id || 'session'}.json`);
     showToast('Draft JSON downloaded — review before sharing.');
+  });
+
+  document.getElementById('va-finalize-session')?.addEventListener('click', async () => {
+    const session = _ensureSession();
+    if (!_sessionHasServerTruth(session)) return;
+    await _finalizePersistedSession('Persisted session finalized.');
   });
 
   document.getElementById('va-upload-file')?.addEventListener('change', async (ev) => {
@@ -2418,7 +2466,7 @@ export async function pgVideoAssessments(setTopbar, navigate) {
 
   if (_isPersistedSessionId(_vaSession?.id || '')) {
     try {
-      await _refreshPersistedSessionTruth(_vaSession.id, { silent: true });
+      await _refreshPersistedSessionTruth(_vaSession.id, { renderAfter: false });
     } catch (e) {
       showToast('Could not reload persisted session from backend. Using the local mirror until refresh succeeds.', 'warning');
     }

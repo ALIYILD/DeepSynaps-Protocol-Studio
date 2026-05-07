@@ -118,6 +118,10 @@ function installExportWindowStub(win) {
 function stubVideoAssessmentApi(overrides = {}) {
   const saved = {
     listPatients: api.listPatients,
+    getVideoAssessmentSession: api.getVideoAssessmentSession,
+    patchVideoAssessmentSession: api.patchVideoAssessmentSession,
+    finalizeVideoAssessmentSession: api.finalizeVideoAssessmentSession,
+    exportVideoAssessmentSessionJson: api.exportVideoAssessmentSessionJson,
     getVideoAssessmentPriorFinalizedSessions: api.getVideoAssessmentPriorFinalizedSessions,
     generateVideoAssessmentHistoricalAiSummary: api.generateVideoAssessmentHistoricalAiSummary,
     getVideoAssessmentHistoricalAiSummaryFeedback: api.getVideoAssessmentHistoricalAiSummaryFeedback,
@@ -127,6 +131,39 @@ function stubVideoAssessmentApi(overrides = {}) {
   api.listPatients = overrides.listPatients ?? (async () => ({
     items: [{ id: 'pt-1', display_name: 'Patient One' }],
   }));
+  api.getVideoAssessmentSession =
+    overrides.getVideoAssessmentSession ??
+    (async (sessionId) =>
+      makeStoredPersistedSession({
+        id: sessionId,
+        patientId: 'pt-1',
+        revisionToken: 'rev-current',
+      }));
+  api.patchVideoAssessmentSession =
+    overrides.patchVideoAssessmentSession ??
+    (async (sessionId, payload) => ({
+      ...makeStoredPersistedSession({
+        id: sessionId,
+        patientId: 'pt-1',
+        revisionToken: payload?.expected_revision === 'rev-current' ? 'rev-next' : 'rev-current',
+      }),
+    }));
+  api.finalizeVideoAssessmentSession =
+    overrides.finalizeVideoAssessmentSession ??
+    (async (sessionId) =>
+      makeStoredPersistedSession({
+        id: sessionId,
+        patientId: 'pt-1',
+        overallStatus: 'finalized',
+        revisionToken: 'rev-finalized',
+      }));
+  api.exportVideoAssessmentSessionJson =
+    overrides.exportVideoAssessmentSessionJson ??
+    (async (sessionId) => ({
+      export_kind: 'video_assessment_session',
+      exported_at: '2026-05-07T13:00:00Z',
+      session: makeStoredPersistedSession({ id: sessionId, patientId: 'pt-1', revisionToken: 'rev-current' }),
+    }));
   api.getVideoAssessmentPriorFinalizedSessions =
     overrides.getVideoAssessmentPriorFinalizedSessions ??
     (async () => ({ sessions: [] }));
@@ -159,12 +196,18 @@ function makeStoredPersistedSession({
   id = 'sess-current-1',
   patientId = 'pt-1',
   overallStatus = 'in_progress',
+  revisionToken = 'rev-current',
 } = {}) {
-  return createEmptySession({
-    id,
-    patient_id: patientId,
-    overall_status: overallStatus,
-  });
+  return {
+    ...createEmptySession({
+      id,
+      patient_id: patientId,
+      overall_status: overallStatus,
+    }),
+    created_at: '2026-05-07T09:00:00Z',
+    updated_at: '2026-05-07T10:00:00Z',
+    revision_token: revisionToken,
+  };
 }
 
 function makePriorSession({
@@ -290,6 +333,140 @@ test('governance copy still avoids fake demo certainty language', () => {
   const session = createEmptySession();
   assert.equal(/^vas_/.test(session.id), true);
   assert.equal(VIDEO_ASSESSMENT_TASKS.every((task) => task.demo_asset == null), true);
+});
+
+test('persisted session reload fetches authoritative backend truth on page load', async () => {
+  const page = await mountVideoPage({
+    role: 'clinician',
+    session: makeStoredPersistedSession({ id: 'sess-current-1', revisionToken: 'rev-local' }),
+    apiOverrides: {
+      getVideoAssessmentSession: async (sessionId) => {
+        const persisted = makeStoredPersistedSession({
+          id: sessionId,
+          revisionToken: 'rev-server',
+        });
+        persisted.summary.clinician_impression = 'Authoritative persisted note';
+        return persisted;
+      },
+    },
+  });
+  try {
+    const stored = JSON.parse(page.window.sessionStorage.getItem(VIDEO_ASSESSMENT_SESSION_STORAGE_KEY));
+    assert.equal(stored.revision_token, 'rev-server');
+    assert.equal(page.document.getElementById('va-summary-impression').value, 'Authoritative persisted note');
+  } finally {
+    page.restore();
+  }
+});
+
+test('persisted clinician draft save uses backend patch with expected revision', async () => {
+  let patchCall = null;
+  const page = await mountVideoPage({
+    role: 'clinician',
+    apiOverrides: {
+      patchVideoAssessmentSession: async (sessionId, payload) => {
+        patchCall = { sessionId, payload };
+        const persisted = makeStoredPersistedSession({
+          id: sessionId,
+          revisionToken: 'rev-next',
+        });
+        persisted.tasks[0].clinician_review = payload.tasks[0].clinician_review;
+        return persisted;
+      },
+    },
+  });
+  try {
+    page.document.getElementById('va-mode-clinician').click();
+    await flush(2);
+    page.document.querySelector('[data-va-field="video_quality"]').value = 'good';
+    page.document.getElementById('va-save-draft').click();
+    await flush(4);
+    assert.equal(patchCall.sessionId, 'sess-current-1');
+    assert.equal(patchCall.payload.expected_revision, 'rev-current');
+    assert.equal(patchCall.payload.tasks[0].task_id, VIDEO_ASSESSMENT_TASKS[0].task_id);
+    assert.equal(patchCall.payload.tasks[0].clinician_review.video_quality, 'good');
+    const stored = JSON.parse(page.window.sessionStorage.getItem(VIDEO_ASSESSMENT_SESSION_STORAGE_KEY));
+    assert.equal(stored.revision_token, 'rev-next');
+    assert.match(page.document.body.textContent, /Draft saved to persisted session\./i);
+  } finally {
+    page.restore();
+  }
+});
+
+test('persisted session conflict reloads backend truth honestly', async () => {
+  let readCount = 0;
+  const page = await mountVideoPage({
+    role: 'clinician',
+    apiOverrides: {
+      getVideoAssessmentSession: async (sessionId) => {
+        readCount += 1;
+        const persisted = makeStoredPersistedSession({
+          id: sessionId,
+          revisionToken: readCount === 1 ? 'rev-current' : 'rev-server-newer',
+        });
+        if (readCount > 1) persisted.summary.clinician_impression = 'Reloaded server truth';
+        return persisted;
+      },
+      patchVideoAssessmentSession: async () => {
+        const err = new Error('Session changed on the server.');
+        err.code = 'session_conflict';
+        err.status = 409;
+        throw err;
+      },
+    },
+  });
+  try {
+    page.document.getElementById('va-mode-clinician').click();
+    await flush(2);
+    page.document.querySelector('[data-va-field="video_quality"]').value = 'fair';
+    page.document.getElementById('va-save-draft').click();
+    await flush(6);
+    const stored = JSON.parse(page.window.sessionStorage.getItem(VIDEO_ASSESSMENT_SESSION_STORAGE_KEY));
+    assert.equal(stored.revision_token, 'rev-server-newer');
+    assert.equal(page.document.getElementById('va-summary-impression').value, 'Reloaded server truth');
+    assert.match(page.document.body.textContent, /Persisted session changed on the server\. Latest version reloaded\./i);
+  } finally {
+    page.restore();
+  }
+});
+
+test('persisted session export uses backend JSON payload instead of local draft wrapper', async () => {
+  let exportedBlob = null;
+  let exportCalls = 0;
+  const page = await mountVideoPage({
+    role: 'clinician',
+    apiOverrides: {
+      exportVideoAssessmentSessionJson: async (sessionId) => {
+        exportCalls += 1;
+        return {
+          export_kind: 'video_assessment_session',
+          exported_at: '2026-05-07T13:00:00Z',
+          session: makeStoredPersistedSession({ id: sessionId, revisionToken: 'rev-current' }),
+        };
+      },
+    },
+  });
+  const originalCreateObjectUrl = page.window.URL.createObjectURL;
+  const originalClick = page.window.HTMLAnchorElement.prototype.click;
+  try {
+    page.window.URL.createObjectURL = (blob) => {
+      exportedBlob = blob;
+      return 'blob:video-export';
+    };
+    page.window.URL.revokeObjectURL = () => {};
+    page.window.HTMLAnchorElement.prototype.click = function click() {};
+    page.document.getElementById('va-export-json').click();
+    await flush(4);
+    assert.equal(exportCalls, 1);
+    const payload = JSON.parse(await exportedBlob.text());
+    assert.equal(payload.export_kind, 'video_assessment_session');
+    assert.equal(payload.session.id, 'sess-current-1');
+    assert.equal(payload.session_json, undefined);
+  } finally {
+    page.window.URL.createObjectURL = originalCreateObjectUrl;
+    page.window.HTMLAnchorElement.prototype.click = originalClick;
+    page.restore();
+  }
 });
 
 test('clinician prior finalized sessions load and render cards honestly', async () => {

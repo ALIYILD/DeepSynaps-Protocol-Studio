@@ -250,6 +250,143 @@ def test_upload_task_webm(client: TestClient, auth_headers: dict, demo_patient_v
     assert "video" in (vid.headers.get("content-type") or "")
 
 
+def test_patch_session_advances_revision_token(
+    client: TestClient,
+    auth_headers: dict,
+    demo_patient_va: str,
+) -> None:
+    del demo_patient_va
+    created = client.post("/api/v1/video-assessments/sessions", headers=auth_headers["patient"], json={})
+    assert created.status_code == 201, created.text
+    body = created.json()
+    sid = body["id"]
+    revision = body["revision_token"]
+
+    patched = client.patch(
+        f"/api/v1/video-assessments/sessions/{sid}",
+        headers=auth_headers["patient"],
+        json={
+            "expected_revision": revision,
+            "summary": {"clinician_impression": "Patient added draft note."},
+        },
+    )
+    assert patched.status_code == 200, patched.text
+    patched_body = patched.json()
+    assert patched_body["revision_token"] != revision
+    assert patched_body["updated_at"]
+    assert patched_body["summary"]["clinician_impression"] == "Patient added draft note."
+
+
+def test_stale_patient_patch_returns_session_conflict(
+    client: TestClient,
+    auth_headers: dict,
+    demo_patient_va: str,
+) -> None:
+    del demo_patient_va
+    created = client.post("/api/v1/video-assessments/sessions", headers=auth_headers["patient"], json={})
+    assert created.status_code == 201, created.text
+    body = created.json()
+    sid = body["id"]
+    revision = body["revision_token"]
+
+    first_patch = client.patch(
+        f"/api/v1/video-assessments/sessions/{sid}",
+        headers=auth_headers["patient"],
+        json={
+            "expected_revision": revision,
+            "tasks": [{"task_id": "rest_tremor", "recording_status": "skipped", "skip_reason": "patient_pref"}],
+        },
+    )
+    assert first_patch.status_code == 200, first_patch.text
+    current_revision = first_patch.json()["revision_token"]
+
+    stale_patch = client.patch(
+        f"/api/v1/video-assessments/sessions/{sid}",
+        headers=auth_headers["patient"],
+        json={
+            "expected_revision": revision,
+            "summary": {"clinician_impression": "stale write"},
+        },
+    )
+    assert stale_patch.status_code == 409, stale_patch.text
+    payload = stale_patch.json()
+    assert payload["code"] == "session_conflict"
+    assert payload["details"]["session_id"] == sid
+    assert payload["details"]["current_revision"] == current_revision
+    assert payload["details"]["finalized"] is False
+
+
+def test_stale_clinician_finalize_returns_session_conflict(
+    client: TestClient,
+    auth_headers: dict,
+    demo_patient_va: str,
+) -> None:
+    del demo_patient_va
+    created = client.post("/api/v1/video-assessments/sessions", headers=auth_headers["patient"], json={})
+    assert created.status_code == 201, created.text
+    body = created.json()
+    sid = body["id"]
+    revision = body["revision_token"]
+
+    patch_resp = client.patch(
+        f"/api/v1/video-assessments/sessions/{sid}",
+        headers=auth_headers["clinician"],
+        json={
+            "expected_revision": revision,
+            "summary": {"clinician_impression": "newer clinician draft"},
+        },
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    current_revision = patch_resp.json()["revision_token"]
+
+    stale_finalize = client.post(
+        f"/api/v1/video-assessments/sessions/{sid}/finalize",
+        headers=auth_headers["clinician"],
+        json={"expected_revision": revision},
+    )
+    assert stale_finalize.status_code == 409, stale_finalize.text
+    payload = stale_finalize.json()
+    assert payload["code"] == "session_conflict"
+    assert payload["details"]["session_id"] == sid
+    assert payload["details"]["current_revision"] == current_revision
+
+
+def test_stale_patient_upload_returns_session_conflict(
+    client: TestClient,
+    auth_headers: dict,
+    demo_patient_va: str,
+) -> None:
+    del demo_patient_va
+    created = client.post("/api/v1/video-assessments/sessions", headers=auth_headers["patient"], json={})
+    assert created.status_code == 201, created.text
+    body = created.json()
+    sid = body["id"]
+    revision = body["revision_token"]
+
+    patch_resp = client.patch(
+        f"/api/v1/video-assessments/sessions/{sid}",
+        headers=auth_headers["patient"],
+        json={
+            "expected_revision": revision,
+            "tasks": [{"task_id": "rest_tremor", "recording_status": "skipped", "skip_reason": "patient_pref"}],
+        },
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    current_revision = patch_resp.json()["revision_token"]
+
+    stale_upload = client.post(
+        f"/api/v1/video-assessments/sessions/{sid}/tasks/rest_tremor/upload",
+        headers=auth_headers["patient"],
+        data={"expected_revision": revision},
+        files={"file": ("t.webm", io.BytesIO(_WEBM_HEAD), "video/webm")},
+    )
+    assert stale_upload.status_code == 409, stale_upload.text
+    payload = stale_upload.json()
+    assert payload["code"] == "session_conflict"
+    assert payload["details"]["session_id"] == sid
+    assert payload["details"]["current_revision"] == current_revision
+
+
 def test_prior_finalized_sessions_clinician_and_admin_access(
     client: TestClient,
     auth_headers: dict,
