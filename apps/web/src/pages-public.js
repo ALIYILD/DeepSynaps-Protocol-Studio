@@ -955,7 +955,7 @@ export function pgHome() {
           route: 'pricing',
           label: 'Step 5 of 5',
           title: "Ready to start?",
-          desc: "14-day free trial, no credit card required. Clinician Pro covers solo practitioners; Clinic Team is built for multi-clinician practices.",
+          desc: "14-day free trial, no credit card required. Pro covers solo practitioners; Team is built for multi-clinician practices.",
           hint: null,
         },
       ]
@@ -1673,7 +1673,7 @@ export function pgHome() {
           },
           {
             q: 'Can multiple clinicians share the same clinic account?',
-            a: 'Yes. The Clinic Team plan (from $699/mo) supports up to 10 professional seats with shared review queues, a team audit trail, and role-scoped access. The Enterprise plan supports unlimited seats across multiple sites.',
+            a: 'Yes. The Team plan (from $699/mo) supports up to 10 professional seats with shared review queues, a team audit trail, and role-scoped access. The Enterprise plan supports unlimited seats across multiple sites.'
           },
         ].map((faq, i) => `
           <div class="pub-faq-item" id="faq-${i}">
@@ -1772,120 +1772,176 @@ export function pgHome() {
 
       <div class="pub-pricing-grid">
 
-        <!-- Explorer (free) -->
+        <!-- Starter (free) -->
         <div class="pub-plan-card">
-          <div class="pub-plan-header">
-            <div class="pub-plan-name">Explorer</div>
-            <div class="pub-plan-sub">Evaluate the platform before committing</div>
-            <div class="pub-plan-price"><span class="pub-plan-amount">Free</span></div>
+          <div class="pub-plan-inner">
+            <div class="pub-plan-icon">&#9672;</div>
+            <div class="pub-plan-header">
+              <div class="pub-plan-name">Starter</div>
+              <div class="pub-plan-sub">Explore the platform before committing</div>
+              <div class="pub-plan-price"><span class="pub-plan-amount">Free</span></div>
+              <div class="pub-plan-price-note">No credit card required</div>
+            </div>
+            <div class="pub-plan-divider"></div>
+            <ul class="pub-plan-features">
+              <li>1 seat &mdash; read-only access</li>
+              <li>Evidence library &mdash; read access</li>
+              <li>Device &amp; condition registry &mdash; browse only</li>
+              <li>Modalities overview</li>
+              <li>No uploads, no analyzers, no exports</li>
+              <li>No protocol generation or review queue</li>
+            </ul>
           </div>
-          <ul class="pub-plan-features">
-            <li>1 seat</li>
-            <li>Evidence library &mdash; read access</li>
-            <li>Device registry &mdash; limited view</li>
-            <li>Conditions &amp; modalities &mdash; limited browsing</li>
-            <li>No protocol generation, uploads, or exports</li>
-            <li>No review queue or team features</li>
-          </ul>
-          <button class="pub-plan-cta" onclick="window._navPublic('signup-professional')" data-plan-id="explorer">
-            Get Started Free &rarr;
-          </button>
+          <div class="pub-plan-cta-wrap">
+            <button class="pub-plan-cta" onclick="window._navPublic('signup-professional')" data-plan-id="starter">
+              Get Started Free &rarr;
+            </button>
+          </div>
         </div>
 
-        <!-- Resident / Fellow -->
-        <div class="pub-plan-card">
-          <div class="pub-plan-header">
-            <div class="pub-plan-name">Resident / Fellow</div>
-            <div class="pub-plan-sub">For trainees and early-career clinicians</div>
-            <div class="pub-plan-price"><span class="pub-plan-amount">$99</span><span class="pub-plan-period">/mo</span></div>
+        <!-- Individual -->
+        <div class="pub-plan-card pub-plan-card--individual">
+          <div class="pub-plan-inner">
+            <div class="pub-plan-icon">&#9651;</div>
+            <div class="pub-plan-header">
+              <div class="pub-plan-name">Individual</div>
+              <div class="pub-plan-sub">For trainees and early-career clinicians</div>
+              <div class="pub-plan-price"><span class="pub-plan-amount">$99</span><span class="pub-plan-period">/mo</span></div>
+              <div class="pub-plan-price-note">or $84/mo billed annually</div>
+            </div>
+            <div class="pub-plan-divider"></div>
+            <ul class="pub-plan-features">
+              <li>1 seat</li>
+              <li>Full evidence library, device &amp; condition registry</li>
+              <li>Protocol generation &mdash; EV-A / EV-B (no off-label)</li>
+              <li>Assessment builder &mdash; limited</li>
+              <li>Handbook generation &mdash; limited</li>
+              <li>PDF export</li>
+              <li class="ai-feature">Voice Analyzer &mdash; transcription</li>
+              <li class="ai-feature">Text Analyzer &mdash; basic NLP intake</li>
+              <li>Email support</li>
+            </ul>
           </div>
-          <ul class="pub-plan-features">
-            <li>1 seat</li>
-            <li>Full evidence library, device registry, conditions</li>
-            <li>Protocol generation &mdash; EV-A / EV-B (no off-label)</li>
-            <li>Assessment builder &mdash; limited</li>
-            <li>Handbook generation &mdash; limited</li>
-            <li>PDF export</li>
-            <li>Email support</li>
-          </ul>
-          <button class="pub-plan-cta" onclick="window._navPublic('signup-professional')" data-plan-id="resident">
-            Start Free Trial &rarr;
-          </button>
+          <div class="pub-plan-cta-wrap">
+            <button class="pub-plan-cta pub-plan-cta--blue" onclick="window._navPublic('signup-professional')" data-plan-id="individual">
+              Start Free Trial &rarr;
+            </button>
+          </div>
         </div>
 
-        <!-- Clinician Pro — highlighted -->
+        <!-- Pro — highlighted -->
         <div class="pub-plan-card pub-plan-card--featured">
           <div class="pub-plan-popular-badge">Most Popular</div>
-          <div class="pub-plan-header">
-            <div class="pub-plan-name" style="color:var(--teal)">Clinician Pro</div>
-            <div class="pub-plan-sub">For independent clinicians managing patient protocols</div>
-            <div class="pub-plan-price"><span class="pub-plan-amount">$199</span><span class="pub-plan-period">/mo</span></div>
+          <div class="pub-plan-inner">
+            <div class="pub-plan-icon">&#9670;</div>
+            <div class="pub-plan-header">
+              <div class="pub-plan-name">Pro</div>
+              <div class="pub-plan-sub">For independent clinicians managing patient protocols</div>
+              <div class="pub-plan-price"><span class="pub-plan-amount">$199</span><span class="pub-plan-period">/mo</span></div>
+              <div class="pub-plan-price-note">or $169/mo billed annually</div>
+            </div>
+            <div class="pub-plan-divider"></div>
+            <ul class="pub-plan-features">
+              <li>Everything in Individual</li>
+              <li>Full protocol generator (EV-C override; EV-D blocked)</li>
+              <li>Uploads &mdash; qEEG / MRI / PDFs</li>
+              <li class="ai-feature">qEEG Analyzer &mdash; full spectral analysis</li>
+              <li class="ai-feature">MRI Analyzer &mdash; structural report</li>
+              <li class="ai-feature">Voice Analyzer &mdash; sentiment + biomarkers</li>
+              <li class="ai-feature">Video Assessments &mdash; motion + affect</li>
+              <li class="ai-feature">Text Analyzer &mdash; full NLP + clinical summary</li>
+              <li class="ai-feature">Risk Analyzer &mdash; clinical risk scoring</li>
+              <li class="ai-feature">Medication Analyzer</li>
+              <li>Personalized case summaries</li>
+              <li>Full assessment builder + PDF &amp; DOCX export</li>
+              <li>Personal review queue &amp; audit trail</li>
+              <li>Monthly monitoring digest</li>
+              <li>Add-on: Phenotype mapping</li>
+            </ul>
           </div>
-          <ul class="pub-plan-features">
-            <li>Everything in Resident / Fellow</li>
-            <li>Full protocol generator (EV-C clinician override; EV-D blocked)</li>
-            <li>Uploads &mdash; qEEG / MRI / PDFs</li>
-            <li>Personalized case summaries</li>
-            <li>Assessment builder &mdash; full</li>
-            <li>Handbook generation &mdash; full</li>
-            <li>PDF + DOCX export (patient-facing where governance allows)</li>
-            <li>Personal review queue &amp; audit trail</li>
-            <li>Monthly monitoring digest</li>
-            <li>Add-on: Phenotype mapping</li>
-          </ul>
-          <button class="pub-plan-cta pub-plan-cta--featured" onclick="window._navPublic('signup-professional')" data-plan-id="clinician_pro">
-            Start Free Trial &rarr;
-          </button>
+          <div class="pub-plan-cta-wrap">
+            <button class="pub-plan-cta pub-plan-cta--featured" onclick="window._navPublic('signup-professional')" data-plan-id="pro">
+              Start Free Trial &rarr;
+            </button>
+          </div>
         </div>
 
-        <!-- Clinic Team -->
-        <div class="pub-plan-card">
-          <div class="pub-plan-header">
-            <div class="pub-plan-name">Clinic Team</div>
-            <div class="pub-plan-sub">For clinical teams sharing review queues and governance</div>
-            <div class="pub-plan-price"><span class="pub-plan-amount">$699</span><span class="pub-plan-period">/mo</span></div>
+        <!-- Team -->
+        <div class="pub-plan-card pub-plan-card--team">
+          <div class="pub-plan-inner">
+            <div class="pub-plan-icon">&#9671;</div>
+            <div class="pub-plan-header">
+              <div class="pub-plan-name">Team</div>
+              <div class="pub-plan-sub">For clinical teams sharing review queues and governance</div>
+              <div class="pub-plan-price"><span class="pub-plan-amount">$699</span><span class="pub-plan-period">/mo</span></div>
+              <div class="pub-plan-price-note">or $594/mo billed annually &middot; up to 10 seats</div>
+            </div>
+            <div class="pub-plan-divider"></div>
+            <ul class="pub-plan-features">
+              <li>Everything in Pro</li>
+              <li>Up to 10 seats</li>
+              <li class="ai-feature">Phenotype Analyzer &mdash; included</li>
+              <li class="ai-feature">Movement, Labs, Nutrition &amp; Behavior Analyzers</li>
+              <li class="ai-feature">Treatment Sessions Analyzer</li>
+              <li class="ai-feature">DeepTwin 360 &mdash; clinical decision support</li>
+              <li class="ai-feature">Fusion Workbench &mdash; multi-modal data fusion</li>
+              <li class="ai-feature">Biometrics / Wearables integration</li>
+              <li>Shared team review queue</li>
+              <li>Full audit trail (personal + team)</li>
+              <li>Team templates &amp; governance workflows</li>
+              <li>Seat management + basic white-label branding</li>
+              <li>Queue-fed monitoring updates</li>
+            </ul>
           </div>
-          <ul class="pub-plan-features">
-            <li>Everything in Clinician Pro</li>
-            <li>Up to 10 seats</li>
-            <li>Phenotype mapping included</li>
-            <li>Shared team review queue</li>
-            <li>Team comments &amp; assignments</li>
-            <li>Full audit trail (personal + team)</li>
-            <li>Team templates &amp; governance workflows</li>
-            <li>Seat management</li>
-            <li>Basic white-label branding</li>
-            <li>Queue-fed monitoring updates</li>
-          </ul>
-          <button class="pub-plan-cta" onclick="window._navPublic('signup-professional')" data-plan-id="clinic_team" title="Start with a 14-day trial or contact us for a guided demo">
-            Start Trial or Book Demo &rarr;
-          </button>
+          <div class="pub-plan-cta-wrap">
+            <button class="pub-plan-cta pub-plan-cta--violet" onclick="window._navPublic('signup-professional')" data-plan-id="team" title="Start with a 14-day trial or contact us for a guided demo">
+              Start Trial or Book Demo &rarr;
+            </button>
+          </div>
         </div>
 
-        <!-- Enterprise -->
-        <div class="pub-plan-card pub-plan-card--enterprise">
-          <div class="pub-plan-header">
-            <div class="pub-plan-name" style="color:var(--blue)">Enterprise</div>
-            <div class="pub-plan-sub">For multi-site groups, hospitals, and research networks</div>
-            <div class="pub-plan-price"><span class="pub-plan-amount pub-plan-amount--custom">Custom</span></div>
-            <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">from $2,500 /mo</div>
-          </div>
-          <ul class="pub-plan-features">
-            <li>Everything in Clinic Team</li>
-            <li>Unlimited seats</li>
-            <li>Advanced governance rules</li>
-            <li>Full white-label branding</li>
-            <li>API / integrations</li>
-            <li>Automated monitoring workspace</li>
-            <li>Advanced audit retention</li>
-            <li>SSO-ready structure</li>
-            <li>Data residency flags</li>
-          </ul>
-          <button class="pub-plan-cta pub-plan-cta--ghost" onclick="window._navPublic('signup-professional')" data-plan-id="enterprise">
-            Talk to Sales &rarr;
-          </button>
-        </div>
+      </div>
 
+      <!-- Enterprise full-width banner -->
+      <div class="pub-enterprise-banner">
+        <div class="pub-enterprise-inner">
+          <div class="pub-enterprise-left">
+            <div class="pub-enterprise-eyebrow">Enterprise</div>
+            <div class="pub-enterprise-name">Built for hospitals, research networks &amp; multi-site groups.</div>
+            <div class="pub-enterprise-desc">
+              Every AI Analyzer. Unlimited seats across unlimited sites. Advanced governance, full white-label,
+              custom evidence policies, dedicated SLA, and direct API access &mdash; all on a single contract.
+            </div>
+            <div class="pub-enterprise-pills">
+              <span class="pub-enterprise-pill teal">All AI Analyzers</span>
+              <span class="pub-enterprise-pill teal">Unlimited seats</span>
+              <span class="pub-enterprise-pill">SSO-ready</span>
+              <span class="pub-enterprise-pill">Data residency</span>
+              <span class="pub-enterprise-pill">Advanced audit retention</span>
+              <span class="pub-enterprise-pill">Full white-label</span>
+              <span class="pub-enterprise-pill violet">API / integrations</span>
+              <span class="pub-enterprise-pill violet">Automated monitoring workspace</span>
+              <span class="pub-enterprise-pill violet">Custom evidence policies</span>
+              <span class="pub-enterprise-pill">Advanced governance rules</span>
+              <span class="pub-enterprise-pill">Multi-site management</span>
+              <span class="pub-enterprise-pill">Dedicated onboarding &amp; SLA</span>
+            </div>
+          </div>
+          <div class="pub-enterprise-right">
+            <div class="pub-enterprise-price-block">
+              <div class="pub-enterprise-price-label">Starting from</div>
+              <div class="pub-enterprise-price-amount">$2,500<span style="font-size:16px;font-weight:500;letter-spacing:0;color:var(--text-tertiary)">/mo</span></div>
+              <div class="pub-enterprise-price-from">Custom pricing &mdash; billed annually</div>
+            </div>
+            <button class="pub-enterprise-cta" onclick="window._navPublic('signup-professional')" data-plan-id="enterprise">
+              Talk to Sales &rarr;
+            </button>
+            <div class="pub-enterprise-contact">
+              or email us at <a href="mailto:team@deepsynaps.com">team@deepsynaps.com</a><br>
+              We respond within 1 business day.
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Support strip -->
