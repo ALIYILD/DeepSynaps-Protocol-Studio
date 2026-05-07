@@ -177,7 +177,7 @@ from .media import (
     PatientMediaTranscript,
     PatientMediaUpload,
 )
-from .labs import PatientLabResult
+from .labs import LabsAnalyzerAudit, PatientLabResult
 from .mri import (
     MriAnalysis,
     MriReportAudit,

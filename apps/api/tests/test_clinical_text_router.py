@@ -167,6 +167,31 @@ def test_deidentify_endpoint(client: TestClient, auth_headers: dict) -> None:
     assert body["replacements"]
 
 
+def test_analyze_neuromodulation_returns_typed_response(
+    client: TestClient, auth_headers: dict
+) -> None:
+    note = (
+        "Patient undergoing 10 Hz rTMS at L-DLPFC (F3) with Magstim Rapid². "
+        "PHQ-9 = 12. Mild scalp discomfort reported. 3000 pulses per session."
+    )
+    resp = client.post(
+        "/api/v1/clinical-text/analyze-neuromodulation",
+        json={"text": note, "source_type": "clinician_note"},
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["schema_id"] == "deepsynaps.openmed.neuro/v1"
+    assert body["char_count"] == len(note)
+    labels = {e["label"] for e in body["entities"]}
+    assert "stimulation_protocol" in labels
+    assert "electrode_placement" in labels
+    assert "neuromodulation_device" in labels
+    assert "outcome_measure" in labels
+    assert "adverse_event" in labels
+    assert "device_parameter" in labels
+
+
 def test_analyze_rejects_non_clinician(client: TestClient, auth_headers: dict) -> None:
     if "guest" in auth_headers:
         resp = client.post(
@@ -183,6 +208,7 @@ def test_analyze_rejects_non_clinician(client: TestClient, auth_headers: dict) -
         ("/api/v1/clinical-text/analyze", {"text": _NOTE, "source_type": "clinician_note"}),
         ("/api/v1/clinical-text/extract-pii", {"text": _NOTE}),
         ("/api/v1/clinical-text/deidentify", {"text": _NOTE}),
+        ("/api/v1/clinical-text/analyze-neuromodulation", {"text": _NOTE, "source_type": "clinician_note"}),
     ],
 )
 def test_clinical_text_patient_context_same_clinic_succeeds(
@@ -207,6 +233,7 @@ def test_clinical_text_patient_context_same_clinic_succeeds(
         ("/api/v1/clinical-text/analyze", {"text": _NOTE, "source_type": "clinician_note"}),
         ("/api/v1/clinical-text/extract-pii", {"text": _NOTE}),
         ("/api/v1/clinical-text/deidentify", {"text": _NOTE}),
+        ("/api/v1/clinical-text/analyze-neuromodulation", {"text": _NOTE, "source_type": "clinician_note"}),
     ],
 )
 def test_clinical_text_patient_context_other_clinic_blocked(

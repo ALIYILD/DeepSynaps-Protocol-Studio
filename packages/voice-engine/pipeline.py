@@ -8,7 +8,6 @@ rather than exceptions so callers always get a structured result.
 from __future__ import annotations
 
 import logging
-import os
 import time
 import traceback
 from dataclasses import dataclass, field
@@ -22,6 +21,9 @@ from scoring import RiskScoreResult, score_risk
 from report import ClinicalVoiceReport, generate_clinical_report
 
 logger = logging.getLogger(__name__)
+
+# Mirror of the package-level constant — avoids circular import through __init__.
+_ENGINE_VERSION = "0.1.0"
 
 # ---------------------------------------------------------------------------
 # Public dataclasses
@@ -57,21 +59,20 @@ def _emit_event(event_name: str, payload: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# S3 download seam
+# Volume storage seam
 # ---------------------------------------------------------------------------
 
 
-def _download_processed_to_temp(s3_key: str) -> str:
-    """Download s3://${VOICE_BUCKET}/{s3_key} to a NamedTemporaryFile and return its path. Monkeypatch seam."""
-    import boto3  # lazy
-    import tempfile  # lazy
+def _resolve_processed_path(processed_key: str) -> str:
+    """Resolve the absolute path for a processed audio file on the Fly volume. Monkeypatch seam.
 
-    bucket = os.environ.get("DEEPSYNAPS_VOICE_BUCKET", "deepsynaps-voice")
-    client = boto3.client("s3")
-    fp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-    client.download_fileobj(bucket, s3_key, fp)
-    fp.close()
-    return fp.name
+    *processed_key* is a relative key (e.g. "voice/pt-1/sess-abc/processed.wav")
+    stored on AudioMeta.processed_s3_key.  The file is already local on the Fly
+    volume — no download needed.
+    """
+    from audio_io import _get_voice_storage_dir  # lazy — avoids circular at module level
+
+    return str(_get_voice_storage_dir() / processed_key)
 
 
 # ---------------------------------------------------------------------------
@@ -172,11 +173,12 @@ def _persist_analysis_result(
             status = "failed"
 
         blob: dict = {
+            "engine_version": _ENGINE_VERSION,
             "pipeline_status": {
                 "steps_completed": result.pipeline_status.steps_completed,
                 "failed_steps": result.pipeline_status.failed_steps,
                 "total_steps": result.pipeline_status.total_steps,
-            }
+            },
         }
         if result.report is not None:
             blob.update(
@@ -246,23 +248,22 @@ def run_voice_analysis_for_session(
         {"patient_id": patient_id, "session_id": session_id},
     )
 
-    # Resolve AudioMeta + temp WAV path
+    # Resolve AudioMeta + local WAV path (already on the Fly volume — no download needed)
     audio_meta = _load_audio_meta(patient_id, session_id, db_session=db_session)
-    s3_key = audio_meta.processed_s3_key if audio_meta else f"voice/{patient_id}/{session_id}/processed.wav"
+    processed_key = audio_meta.processed_s3_key if audio_meta else f"voice/{patient_id}/{session_id}/processed.wav"
 
-    temp_path: Optional[str] = None
     try:
-        temp_path = _download_processed_to_temp(s3_key)
+        temp_path = _resolve_processed_path(processed_key)
     except Exception as exc:
         logger.error(
-            "run_voice_analysis_for_session: S3 download failed for %s: %s\n%s",
-            s3_key,
+            "run_voice_analysis_for_session: could not resolve path for %s: %s\n%s",
+            processed_key,
             exc,
             traceback.format_exc(),
         )
         _emit_event(
             "voice.analysis.failed",
-            {"patient_id": patient_id, "session_id": session_id, "reason": "s3_download"},
+            {"patient_id": patient_id, "session_id": session_id, "reason": "path_resolve"},
         )
         return VoiceAnalysisResult(
             audio_meta=audio_meta,
@@ -284,131 +285,122 @@ def run_voice_analysis_for_session(
     risk: Optional[RiskScoreResult] = None
     report: Optional[ClinicalVoiceReport] = None
 
+    # ── Stage 1: transcription ──────────────────────────────────────────
     try:
-        # ── Stage 1: transcription ──────────────────────────────────────────
+        t0 = time.monotonic()
+        logger.info("pipeline[%s]: starting transcription", session_id)
+        transcript = transcribe_audio(temp_path)
+        elapsed = time.monotonic() - t0
+        logger.info("pipeline[%s]: transcription done in %.2fs", session_id, elapsed)
+        steps_completed.append("transcription")
+        _emit_event(
+            "voice.analysis.step_completed",
+            {"session_id": session_id, "step": "transcription", "elapsed_sec": elapsed},
+        )
+    except Exception as exc:
+        elapsed = time.monotonic() - t0
+        logger.error(
+            "pipeline[%s]: transcription failed in %.2fs: %s\n%s",
+            session_id, elapsed, exc, traceback.format_exc(),
+        )
+        failed_steps.append("transcription")
+
+    # ── Stage 2: emotion (independent of transcription) ────────────────
+    try:
+        t0 = time.monotonic()
+        logger.info("pipeline[%s]: starting emotion", session_id)
+        segments = transcript.segments if transcript is not None else []
+        # Fall back to a single virtual segment covering full duration if empty.
+        if not segments:
+            segments = [TranscriptSegment(start=0.0, end=0.0, text="", confidence=None)]
+        emotion = analyze_emotion(temp_path, segments)
+        elapsed = time.monotonic() - t0
+        logger.info("pipeline[%s]: emotion done in %.2fs", session_id, elapsed)
+        steps_completed.append("emotion")
+        _emit_event(
+            "voice.analysis.step_completed",
+            {"session_id": session_id, "step": "emotion", "elapsed_sec": elapsed},
+        )
+    except Exception as exc:
+        elapsed = time.monotonic() - t0
+        logger.error(
+            "pipeline[%s]: emotion failed in %.2fs: %s\n%s",
+            session_id, elapsed, exc, traceback.format_exc(),
+        )
+        failed_steps.append("emotion")
+
+    # ── Stage 3: biomarkers (independent of transcription) ─────────────
+    try:
+        t0 = time.monotonic()
+        logger.info("pipeline[%s]: starting biomarkers", session_id)
+        biomarkers = extract_biomarkers(temp_path)
+        elapsed = time.monotonic() - t0
+        logger.info("pipeline[%s]: biomarkers done in %.2fs", session_id, elapsed)
+        steps_completed.append("biomarkers")
+        _emit_event(
+            "voice.analysis.step_completed",
+            {"session_id": session_id, "step": "biomarkers", "elapsed_sec": elapsed},
+        )
+    except Exception as exc:
+        elapsed = time.monotonic() - t0
+        logger.error(
+            "pipeline[%s]: biomarkers failed in %.2fs: %s\n%s",
+            session_id, elapsed, exc, traceback.format_exc(),
+        )
+        failed_steps.append("biomarkers")
+
+    # ── Stage 4: scoring (requires biomarkers) ─────────────────────────
+    if biomarkers is None:
+        logger.warning("pipeline[%s]: skipping scoring — biomarkers failed", session_id)
+        failed_steps.append("scoring")
+    else:
         try:
             t0 = time.monotonic()
-            logger.info("pipeline[%s]: starting transcription", session_id)
-            transcript = transcribe_audio(temp_path)
+            logger.info("pipeline[%s]: starting scoring", session_id)
+            risk = score_risk(biomarkers, emotion)
             elapsed = time.monotonic() - t0
-            logger.info("pipeline[%s]: transcription done in %.2fs", session_id, elapsed)
-            steps_completed.append("transcription")
+            logger.info("pipeline[%s]: scoring done in %.2fs", session_id, elapsed)
+            steps_completed.append("scoring")
             _emit_event(
                 "voice.analysis.step_completed",
-                {"session_id": session_id, "step": "transcription", "elapsed_sec": elapsed},
+                {"session_id": session_id, "step": "scoring", "elapsed_sec": elapsed},
             )
         except Exception as exc:
             elapsed = time.monotonic() - t0
             logger.error(
-                "pipeline[%s]: transcription failed in %.2fs: %s\n%s",
+                "pipeline[%s]: scoring failed in %.2fs: %s\n%s",
                 session_id, elapsed, exc, traceback.format_exc(),
             )
-            failed_steps.append("transcription")
-
-        # ── Stage 2: emotion (independent of transcription) ────────────────
-        try:
-            t0 = time.monotonic()
-            logger.info("pipeline[%s]: starting emotion", session_id)
-            segments = transcript.segments if transcript is not None else []
-            # Fall back to a single virtual segment covering full duration if empty.
-            if not segments:
-                segments = [TranscriptSegment(start=0.0, end=0.0, text="", confidence=None)]
-            emotion = analyze_emotion(temp_path, segments)
-            elapsed = time.monotonic() - t0
-            logger.info("pipeline[%s]: emotion done in %.2fs", session_id, elapsed)
-            steps_completed.append("emotion")
-            _emit_event(
-                "voice.analysis.step_completed",
-                {"session_id": session_id, "step": "emotion", "elapsed_sec": elapsed},
-            )
-        except Exception as exc:
-            elapsed = time.monotonic() - t0
-            logger.error(
-                "pipeline[%s]: emotion failed in %.2fs: %s\n%s",
-                session_id, elapsed, exc, traceback.format_exc(),
-            )
-            failed_steps.append("emotion")
-
-        # ── Stage 3: biomarkers (independent of transcription) ─────────────
-        try:
-            t0 = time.monotonic()
-            logger.info("pipeline[%s]: starting biomarkers", session_id)
-            biomarkers = extract_biomarkers(temp_path)
-            elapsed = time.monotonic() - t0
-            logger.info("pipeline[%s]: biomarkers done in %.2fs", session_id, elapsed)
-            steps_completed.append("biomarkers")
-            _emit_event(
-                "voice.analysis.step_completed",
-                {"session_id": session_id, "step": "biomarkers", "elapsed_sec": elapsed},
-            )
-        except Exception as exc:
-            elapsed = time.monotonic() - t0
-            logger.error(
-                "pipeline[%s]: biomarkers failed in %.2fs: %s\n%s",
-                session_id, elapsed, exc, traceback.format_exc(),
-            )
-            failed_steps.append("biomarkers")
-
-        # ── Stage 4: scoring (requires biomarkers) ─────────────────────────
-        if biomarkers is None:
-            logger.warning("pipeline[%s]: skipping scoring — biomarkers failed", session_id)
             failed_steps.append("scoring")
-        else:
-            try:
-                t0 = time.monotonic()
-                logger.info("pipeline[%s]: starting scoring", session_id)
-                risk = score_risk(biomarkers, emotion)
-                elapsed = time.monotonic() - t0
-                logger.info("pipeline[%s]: scoring done in %.2fs", session_id, elapsed)
-                steps_completed.append("scoring")
-                _emit_event(
-                    "voice.analysis.step_completed",
-                    {"session_id": session_id, "step": "scoring", "elapsed_sec": elapsed},
-                )
-            except Exception as exc:
-                elapsed = time.monotonic() - t0
-                logger.error(
-                    "pipeline[%s]: scoring failed in %.2fs: %s\n%s",
-                    session_id, elapsed, exc, traceback.format_exc(),
-                )
-                failed_steps.append("scoring")
 
-        # ── Stage 5: report (requires risk) ────────────────────────────────
-        if risk is None:
-            logger.warning("pipeline[%s]: skipping report — risk is None", session_id)
+    # ── Stage 5: report (requires risk) ────────────────────────────────
+    if risk is None:
+        logger.warning("pipeline[%s]: skipping report — risk is None", session_id)
+        failed_steps.append("report")
+    else:
+        try:
+            t0 = time.monotonic()
+            logger.info("pipeline[%s]: starting report", session_id)
+            report = generate_clinical_report(
+                risk,
+                biomarkers=biomarkers,
+                emotion=emotion,
+                transcript=transcript,
+            )
+            elapsed = time.monotonic() - t0
+            logger.info("pipeline[%s]: report done in %.2fs", session_id, elapsed)
+            steps_completed.append("report")
+            _emit_event(
+                "voice.analysis.step_completed",
+                {"session_id": session_id, "step": "report", "elapsed_sec": elapsed},
+            )
+        except Exception as exc:
+            elapsed = time.monotonic() - t0
+            logger.error(
+                "pipeline[%s]: report failed in %.2fs: %s\n%s",
+                session_id, elapsed, exc, traceback.format_exc(),
+            )
             failed_steps.append("report")
-        else:
-            try:
-                t0 = time.monotonic()
-                logger.info("pipeline[%s]: starting report", session_id)
-                report = generate_clinical_report(
-                    risk,
-                    biomarkers=biomarkers,
-                    emotion=emotion,
-                    transcript=transcript,
-                )
-                elapsed = time.monotonic() - t0
-                logger.info("pipeline[%s]: report done in %.2fs", session_id, elapsed)
-                steps_completed.append("report")
-                _emit_event(
-                    "voice.analysis.step_completed",
-                    {"session_id": session_id, "step": "report", "elapsed_sec": elapsed},
-                )
-            except Exception as exc:
-                elapsed = time.monotonic() - t0
-                logger.error(
-                    "pipeline[%s]: report failed in %.2fs: %s\n%s",
-                    session_id, elapsed, exc, traceback.format_exc(),
-                )
-                failed_steps.append("report")
-
-    finally:
-        # Cleanup temp file
-        if temp_path is not None:
-            try:
-                os.unlink(temp_path)
-            except Exception:
-                pass
 
     result = VoiceAnalysisResult(
         audio_meta=audio_meta,
