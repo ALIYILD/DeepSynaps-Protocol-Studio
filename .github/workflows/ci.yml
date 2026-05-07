@@ -221,14 +221,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest numpy pydantic celery
           pip install \
+            -e packages/evidence \
             -e packages/core-schema \
             -e packages/condition-registry \
             -e packages/modality-registry \
             -e packages/device-registry \
             -e packages/clinical-data-registry \
+            -e packages/qa \
             -e packages/safety-engine \
             -e packages/generation-engine \
             -e packages/render-engine \
+            -e packages/biometrics-pipeline \
+            -e packages/deeptwin-neuroai-lab \
             -e 'packages/qeeg-pipeline[reporting,source,rag]' \
             -e apps/api \
             -e apps/worker
