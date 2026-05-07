@@ -8,14 +8,15 @@ inserting clinician-entered lab rows).
 
 from __future__ import annotations
 
+import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from app.persistence.models import Patient, PatientLabResult, User
+from app.persistence.models import LabsAnalyzerAudit, Patient, PatientLabResult, User
 
 
 def get_patient_by_id(session: Session, patient_id: str) -> Optional[Patient]:
@@ -112,3 +113,49 @@ def insert_lab_result_batch(
         created += 1
     session.commit()
     return created
+
+
+def insert_lab_audit_event(
+    session: Session,
+    *,
+    patient_id: str,
+    event_type: str,
+    actor_id: str | None,
+    message: str,
+    payload: dict | None = None,
+) -> LabsAnalyzerAudit:
+    """Persist a Labs Analyzer audit event to the database.
+
+    Returns the created row (already committed).
+    """
+    row = LabsAnalyzerAudit(
+        id=str(uuid.uuid4()),
+        patient_id=patient_id,
+        event_type=event_type,
+        actor_id=actor_id,
+        message=message,
+        payload_json=json.dumps(payload) if payload else None,
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add(row)
+    session.commit()
+    return row
+
+
+def list_lab_audit_events(
+    session: Session,
+    patient_id: str,
+    *,
+    limit: int = 200,
+) -> list[LabsAnalyzerAudit]:
+    """Return audit events for a patient, newest first."""
+    return list(
+        session.execute(
+            select(LabsAnalyzerAudit)
+            .where(LabsAnalyzerAudit.patient_id == patient_id)
+            .order_by(desc(LabsAnalyzerAudit.created_at))
+            .limit(limit)
+        )
+        .scalars()
+        .all()
+    )

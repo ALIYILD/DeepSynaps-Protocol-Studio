@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, String, Text
 
 from ._base import Base, Mapped, mapped_column, Optional, uuid
 
@@ -41,4 +41,23 @@ class PatientLabResult(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+    )
+
+
+class LabsAnalyzerAudit(Base):
+    """Durable audit log for Labs Analyzer clinician actions (view, annotation,
+    review-note, result-add, recompute). Replaces the in-memory MVP store.
+    """
+
+    __tablename__ = "labs_analyzer_audit"
+    __table_args__ = (Index("ix_labs_audit_patient_created", "patient_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    actor_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    message: Mapped[str] = mapped_column(Text(), nullable=False, default="")
+    payload_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), index=True
     )
