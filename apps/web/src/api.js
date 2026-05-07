@@ -6025,6 +6025,18 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
+  getVideoAssessmentPriorFinalizedSessions: (sessionId) =>
+    apiFetch(
+      `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/prior-finalized-sessions`,
+    ),
+  generateVideoAssessmentHistoricalAiSummary: (sessionId, data) =>
+    apiFetch(
+      `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/historical-ai-summary`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data || {}),
+      },
+    ),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).
