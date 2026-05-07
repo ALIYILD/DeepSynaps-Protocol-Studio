@@ -1636,6 +1636,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ text, source_type: sourceType, locale, patient_id: patientId || undefined }),
     }),
+  clinicalTextAnalyzeNeuromodulation: ({ text, sourceType = 'free_text', locale = 'en', patientId = null } = {}) =>
+    apiFetch('/api/v1/clinical-text/analyze-neuromodulation', {
+      method: 'POST',
+      body: JSON.stringify({ text, source_type: sourceType, locale, patient_id: patientId || undefined }),
+    }),
 
   // Custom document templates (clinician-authored, distinct from the bundled
   // DOCUMENT_TEMPLATES read-only set in apps/web/src/documents-templates.js).
@@ -2921,10 +2926,14 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ note: note || '' }),
     }),
-  wearablesWorkbenchExportCsvUrl: () =>
-    `${API_BASE}/api/v1/wearables/workbench/flags/export.csv`,
-  wearablesWorkbenchExportNdjsonUrl: () =>
-    `${API_BASE}/api/v1/wearables/workbench/flags/export.ndjson`,
+  wearablesWorkbenchExportCsvUrl: (params = {}) => {
+    const q = new URLSearchParams(Object.entries(params || {}).filter(([, value]) => value != null && String(value) !== '')).toString();
+    return `${API_BASE}/api/v1/wearables/workbench/flags/export.csv${q ? '?' + q : ''}`;
+  },
+  wearablesWorkbenchExportNdjsonUrl: (params = {}) => {
+    const q = new URLSearchParams(Object.entries(params || {}).filter(([, value]) => value != null && String(value) !== '')).toString();
+    return `${API_BASE}/api/v1/wearables/workbench/flags/export.ndjson${q ? '?' + q : ''}`;
+  },
   postWearablesWorkbenchAuditEvent: (data) =>
     apiFetch('/api/v1/wearables/workbench/audit-events', {
       method: 'POST',
@@ -3092,6 +3101,11 @@ export const api = {
   createPatientBioLab: (patientId, body) =>
     apiFetch(`/api/v1/bio/patients/${encodeURIComponent(patientId)}/labs`, {
       method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  updatePatientBioLab: (patientId, labResultId, body) =>
+    apiFetch(`/api/v1/bio/patients/${encodeURIComponent(patientId)}/labs/${encodeURIComponent(labResultId)}`, {
+      method: 'PUT',
       body: JSON.stringify(body || {}),
     }),
   deletePatientBioLab: (patientId, labResultId) =>
@@ -6025,6 +6039,40 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }).catch(() => null),
+  getVideoAssessmentSession: (sessionId) =>
+    apiFetch(`/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}`),
+  patchVideoAssessmentSession: (sessionId, data) =>
+    apiFetch(`/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data || {}),
+    }),
+  finalizeVideoAssessmentSession: (sessionId, data) =>
+    apiFetch(`/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/finalize`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  uploadVideoAssessmentTaskVideo: (sessionId, taskId, blob, opts = {}) => {
+    const form = new FormData();
+    form.set('expected_revision', String(opts.expectedRevision || ''));
+    form.set(
+      'file',
+      blob,
+      opts.filename || `video-assessment-${encodeURIComponent(taskId)}.webm`,
+    );
+    return apiFetch(
+      `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}/upload`,
+      {
+        method: 'POST',
+        body: form,
+      },
+    );
+  },
+  getVideoAssessmentTaskVideo: (sessionId, taskId) =>
+    apiFetchBinary(
+      `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}/video`,
+    ),
+  exportVideoAssessmentSessionJson: (sessionId) =>
+    apiFetch(`/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/export.json`),
   getVideoAssessmentPriorFinalizedSessions: (sessionId) =>
     apiFetch(
       `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/prior-finalized-sessions`,
@@ -6032,6 +6080,18 @@ export const api = {
   generateVideoAssessmentHistoricalAiSummary: (sessionId, data) =>
     apiFetch(
       `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/historical-ai-summary`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data || {}),
+      },
+    ),
+  getVideoAssessmentHistoricalAiSummaryFeedback: (sessionId, summaryEventId) =>
+    apiFetch(
+      `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/historical-ai-summary-feedback/${encodeURIComponent(summaryEventId)}`,
+    ),
+  saveVideoAssessmentHistoricalAiSummaryFeedback: (sessionId, data) =>
+    apiFetch(
+      `/api/v1/video-assessments/sessions/${encodeURIComponent(sessionId)}/historical-ai-summary-feedback`,
       {
         method: 'POST',
         body: JSON.stringify(data || {}),

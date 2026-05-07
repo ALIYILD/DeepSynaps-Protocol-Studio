@@ -225,6 +225,12 @@ def dismiss_alert(
         raise ApiServiceError(code='not_found', message='Alert flag not found.', status_code=404)
     if flag.patient_id:
         _require_patient_access(actor, flag.patient_id, db)
+    if getattr(flag, "workbench_status", None) == "resolved" or getattr(flag, "resolved_at", None) is not None:
+        raise ApiServiceError(
+            code='flag_resolved',
+            message='Resolved flags are immutable.',
+            status_code=409,
+        )
     flag.dismissed = True
     flag.reviewed_at = datetime.now(timezone.utc)
     flag.reviewed_by = actor.actor_id

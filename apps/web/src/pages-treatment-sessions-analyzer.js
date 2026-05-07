@@ -845,14 +845,7 @@ function _buildClinicRow(detail) {
 }
 
 export async function pgTreatmentSessionsAnalyzer(setTopbar, navigate) {
-  try {
-    setTopbar({
-      title: 'Treatment Sessions Analyzer',
-      subtitle: 'Clinician-reviewed session records · decision support only',
-    });
-  } catch {
-    try { setTopbar('Treatment Sessions Analyzer', 'Clinician-reviewed session analytics'); } catch {}
-  }
+  try { setTopbar('Treatment Sessions Analyzer', 'Clinician-reviewed session records · decision support only'); } catch {}
 
   const el = document.getElementById('content');
   if (!el) return;

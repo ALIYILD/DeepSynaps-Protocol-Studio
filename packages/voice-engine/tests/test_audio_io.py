@@ -1,8 +1,9 @@
-"""Tests for audio_io: validation, normalisation, S3 upload via monkeypatched seams."""
+"""Tests for audio_io: validation, normalisation, volume storage via monkeypatched seams."""
 
 from __future__ import annotations
 
 import io
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -59,18 +60,18 @@ class _FakeSegment:
 
 
 # ---------------------------------------------------------------------------
-# S3 recorder (no-op)
+# Storage recorder (no-op replacement for _write_audio_blob)
 # ---------------------------------------------------------------------------
 
 
-class _S3Recorder:
-    """Records put_object calls without touching AWS."""
+class _StorageRecorder:
+    """Records _write_audio_blob calls without touching the filesystem."""
 
     def __init__(self) -> None:
-        self.calls: list[dict] = []
+        self.calls: list[tuple[str, bytes, Any]] = []
 
-    def put_object(self, **kwargs: Any) -> None:
-        self.calls.append(kwargs)
+    def record(self, relative_key: str, data: bytes, content_type: Any = None) -> None:
+        self.calls.append((relative_key, data, content_type))
 
 
 # ---------------------------------------------------------------------------
@@ -81,15 +82,11 @@ class _S3Recorder:
 def test_preprocess_upload_generates_audio_meta(monkeypatch: pytest.MonkeyPatch) -> None:
     """Happy path: valid WAV file returns a fully-populated AudioMeta."""
     fake_segment = _FakeSegment(duration_seconds=2.5)
-    recorder = _S3Recorder()
+    recorder = _StorageRecorder()
 
     monkeypatch.setattr(audio_io, "_load_audio_segment", lambda data, ext: fake_segment)
-    monkeypatch.setattr(audio_io, "_get_s3_client", lambda: recorder)
-    monkeypatch.setattr(
-        audio_io,
-        "_upload_bytes_to_s3",
-        lambda bucket, key, data, ct: None,
-    )
+    monkeypatch.setattr(audio_io, "_get_voice_storage_dir", lambda: Path("/tmp/fake-voice"))
+    monkeypatch.setattr(audio_io, "_write_audio_blob", recorder.record)
 
     fake_file = _FakeUploadFile("sample.wav", data=b"fake", content_type="audio/wav")
     result = audio_io.preprocess_upload(fake_file, patient_id="pt-x")
@@ -100,6 +97,8 @@ def test_preprocess_upload_generates_audio_meta(monkeypatch: pytest.MonkeyPatch)
     assert result.duration_sec > 0
     assert result.original_s3_key
     assert result.processed_s3_key
+    # Two blobs written: original + processed
+    assert len(recorder.calls) == 2
 
 
 def test_rejects_unsupported_extension(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -114,7 +113,6 @@ def test_rejects_unsupported_extension(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_rejects_oversize_file(monkeypatch: pytest.MonkeyPatch) -> None:
     """Files over 100 MB must raise HTTPException(413)."""
-    # Monkeypatch _measure_upload_size to simulate a file just over the limit
     monkeypatch.setattr(
         audio_io,
         "_measure_upload_size",
@@ -139,11 +137,7 @@ def test_rejects_excessive_duration(monkeypatch: pytest.MonkeyPatch) -> None:
     long_segment = _FakeSegment(duration_seconds=2000.0)  # ~33 minutes
 
     monkeypatch.setattr(audio_io, "_load_audio_segment", lambda data, ext: long_segment)
-    monkeypatch.setattr(
-        audio_io,
-        "_upload_bytes_to_s3",
-        lambda bucket, key, data, ct: None,
-    )
+    monkeypatch.setattr(audio_io, "_write_audio_blob", lambda key, data, ct=None: None)
 
     fake_file = _FakeUploadFile("long.wav", data=b"fake")
 
@@ -155,16 +149,12 @@ def test_rejects_excessive_duration(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "30 minute" in detail or "duration" in detail
 
 
-def test_generates_expected_s3_keys_format(monkeypatch: pytest.MonkeyPatch) -> None:
-    """original_s3_key and processed_s3_key must match the expected path format."""
+def test_generates_expected_storage_keys_format(monkeypatch: pytest.MonkeyPatch) -> None:
+    """original_s3_key and processed_s3_key must match the expected relative path format."""
     fake_segment = _FakeSegment(duration_seconds=5.0)
 
     monkeypatch.setattr(audio_io, "_load_audio_segment", lambda data, ext: fake_segment)
-    monkeypatch.setattr(
-        audio_io,
-        "_upload_bytes_to_s3",
-        lambda bucket, key, data, ct: None,
-    )
+    monkeypatch.setattr(audio_io, "_write_audio_blob", lambda key, data, ct=None: None)
 
     fake_file = _FakeUploadFile("recording.wav", data=b"fake", content_type="audio/wav")
     result = audio_io.preprocess_upload(
@@ -175,3 +165,19 @@ def test_generates_expected_s3_keys_format(monkeypatch: pytest.MonkeyPatch) -> N
 
     assert result.original_s3_key == "voice/pt-42/sess-abc/original.wav"
     assert result.processed_s3_key == "voice/pt-42/sess-abc/processed.wav"
+
+
+def test_validate_id_rejects_path_traversal() -> None:
+    """_validate_id must raise HTTPException(400) for path-traversal payloads."""
+    from audio_io import _validate_id
+
+    bad_values = ["../../etc", "../passwd", "a/b", "a b", "", "a" * 65, "pt<script>"]
+    for val in bad_values:
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_id("patient_id", val)
+        assert exc_info.value.status_code == 400, f"expected 400 for {val!r}"
+
+    # Safe values must NOT raise.
+    good_values = ["pt-42", "sess_abc", "A1B2", "a" * 64, "x-y_z"]
+    for val in good_values:
+        _validate_id("patient_id", val)  # should not raise

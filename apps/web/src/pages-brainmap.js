@@ -1026,7 +1026,7 @@ function renderQEEGOverlay(ctx) {
     <div style="padding:18px">
       <h3 style="margin:0 0 6px;font-size:14px;font-family:${T.fdisp};color:${T.t1}">qEEG Overlay</h3>
       <p style="margin:0 0 14px;font-size:12px;color:${T.t2};line-height:1.5;max-width:680px">
-        Brings the most recent QEEGBrainMapReport into the planner. Each DK region is colored by z-score deviation against age and sex-matched norms. Click <em>Use as target</em> to send a region to the Clinical tab.
+        Brings the most recent QEEGBrainMapReport into the planner. Each DK region is colored by z-score deviation against the deployment's configured reference dataset. Click <em>Use as target</em> to send a region to the Clinical tab.
       </p>
       ${inputBar}
       ${body}

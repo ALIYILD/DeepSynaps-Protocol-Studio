@@ -4,6 +4,14 @@ Stages: audio_io -> transcription -> emotion -> biomarkers -> scoring -> report.
 Orchestrated end-to-end by `pipeline.run_voice_analysis_for_session`.
 """
 
+__version__ = "0.1.0"
+
+CLINICAL_DISCLAIMER = (
+    "Voice-derived decision support; not a diagnostic device. "
+    "Patterns are statistical, not validated against clinical outcomes. "
+    "All findings require clinician interpretation."
+)
+
 try:
     from .transcription import (
         TranscriptResult,
@@ -24,6 +32,8 @@ except ImportError:
     pass
 
 __all__ = [
+    "__version__",
+    "CLINICAL_DISCLAIMER",
     "TranscriptResult",
     "TranscriptSegment",
     "transcribe_audio",

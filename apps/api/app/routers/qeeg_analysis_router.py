@@ -329,6 +329,7 @@ class RedFlagsOut(BaseModel):
 
 
 class NormativeModelCardOut(BaseModel):
+    status: Optional[str] = None
     normative_db_name: Optional[str] = None
     normative_db_version: Optional[str] = None
     age_range: Optional[str] = None
@@ -337,8 +338,75 @@ class NormativeModelCardOut(BaseModel):
     zscore_method: Optional[str] = None
     confidence_interval: Optional[str] = None
     ood_warning: Optional[str] = None
+    clinical_caveat: Optional[str] = None
     limitations: list[str] = Field(default_factory=list)
     complete: bool = False
+
+
+def _normative_card_defaults(norm_db: str) -> NormativeModelCardOut:
+    norm_key = (norm_db or "unknown").strip().lower()
+    if norm_key == "toy-0.1" or "toy" in norm_key:
+        return NormativeModelCardOut(
+            status="toy",
+            normative_db_name="DeepSynaps Toy Normative",
+            normative_db_version=norm_db or "toy-0.1",
+            age_range="Fixture / preview dataset",
+            eyes_condition_compatible=None,
+            montage_compatible=True,
+            zscore_method="Preview z-score reference fixture",
+            confidence_interval="95%",
+            ood_warning="Out-of-distribution detection not configured for this preview normative database.",
+            clinical_caveat=(
+                "Toy normative database only. Decision-support only. Do not treat these z-scores "
+                "or percentile-style comparisons as clinically validated reference values."
+            ),
+            limitations=[
+                "Preview/toy normative data only; not validated for clinical normative interpretation.",
+                "Z-scores are descriptive, not diagnostic.",
+            ],
+            complete=False,
+        )
+    if norm_key == "unknown":
+        return NormativeModelCardOut(
+            status="unavailable",
+            normative_db_name="DeepSynaps Normative",
+            normative_db_version="unknown",
+            age_range="Not available",
+            eyes_condition_compatible=None,
+            montage_compatible=True,
+            zscore_method="Unavailable",
+            confidence_interval="—",
+            ood_warning="Normative database metadata not available for this analysis.",
+            clinical_caveat=(
+                "No normative database detected for this analysis. Decision-support only. "
+                "Clinician review required."
+            ),
+            limitations=[
+                "Normative database metadata is unavailable for this analysis.",
+                "Z-scores are descriptive, not diagnostic.",
+            ],
+            complete=False,
+        )
+    return NormativeModelCardOut(
+        status="configured",
+        normative_db_name="DeepSynaps Normative",
+        normative_db_version=norm_db,
+        age_range="18–65 years (default)",
+        eyes_condition_compatible=None,
+        montage_compatible=True,
+        zscore_method="Configured deployment normative model",
+        confidence_interval="95%",
+        ood_warning="Out-of-distribution detection not configured for this normative database.",
+        clinical_caveat=(
+            "Decision-support only. Normative outputs depend on the configured reference database "
+            "and require clinician review."
+        ),
+        limitations=[
+            "Normative data may not represent the patient's specific demographic.",
+            "Z-scores are descriptive, not diagnostic.",
+        ],
+        complete=False,
+    )
 
 
 class ProtocolFitOut(BaseModel):
@@ -995,7 +1063,7 @@ async def analyze_edf_mne(
 
     run_mne_pipeline_job = None
     try:
-        from apps.worker.app.jobs import run_mne_pipeline_job as _run_mne_pipeline_job
+        from app.jobs import run_mne_pipeline_job as _run_mne_pipeline_job
 
         run_mne_pipeline_job = _run_mne_pipeline_job
     except Exception as exc:
@@ -3625,21 +3693,9 @@ def get_normative_model_card(
 
     # Build from norm_db_version and best-guess defaults
     norm_db = analysis.norm_db_version or "unknown"
-    return NormativeModelCardOut(
-        normative_db_name="DeepSynaps Normative",
-        normative_db_version=norm_db,
-        age_range="18–65 years (default)",
-        eyes_condition_compatible=bool(analysis.eyes_condition),
-        montage_compatible=True,
-        zscore_method="GAMLSS centiles with log-normal absolute power",
-        confidence_interval="95%",
-        ood_warning="Out-of-distribution detection not configured for this normative database.",
-        limitations=[
-            "Normative data may not represent the patient's specific demographic.",
-            "Z-scores are descriptive, not diagnostic.",
-        ],
-        complete=False,
-    )
+    card = _normative_card_defaults(norm_db)
+    card.eyes_condition_compatible = bool(analysis.eyes_condition)
+    return card
 
 
 @router.post("/{analysis_id}/protocol-fit", response_model=ProtocolFitOut)

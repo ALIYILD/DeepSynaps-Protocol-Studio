@@ -27903,6 +27903,67 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
 .monitor-link-btn { white-space:nowrap; }
 .monitor-panel--review-queue { border-color:rgba(201,59,59,.22); box-shadow:none; }
 
+/* ── Biometrics Analyzer doctor-ready additions ───────────────────────────── */
+.monitor-day-card-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000; display:flex; align-items:center; justify-content:center; padding:24px; }
+.monitor-day-card { background:var(--navy-800); border:1px solid var(--border); border-radius:16px; padding:20px; max-width:480px; width:100%; box-shadow:0 20px 60px rgba(0,0,0,0.5); }
+.monitor-heatmap td, .monitor-heatmap th { padding:8px 6px; }
+.monitor-heatmap tbody tr:hover { background:transparent; }
+
+/* Sticky patient toolbar */
+.monitor-panel--patient { position:sticky; top:0; z-index:50; }
+.monitor-panel--patient.is-scrolled { box-shadow:0 8px 24px rgba(0,0,0,0.35); }
+
+/* Print stylesheet for biometrics analyzer */
+@media print {
+  .monitor-printing #sidebar,
+  .monitor-printing #topbar,
+  .monitor-printing .monitor-quick-links,
+  .monitor-printing .monitor-panel--patient,
+  .monitor-printing .monitor-day-card-overlay { display:none !important; }
+  .monitor-printing #content { padding:0 !important; overflow:visible !important; background:#fff !important; }
+  .monitor-printing .monitor-panel { background:#fff !important; border:1px solid #ddd !important; color:#000 !important; page-break-inside:avoid; }
+  .monitor-printing .monitor-vital-val,
+  .monitor-printing .monitor-panel-head h3 { color:#000 !important; }
+  .monitor-printing .monitor-muted { color:#555 !important; }
+  .monitor-printing .monitor-badge--green { background:#e6f4ea !important; color:#1e8e3e !important; }
+  .monitor-printing .monitor-badge--orange { background:#fef3e8 !important; color:#b06000 !important; }
+  .monitor-printing .monitor-badge--red { background:#fce8e8 !important; color:#c5221f !important; }
+  .monitor-printing .monitor-badge--blue { background:#e8f0fe !important; color:#1967d2 !important; }
+  .monitor-printing .monitor-metric-card,
+  .monitor-printing .monitor-vital-card { background:#f8f9fa !important; border-color:#ddd !important; }
+  .monitor-printing svg { filter:none !important; }
+  .monitor-printing .monitor-table th { color:#555 !important; }
+  .monitor-printing .monitor-table td { color:#000 !important; }
+  .monitor-printing .monitor-disclaimer { background:#f0f4f8 !important; border-color:#ccc !important; color:#333 !important; }
+  .monitor-printing a[href]:after { content:none !important; }
+}
+
+/* Report body styling */
+.monitor-report-body { font-size:13px; line-height:1.7; color:var(--text-secondary); }
+.monitor-report-body h2 { margin:20px 0 10px; font-size:18px; font-weight:700; color:var(--text-primary); }
+.monitor-report-body h3 { margin:16px 0 8px; font-size:15px; font-weight:700; color:var(--text-primary); border-bottom:1px solid var(--border); padding-bottom:4px; }
+.monitor-report-body h4 { margin:12px 0 6px; font-size:13px; font-weight:700; color:var(--text-primary); }
+.monitor-report-body h5 { margin:10px 0 4px; font-size:12px; font-weight:700; color:var(--text-primary); }
+.monitor-report-body p { margin:8px 0; }
+.monitor-report-body li { margin:4px 0 4px 16px; }
+.monitor-report-body strong { color:var(--text-primary); }
+.monitor-report-body em { color:var(--text-secondary); font-style:italic; }
+
+/* Baseline deviation cards */
+.monitor-baseline-card { border:1px solid var(--border); border-radius:12px; padding:14px; background:rgba(255,255,255,0.03); }
+.monitor-baseline-card--missing { opacity:0.65; }
+.monitor-baseline-z { font-size:20px; font-weight:800; letter-spacing:-0.02em; }
+
+/* Composite alert cards */
+.monitor-composite-alert { border:1px solid var(--border); border-radius:12px; padding:14px; background:rgba(255,255,255,0.03); }
+.monitor-composite-alert--critical { border-color:rgba(255,107,139,0.35); background:rgba(255,107,139,0.06); }
+.monitor-composite-alert--elevated { border-color:rgba(246,178,60,0.35); background:rgba(246,178,60,0.06); }
+
+/* Treatment timeline markers on sparklines */
+.monitor-timeline-marker { stroke:#F6B23C; stroke-width:2; stroke-dasharray:3,2; opacity:0.9; }
+.monitor-timeline-dot { fill:#F6B23C; }
+.monitor-timeline-legend { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px; align-items:center; }
+
 /* ── Devices Control Center ────────────────────────────────────────────────── */
 .devices-kpi-strip { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
 .devices-tile-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:16px; }

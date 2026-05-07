@@ -26,6 +26,7 @@ from ..schemas import (
     DeidentifyResponse,
     ExtractedClinicalEntity,
     HealthResponse,
+    NeuromodulationExtractResponse,
     PIIEntity,
     PIIExtractResponse,
     TextSpan,
@@ -74,7 +75,9 @@ def _coerce_entities(raw: list[Any]) -> list[ExtractedClinicalEntity]:
             continue
         label = str(r.get("label") or r.get("entity") or r.get("type") or "other").lower()
         if label not in {"diagnosis", "symptom", "medication", "procedure", "lab",
-                         "anatomy", "vital", "risk_factor", "allergy", "device", "other"}:
+                         "anatomy", "vital", "risk_factor", "allergy", "device",
+                         "stimulation_protocol", "device_parameter", "electrode_placement",
+                         "outcome_measure", "adverse_event", "neuromodulation_device", "other"}:
             label = "other"
         try:
             start = int(r.get("start", r.get("span", {}).get("start", 0)))
@@ -156,6 +159,19 @@ def deidentify(payload: ClinicalTextInput) -> DeidentifyResponse:
         backend="openmed_http",
         redacted_text=redacted,
         replacements=_coerce_pii(data.get("replacements") or []),
+    )
+
+
+def analyze_neuromodulation(payload: ClinicalTextInput) -> NeuromodulationExtractResponse:
+    data = _post("/analyze-neuromodulation", {"text": payload.text, "source_type": payload.source_type})
+    if data is None:
+        return heuristic.analyze_neuromodulation(payload)
+    return NeuromodulationExtractResponse(
+        backend="openmed_http",
+        entities=_coerce_entities(data.get("entities") or []),
+        pii=_coerce_pii(data.get("pii") or []),
+        summary=str(data.get("summary") or "")[:2000],
+        char_count=payload.length,
     )
 
 

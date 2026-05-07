@@ -6,8 +6,7 @@ torchaudio
 xgboost
 librosa
 scipy
-numpy
+numpy<2
 fastapi
 python-multipart
 pydub
-boto3
