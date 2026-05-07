@@ -24,6 +24,18 @@ from transcription import TranscriptResult
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Package-level constants (mirrored from __init__ to avoid circular imports)
+# ---------------------------------------------------------------------------
+
+_ENGINE_VERSION = "0.1.0"
+
+_CLINICAL_DISCLAIMER = (
+    "Voice-derived decision support; not a diagnostic device. "
+    "Patterns are statistical, not validated against clinical outcomes. "
+    "All findings require clinician interpretation."
+)
+
+# ---------------------------------------------------------------------------
 # Public dataclasses
 # ---------------------------------------------------------------------------
 
@@ -46,6 +58,8 @@ class ClinicalVoiceReport:
     raw_scores: dict
     raw_flags: list[str]
     data_quality_notes: list[str]
+    disclaimer: str          # populated from _CLINICAL_DISCLAIMER; never from LLM
+    engine_version: str      # populated from _ENGINE_VERSION; never from LLM
 
 
 # ---------------------------------------------------------------------------
@@ -531,4 +545,6 @@ def generate_clinical_report(
         raw_scores=raw_scores,
         raw_flags=raw_flags,
         data_quality_notes=data_quality_notes,
+        disclaimer=_CLINICAL_DISCLAIMER,
+        engine_version=_ENGINE_VERSION,
     )

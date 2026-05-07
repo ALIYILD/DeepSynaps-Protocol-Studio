@@ -160,6 +160,9 @@ def test_generate_clinical_report_basic_shape(monkeypatch):
     }
     assert isinstance(result.raw_flags, list)
     assert isinstance(result.data_quality_notes, list)
+    assert isinstance(result.disclaimer, str) and result.disclaimer.strip()
+    assert "decision support" in result.disclaimer.lower()
+    assert isinstance(result.engine_version, str) and result.engine_version.strip()
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +187,9 @@ def test_rule_based_fallback_used_on_llm_error(monkeypatch):
     assert isinstance(result.summary, str) and result.summary.strip()
     assert isinstance(result.findings, list) and len(result.findings) > 0
     assert isinstance(result.recommendations, list) and len(result.recommendations) > 0
+    assert isinstance(result.disclaimer, str) and result.disclaimer.strip()
+    assert "decision support" in result.disclaimer.lower()
+    assert isinstance(result.engine_version, str) and result.engine_version.strip()
 
 
 # ---------------------------------------------------------------------------
