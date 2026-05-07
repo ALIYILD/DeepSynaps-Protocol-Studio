@@ -1475,7 +1475,7 @@ export async function pgDash(setTopbar, navigate) {
 
   // ── Demo banner ───────────────────────────────────────────────────────────────
   const _demoBannerCopy = _viteEnableDemo
-    ? '<strong>Demo data — not real patient data.</strong> Names and IDs such as <code style="background:rgba(0,0,0,0.15);padding:1px 5px;border-radius:4px;font-size:11px">P-DEMO-*</code> are synthetic samples only.'
+    ? '<strong>DEMO data (synthetic; non-PHI).</strong> Names and IDs such as <code style="background:rgba(0,0,0,0.15);padding:1px 5px;border-radius:4px;font-size:11px">P-DEMO-*</code> are synthetic samples only.'
     : 'Showing sample data so you can explore the dashboard. Add a patient or course to see your own data here.';
   const _demoBanner = _isDemo ? `<div class="dh2-demo-banner" role="alert">
     <span class="dh2-demo-pill">${_viteEnableDemo ? 'PREVIEW DEMO' : 'DEMO'}</span>
@@ -1492,7 +1492,8 @@ export async function pgDash(setTopbar, navigate) {
     : '';
 
   const _safetyStrip = `<div class="dh2-safety-strip" role="note">
-    <strong>Clinical decision support.</strong> Not for autonomous diagnosis or prescribing.
+    <strong>Clinical decision support.</strong> Not for autonomous diagnosis, prescribing, dosing, or treatment planning.
+    Not an emergency triage system — use your institution's emergency protocols for urgent or life-threatening concerns.
     Outputs require clinician review and professional judgement.
     ${(_isDemo || _viteEnableDemo) ? '<span class="dh2-safety-demo"> Demo data / not real patient data.</span>' : ''}
   </div>`;
