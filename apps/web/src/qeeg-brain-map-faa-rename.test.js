@@ -86,7 +86,7 @@ test('patient renderer: FAA label appears, "Brain Balance" does not', function (
     ai_narrative: { executive_summary: '', findings: [], protocol_recommendations: [], citations: [] },
     quality: { n_clean_epochs: 80, channels_used: [], qc_flags: [], confidence: {}, method_provenance: {}, limitations: [] },
     provenance: { schema_version: '1.0.0', pipeline_version: '0.5.0', norm_db_version: 'v1', file_hash: 'a'.repeat(64), generated_at: '2026-04-30T09:00:00Z' },
-    disclaimer: 'Research and wellness use only. This brain map summary is informational and is not a medical diagnosis or treatment recommendation. Discuss any findings with a qualified clinician.',
+    disclaimer: 'Decision-support only. This brain map summary is informational and is not a medical diagnosis or treatment recommendation. Discuss any findings with a qualified clinician.',
   };
   var html = patient.renderPatientReport(report);
   assert.match(html, /Frontal Alpha Asymmetry/);

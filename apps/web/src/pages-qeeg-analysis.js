@@ -3866,8 +3866,8 @@ var DEMO_QEEG_REPORT = {
       + 'COMPLEXITY:\n'
       + 'Sample entropy (1.52), Higuchi fractal dimension (1.62), and Lempel-Ziv complexity (0.71) are within typical research-norm ranges.\n\n'
       + 'RESEARCH SUMMARY:\n'
-      + 'This is a research and wellness brain map summary. It is informational, is not a medical diagnosis or treatment recommendation, and any findings should be discussed with a qualified clinician.',
-    clinical_overview: 'This research brain map summary describes the relative distribution of EEG features across cortical regions. Frontal channels (F3, F4, Fz) show theta-band elevation with reduced alpha; parietal channels (P3, Pz, P4) show lower alpha amplitude relative to age-norm research databases; occipital channels (O1, O2) show alpha peak frequencies of 10.2Hz and 10.0Hz. Temporal-channel features are within research-norm bands. Discuss any observations with a qualified clinician.',
+      + 'This is a decision-support brain map summary. It is informational, is not a medical diagnosis or treatment recommendation, and any findings should be discussed with a qualified clinician.',
+    clinical_overview: 'This decision-support brain map summary describes the relative distribution of EEG features across cortical regions. Frontal channels (F3, F4, Fz) show theta-band elevation with reduced alpha; parietal channels (P3, Pz, P4) show lower alpha amplitude relative to age-norm research databases; occipital channels (O1, O2) show alpha peak frequencies of 10.2Hz and 10.0Hz. Temporal-channel features are within research-norm bands. Discuss any observations with a qualified clinician.',
     key_observations: {
       frontal: {channels: 'F3, F4, Fz', finding: 'Theta-band elevation (~4.5Hz), reduced alpha (research observation)', impact: 'Associated with attentional-regulation profiles in the research literature'},
       parietal: {channels: 'P3, Pz, P4', finding: 'Lower alpha amplitude relative to research norms', impact: 'Associated with sensory-integration profiles in the research literature'},
