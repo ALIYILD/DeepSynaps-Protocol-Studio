@@ -22,6 +22,20 @@ const DEMO_PATIENTS = Object.freeze([
     sex: 'F',
     presenting: 'Chronic pain (Fibromyalgia) · refractory to first-line pharmacology',
   }),
+  Object.freeze({
+    id: 'demo-pt-omar-haddad',
+    name: 'Demo Patient D (synthetic)',
+    age: 52,
+    sex: 'M',
+    presenting: 'Post-stroke fatigue · rehab-focused neuromodulation candidacy review',
+  }),
+  Object.freeze({
+    id: 'demo-pt-amelia-brown',
+    name: 'Demo Patient E (synthetic)',
+    age: 29,
+    sex: 'F',
+    presenting: 'Complex PTSD · insomnia + hypervigilance (demo persona)',
+  }),
 ]);
 
 export const DEMO_PATIENT_PERSONAS = DEMO_PATIENTS;
@@ -1823,6 +1837,74 @@ const _LABS_PROFILES = {
       { captured_at: '2026-05-01T07:45:00Z', analyte: 'Hemoglobin', value: 11.4 },
     ],
   },
+  'demo-pt-omar-haddad': {
+    patient_id: 'demo-pt-omar-haddad',
+    patient_name: 'Demo Patient D (synthetic)',
+    captured_at: '2026-05-03T10:15:00Z',
+    panels: [
+      {
+        name: 'Synthetic chemistry (demo sample)',
+        results: [
+          {
+            analyte: 'HbA1c',
+            value: 5.6,
+            unit: '%',
+            ref_low: 4.0,
+            ref_high: 5.6,
+            status: 'normal',
+            captured_at: '2026-05-03T10:15:00Z',
+            note: 'Demo sample row — synthetic non-PHI; requires clinician review if mirrored to live workflows.',
+          },
+          {
+            analyte: 'Vitamin B12',
+            value: 412,
+            unit: 'pg/mL',
+            ref_low: 200,
+            ref_high: 900,
+            status: 'normal',
+            captured_at: '2026-05-03T10:15:00Z',
+            note: 'Demo sample row — illustrative only.',
+          },
+        ],
+      },
+    ],
+    flags: [],
+    prior_results: [],
+  },
+  'demo-pt-amelia-brown': {
+    patient_id: 'demo-pt-amelia-brown',
+    patient_name: 'Demo Patient E (synthetic)',
+    captured_at: '2026-05-04T14:22:00Z',
+    panels: [
+      {
+        name: 'Synthetic thyroid panel (demo sample)',
+        results: [
+          {
+            analyte: 'TSH',
+            value: 2.1,
+            unit: 'mIU/L',
+            ref_low: 0.4,
+            ref_high: 4.0,
+            status: 'normal',
+            captured_at: '2026-05-04T14:22:00Z',
+            note: 'Demo sample row — synthetic non-PHI.',
+          },
+          {
+            analyte: 'Free T4',
+            value: 1.1,
+            unit: 'ng/dL',
+            ref_low: 0.8,
+            ref_high: 1.8,
+            status: 'normal',
+            captured_at: '2026-05-04T14:22:00Z',
+            note: 'Demo sample row — illustrative only.',
+          },
+        ],
+      },
+    ],
+    flags: [],
+    prior_results: [],
+  },
 };
 
 const _LABS_AUDITS = {
@@ -1843,6 +1925,12 @@ const _LABS_AUDITS = {
     { id: 'lab-aud-ele-3', kind: 'review-note', actor: 'Demo clinician', message: '[Demo audit] Review note example — procedure/medication decisions occur in the chart.', created_at: '2026-05-01T08:18:00Z' },
     { id: 'lab-aud-ele-4', kind: 'annotation',  actor: 'Demo clinician', message: '[Demo audit] Annotation example: correlate Hb trend with clinical context.', created_at: '2026-05-01T08:25:00Z' },
     { id: 'lab-aud-ele-5', kind: 'result-add',  actor: 'Demo lab ingest', message: '[Demo audit] Synthetic INR/PT rows for UI exercise.', created_at: '2026-05-01T07:46:00Z' },
+  ],
+  'demo-pt-omar-haddad': [
+    { id: 'lab-aud-oma-1', kind: 'annotation', actor: 'Demo clinician', message: '[Demo audit] Synthetic chemistry panel for roster completeness — non-PHI.', created_at: '2026-05-03T10:20:00Z' },
+  ],
+  'demo-pt-amelia-brown': [
+    { id: 'lab-aud-ame-1', kind: 'annotation', actor: 'Demo clinician', message: '[Demo audit] Synthetic thyroid demo rows — illustrative only.', created_at: '2026-05-04T14:25:00Z' },
   ],
 };
 

@@ -8,6 +8,28 @@ import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixture
 import { NEURO_BIOMARKER_REFERENCE } from './neuro-biomarker-data.js';
 import { renderBrainMap10_20, SITES_10_20 } from './brain-map-svg.js';
 
+/** Linked Clinical Hub shortcuts — each `route` must exist in `apps/web/src/app.js`. */
+export const BIOMARKERS_LINKED_MODULES = Object.freeze([
+  { label: 'Assessments', route: 'assessments-v2' },
+  { label: 'Documents', route: 'documents-v2' },
+  { label: 'Virtual Care', route: 'live-session' },
+  { label: 'qEEG', route: 'qeeg-launcher' },
+  { label: 'MRI', route: 'mri-analysis' },
+  { label: 'Video', route: 'video-assessments' },
+  { label: 'Text', route: 'text-analyzer' },
+  { label: 'DeepTwin', route: 'deeptwin' },
+  { label: 'Protocol Studio', route: 'protocol-studio' },
+  { label: 'Brain Map', route: 'brainmap-v2' },
+  { label: 'Schedule', route: 'schedule-v2' },
+  { label: 'Inbox', route: 'clinician-inbox' },
+]);
+
+/**
+ * Display-only curated literature anchor index shipped with the reference catalog narrative.
+ * Not computed from live bibliometrics at runtime.
+ */
+export const CURATED_REFERENCE_LITERATURE_ANCHORS = 6753;
+
 function esc(s) {
   return String(s ?? '')
     .replace(/&/g, '&amp;')
@@ -126,6 +148,11 @@ function _parseSites(siteStr) {
   return tokens.filter(t => _validSiteIds.has(t));
 }
 
+/** @param {string} [siteStr] */
+export function parseBiomarkerSites(siteStr) {
+  return _parseSites(siteStr);
+}
+
 function _guessBand(marker, group) {
   const n = (marker.name + ' ' + marker.notation + ' ' + marker.id).toLowerCase();
   if (group.id === 'autonomic-cardiac') return 'hrv';
@@ -143,6 +170,10 @@ function _guessBand(marker, group) {
   if (n.includes('beta') || n.includes('tbr')) return 'beta';
   if (n.includes('erp') || n.includes('p300') || n.includes('n200') || n.includes('mmn')) return 'erp';
   return 'alpha';
+}
+
+export function guessBiomarkerWaveformBand(marker, group) {
+  return _guessBand(marker, group);
 }
 
 function _miniWaveformSvg(marker, group) {
@@ -362,10 +393,13 @@ function _renderRefGroup(group) {
 
 function _renderReferenceTab() {
   const totalMarkers = NEURO_BIOMARKER_REFERENCE.reduce((sum, group) => sum + group.markers.length, 0);
-  const totalEvidenceAnchors = 6753;
 
   return `
     <div style="display:grid;gap:22px">
+      <div role="note" style="padding:12px 14px;border-radius:12px;border:1px solid rgba(74,158,255,0.28);background:rgba(74,158,255,0.06);font-size:12px;line-height:1.55;color:var(--text-secondary)">
+        <strong style="color:var(--text-primary)">Reference catalog only</strong>
+        — educational structured summaries for clinical staff. This tab does not display live patient recordings or interpretations.
+      </div>
       <section class="card" style="margin-bottom:0;overflow:hidden;background:
         radial-gradient(circle at top right, rgba(74,158,255,0.18), transparent 34%),
         radial-gradient(circle at top left, rgba(0,212,188,0.14), transparent 28%),
@@ -376,8 +410,8 @@ function _renderReferenceTab() {
               <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--teal);margin-bottom:10px">DeepSynaps Clinical Library</div>
               <h1 style="margin:0 0 10px;font-size:32px;line-height:1.05;letter-spacing:-.03em;color:var(--text-primary)">Neuro-Biomarker Reference</h1>
               <div style="font-size:14px;color:var(--text-secondary);line-height:1.75">
-                ${totalMarkers} biomarkers across ${NEURO_BIOMARKER_REFERENCE.length} categories. Structured clinical reference data covering definition, montage/site, acquisition protocol,
-                adult reference range, directional interpretation, linked conditions, modulating interventions, and operational caveats.
+                ${totalMarkers} biomarkers across ${NEURO_BIOMARKER_REFERENCE.length} categories. Structured reference copy covering definition, montage/site, acquisition protocol,
+                adult reference bands (illustrative), directional discussion text, linked discussion topics, contextual interventions, and operational caveats — not patient-specific conclusions.
               </div>
             </div>
             <div style="display:grid;grid-template-columns:repeat(2,minmax(140px,1fr));gap:10px;min-width:min(100%,320px)">
@@ -390,8 +424,9 @@ function _renderReferenceTab() {
                 <div style="font-size:28px;font-weight:700;color:var(--text-primary)">${NEURO_BIOMARKER_REFERENCE.length}</div>
               </div>
               <div style="padding:14px;border-radius:14px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">
-                <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:6px">References</div>
-                <div style="font-size:28px;font-weight:700;color:var(--text-primary)">${totalEvidenceAnchors.toLocaleString()}</div>
+                <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:6px">Literature anchors (curated index)</div>
+                <div style="font-size:28px;font-weight:700;color:var(--text-primary)">${CURATED_REFERENCE_LITERATURE_ANCHORS.toLocaleString()}</div>
+                <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px;line-height:1.35">Shipped narrative metadata — not a live citation search.</div>
               </div>
               <div style="padding:14px;border-radius:14px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">
                 <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:6px">Use</div>
@@ -464,9 +499,13 @@ function _bindReferenceTab() {
 
     const summary = document.getElementById('nb-search-summary');
     if (summary) {
-      summary.textContent = q
-        ? `Showing ${visibleMarkers} matching biomarkers across ${visibleGroups} categories.`
-        : `Showing all ${totalMarkers} biomarkers across ${NEURO_BIOMARKER_REFERENCE.length} categories.`;
+      if (q && visibleMarkers === 0) {
+        summary.textContent = 'No biomarkers match this search. Try another keyword or clear the search.';
+      } else {
+        summary.textContent = q
+          ? `Showing ${visibleMarkers} matching biomarkers across ${visibleGroups} categories.`
+          : `Showing all ${totalMarkers} biomarkers across ${NEURO_BIOMARKER_REFERENCE.length} categories.`;
+      }
     }
 
     const inp = document.getElementById('bm-ref-search');
@@ -494,6 +533,11 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
   // ── Shell with tabs ──
   el.innerHTML = `
     <div style="max-width:1180px;margin:0 auto;padding:16px 20px 56px" data-page="biomarkers">
+      <div role="region" aria-label="Biomarkers preview safety" style="padding:12px 14px;border-radius:12px;border:1px solid rgba(45,212,191,0.35);background:rgba(45,212,191,0.06);margin-bottom:16px;font-size:12px;line-height:1.55;color:var(--text-secondary)">
+        <strong style="color:var(--text-primary)">Controlled preview.</strong>
+        Synthetic non-PHI demo rows may appear when demo login is active (<code style="font-size:11px">VITE_ENABLE_DEMO</code> + demo token).
+        Biomarkers supports clinical review and workflow navigation only — not diagnosis, prescribing, emergency triage, treatment approval, or autonomous clinical decision-making.
+      </div>
       <nav id="bm-tabs" style="display:flex;gap:4px;margin-bottom:18px;border-bottom:1px solid var(--border);padding-bottom:0" role="tablist">
         <button role="tab" class="ch-tab${activeTab === 'reference' ? ' ch-tab--active' : ''}" data-tab="reference" style="padding:10px 18px;font-size:13px;font-weight:600;border:none;background:none;color:${activeTab === 'reference' ? 'var(--text-primary)' : 'var(--text-tertiary)'};cursor:pointer;border-bottom:2px solid ${activeTab === 'reference' ? 'var(--teal, #2DD4BF)' : 'transparent'};transition:all .15s">Neuro-Biomarker Reference</button>
         <button role="tab" class="ch-tab${activeTab === 'workspace' ? ' ch-tab--active' : ''}" data-tab="workspace" style="padding:10px 18px;font-size:13px;font-weight:600;border:none;background:none;color:${activeTab === 'workspace' ? 'var(--text-primary)' : 'var(--text-tertiary)'};cursor:pointer;border-bottom:2px solid ${activeTab === 'workspace' ? 'var(--teal, #2DD4BF)' : 'transparent'};transition:all .15s">Patient Workspace</button>
@@ -511,17 +555,22 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
     || '';
   let labsProfile = null;
   let labsDemo = false;
+  /** @type {'api'|'demo_fixture'|'unavailable'} */
+  let labsSourceKind = 'unavailable';
   let wearableOut = null;
   let qeegItems = [];
   let mriItems = [];
   let loadErr = null;
+  let patientsLoadErr = null;
 
   async function loadPatients() {
+    patientsLoadErr = null;
     try {
       const res = await api.listPatients({ limit: 200 });
       patients = res?.items || (Array.isArray(res) ? res : []) || [];
-    } catch {
+    } catch (e) {
       patients = [];
+      patientsLoadErr = (e && e.message) || String(e);
     }
     if (!selectedId && patients[0]) selectedId = patients[0].id;
   }
@@ -533,6 +582,7 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
     mriItems = [];
     labsDemo = false;
     loadErr = null;
+    labsSourceKind = 'unavailable';
     if (!selectedId) return;
 
     let labsRes = null;
@@ -543,9 +593,14 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
     }
     if (labsRes && labsRes.patient_id) {
       labsProfile = labsRes;
-    } else if (isDemoSession() && ANALYZER_DEMO_FIXTURES?.labs?.patient_profile) {
+      labsSourceKind = 'api';
+    } else if (isDemoSession() && typeof ANALYZER_DEMO_FIXTURES?.labs?.patient_profile === 'function') {
       const demo = ANALYZER_DEMO_FIXTURES.labs.patient_profile(selectedId);
-      if (demo) { labsProfile = demo; labsDemo = true; }
+      if (demo) {
+        labsProfile = demo;
+        labsDemo = true;
+        labsSourceKind = 'demo_fixture';
+      }
     }
 
     const [wearRes, qeegRes, mriRes] = await Promise.all([
@@ -561,7 +616,7 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
       await api.recordPatientProfileAuditEvent(selectedId, {
         event: 'biomarkers_workspace_view',
         note: 'Biomarkers workspace opened',
-        using_demo_data: !!(labsDemo || isDemoSession()),
+        using_demo_data: !!labsDemo,
       });
     } catch { /* best-effort audit */ }
   }
@@ -577,9 +632,15 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
 
     let bodyHtml = '';
     if (!selectedId) {
-      bodyHtml = `<div style="padding:24px;border:1px dashed var(--border);border-radius:14px;text-align:center;color:var(--text-secondary);font-size:13px">
-        Select a patient to review biomarker-linked data. Add patients under <strong>Patients</strong> if your roster is empty.
-      </div>`;
+      bodyHtml = patients.length === 0
+        ? `<div style="padding:24px;border:1px dashed var(--border);border-radius:14px;text-align:center;color:var(--text-secondary);font-size:13px">
+            ${patientsLoadErr
+              ? `<span role="alert">Patient roster could not be loaded (${esc(patientsLoadErr)}).</span> Retry when the API is reachable.`
+              : 'No patients are visible in this workspace. Add patients under <strong>Patients</strong> or verify clinic access.'}
+          </div>`
+        : `<div style="padding:24px;border:1px dashed var(--border);border-radius:14px;text-align:center;color:var(--text-secondary);font-size:13px">
+            Select a patient to review biomarker-linked imports. Counts on this page are summaries only — open modality workspaces for detailed interpretation.
+          </div>`;
     } else {
       const p = patients.find((x) => x.id === selectedId);
       const pname = esc(_patientLabel(p) || selectedId);
@@ -591,17 +652,29 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
       const lastWearable = summaries.length ? summaries[summaries.length - 1] : null;
       const wearStale = lastWearable?.date ? isStale(`${lastWearable.date}T12:00:00Z`, 14) : { stale: true, reason: 'no wearable summaries' };
       const readiness = wearableOut?.readiness && typeof wearableOut.readiness === 'object' ? wearableOut.readiness : null;
+      const labsSourceLabel = labsSourceKind === 'api'
+        ? 'Live API import'
+        : labsSourceKind === 'demo_fixture'
+          ? 'Demo-labelled synthetic fixture (non-PHI)'
+          : 'Unavailable — no structured labs in this workspace';
+      const linkedBtns = BIOMARKERS_LINKED_MODULES.map((m) =>
+        `<button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="${esc(m.route)}">${esc(m.label)}</button>`
+      ).join('');
 
       bodyHtml = `
         <section aria-labelledby="bm-ctx-h" style="margin-bottom:18px;padding:14px 16px;border-radius:14px;border:1px solid var(--border);background:var(--bg-card)">
           <div id="bm-ctx-h" style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:6px">Patient context</div>
           <div style="font-size:15px;font-weight:600;color:var(--text-primary)">${pname}</div>
+          <div style="font-size:12px;color:var(--text-secondary);margin-top:6px;line-height:1.5">
+            <strong>Labs source:</strong> ${labsSourceLabel}.
+            Imported values may omit analytes; missing rows are <strong>not</strong> interpreted as normal.
+          </div>
           <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">
             Last lab draw (aggregated): ${_fmtShortDate(drawIso)}
             ${stale.stale ? `<span style="margin-left:8px" class="pill pill-pending">Stale (&gt;90d)</span>` : ''}
             ${!drawIso ? '<span style="margin-left:8px;color:var(--text-tertiary)">No draw date</span>' : ''}
           </div>
-          ${loadErr && !labsProfile ? `<div role="alert" style="margin-top:10px;font-size:12px;color:var(--amber)">Could not load live labs (${esc(loadErr)}). ${labsDemo ? 'Showing labelled demo labs.' : 'Use Labs Analyzer or enter results when the API is available.'}</div>` : ''}
+          ${loadErr && labsSourceKind !== 'api' ? `<div role="alert" style="margin-top:10px;font-size:12px;color:var(--amber)">Live labs endpoint unavailable (${esc(loadErr)}). ${labsDemo ? 'Showing labelled demo fixture rows only because demo login is active.' : 'No demo substitution in this session — structured labs stay empty until the API succeeds.'}</div>` : ''}
         </section>
 
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:18px">
@@ -610,8 +683,8 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
             <ul style="margin:0;padding-left:18px;font-size:12px;color:var(--text-secondary);line-height:1.55">
               <li>Labs: ${rows.length ? `${rows.length} analytes in workspace` : 'No structured labs in this summary'}</li>
               <li>Wearables: ${summaries.length ? `${summaries.length} daily summaries (30d)` : 'No wearable summaries'}</li>
-              <li>qEEG analyses: ${qeegItems.length} record(s)</li>
-              <li>MRI analyses: ${mriItems.length} record(s)</li>
+              <li>qEEG analyses: ${qeegItems.length} record(s) (counts only \u2014 open qEEG for reads)</li>
+              <li>MRI analyses: ${mriItems.length} record(s) (counts only \u2014 open MRI Analyzer for reads)</li>
             </ul>
             ${readiness ? `<div style="margin-top:10px;font-size:11px;color:var(--text-tertiary)">Readiness payload present \u2014 see Biometrics for detail.</div>` : ''}
           </section>
@@ -623,9 +696,9 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
                 ${wearStale.stale ? '<span class="pill pill-pending" style="margin-left:6px">Stale stream</span>' : ''}
               </div>
               <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;font-size:11px;color:var(--text-tertiary)">
-                ${lastWearable.hrv_ms != null ? `<span>HRV ${esc(String(lastWearable.hrv_ms))} ms</span>` : ''}
-                ${lastWearable.rhr_bpm != null ? `<span>Resting HR ${esc(String(lastWearable.rhr_bpm))} bpm</span>` : ''}
-                ${lastWearable.sleep_duration_h != null ? `<span>Sleep ${esc(String(lastWearable.sleep_duration_h))} h</span>` : ''}
+                <span>HRV ${lastWearable.hrv_ms != null ? `${esc(String(lastWearable.hrv_ms))} ms` : '\u2014'}</span>
+                <span>Resting HR ${lastWearable.rhr_bpm != null ? `${esc(String(lastWearable.rhr_bpm))} bpm` : '\u2014'}</span>
+                <span>Sleep ${lastWearable.sleep_duration_h != null ? `${esc(String(lastWearable.sleep_duration_h))} h` : '\u2014'}</span>
               </div>
               <button type="button" class="btn btn-ghost btn-sm" id="bm-open-wear" style="margin-top:10px;min-height:40px">Open Biometrics</button>
             ` : `<div style="font-size:12px;color:var(--text-tertiary)">No wearable summary for this patient. Device data may be unavailable or not synced.</div>`}
@@ -677,7 +750,7 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
           ${abnormal.length ? `
             <ul style="margin:0;padding-left:18px;font-size:12px;color:var(--text-secondary);line-height:1.55">
               ${abnormal.slice(0, 12).map((r) =>
-                `<li><strong style="color:var(--text-primary)">${esc(r.analyte)}</strong> \u2014 requires clinician interpretation (${esc(r.status)})</li>`
+                `<li><strong style="color:var(--text-primary)">${esc(r.analyte)}</strong> \u2014 flagged out-of-range; requires clinician review (${esc(r.status)}). Not diagnostic by itself.</li>`
               ).join('')}
             </ul>
           ` : `<div style="font-size:12px;color:var(--text-tertiary)">No abnormal flags in parsed labs, or reference intervals missing. Missing intervals are not shown as "normal."</div>`}
@@ -686,29 +759,18 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
         <section style="margin-bottom:18px">
           <h2 style="margin:0 0 10px;font-size:14px;font-weight:650;color:var(--text-primary)">Linked modules</h2>
           <div style="display:flex;flex-wrap:wrap;gap:8px">
-            <button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="assessments-v2">Assessments</button>
-            <button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="documents-v2">Documents</button>
-            <button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="live-session">Virtual Care</button>
-            <button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="qeeg-launcher">qEEG</button>
-            <button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="mri-analysis">MRI</button>
-            <button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="video-assessments">Video</button>
-            <button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="text-analyzer">Text</button>
-            <button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="deeptwin">DeepTwin</button>
-            <button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="protocol-studio">Protocol Studio</button>
-            <button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="brainmap-v2">Brain Map</button>
-            <button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="schedule-v2">Schedule</button>
-            <button type="button" class="btn btn-ghost btn-sm bm-link" data-nav="clinician-inbox">Inbox</button>
+            ${linkedBtns}
           </div>
           <p style="margin:10px 0 0;font-size:11px;color:var(--text-tertiary);max-width:820px">
-            Links open the corresponding workspace with this patient selected where supported.
+            Opens the paired workspace where this build exposes it; modality-specific interpretation stays in those tools. No clinical action is taken from this link bar alone.
           </p>
         </section>
 
         <section style="padding:14px;border-radius:14px;border:1px solid var(--border);background:rgba(155,127,255,0.05)">
-          <h2 style="margin:0 0 8px;font-size:14px;font-weight:650;color:var(--text-primary)">AI-assisted context</h2>
+          <h2 style="margin:0 0 8px;font-size:14px;font-weight:650;color:var(--text-primary)">Draft narratives elsewhere</h2>
           <p style="margin:0;font-size:12px;line-height:1.55;color:var(--text-secondary)">
-            This page does not auto-generate a biomarker diagnosis or protocol recommendation.
-            Use <strong>DeepTwin</strong> or <strong>Labs Analyzer</strong> annotations for draft narratives \u2014 always label AI output as draft until reviewed.
+            This hub does not auto-generate diagnoses or autonomous protocol suggestions.
+            Use <strong>DeepTwin</strong> or <strong>Labs Analyzer</strong> for optional draft text \u2014 keep AI output labelled as draft until a clinician edits and approves it.
           </p>
         </section>`;
     }
@@ -716,7 +778,7 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
     container.innerHTML = `
       <div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(245,158,11,0.35);background:rgba(245,158,11,0.07);margin-bottom:12px;font-size:12px;line-height:1.5;color:var(--text-secondary)" role="note">
         <strong style="color:var(--text-primary)">Decision-support only.</strong>
-        Flags and ranges are heuristic or imported \u2014 confirm against source labs and local reference intervals.
+        Imported status flags follow analyzer rules \u2014 confirm against source laboratory reports and institutional reference intervals. Not emergency triage.
       </div>
       ${demoBanner}
       <div id="bm-ws-toolbar" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px">
@@ -770,7 +832,10 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
         patient_id: selectedId,
         patient_name: _patientLabel(p) || null,
         lab_captured_at: labsProfile?.captured_at || null,
+        labs_source: labsSourceKind,
+        labs_load_error: loadErr || null,
         demo_lab_fixture: labsDemo,
+        demo_session_active: isDemoSession(),
         laboratory_rows: rows,
         qeeg_analysis_count: qeegItems.length,
         mri_analysis_count: mriItems.length,
