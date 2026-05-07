@@ -393,9 +393,18 @@ def generate_deterministic_protocol_studio_draft(
         )
 
     refs = _evidence_refs(row)
-    rationale: list[str] = [
+    rationale: list[str] = []
+    if mode in ("qeeg_guided", "mri_guided"):
+        rationale.append(
+            "Guidance is based on available uploaded/linked summaries. Missing data lowers confidence.",
+        )
+    if mode == "deeptwin_personalized":
+        rationale.append(
+            "Personalisation uses structured constraints supplied in the request plus patient-linked signals when present; missing assessments lower confidence.",
+        )
+    rationale.append(
         "Draft built deterministically from the protocol registry plus local evidence search; clinician review required.",
-    ]
+    )
     ev_summary = str(row.get("evidence_summary") or "").strip()
     if ev_summary:
         rationale.append(ev_summary[:400])

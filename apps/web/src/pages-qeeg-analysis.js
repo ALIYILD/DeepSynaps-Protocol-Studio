@@ -4946,7 +4946,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         ? '<button class="btn btn-primary btn-sm" onclick="window._qeegSelectedId=\'demo\';window._qeegTab=\'analysis\';window._nav(\'qeeg-analysis\')">Open Analysis (demo data)</button>'
         : '';
       tabEl.innerHTML =
-        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);text-align:center">'
+        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:var(--surface-tint-1);border:1px solid var(--border);text-align:center">'
         + '<div style="font-size:32px;margin-bottom:8px">📊</div>'
         + '<div style="font-size:18px;font-weight:700;margin-bottom:6px">No analysis selected</div>'
         + '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">Open the analysis view with sample data, jump to an existing analysis, or upload a new EDF.</div>'
@@ -5479,7 +5479,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         ? '<button class="btn btn-primary btn-sm" onclick="window._qeegSelectedId=\'demo\';window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')">Open AI Report (demo data)</button>'
         : '';
       tabEl.innerHTML =
-        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);text-align:center">'
+        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:var(--surface-tint-1);border:1px solid var(--border);text-align:center">'
         + '<div style="font-size:32px;margin-bottom:8px">📝</div>'
         + '<div style="font-size:18px;font-weight:700;margin-bottom:6px">No analysis selected</div>'
         + '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">Open the AI report with sample data, jump to an existing analysis, or upload a new EDF.</div>'
@@ -6320,7 +6320,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
     // Hint when only 2 analyses exist — trend section unlocks at 3
     if (completedAnalyses.length === 2) {
       var trendHintHost = document.createElement('div');
-      trendHintHost.style.cssText = 'margin-top:16px;padding:14px;border-radius:10px;background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.12);font-size:12px;color:var(--text-secondary);text-align:center';
+      trendHintHost.style.cssText = 'margin-top:16px;padding:14px;border-radius:10px;background:var(--surface-tint-1);border:1px dashed rgba(255,255,255,0.12);font-size:12px;color:var(--text-secondary);text-align:center';
       trendHintHost.innerHTML = '<strong>Longitudinal trend</strong> requires <strong>3+ completed analyses</strong>. Upload one more recording to unlock trend tracking.';
       tabEl.appendChild(trendHintHost);
     }

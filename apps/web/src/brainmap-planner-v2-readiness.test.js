@@ -30,6 +30,13 @@ test('Brain Map Planner exposes clinical shortcut strip', () => {
   assert.match(tools, /data-testid="bmp-data-checklist"/);
 });
 
+test('Brain Map Planner exposes detailed planning report panel', () => {
+  const tools = read('./pages-clinical-tools.js');
+  assert.match(tools, /data-testid="bmp-planning-report"/);
+  assert.match(tools, /_bmpBuildPlanningReportMeta/);
+  assert.match(tools, /planning_report: _bmpBuildPlanningReportMeta\(\)/);
+});
+
 test('app.js gates brainmap-v2 from patient portal role', () => {
   const app = read('./app.js');
   assert.match(app, /currentPage === 'brainmap-v2'/);

@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -178,7 +178,7 @@ def _umbrella_audit(
         f"medication_analyzer-{event}-{actor.actor_id}-{int(now.timestamp())}"
         f"-{uuid.uuid4().hex[:6]}"
     )
-    final_note = (note[:500] if note else event)[:1024]
+    final_note = note if note else event
     try:
         create_audit_event(
             db,
@@ -340,7 +340,7 @@ def recompute_medication_analyzer(
         actor,
         event="recompute",
         patient_id=patient_id,
-        note=json.dumps({"modules": body.modules if body else None})[:500],
+        note=json.dumps({"modules": body.modules if body else None}),
     )
     return RecomputeResponse(status="complete", audit_ref=payload.get("audit_ref"))
 
@@ -381,17 +381,34 @@ def add_timeline_event(
     """Persist a clinician timeline annotation (does not mutate Rx rows)."""
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, patient_id, db)
+    event_type = (body.event_type or "").strip()
+    if not event_type:
+        raise HTTPException(status_code=422, detail="event_type required")
+    if len(event_type) > 48:
+        raise HTTPException(status_code=422, detail="event_type must be 48 characters or fewer")
+    occurred_at = (body.occurred_at or "").strip()
+    if not occurred_at:
+        raise HTTPException(status_code=422, detail="occurred_at required")
+    try:
+        parsed = datetime.fromisoformat(occurred_at.replace("Z", "+00:00"))
+        occurred_at = parsed.isoformat().replace("+00:00", "Z") if parsed.tzinfo else parsed.isoformat()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="occurred_at must be a valid ISO datetime") from exc
+    medication_id = (body.medication_id or "").strip() or None
+    source_origin = (body.source_origin or "").strip() or "clinician_entry"
+    if len(source_origin) > 48:
+        raise HTTPException(status_code=422, detail="source_origin must be 48 characters or fewer")
 
     eid = str(uuid.uuid4())
     row = MedicationAnalyzerTimelineEvent(
         id=eid,
         patient_id=patient_id,
         actor_id=actor.actor_id,
-        event_type=body.event_type,
-        occurred_at=body.occurred_at,
-        medication_id=body.medication_id,
+        event_type=event_type,
+        occurred_at=occurred_at,
+        medication_id=medication_id,
         payload_json=json.dumps(body.payload, default=str),
-        source_origin=body.source_origin,
+        source_origin=source_origin,
     )
     db.add(row)
     db.commit()
@@ -433,14 +450,26 @@ def add_review_note(
     """Persist a clinician review note."""
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, patient_id, db)
+    note_text = body.note_text.strip()
+    if not note_text:
+        raise HTTPException(status_code=422, detail="review note required")
+    linked_recommendation_ids = list(
+        dict.fromkeys(
+            [
+                str(item).strip()
+                for item in (body.linked_recommendation_ids or [])
+                if str(item).strip()
+            ]
+        )
+    )
 
     nid = str(uuid.uuid4())
     row = MedicationAnalyzerReviewNote(
         id=nid,
         patient_id=patient_id,
         actor_id=actor.actor_id,
-        note_text=body.note_text,
-        linked_recommendation_ids_json=json.dumps(body.linked_recommendation_ids),
+        note_text=note_text,
+        linked_recommendation_ids_json=json.dumps(linked_recommendation_ids),
     )
     db.add(row)
     db.commit()
@@ -453,7 +482,7 @@ def add_review_note(
         patient_id,
         actor.actor_id,
         "review_note",
-        detail={"note_id": nid, "linked": body.linked_recommendation_ids},
+        detail={"note_id": nid, "linked": linked_recommendation_ids},
     )
     _umbrella_audit(
         db,

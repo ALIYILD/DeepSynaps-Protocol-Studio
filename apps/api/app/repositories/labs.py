@@ -15,7 +15,7 @@ from typing import Optional, Sequence
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.persistence.models import Patient, PatientLabResult
+from app.persistence.models import Patient, PatientLabResult, User
 
 
 def get_patient_by_id(session: Session, patient_id: str) -> Optional[Patient]:
@@ -48,6 +48,25 @@ def get_patient_profile(
     return name, cond
 
 
+def list_clinic_patients(
+    session: Session,
+    *,
+    clinic_id: str | None,
+    include_all: bool = False,
+) -> list[Patient]:
+    """Return active patients visible to a clinic-wide labs dashboard."""
+    stmt = (
+        select(Patient)
+        .join(User, User.id == Patient.clinician_id, isouter=True)
+        .where(Patient.status == "active")
+    )
+    if not include_all:
+        if not clinic_id:
+            return []
+        stmt = stmt.where(User.clinic_id == clinic_id)
+    return list(session.execute(stmt).scalars().all())
+
+
 def insert_lab_result_batch(
     session: Session,
     *,
@@ -78,15 +97,15 @@ def insert_lab_result_batch(
             clinician_id=clinician_id,
             analyte_code=(it["analyte_code"] or "").strip(),
             analyte_display_name=(it["analyte_display_name"] or "").strip(),
-            panel_name=it.get("panel_name"),
+            panel_name=((it.get("panel_name") or "").strip() or None),
             value_numeric=it.get("value_numeric"),
-            value_text=it.get("value_text"),
-            unit_ucum=it.get("unit_ucum"),
+            value_text=((it.get("value_text") or "").strip() or None),
+            unit_ucum=((it.get("unit_ucum") or "").strip() or None),
             ref_low=it.get("ref_low"),
             ref_high=it.get("ref_high"),
-            ref_text=it.get("ref_text"),
+            ref_text=((it.get("ref_text") or "").strip() or None),
             sample_collected_at=sample_at,
-            source=(it.get("source") or "manual")[:32],
+            source=((((it.get("source") or "").strip().lower()) or "manual")[:32]),
             is_demo=is_demo,
         )
         session.add(row)

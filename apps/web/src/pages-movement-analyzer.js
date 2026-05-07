@@ -6,12 +6,42 @@ import { api } from './api.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 
+const CLINICAL_MOVEMENT_ANALYZER_ROLES = new Set(['clinician', 'admin', 'clinic-admin', 'supervisor', 'reviewer', 'technician', 'resident']);
+
 export function esc(s) {
   return String(s ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+export function canUseMovementAnalyzerWorkspace(role, opts = {}) {
+  const normalized = String(role || '').trim().toLowerCase();
+  if (!normalized) return !!opts.allowUnknown;
+  return CLINICAL_MOVEMENT_ANALYZER_ROLES.has(normalized);
+}
+
+export function applyMovementAnalyzerPatientContext(pageId, patientId, win = globalThis?.window) {
+  const pid = String(patientId || '').trim();
+  if (!pid || !win) return;
+  try { win._profilePatientId = pid; } catch {}
+  try { win._selectedPatientId = pid; } catch {}
+  if (pageId === 'patient-analytics') {
+    try { win._paPatientId = pid; } catch {}
+  }
+  if (pageId === 'deeptwin') {
+    try { win._deeptwinPatientId = pid; } catch {}
+  }
+}
+
+function _renderMovementAnalyzerRestrictedCard() {
+  return `<div role="region" aria-label="Movement analyzer access restricted" style="max-width:560px;margin:48px auto;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);text-align:center">
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px">Clinician workspace</div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
+      Movement review is restricted to clinician-facing accounts because it surfaces patient-linked sensor cues, exports, and audit actions that require governed review.
+    </div>
+  </div>`;
 }
 
 /** Map backend multimodal_links analyzer_id to app nav page id */
@@ -613,6 +643,21 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
   const el = document.getElementById('content');
   if (!el) return;
 
+  const demoMode = isDemoSession();
+  let actorRole = null;
+  if (!demoMode) {
+    try {
+      const me = await api.me();
+      actorRole = me?.role || me?.user?.role || null;
+    } catch {
+      actorRole = null;
+    }
+    if (!canUseMovementAnalyzerWorkspace(actorRole)) {
+      el.innerHTML = _renderMovementAnalyzerRestrictedCard();
+      return;
+    }
+  }
+
   let view = 'clinic';
   let summaryCache = null;
   let rosterCache = [];
@@ -843,9 +888,8 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
 
     function goWithPatient(pageId) {
       if (!activePatientId) return;
+      applyMovementAnalyzerPatientContext(pageId, activePatientId);
       try {
-        window._profilePatientId = activePatientId;
-        window._selectedPatientId = activePatientId;
         navigate?.(pageId);
       } catch {}
     }
@@ -959,11 +1003,8 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
       btn.addEventListener('click', () => {
         const page = btn.getAttribute('data-nav-page');
         if (!page) return;
+        applyMovementAnalyzerPatientContext(page, activePatientId);
         try {
-          if (page === 'patient-profile') {
-            window._profilePatientId = activePatientId;
-            window._selectedPatientId = activePatientId;
-          }
           navigate?.(page);
         } catch {}
       });
@@ -993,6 +1034,7 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
       try {
         if (rid) {
           window._mvOpenRecording = rid;
+          applyMovementAnalyzerPatientContext('video-assessments', activePatientId);
           navigate?.('video-assessments');
         }
       } catch {}

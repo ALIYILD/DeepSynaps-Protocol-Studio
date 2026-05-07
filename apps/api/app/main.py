@@ -27,7 +27,6 @@ from deepsynaps_core_schema import (
     ErrorResponse,
     EvidenceListResponse,
     HandbookGenerateRequest,
-    HandbookGenerateResponse,
     IntakePreviewRequest,
     IntakePreviewResponse,
     ProtocolDraftRequest,
@@ -97,6 +96,7 @@ from app.routers.reports_router import router as reports_router
 from app.routers.documents_router import router as documents_router
 from app.routers.documents_router import patient_docs_router
 from app.routers.recordings_router import router as recordings_router
+from app.routers.audio_analysis_router import router as audio_analysis_router
 from app.routers.protocols_saved_router import router as protocols_saved_router
 from app.routers.protocols_generate_router import router as protocols_generate_router
 from app.routers.protocol_studio_router import router as protocol_studio_router
@@ -273,7 +273,7 @@ from app.qeeg.workers.qeeg_analysis_worker import (
     start_worker_if_enabled as start_qeeg_105_worker,
 )
 from app.services.agent_skills_seed import seed_default_agent_skills
-from app.services.clinical_data import seed_clinical_dataset
+from app.services.clinical_data import HandbookGenerateAPIResponse, seed_clinical_dataset
 from app.services.devices import list_devices
 from app.services.evidence import list_evidence
 from app.services.generation import generate_handbook, generate_protocol_draft
@@ -374,6 +374,11 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
         # Seed demo Clinic + User rows so demo tokens resolve with a real
         # clinic_id and cross-clinic gates work in dev/test/smoke runs.
         _seed_demo_users_for_dev(session)
+        # Optional: deterministic synthetic demo data for Clinician Digest.
+        # Guarded by settings.app_env in {development,test} AND
+        # DEEPSYNAPS_DEMO_CLINIC_SEED=1 (never runs in staging/production).
+        from app.services.demo_clinic_seed import maybe_seed_demo_clinic_digest  # noqa: PLC0415
+        maybe_seed_demo_clinic_digest(session)
         app_instance.state.clinical_snapshot_id = snapshot.snapshot_id
         logger.info(
             "application startup complete",
@@ -467,6 +472,7 @@ app.include_router(reports_router, prefix="/api/v1/reports", tags=["reports"])
 app.include_router(documents_router)
 app.include_router(patient_docs_router)
 app.include_router(recordings_router)
+app.include_router(audio_analysis_router)
 app.include_router(protocols_saved_router)
 app.include_router(protocols_generate_router)
 app.include_router(protocol_studio_router)
@@ -971,7 +977,7 @@ def protocol_draft(
 
 @app.post(
     "/api/v1/handbooks/generate",
-    response_model=HandbookGenerateResponse,
+    response_model=HandbookGenerateAPIResponse,
     responses={403: {"model": ErrorResponse}},
 )
 @limiter.limit("10/minute")
@@ -979,7 +985,7 @@ def handbook(
     request: Request,
     payload: HandbookGenerateRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
-) -> HandbookGenerateResponse:
+) -> HandbookGenerateAPIResponse:
     return generate_handbook(payload, actor)
 
 

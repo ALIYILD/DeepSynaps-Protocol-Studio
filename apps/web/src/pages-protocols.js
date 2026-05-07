@@ -192,6 +192,9 @@ export async function pgProtocolSearch(setTopbar, navigate, opts = {}) {
     view: 'grid', // 'grid' | 'list' | 'by-condition'
     category: '',
     classification: 'all', // quick-filter chip: all|on-label|off-label|ai|scan
+    population: '', // '' | 'pediatric' | 'adult'
+    researchOnly: '', // '' | 'only' | 'hide'
+    hasLiterature: '', // '' | 'yes' | 'no'
   };
 
   // ── Category list ─────────────────────────────────────────────────────────
@@ -226,6 +229,30 @@ export async function pgProtocolSearch(setTopbar, navigate, opts = {}) {
         if (c === 'scan')      return p.type === 'scan-guided' || p.type === 'brain-scan';
         return true;
       });
+    }
+    if (_state.population === 'pediatric') {
+      results = results.filter(p => {
+        const cond = getCondition(p.conditionId);
+        const blob = `${p.conditionId || ''} ${cond?.label || ''} ${cond?.category || ''}`.toLowerCase();
+        return blob.includes('pediatric') || blob.includes('child') || blob.includes('adolescent');
+      });
+    } else if (_state.population === 'adult') {
+      results = results.filter(p => {
+        const cond = getCondition(p.conditionId);
+        const id = (p.conditionId || '').toLowerCase();
+        const lab = (cond?.label || '').toLowerCase();
+        return !id.includes('pediatric') && !lab.includes('pediatric') && !id.includes('adolescent');
+      });
+    }
+    if (_state.researchOnly === 'only') {
+      results = results.filter(p => (p.governance || []).includes('investigational') || /\bresearch/i.test(p.name || ''));
+    } else if (_state.researchOnly === 'hide') {
+      results = results.filter(p => !(p.governance || []).includes('investigational'));
+    }
+    if (_state.hasLiterature === 'yes') {
+      results = results.filter(p => (p.references || []).length > 0 || (String(p.notes || '').length > 0));
+    } else if (_state.hasLiterature === 'no') {
+      results = results.filter(p => !((p.references || []).length > 0 || (String(p.notes || '').length > 0)));
     }
 
     const _evPapers = EVIDENCE_SUMMARY?.totalPapers || 87000;
@@ -302,6 +329,21 @@ export async function pgProtocolSearch(setTopbar, navigate, opts = {}) {
           <option value="">All Governance</option>
           ${Object.entries(GOVERNANCE_LABELS).map(([k,v])=>`<option value="${k}"${_state.governance===k?' selected':''}>${v.label}</option>`).join('')}
         </select>
+        <select class="prot-filter-sel" data-testid="protocol-filter-population" onchange="window._protFilterPopulation(this.value)" title="Population">
+          <option value="">All populations</option>
+          <option value="pediatric"${_state.population==='pediatric'?' selected':''}>Pediatric-focused</option>
+          <option value="adult"${_state.population==='adult'?' selected':''}>Adult-focused</option>
+        </select>
+        <select class="prot-filter-sel" data-testid="protocol-filter-research" onchange="window._protFilterResearch(this.value)">
+          <option value="">Research filter</option>
+          <option value="hide"${_state.researchOnly==='hide'?' selected':''}>Hide investigational</option>
+          <option value="only"${_state.researchOnly==='only'?' selected':''}>Research-only</option>
+        </select>
+        <select class="prot-filter-sel" data-testid="protocol-filter-literature" onchange="window._protFilterLiterature(this.value)">
+          <option value="">Literature links</option>
+          <option value="yes"${_state.hasLiterature==='yes'?' selected':''}>Has literature refs</option>
+          <option value="no"${_state.hasLiterature==='no'?' selected':''}>No refs on card</option>
+        </select>
         <div class="prot-view-toggle">
           <button class="prot-view-btn${_state.view==='grid'?' active':''}" onclick="window._protView('grid')" title="Grid">&#9783;</button>
           <button class="prot-view-btn${_state.view==='list'?' active':''}" onclick="window._protView('list')" title="List">&#9776;</button>
@@ -312,8 +354,10 @@ export async function pgProtocolSearch(setTopbar, navigate, opts = {}) {
     const _protCard = p => {
       const cond = getCondition(p.conditionId);
       const dev = getDevice(p.device);
+      const litCount = (p.references || []).length;
+      const evLabel = litCount ? `${litCount} cited refs` : 'Evidence links unavailable in this environment.';
       return `
-        <div class="prot-card" onclick="window._protOpenDetail('${_esc(p.id)}')">
+        <div class="prot-card" onclick="window._protOpenDetail('${_esc(p.id)}')" data-testid="protocol-browse-card">
           <div class="prot-card-header">
             <span class="prot-device-icon" title="${_esc(_deviceLabel(p.device))}">${_deviceIcon(p.device)}</span>
             <span class="prot-card-cond">${_esc(cond?.shortLabel || cond?.label || p.conditionId)}</span>
@@ -321,12 +365,14 @@ export async function pgProtocolSearch(setTopbar, navigate, opts = {}) {
           </div>
           <div class="prot-card-name">${_esc(p.name)}</div>
           <div class="prot-card-target">\uD83C\uDFAF ${_esc(p.target || '\u2014')}</div>
+          <div style="font-size:10px;color:var(--text-tertiary);margin:4px 0">${_esc(evLabel)}</div>
           <div class="prot-card-badges">
             ${_typeBadge(p.type)}
             ${_govBadges(p.governance)}
           </div>
           <div class="prot-card-footer">
             <span class="prot-card-params">${p.parameters?.sessions_total ? p.parameters.sessions_total + ' sessions' : ''} ${p.parameters?.frequency_hz ? '\u00B7 ' + p.parameters.frequency_hz + 'Hz' : ''}</span>
+            <button type="button" class="prot-use-btn" style="margin-right:6px;background:transparent;border:1px solid var(--border)" onclick="event.stopPropagation();window._protOpenDetail('${_esc(p.id)}')" data-testid="protocol-view-evidence">View evidence</button>
             <button class="prot-use-btn" onclick="event.stopPropagation();window._protUseProtocol('${_esc(p.id)}')">Use</button>
           </div>
         </div>`;
@@ -431,6 +477,9 @@ export async function pgProtocolSearch(setTopbar, navigate, opts = {}) {
   window._protFilterType = v => { _state.type = v; renderPage(); };
   window._protFilterGrade = v => { _state.evidenceGrade = v; renderPage(); };
   window._protFilterGov = v => { _state.governance = v; renderPage(); };
+  window._protFilterPopulation = v => { _state.population = v; renderPage(); };
+  window._protFilterResearch = v => { _state.researchOnly = v; renderPage(); };
+  window._protFilterLiterature = v => { _state.hasLiterature = v; renderPage(); };
   window._protView = v => { _state.view = v; renderPage(); };
   window._protFilterCategory = cat => { _state.category = cat; _state.conditionId = ''; renderPage(); };
   window._protSetClassification = v => { _state.classification = v || 'all'; renderPage(); };

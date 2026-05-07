@@ -18,6 +18,12 @@ from .payload import (
     ReportSection,
     SuggestedAction,
 )
+from .handbook_bundle import (
+    HANDBOOK_AI_ASSISTED_DISCLAIMER,
+    render_handbook_bundle_docx,
+    render_handbook_bundle_html,
+    render_handbook_bundle_pdf,
+)
 from .renderers import (
     PdfRendererUnavailable,
     RenderEngineError,
@@ -47,4 +53,8 @@ __all__ = [
     "render_protocol_docx",
     "render_patient_guide_docx",
     "render_web_preview",
+    "HANDBOOK_AI_ASSISTED_DISCLAIMER",
+    "render_handbook_bundle_docx",
+    "render_handbook_bundle_html",
+    "render_handbook_bundle_pdf",
 ]

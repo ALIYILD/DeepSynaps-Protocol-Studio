@@ -203,12 +203,12 @@ class TestEvidencePackage:
 # ── 6. DeepTwin / Brain Twin honesty ─────────────────────────────────────────
 
 class TestDeepTwinHonesty:
-    """DeepTwin stub responses must honestly declare placeholder status."""
+    """DeepTwin simulation must fail closed until a real engine exists."""
 
-    def test_simulate_stub_declares_placeholder(
+    def test_simulate_returns_not_implemented_when_no_engine(
         self, client: TestClient, auth_headers: dict,
     ) -> None:
-        """When simulation is enabled but uses stub engine, engine.status must be 'placeholder'."""
+        """When simulation is enabled without a validated engine, return 503/not implemented."""
         with patch.dict("os.environ", {"DEEPSYNAPS_ENABLE_DEEPTWIN_SIMULATION": "true"}):
             resp = client.post(
                 "/api/v1/deeptwin/simulate",
@@ -216,19 +216,14 @@ class TestDeepTwinHonesty:
                     "patient_id": "test-patient",
                     "protocol_id": "proto-1",
                     "horizon_days": 30,
-                    "modalities": ["eeg"],
+                    "modalities": ["qeeg_features"],
                 },
                 headers=auth_headers["clinician"],
             )
-            if resp.status_code == 200:
-                body = resp.json()
-                engine = body.get("engine", {})
-                assert engine.get("real_ai") is False, (
-                    "Stub simulation must declare real_ai=False"
-                )
-                assert engine.get("status") != "ok", (
-                    "Stub simulation must not claim status='ok'"
-                )
+            assert resp.status_code == 503
+            body = resp.json()
+            assert body["code"] == "deeptwin_simulation_not_implemented"
+            assert body["details"]["reason"] == "no_validated_simulation_engine"
 
 
 # ── 7. TRIBE engine_info metadata ────────────────────────────────────────────
@@ -448,17 +443,14 @@ class TestDeepTwinPlaceholderSafeguards:
     def test_simulate_engine_not_active(
         self, client: TestClient, auth_headers: dict,
     ) -> None:
-        """Simulation engine must not claim active/ok status."""
+        """Simulation requests must fail closed until a real engine exists."""
         resp = client.post(
             "/api/v1/deeptwin/simulate",
             json={"patient_id": "test-patient", "protocol_id": "proto-1", "horizon_days": 30},
             headers=auth_headers["clinician"],
         )
-        if resp.status_code == 200:
-            engine = resp.json().get("engine", {})
-            assert engine.get("status") not in ("active", "ok"), (
-                "Simulation engine must not claim active/ok without real model"
-            )
+        assert resp.status_code == 503
+        assert resp.json()["code"] == "deeptwin_simulation_not_implemented"
 
     def test_health_deeptwin_simulation_not_implemented(
         self, client: TestClient,
@@ -484,7 +476,7 @@ class TestDeepTwinPlaceholderSafeguards:
 # ── 11. Brain Twin simulation contract ──────────────────────────────────────
 
 class TestBrainTwinSimulationContract:
-    """Verify the worker-level Brain Twin simulation honours the placeholder contract.
+    """Verify the worker-level Brain Twin simulation fails closed without a real engine.
 
     These tests load the worker module directly (bypassing the API app shadow)
     so they exercise the actual Celery task entry point.
@@ -510,8 +502,8 @@ class TestBrainTwinSimulationContract:
         mod.DeeptwinSimulationJob.model_rebuild(_types_namespace={"Any": typing.Any})
         return mod
 
-    def test_brain_twin_worker_stub_returns_real_ai_false(self, monkeypatch) -> None:
-        """Stub path must declare real_ai=False in engine block."""
+    def test_brain_twin_worker_returns_not_implemented_without_engine(self, monkeypatch) -> None:
+        """Worker path must fail closed when no validated engine exists."""
         monkeypatch.setenv("DEEPSYNAPS_APP_ENV", "test")
         monkeypatch.setenv("DEEPSYNAPS_ENABLE_DEEPTWIN_SIMULATION", "1")
         sim = self._load_worker_sim()
@@ -520,27 +512,12 @@ class TestBrainTwinSimulationContract:
             horizon_days=30, modalities=[], scenario={},
         )
         result = sim.run_deeptwin_simulation(job)
-        # Skip if autoresearch is installed (different path)
         if result.get("status") == "not_implemented":
-            pytest.skip("autoresearch installed; stub path not taken")
-        assert result["engine"]["real_ai"] is False
-
-    def test_brain_twin_worker_stub_includes_placeholder_notice(self, monkeypatch) -> None:
-        """Stub engine block must contain a human-readable placeholder notice."""
-        monkeypatch.setenv("DEEPSYNAPS_APP_ENV", "test")
-        monkeypatch.setenv("DEEPSYNAPS_ENABLE_DEEPTWIN_SIMULATION", "1")
-        sim = self._load_worker_sim()
-        job = sim.DeeptwinSimulationJob(
-            job_id="contract-2", patient_id="pat-c2", protocol_id="proto-c2",
-            horizon_days=30, modalities=[], scenario={},
-        )
-        result = sim.run_deeptwin_simulation(job)
-        if result.get("status") == "not_implemented":
-            pytest.skip("autoresearch installed; stub path not taken")
-        notice = result["engine"].get("notice", "")
-        assert "placeholder" in notice.lower(), (
-            f"Engine notice must mention 'placeholder', got: {notice!r}"
-        )
+            assert result["engine"]["real_ai"] is False
+            assert result["reason"] in {"no_validated_simulation_engine", None}
+            assert "not implemented" in result["message"].lower()
+        else:
+            assert result["engine"]["name"] == "autoresearch"
 
     def test_brain_twin_celery_task_validates_payload(self, monkeypatch) -> None:
         """DeeptwinSimulationJob must reject invalid payloads at the Pydantic layer."""

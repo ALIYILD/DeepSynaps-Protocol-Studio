@@ -511,7 +511,7 @@ const ROLE_NAV_HIDE = {
   technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'risk-analyzer', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
   reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'population-analytics', 'brain-map-planner', 'brainmap-v2'],
   patient:    ['finance-v2'],
-  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'treatment-sessions-analyzer', 'audittrail', 'billing', 'finance-v2', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report', 'tickets'],
+  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-v2', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'treatment-sessions-analyzer', 'audittrail', 'billing', 'finance-v2', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report', 'tickets'],
   clinician:  ['population-analytics'],
 };
 
@@ -3120,7 +3120,7 @@ window.addEventListener('popstate', (e) => {
     { type: 'nav', icon: '◈',  title: 'qEEG / Brain Data',   page: 'braindata' },
     { type: 'nav', icon: '◫',  title: 'qEEG Maps',           page: 'qeegmaps' },
     { type: 'nav', icon: '🧬', title: 'Biomarkers Reference', page: 'biomarkers' },
-    { type: 'nav', icon: '◉',  title: 'Assessments',         page: 'assessments' },
+    { type: 'nav', icon: '◉',  title: 'Assessments',         page: 'assessments-v2' },
     { type: 'nav', icon: '◧',  title: 'Handbooks',           page: 'handbooks' },
     { type: 'nav', icon: '🤖', title: 'AI Clinical Assistant', page: 'ai-assistant' },
     { type: 'nav', icon: '📄', title: 'Reports',             page: 'reports' },

@@ -83,6 +83,117 @@ class TestCreatePhenotypeAssignment:
             )
             assert resp.status_code == 201, f"Expected 201 for confidence={confidence}"
 
+    def test_invalid_assigned_at_rejected(self, client: TestClient, auth_headers: dict, patient_id: str) -> None:
+        resp = client.post(
+            "/api/v1/phenotype-assignments",
+            json={
+                "patient_id": patient_id,
+                **MINIMAL_ASSIGNMENT,
+                "assigned_at": "not-a-timestamp",
+            },
+            headers=auth_headers["clinician"],
+        )
+        assert resp.status_code == 422
+        assert resp.json()["code"] == "invalid_assigned_at"
+
+    def test_valid_assigned_at_persisted(self, client: TestClient, auth_headers: dict, patient_id: str) -> None:
+        resp = client.post(
+            "/api/v1/phenotype-assignments",
+            json={
+                "patient_id": patient_id,
+                **MINIMAL_ASSIGNMENT,
+                "assigned_at": "2026-05-06T09:30:00",
+            },
+            headers=auth_headers["clinician"],
+        )
+        assert resp.status_code == 201
+        assert resp.json()["assigned_at"].startswith("2026-05-06T09:30:00")
+
+    def test_blank_phenotype_id_rejected(self, client: TestClient, auth_headers: dict, patient_id: str) -> None:
+        resp = client.post(
+            "/api/v1/phenotype-assignments",
+            json={
+                "patient_id": patient_id,
+                "phenotype_id": "   ",
+                "phenotype_name": "ADHD Combined",
+            },
+            headers=auth_headers["clinician"],
+        )
+        assert resp.status_code == 422
+        assert resp.json()["code"] == "invalid_phenotype_id"
+
+    def test_overlong_phenotype_id_rejected(self, client: TestClient, auth_headers: dict, patient_id: str) -> None:
+        resp = client.post(
+            "/api/v1/phenotype-assignments",
+            json={
+                "patient_id": patient_id,
+                "phenotype_id": "p" * 65,
+                "phenotype_name": "ADHD Combined",
+            },
+            headers=auth_headers["clinician"],
+        )
+        assert resp.status_code == 422
+        assert resp.json()["code"] == "invalid_phenotype_id"
+
+    def test_blank_phenotype_name_rejected(self, client: TestClient, auth_headers: dict, patient_id: str) -> None:
+        resp = client.post(
+            "/api/v1/phenotype-assignments",
+            json={
+                "patient_id": patient_id,
+                "phenotype_id": "pheno-adhd-combined",
+                "phenotype_name": "   ",
+            },
+            headers=auth_headers["clinician"],
+        )
+        assert resp.status_code == 422
+        assert resp.json()["code"] == "invalid_phenotype_name"
+
+    def test_overlong_phenotype_name_rejected(self, client: TestClient, auth_headers: dict, patient_id: str) -> None:
+        resp = client.post(
+            "/api/v1/phenotype-assignments",
+            json={
+                "patient_id": patient_id,
+                "phenotype_id": "pheno-adhd-combined",
+                "phenotype_name": "N" * 256,
+            },
+            headers=auth_headers["clinician"],
+        )
+        assert resp.status_code == 422
+        assert resp.json()["code"] == "invalid_phenotype_name"
+
+    def test_overlong_domain_rejected(self, client: TestClient, auth_headers: dict, patient_id: str) -> None:
+        resp = client.post(
+            "/api/v1/phenotype-assignments",
+            json={
+                "patient_id": patient_id,
+                "phenotype_id": "pheno-adhd-combined",
+                "phenotype_name": "ADHD Combined",
+                "domain": "d" * 121,
+            },
+            headers=auth_headers["clinician"],
+        )
+        assert resp.status_code == 422
+        assert resp.json()["code"] == "invalid_domain"
+
+    def test_whitespace_fields_trimmed_before_persist(self, client: TestClient, auth_headers: dict, patient_id: str) -> None:
+        resp = client.post(
+            "/api/v1/phenotype-assignments",
+            json={
+                "patient_id": patient_id,
+                "phenotype_id": "  pheno-mdd-hypoarousal  ",
+                "phenotype_name": "  MDD Hypoarousal  ",
+                "domain": "  mood  ",
+                "rationale": "  Low frontal alpha asymmetry on qEEG  ",
+            },
+            headers=auth_headers["clinician"],
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["phenotype_id"] == "pheno-mdd-hypoarousal"
+        assert data["phenotype_name"] == "MDD Hypoarousal"
+        assert data["domain"] == "mood"
+        assert data["rationale"] == "Low frontal alpha asymmetry on qEEG"
+
     def test_guest_cannot_create(self, client: TestClient, auth_headers: dict, patient_id: str) -> None:
         resp = client.post(
             "/api/v1/phenotype-assignments",
@@ -207,6 +318,72 @@ class TestPhenotypeAnalyzerAudit:
         assert resp.status_code == 200
         assert resp.json().get("accepted") is True
         assert "event_id" in resp.json()
+
+    def test_post_page_audit_event_trims_note_before_persist(
+        self, client: TestClient, auth_headers: dict, patient_id: str
+    ) -> None:
+        resp = client.post(
+            "/api/v1/phenotype-assignments/audit-events",
+            json={"event": "  workspace_view  ", "patient_id": patient_id, "note": "  unit test note  "},
+            headers=auth_headers["clinician"],
+        )
+        assert resp.status_code == 200
+
+        listing = client.get(
+            f"/api/v1/phenotype-assignments/audit-events?patient_id={patient_id}",
+            headers=auth_headers["clinician"],
+        )
+        assert listing.status_code == 200
+        match = next(item for item in listing.json()["items"] if item["event_id"] == resp.json()["event_id"])
+        assert match["action"] == "workspace_view"
+        assert "unit test note" in match["note"]
+        assert "  unit test note  " not in match["note"]
+
+    def test_post_page_audit_event_rejects_blank_event(
+        self, client: TestClient, auth_headers: dict, patient_id: str
+    ) -> None:
+        resp = client.post(
+            "/api/v1/phenotype-assignments/audit-events",
+            json={"event": "   ", "patient_id": patient_id, "note": "unit test"},
+            headers=auth_headers["clinician"],
+        )
+        assert resp.status_code == 422
+        assert resp.json()["code"] == "invalid_event"
+
+    def test_post_page_audit_event_rejects_overlong_event(
+        self, client: TestClient, auth_headers: dict, patient_id: str
+    ) -> None:
+        resp = client.post(
+            "/api/v1/phenotype-assignments/audit-events",
+            json={
+                "event": "workspace_view_event_name_is_too_long",
+                "patient_id": patient_id,
+                "note": "unit test",
+            },
+            headers=auth_headers["clinician"],
+        )
+        assert resp.status_code == 422
+        assert resp.json()["code"] == "invalid_event"
+        assert "32 characters or fewer" in resp.json()["message"]
+
+    def test_post_page_audit_event_preserves_full_note_within_contract(
+        self, client: TestClient, auth_headers: dict, patient_id: str
+    ) -> None:
+        note = "A" * 430
+        resp = client.post(
+            "/api/v1/phenotype-assignments/audit-events",
+            json={"event": "workspace_view", "patient_id": patient_id, "note": note},
+            headers=auth_headers["clinician"],
+        )
+        assert resp.status_code == 200, resp.text
+
+        listing = client.get(
+            f"/api/v1/phenotype-assignments/audit-events?patient_id={patient_id}",
+            headers=auth_headers["clinician"],
+        )
+        assert listing.status_code == 200
+        match = next(item for item in listing.json()["items"] if item["event_id"] == resp.json()["event_id"])
+        assert note in match["note"]
 
     def test_guest_cannot_post_audit(self, client: TestClient, auth_headers: dict, patient_id: str) -> None:
         resp = client.post(

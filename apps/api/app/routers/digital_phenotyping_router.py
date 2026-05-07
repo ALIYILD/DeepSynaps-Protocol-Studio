@@ -34,6 +34,7 @@ from app.repositories.digital_phenotyping import (
     count_observations as _repo_count_observations,
     get_patient_display_name as _repo_get_patient_display_name,
     insert_observation as _repo_insert_observation,
+    list_clinic_patients as _repo_list_clinic_patients,
     list_recent_audit as _repo_list_recent_audit,
     list_recent_observations as _repo_list_recent_observations,
     load_or_create_state as _repo_load_or_create_state,
@@ -98,6 +99,35 @@ class ObservationCreateBody(BaseModel):
     kind: str = "ema_checkin"
     recorded_at: Optional[str] = None
     payload: dict[str, Any] = Field(default_factory=dict)
+
+
+# core-schema-exempt: minimal router-local annotation body; not reused outside this router
+class AnnotationBody(BaseModel):
+    note: str = Field(min_length=1, max_length=8000)
+
+
+# core-schema-exempt: clinic-summary response shape; not reused outside this router
+class ClinicSignalFlagOut(BaseModel):
+    key: str
+    label: str
+    severity: str
+
+
+# core-schema-exempt: clinic-summary response shape; not reused outside this router
+class ClinicPatientSummaryOut(BaseModel):
+    patient_id: str
+    patient_name: str
+    captured_at: str | None = None
+    flags: list[ClinicSignalFlagOut] = Field(default_factory=list)
+    worst_severity: str = "green"
+    trend: str = "stable"
+
+
+# core-schema-exempt: clinic-summary response shape; not reused outside this router
+class ClinicSummaryResponse(BaseModel):
+    captured_at: str | None = None
+    patients: list[ClinicPatientSummaryOut] = Field(default_factory=list)
+    total: int = 0
 
 
 def _require_known_patient(db: Session, patient_id: str) -> None:
@@ -219,6 +249,50 @@ def _build_research_export_bundle(db: Session, patient_id: str) -> dict[str, Any
     }
 
 
+_CLINIC_SIGNAL_META: list[tuple[str, str, str]] = [
+    ("sleep", "sleep_timing_proxy", "sleep"),
+    ("mobility", "mobility_stability", "mobility"),
+    ("social", "sociability_proxy", "social"),
+    ("typing_cadence", "activity_level", "typing cadence"),
+    ("screen_time", "screen_time_pattern", "screen time"),
+    ("voice_diary", "routine_regularity", "voice diary"),
+]
+
+
+def _metric_severity(metric: Any) -> str | None:
+    if not isinstance(metric, dict) or metric.get("value") is None:
+        return None
+    cmp = str(metric.get("baseline_comparison") or "").lower()
+    if cmp in ("above", "below"):
+        return "amber"
+    if cmp == "within":
+        return "green"
+    return None
+
+
+def _clinic_summary_row_from_payload(payload: dict[str, Any]) -> ClinicPatientSummaryOut:
+    snap = payload.get("snapshot") if isinstance(payload.get("snapshot"), dict) else {}
+    flags: list[ClinicSignalFlagOut] = []
+    for key, metric_key, label in _CLINIC_SIGNAL_META:
+        sev = _metric_severity(snap.get(metric_key))
+        if sev:
+            flags.append(ClinicSignalFlagOut(key=key, label=label, severity=sev))
+    ranks = {"red": 3, "amber": 2, "green": 1}
+    worst_rank = max((ranks.get(f.severity, 0) for f in flags), default=0)
+    reds = sum(1 for f in flags if f.severity == "red")
+    greens = sum(1 for f in flags if f.severity == "green")
+    trend = "improving" if greens > reds else "worsening" if reds > greens else "stable"
+    worst = "red" if worst_rank == 3 else "amber" if worst_rank == 2 else "green"
+    return ClinicPatientSummaryOut(
+        patient_id=str(payload.get("patient_id") or ""),
+        patient_name=str(payload.get("patient_display_name") or payload.get("patient_id") or "Patient"),
+        captured_at=str(payload.get("generated_at") or snap.get("computed_at") or "") or None,
+        flags=flags,
+        worst_severity=worst,
+        trend=trend,
+    )
+
+
 def _audit_ts_iso(dt: Any) -> str:
     if dt is None:
         return ""
@@ -253,6 +327,28 @@ def get_digital_phenotyping_analyzer(
     latest = _repo_list_recent_audit(db, patient_id=patient_id, limit=25)
     payload["audit_events"] = audit_rows_to_payload_events(latest)
     return payload
+
+
+@router.get("/clinic/summary", response_model=ClinicSummaryResponse)
+def get_digital_phenotyping_clinic_summary(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Return a clinic-scoped digital phenotyping summary for active patients."""
+    require_minimum_role(actor, "clinician")
+    patients = _repo_list_clinic_patients(
+        db,
+        clinic_id=actor.clinic_id,
+        include_all=actor.role == "admin",
+    )
+
+    items: list[ClinicPatientSummaryOut] = []
+    for patient in patients:
+        payload = _build_payload_for_patient(db, patient.id, hide_stub_audit=True)
+        items.append(_clinic_summary_row_from_payload(payload))
+
+    latest = max((item.captured_at or "" for item in items), default="") or None
+    return ClinicSummaryResponse(captured_at=latest, patients=items, total=len(items))
 
 
 @router.post("/patient/{patient_id}/recompute")
@@ -398,22 +494,35 @@ def _add_observation_row(
     src = (source or "manual").strip().lower()
     if src not in ("manual", "device_sync"):
         raise HTTPException(status_code=422, detail="source must be 'manual' or 'device_sync'")
+    kind_clean = (kind or "").strip() or "ema_checkin"
+    if len(kind_clean) > 64:
+        raise HTTPException(status_code=422, detail="kind must be 64 characters or fewer")
 
     rec_at = datetime.now(timezone.utc)
     if recorded_at:
         try:
-            raw = recorded_at.replace("Z", "+00:00")
+            raw = recorded_at.strip().replace("Z", "+00:00")
             parsed = datetime.fromisoformat(raw)
             rec_at = parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
         except (ValueError, TypeError):
-            pass
+            raise HTTPException(status_code=422, detail="recorded_at must be a valid ISO datetime")
 
-    clean = {k: v for k, v in (payload or {}).items() if v is not None and v != ""}
+    clean: dict[str, Any] = {}
+    for k, v in (payload or {}).items():
+        if v is None:
+            continue
+        if isinstance(v, str):
+            trimmed = v.strip()
+            if not trimmed:
+                continue
+            clean[k] = trimmed
+            continue
+        clean[k] = v
     oid = _repo_insert_observation(
         db,
         patient_id=patient_id,
         source=src,
-        kind=kind or "ema_checkin",
+        kind=kind_clean,
         recorded_at=rec_at,
         payload_json=json.dumps(clean),
         created_by=actor_id,
@@ -425,7 +534,7 @@ def _add_observation_row(
         action=audit_action,
         actor_id=actor_id,
         summary=audit_summary,
-        extra={"observation_id": oid, "kind": kind, "source": src},
+        extra={"observation_id": oid, "kind": kind_clean, "source": src},
     )
 
     return {
@@ -497,6 +606,46 @@ def add_manual_digital_phenotyping_observation(
         audit_action="manual_observation",
         audit_summary="Manual digital phenotyping observation recorded",
     )
+
+
+@router.post("/patient/{patient_id}/annotation")
+def add_digital_phenotyping_annotation(
+    patient_id: str,
+    body: AnnotationBody,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Append a clinician annotation to the analyzer audit trail.
+
+    This is intentionally audit-only: annotations should not inflate the
+    manual/device observation log or affect observation completeness counts.
+    """
+    require_minimum_role(actor, "clinician")
+    _require_known_patient(db, patient_id)
+    _gate_patient(actor, patient_id, db)
+
+    note = body.note.strip()
+    if not note:
+        raise HTTPException(status_code=422, detail="annotation note required")
+    _append_audit(
+        db,
+        patient_id=patient_id,
+        action="annotation",
+        actor_id=actor.actor_id,
+        summary=note,
+        extra={"kind": "clinician_annotation"},
+    )
+
+    rows = _repo_list_recent_audit(db, patient_id=patient_id, limit=1)
+    event_id = rows[0].id if rows else str(uuid.uuid4())
+    created_at = _audit_ts_iso(rows[0].created_at) if rows else _audit_ts_iso(datetime.now(timezone.utc))
+    return {
+        "ok": True,
+        "id": event_id,
+        "patient_id": patient_id,
+        "message": note,
+        "created_at": created_at,
+    }
 
 
 @router.get("/patient/{patient_id}/audit")

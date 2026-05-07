@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { canUsePhenotypeAnalyzerWorkspace } from './pages-phenotype-analyzer.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(join(__dirname, 'pages-phenotype-analyzer.js'), 'utf8');
@@ -30,4 +31,12 @@ test('page documents backend scope (assignments + audit)', () => {
 test('registry panel reframes modality lists as non-prescriptive', () => {
   assert.match(SRC, /Modality families sometimes discussed in literature/);
   assert.match(SRC, /non-prescriptive/);
+});
+
+test('phenotype analyzer role gate allows clinician and admin only', () => {
+  assert.equal(canUsePhenotypeAnalyzerWorkspace('clinician'), true);
+  assert.equal(canUsePhenotypeAnalyzerWorkspace('admin'), true);
+  assert.equal(canUsePhenotypeAnalyzerWorkspace('patient'), false);
+  assert.equal(canUsePhenotypeAnalyzerWorkspace('technician'), false);
+  assert.equal(canUsePhenotypeAnalyzerWorkspace('', { allowUnknown: true }), true);
 });

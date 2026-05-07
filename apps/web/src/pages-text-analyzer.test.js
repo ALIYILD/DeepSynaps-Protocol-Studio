@@ -3,7 +3,15 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { toApiSourceType, normaliseEntityRows } from './pages-text-analyzer.js';
+import {
+  applyTextAnalyzerPatientContext,
+  canRunTextAnalyzerLiveOperation,
+  canUseTextAnalyzerWorkspace,
+  normaliseEntityRows,
+  redactTextAnalyzerDeidentifyAuditResponse,
+  resolveTextAnalyzerPatientId,
+  toApiSourceType,
+} from './pages-text-analyzer.js';
 
 test('toApiSourceType maps UI values to API SourceType literals', () => {
   assert.equal(toApiSourceType('free_text'), 'free_text');
@@ -44,4 +52,45 @@ test('normaliseEntityRows deidentify PII list path', () => {
   const rows = normaliseEntityRows(piiRes, 'pii');
   assert.equal(rows.length, 1);
   assert.match(rows[0].span, /chars 3/);
+});
+
+test('canUseTextAnalyzerWorkspace matches clinician-only backend access', () => {
+  assert.equal(canUseTextAnalyzerWorkspace('clinician'), true);
+  assert.equal(canUseTextAnalyzerWorkspace('admin'), true);
+  assert.equal(canUseTextAnalyzerWorkspace('patient'), false);
+  assert.equal(canUseTextAnalyzerWorkspace('reviewer'), false);
+  assert.equal(canUseTextAnalyzerWorkspace(''), false);
+  assert.equal(canUseTextAnalyzerWorkspace('', { allowUnknown: true }), true);
+});
+
+test('resolveTextAnalyzerPatientId prefers selected patient then profile fallback', () => {
+  assert.equal(resolveTextAnalyzerPatientId({ _selectedPatientId: 'pt-selected', _profilePatientId: 'pt-profile' }), 'pt-selected');
+  assert.equal(resolveTextAnalyzerPatientId({ _profilePatientId: 'pt-profile' }), 'pt-profile');
+  assert.equal(resolveTextAnalyzerPatientId({}), '');
+});
+
+test('applyTextAnalyzerPatientContext seeds downstream patient context', () => {
+  const win = {};
+  applyTextAnalyzerPatientContext('deeptwin', 'pt-42', win);
+  assert.equal(win._selectedPatientId, 'pt-42');
+  assert.equal(win._profilePatientId, 'pt-42');
+  assert.equal(win._deeptwinPatientId, 'pt-42');
+});
+
+test('canRunTextAnalyzerLiveOperation requires patient context outside demo mode', () => {
+  assert.equal(canRunTextAnalyzerLiveOperation('pt-42'), true);
+  assert.equal(canRunTextAnalyzerLiveOperation(''), false);
+  assert.equal(canRunTextAnalyzerLiveOperation('', { allowPatientlessDemo: true }), true);
+});
+
+test('redactTextAnalyzerDeidentifyAuditResponse removes original replacement text', () => {
+  const redacted = redactTextAnalyzerDeidentifyAuditResponse({
+    deidentified_text: 'Call [REDACTED]',
+    replacements: [
+      { text: '555-1212', value: '555-1212', span_text: '555-1212', label: 'phone' },
+    ],
+  });
+  assert.deepEqual(redacted.replacements, [
+    { text: '[redacted]', value: '[redacted]', span_text: '[redacted]', label: 'phone' },
+  ]);
 });

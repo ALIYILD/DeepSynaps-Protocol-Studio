@@ -18,6 +18,21 @@ export function labsWorkspaceAllowedForRole(role) {
   return r === 'clinician' || r === 'admin';
 }
 
+export function resolveLabsAnalyzerPatientId(win = globalThis?.window) {
+  if (!win) return '';
+  return String(win._selectedPatientId || win._profilePatientId || '').trim();
+}
+
+export function applyLabsAnalyzerPatientContext(pageId, patientId, win = globalThis?.window) {
+  const pid = String(patientId || '').trim();
+  if (!pid || !win) return;
+  try { win._selectedPatientId = pid; } catch {}
+  try { win._profilePatientId = pid; } catch {}
+  if (pageId === 'deeptwin') {
+    try { win._deeptwinPatientId = pid; } catch {}
+  }
+}
+
 function esc(s) {
   return String(s ?? '')
     .replace(/&/g, '&amp;')
@@ -105,12 +120,20 @@ function _errorCard(message) {
   </div>`;
 }
 
-function _emptyClinicCard() {
+export function labsClinicEmptyStateHtml(opts = {}) {
+  const unsupported = !!opts.unsupportedLiveSummary;
+  const title = unsupported
+    ? 'Clinic-wide lab summary is unavailable on this environment'
+    : 'No clinic lab rows matched this view';
+  const body = unsupported
+    ? 'This page supports patient-scoped lab review. The clinic-summary backend feed is unavailable on this environment, so absence of rows here does not imply absence of laboratory concerns elsewhere. Open a patient from the roster or patient profile to review labs safely in context.'
+    : 'This clinic-summary route is live, but it returned no patient rows for the current view. That can mean there are no sourced lab summaries yet, or no rows matched the current clinic scope. Open a patient from the roster or patient profile to review labs safely in context.';
   return `<div style="max-width:560px;margin:48px auto;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);text-align:center" role="status">
-    <div style="font-size:15px;font-weight:600;margin-bottom:8px">No lab summary available in this view</div>
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px">${esc(title)}</div>
     <div style="font-size:12px;color:var(--text-secondary);line-height:1.5">
-      Absence of data here does not mean absence of laboratory concerns elsewhere. Add patients and recorded results per your clinic workflow, or sign in with a clinician account to load clinic-scoped labs.
+      ${esc(body)}
     </div>
+    <button type="button" class="btn btn-primary btn-sm" id="lb-go-patients" style="margin-top:14px;min-height:44px">Open patient roster</button>
   </div>`;
 }
 
@@ -148,8 +171,8 @@ function _sparkline(points) {
   </svg>`;
 }
 
-function _renderClinicTable(rows, sortKey, sortDir) {
-  if (!Array.isArray(rows) || !rows.length) return _emptyClinicCard();
+function _renderClinicTable(rows, sortKey, sortDir, opts = {}) {
+  if (!Array.isArray(rows) || !rows.length) return labsClinicEmptyStateHtml(opts);
   const dir = sortDir === 'asc' ? 1 : -1;
   const sevRank = (r) => (r?.critical_count || 0) * 100 + (r?.abnormal_count || 0);
 
@@ -466,14 +489,14 @@ function _renderLinkedModulesNav(patientId) {
     { page: 'risk-analyzer', label: 'Risk Analyzer', hint: 'Risk stratification — separate model' },
     { page: 'deeptwin', label: 'DeepTwin', hint: 'Digital twin context — draft only' },
     { page: 'protocol-studio', label: 'Protocol Studio', hint: 'Draft protocols — not approval' },
-    { page: 'clinical-hub', label: 'Assessments', hint: 'Structured scales' },
+    { page: 'assessments-v2', label: 'Assessments', hint: 'Structured scales' },
     { page: 'qeeg-launcher', label: 'qEEG', hint: 'EEG analyses when linked' },
     { page: 'mri-analysis', label: 'MRI Analyzer', hint: 'Imaging when linked' },
     { page: 'video-assessments', label: 'Video analysis', hint: 'Video-derived signals' },
     { page: 'voice-analyzer', label: 'Voice analysis', hint: 'Acoustic biomarkers' },
     { page: 'handbooks-v2', label: 'Handbooks', hint: 'Institutional guidance' },
     { page: 'schedule-v2', label: 'Schedule', hint: 'Calendar & slots' },
-    { page: 'inbox', label: 'Inbox', hint: 'Operational tasks' },
+    { page: 'clinician-inbox', label: 'Inbox', hint: 'Operational tasks' },
     { page: 'live-session', label: 'Live session', hint: 'Virtual care surface' },
     { page: 'treatment-sessions-analyzer', label: 'Treatment sessions', hint: 'Session history' },
     { page: 'research-evidence', label: 'Evidence search', hint: 'Literature lookup' },
@@ -571,16 +594,10 @@ async function _loadClinicSummary(apiReadsAllowed) {
   if (!apiReadsAllowed && isDemoSession() && ANALYZER_DEMO_FIXTURES?.labs) {
     return { patients: (ANALYZER_DEMO_FIXTURES.labs.clinic_summary()?.patients) || [], fromDemoOnly: true };
   }
-  const personas = ANALYZER_DEMO_FIXTURES?.patients || [];
-  const ids = personas.map((p) => p.id);
-  const results = await Promise.all(
-    ids.map((pid) => api.getLabsProfile(pid).then((r) => r).catch(() => null))
-  );
-  const patients = [];
-  results.forEach((r) => {
-    if (r && r.patient_id) patients.push(_summariseProfileForClinic(_enrichPatientName(r)));
-  });
-  return { patients };
+  if (apiReadsAllowed) {
+    return api.getLabsClinicSummary();
+  }
+  return { patients: [], unsupportedLiveSummary: true };
 }
 
 export async function pgLabsAnalyzer(setTopbar, navigate) {
@@ -617,6 +634,13 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
   let expandedKey = '';
   /** Non-clinician demo preview — fixtures only, no API persistence */
   let demoPreviewOnly = false;
+
+  const handoffPatientId = resolveLabsAnalyzerPatientId();
+  if (handoffPatientId) {
+    activePatientId = handoffPatientId;
+    activePatientName = 'Patient';
+    view = 'patient';
+  }
 
   if (String(sessionRole).toLowerCase() === 'patient') {
     el.innerHTML = `<div class="ds-labs-analyzer-shell" style="max-width:720px;margin:0 auto;padding:24px 20px 48px">
@@ -666,7 +690,11 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
     const bc = $('lb-breadcrumb');
     if (!bc) return;
     if (view === 'clinic') {
-      bc.innerHTML = `<span style="font-weight:600">Clinic labs summary</span>`;
+      bc.innerHTML = `<span style="font-weight:600">Clinic labs summary</span>
+        <button type="button" class="btn btn-ghost btn-sm" id="lb-select-patient" style="margin-left:8px;min-height:44px">Select patient…</button>`;
+      $('lb-select-patient')?.addEventListener('click', () => {
+        try { navigate?.('patients-v2'); } catch {}
+      });
     } else {
       bc.innerHTML = `<button type="button" class="btn btn-ghost btn-sm" id="lb-back" style="min-height:44px">← Back to clinic</button>
         <span style="color:var(--text-tertiary)">/</span>
@@ -706,13 +734,16 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
       }
     }
     _syncDemoBanner();
-    body.innerHTML = _renderClinicTable(summaryCache?.patients || [], sortKey, sortDir);
+    body.innerHTML = _renderClinicTable(summaryCache?.patients || [], sortKey, sortDir, summaryCache || {});
+    body.querySelector('#lb-go-patients')?.addEventListener('click', () => {
+      try { navigate?.('patients-v2'); } catch {}
+    });
     body.querySelectorAll('[data-sort-key]').forEach((th) => {
       th.addEventListener('click', () => {
         const k = th.getAttribute('data-sort-key');
         if (k === sortKey) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
         else { sortKey = k; sortDir = k === 'name' ? 'asc' : 'desc'; }
-        body.innerHTML = _renderClinicTable(summaryCache?.patients || [], sortKey, sortDir);
+        body.innerHTML = _renderClinicTable(summaryCache?.patients || [], sortKey, sortDir, summaryCache || {});
         wireClinicRows();
       });
     });
@@ -811,18 +842,14 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
     const body = $('lb-body');
     if (!body) return;
 
-    try {
-      window._selectedPatientId = activePatientId;
-      window._profilePatientId = activePatientId;
-    } catch {}
+    applyLabsAnalyzerPatientContext('patient-profile', activePatientId);
 
     body.querySelectorAll('[data-nav-page]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const page = btn.getAttribute('data-nav-page');
         if (!page || !navigate) return;
-        try {
-          navigate(page, { id: activePatientId });
-        } catch {}
+        applyLabsAnalyzerPatientContext(page, activePatientId);
+        try { navigate(page); } catch {}
       });
     });
 

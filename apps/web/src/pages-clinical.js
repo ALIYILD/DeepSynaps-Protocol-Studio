@@ -1475,7 +1475,7 @@ export async function pgDash(setTopbar, navigate) {
 
   // ── Demo banner ───────────────────────────────────────────────────────────────
   const _demoBannerCopy = _viteEnableDemo
-    ? '<strong>Demo data — not real patient data.</strong> Names and IDs such as <code style="background:rgba(0,0,0,0.15);padding:1px 5px;border-radius:4px;font-size:11px">P-DEMO-*</code> are synthetic samples only.'
+    ? '<strong>DEMO data (synthetic; non-PHI).</strong> Names and IDs such as <code style="background:rgba(0,0,0,0.15);padding:1px 5px;border-radius:4px;font-size:11px">P-DEMO-*</code> are synthetic samples only.'
     : 'Showing sample data so you can explore the dashboard. Add a patient or course to see your own data here.';
   const _demoBanner = _isDemo ? `<div class="dh2-demo-banner" role="alert">
     <span class="dh2-demo-pill">${_viteEnableDemo ? 'PREVIEW DEMO' : 'DEMO'}</span>
@@ -1492,7 +1492,8 @@ export async function pgDash(setTopbar, navigate) {
     : '';
 
   const _safetyStrip = `<div class="dh2-safety-strip" role="note">
-    <strong>Clinical decision support.</strong> Not for autonomous diagnosis or prescribing.
+    <strong>Clinical decision support.</strong> Not for autonomous diagnosis, prescribing, dosing, or treatment planning.
+    Not an emergency triage system — use your institution's emergency protocols for urgent or life-threatening concerns.
     Outputs require clinician review and professional judgement.
     ${(_isDemo || _viteEnableDemo) ? '<span class="dh2-safety-demo"> Demo data / not real patient data.</span>' : ''}
   </div>`;
@@ -3754,10 +3755,13 @@ export async function pgProfile(setTopbar, navigate) {
   };
 
   window._launchInlineAssess = function(templateId, patientId) {
-    // Navigate to assessments page and trigger inline mode after load
     window._assessPreFillPatient = patientId;
     window._assessPreFillTemplate = templateId;
-    navigate('assessments');
+    try {
+      window._selectedPatientId = patientId;
+      window._profilePatientId = patientId;
+    } catch {}
+    navigate('assessments-v2');
   };
 
   window.startNewCourse = function() {
@@ -5326,7 +5330,7 @@ function renderProfileTab(pt, sessions, courses = [], ctx = {}) {
       <button class="btn btn-primary btn-sm" onclick="window._launchInlineAssess('PHQ-9','${patId}')">Run PHQ-9</button>
       <button class="btn btn-primary btn-sm" onclick="window._launchInlineAssess('GAD-7','${patId}')">Run GAD-7</button>
       <button class="btn btn-primary btn-sm" onclick="window._launchInlineAssess('ISI','${patId}')">Run ISI</button>
-      <button class="btn btn-sm" onclick="window._nav('assessments')">All Assessments →</button>
+      <button class="btn btn-sm" onclick="window._nav('assessments-v2')">All Assessments →</button>
     </div>
     <div id="assessments-tab-body">${spinner()}</div>`;
   }
@@ -8331,7 +8335,7 @@ export async function pgAssess(setTopbar) {
   window._ahSaveInline = async function() {
     const errEl = document.getElementById('ah-inline-err'); errEl.style.display='none';
     if (!_ahInlineTpl) return;
-    try { await _doSave(_ahInlineTpl, _ahInlineAnswers.reduce((a,b)=>a+b,0), document.getElementById('ah-run-patient').value.trim(), document.getElementById('ah-inline-notes').value.trim(), document.getElementById('ah-run-phase')?.value||'weekly'); window._nav('assessments'); }
+    try { await _doSave(_ahInlineTpl, _ahInlineAnswers.reduce((a,b)=>a+b,0), document.getElementById('ah-run-patient').value.trim(), document.getElementById('ah-inline-notes').value.trim(), document.getElementById('ah-run-phase')?.value||'weekly'); window._nav('assessments-v2'); }
     catch(e) { errEl.textContent=e.message; errEl.style.display=''; }
   };
   window._ahSaveScore = async function() {
@@ -8339,7 +8343,7 @@ export async function pgAssess(setTopbar) {
     if (!_ahScoreTpl) return;
     const val = parseFloat(document.getElementById('ah-score-val').value);
     if (isNaN(val)) { errEl.textContent='Enter a valid score.'; errEl.style.display=''; return; }
-    try { await _doSave(_ahScoreTpl, val, document.getElementById('ah-run-patient').value.trim(), document.getElementById('ah-score-notes').value.trim(), document.getElementById('ah-run-phase')?.value||'weekly'); window._nav('assessments'); }
+    try { await _doSave(_ahScoreTpl, val, document.getElementById('ah-run-patient').value.trim(), document.getElementById('ah-score-notes').value.trim(), document.getElementById('ah-run-phase')?.value||'weekly'); window._nav('assessments-v2'); }
     catch(e) { errEl.textContent=e.message; errEl.style.display=''; }
   };
   window._ahQuickRunScale = function(id) { window._ahTab('run'); setTimeout(() => window._ahRunScale(id), 50); };

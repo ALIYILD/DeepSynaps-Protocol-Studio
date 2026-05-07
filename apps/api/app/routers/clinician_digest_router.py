@@ -209,7 +209,7 @@ DIGEST_DRILL_OUT_PAGE = {
     "wearables_workbench": "monitor",
     "clinician_adherence_hub": "clinician-adherence",
     "clinician_wellness_hub": "clinician-wellness",
-    "adverse_events_hub": "adverse-events-hub",
+    "adverse_events_hub": "adverse-events",
 }
 
 
@@ -497,6 +497,9 @@ def _gather_open_inbox_count(
 def _gather_sla_breached(
     db: Session,
     actor: AuthenticatedActor,
+    *,
+    surface: Optional[str] = None,
+    patient_id: Optional[str] = None,
 ) -> int:
     """Count HIGH-priority unacknowledged rows older than their SLA.
 
@@ -518,12 +521,23 @@ def _gather_sla_breached(
         q = q.filter(AuditEventRecord.actor_id.in_(list(actor_id_set)))
     rows = q.order_by(AuditEventRecord.id.desc()).limit(2000).all()
 
+    target_surface = (surface or "").strip().lower() or None
+    target_patient = (patient_id or "").strip() or None
+
     candidates: list[AuditEventRecord] = []
     for r in rows:
         if (r.target_type or "") == "clinician_inbox":
             continue
         if not _row_is_high_priority(r):
             continue
+        if target_surface:
+            sfx, _ = _split_action(r.action or "")
+            if (sfx or "") != target_surface:
+                continue
+        if target_patient:
+            pid = _extract_patient_id(r)
+            if pid != target_patient:
+                continue
         candidates.append(r)
     if not candidates:
         return 0
@@ -549,11 +563,23 @@ def _gather_sla_breached(
 def _gather_open_per_surface(
     db: Session,
     actor: AuthenticatedActor,
+    *,
+    surface: Optional[str] = None,
+    patient_id: Optional[str] = None,
 ) -> dict[str, int]:
     """Per-surface counts of OPEN actionable rows at this moment."""
     out: dict[str, int] = {s: 0 for s in DIGEST_SURFACES}
 
+    target_surface = (surface or "").strip().lower() or None
+    target_patient = (patient_id or "").strip() or None
+
     patient_ids = _scope_patient_ids(db, actor)
+    if target_patient:
+        # Filter to the requested patient if visible at this clinic scope.
+        if patient_ids is not None and target_patient not in patient_ids:
+            patient_ids = set()
+        else:
+            patient_ids = {target_patient}
 
     # Wearables Workbench: open or null (legacy) + not dismissed.
     wq = db.query(WearableAlertFlag).filter(
@@ -610,9 +636,65 @@ def _gather_open_per_surface(
     out["adverse_events_hub"] = eq.count()
 
     # Inbox unread = HIGH-priority unacknowledged audit rows visible to actor.
+    # Inbox unread = HIGH-priority unacknowledged audit rows visible to actor.
+    # Patient/surface filters are not applied to the inbox open count here
+    # because the open inbox view is a per-clinic queue, not a per-window feed.
     out["clinician_inbox"] = _gather_open_inbox_count(db, actor)
 
+    if target_surface:
+        # Return only the surface requested (zero out others).
+        return {s: (out.get(s, 0) if s == target_surface else 0) for s in DIGEST_SURFACES}
+
     return out
+
+
+def _digest_event_items(
+    db: Session,
+    actor: AuthenticatedActor,
+    *,
+    since_dt: datetime,
+    until_dt: datetime,
+    actor_id: Optional[str] = None,
+    surface: Optional[str] = None,
+    severity: Optional[str] = None,
+    patient_id: Optional[str] = None,
+    limit: int = 200,
+) -> list[_DigestEvent]:
+    """Return digest events (handled/escalated + paged) with optional filters.
+
+    This is the shared core used by summary/sections/events/export so all
+    filters behave consistently, without duplicating audit pings.
+    """
+    handled_rows, cache = _aggregate_handled(db, actor, since_dt=since_dt, until_dt=until_dt)
+    paged_rows = _gather_paged_audits(db, actor, since_dt=since_dt, until_dt=until_dt)
+
+    if actor_id and _is_admin_scope(actor):
+        handled_rows = [e for e in handled_rows if e.actor_id == actor_id]
+        paged_rows = [r for r in paged_rows if (r.actor_id or "") == actor_id]
+
+    paged_evs = [_audit_to_event(db, r, cache) for r in paged_rows]
+    items: list[_DigestEvent] = handled_rows + paged_evs
+
+    # Filter
+    if surface:
+        s = surface.strip().lower()
+        items = [e for e in items if e.surface == s]
+    if patient_id:
+        pid = patient_id.strip()
+        items = [e for e in items if e.patient_id == pid]
+    if severity:
+        sev = severity.strip().lower()
+        items = [
+            e for e in items
+            if (e.severity or "").lower() == sev
+            or (e.note or "").lower().find(f"severity={sev}") >= 0
+            or (e.note or "").lower().find(f"severity_band={sev}") >= 0
+        ]
+
+    # Sort by created_at desc (lexicographic ISO sort is correct for
+    # tz-aware ISO with the same offset).
+    items.sort(key=lambda e: e.created_at, reverse=True)
+    return items[:limit]
 
 
 def _patient_label(db: Session, pid: Optional[str]) -> Optional[str]:
@@ -822,6 +904,9 @@ def get_summary(
     since: Optional[str] = Query(default=None, max_length=32),
     until: Optional[str] = Query(default=None, max_length=32),
     actor_id: Optional[str] = Query(default=None, max_length=64),
+    surface: Optional[str] = Query(default=None, max_length=64),
+    severity: Optional[str] = Query(default=None, max_length=16),
+    patient_id: Optional[str] = Query(default=None, max_length=64),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> DigestSummary:
@@ -833,23 +918,25 @@ def get_summary(
     # set we constrain the audit-row scoping to that single actor by
     # passing it as a post-filter rather than rebinding ``actor``
     # (AuthenticatedActor is frozen+slots).
-    handled_rows, _cache = _aggregate_handled(
-        db, actor, since_dt=since_dt, until_dt=until_dt,
+    items = _digest_event_items(
+        db,
+        actor,
+        since_dt=since_dt,
+        until_dt=until_dt,
+        actor_id=actor_id,
+        surface=surface,
+        severity=severity,
+        patient_id=patient_id,
+        limit=5000,
     )
-    paged_rows = _gather_paged_audits(
-        db, actor, since_dt=since_dt, until_dt=until_dt,
-    )
-    if actor_id and _is_admin_scope(actor):
-        handled_rows = [e for e in handled_rows if e.actor_id == actor_id]
-        paged_rows = [r for r in paged_rows if (r.actor_id or "") == actor_id]
 
-    handled_count = sum(1 for e in handled_rows if e.is_handled and not e.is_escalated)
-    escalated_count = sum(1 for e in handled_rows if e.is_escalated)
-    paged_count = len(paged_rows)
+    handled_count = sum(1 for e in items if e.is_handled and not e.is_escalated)
+    escalated_count = sum(1 for e in items if e.is_escalated)
+    paged_count = sum(1 for e in items if e.is_paged)
 
-    open_per_surface = _gather_open_per_surface(db, actor)
+    open_per_surface = _gather_open_per_surface(db, actor, surface=surface, patient_id=patient_id)
     open_total = sum(open_per_surface.values())
-    sla_breached = _gather_sla_breached(db, actor)
+    sla_breached = _gather_sla_breached(db, actor, surface=surface, patient_id=patient_id)
 
     # Per-surface breakdown for the summary.
     by_surface: dict[str, dict[str, int]] = {
@@ -861,7 +948,7 @@ def get_summary(
         }
         for s in DIGEST_SURFACES
     }
-    for e in handled_rows:
+    for e in items:
         if e.surface in by_surface:
             if e.is_escalated:
                 by_surface[e.surface]["escalated"] += 1
@@ -870,12 +957,10 @@ def get_summary(
         # Wearables/adherence/wellness escalations sometimes carry the
         # AE Hub draft creation too; we let escalations stay attributed
         # to the originating surface.
-    for r in paged_rows:
-        # paged action is ``inbox.item_paged_to_oncall`` — bucket under
-        # the inbox surface for the breakdown.
-        by_surface["clinician_inbox"]["paged"] += 1
+        if e.is_paged:
+            by_surface["clinician_inbox"]["paged"] += 1
 
-    is_demo_view = any(e.is_demo for e in handled_rows)
+    is_demo_view = any(e.is_demo for e in items)
 
     _digest_audit(
         db,
@@ -886,7 +971,8 @@ def get_summary(
             f"handled={handled_count} escalated={escalated_count} "
             f"paged={paged_count} open={open_total} "
             f"sla_breached={sla_breached} since={since_dt.isoformat()} "
-            f"until={until_dt.isoformat()}"
+            f"until={until_dt.isoformat()} surface={surface or '-'} "
+            f"severity={severity or '-'} patient_id={patient_id or '-'}"
         ),
         using_demo_data=is_demo_view,
     )
@@ -908,6 +994,9 @@ def get_summary(
 def get_sections(
     since: Optional[str] = Query(default=None, max_length=32),
     until: Optional[str] = Query(default=None, max_length=32),
+    surface: Optional[str] = Query(default=None, max_length=64),
+    severity: Optional[str] = Query(default=None, max_length=16),
+    patient_id: Optional[str] = Query(default=None, max_length=64),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> DigestSectionsResponse:
@@ -915,25 +1004,27 @@ def get_sections(
     _gate_role(actor)
     since_dt, until_dt = _resolve_window(since, until)
 
-    handled_rows, _cache = _aggregate_handled(
-        db, actor, since_dt=since_dt, until_dt=until_dt,
+    items = _digest_event_items(
+        db,
+        actor,
+        since_dt=since_dt,
+        until_dt=until_dt,
+        surface=surface,
+        severity=severity,
+        patient_id=patient_id,
+        limit=5000,
     )
-    paged_rows = _gather_paged_audits(
-        db, actor, since_dt=since_dt, until_dt=until_dt,
-    )
-    open_per_surface = _gather_open_per_surface(db, actor)
+    open_per_surface = _gather_open_per_surface(db, actor, surface=surface, patient_id=patient_id)
 
     # Bucket events by surface and compute top-3 patients per bucket.
     by_surface: dict[str, list[_DigestEvent]] = defaultdict(list)
-    for e in handled_rows:
+    for e in items:
         by_surface[e.surface].append(e)
-    for r in paged_rows:
-        # Translate paged audit row to a digest event under inbox surface.
-        ev = _audit_to_event(db, r, _cache)
-        by_surface["clinician_inbox"].append(ev)
 
     sections: list[DigestSection] = []
-    for s in DIGEST_SURFACES:
+    target_surface = (surface or "").strip().lower() or None
+    surfaces = [target_surface] if target_surface in DIGEST_SURFACES else list(DIGEST_SURFACES)
+    for s in surfaces:
         bucket = by_surface.get(s, [])
         handled = sum(1 for e in bucket if e.is_handled and not e.is_escalated)
         escalated = sum(1 for e in bucket if e.is_escalated)
@@ -967,14 +1058,17 @@ def get_sections(
             )
         )
 
-    is_demo_view = any(e.is_demo for e in handled_rows)
+    is_demo_view = any(e.is_demo for e in items)
 
     _digest_audit(
         db,
         actor,
         event="sections_viewed",
         target_id=actor.clinic_id or actor.actor_id,
-        note=f"surfaces={len(sections)} since={since_dt.isoformat()}",
+        note=(
+            f"surfaces={len(sections)} since={since_dt.isoformat()} "
+            f"surface={surface or '-'} severity={severity or '-'} patient_id={patient_id or '-'}"
+        ),
         using_demo_data=is_demo_view,
     )
 
@@ -1000,35 +1094,16 @@ def list_events(
     """Line-level events within the window with drill-out URLs."""
     _gate_role(actor)
     since_dt, until_dt = _resolve_window(since, until)
-
-    handled_rows, _cache = _aggregate_handled(
-        db, actor, since_dt=since_dt, until_dt=until_dt,
+    items = _digest_event_items(
+        db,
+        actor,
+        since_dt=since_dt,
+        until_dt=until_dt,
+        surface=surface,
+        severity=severity,
+        patient_id=patient_id,
+        limit=limit,
     )
-    paged_rows = _gather_paged_audits(
-        db, actor, since_dt=since_dt, until_dt=until_dt,
-    )
-    paged_evs = [_audit_to_event(db, r, _cache) for r in paged_rows]
-    items = handled_rows + paged_evs
-
-    # Filter
-    if surface:
-        s = surface.strip().lower()
-        items = [e for e in items if e.surface == s]
-    if patient_id:
-        items = [e for e in items if e.patient_id == patient_id]
-    if severity:
-        sev = severity.strip().lower()
-        items = [
-            e for e in items
-            if (e.severity or "").lower() == sev
-            or (e.note or "").lower().find(f"severity={sev}") >= 0
-            or (e.note or "").lower().find(f"severity_band={sev}") >= 0
-        ]
-
-    # Sort by created_at desc (lexicographic ISO sort is correct for
-    # tz-aware ISO with the same offset).
-    items.sort(key=lambda e: e.created_at, reverse=True)
-    items = items[:limit]
     is_demo_view = any(e.is_demo for e in items)
 
     _digest_audit(
@@ -1094,6 +1169,7 @@ def send_digest_email(
     # Pull the summary so we can stamp the audit note with the headline counts.
     summary = get_summary(  # type: ignore[call-arg]
         since=body.since, until=body.until, actor_id=None,
+        surface=None, severity=None, patient_id=None,
         actor=actor, db=db,
     )
 
@@ -1159,6 +1235,7 @@ def share_with_colleague(
     since_dt, until_dt = _resolve_window(body.since, body.until)
     summary = get_summary(  # type: ignore[call-arg]
         since=body.since, until=body.until, actor_id=None,
+        surface=None, severity=None, patient_id=None,
         actor=actor, db=db,
     )
 
