@@ -14,7 +14,7 @@
 //  11. Safety footer
 //
 // Loading state, error block, and "no patient selected" empty state are
-// all handled. Falls back to deterministic demo data when API is empty.
+// all handled. Real clinician sessions fail closed on backend errors.
 
 import {
   getTwinSummary, getTwinSignals, getTwinTimeline, getTwinCorrelations,
@@ -22,6 +22,7 @@ import {
   createAnalysisRun, listAnalysisRuns, reviewAnalysisRun,
   createSimulationRun, listSimulationRuns, reviewSimulationRun,
   createClinicianNote, listClinicianNotes,
+  shouldUseDeepTwinDemoFixtures,
 } from './deeptwin/service.js';
 import {
   renderHeader, renderDataSources, renderSignalMatrix,
@@ -59,15 +60,39 @@ function _selectedPatientId() {
 }
 
 function _resolvePatientLabel(patientId) {
-  const demo = getDemoPatient(patientId);
+  const demo = shouldUseDeepTwinDemoFixtures() ? getDemoPatient(patientId) : null;
   return demo?.name || patientId || 'Unknown patient';
 }
 
 function _resolveCondition(patientId) {
-  const demo = getDemoPatient(patientId);
+  const demo = shouldUseDeepTwinDemoFixtures() ? getDemoPatient(patientId) : null;
   if (!demo) return '';
   const sec = (demo.secondary || []).join(', ');
   return demo.primary + (sec ? ` · ${sec}` : '');
+}
+
+function _hashDeepTwinExportToken(value) {
+  const input = String(value || '').trim().toLowerCase();
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36).slice(0, 8) || '0';
+}
+
+export function buildDeepTwinExportFilename(kind, patientId, extension) {
+  const safeKind = String(kind || 'report')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '') || 'report';
+  const safeExt = String(extension || 'json')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '') || 'txt';
+  const patientToken = shouldUseDeepTwinDemoFixtures()
+    ? 'demo-patient'
+    : `patient-${_hashDeepTwinExportToken(patientId || 'unknown')}`;
+  return `deeptwin_${safeKind}_${patientToken}.${safeExt}`;
 }
 
 function _injectStylesOnce() {
@@ -79,7 +104,9 @@ function _injectStylesOnce() {
 const STATE = {
   patientId: '',
   summary: null,
+  signalsPayload: null,
   signals: null,
+  timelinePayload: null,
   timeline: null,
   correlations: null,
   prediction: null,
@@ -123,10 +150,12 @@ async function _loadAll(patientId) {
     listClinicianNotes(patientId),
   ]);
   STATE.summary = summary;
+  STATE.signalsPayload = signals;
   STATE.signals = signals?.signals || [];
+  STATE.timelinePayload = timeline;
   STATE.timeline = timeline?.events || [];
   STATE.correlations = correlations;
-  STATE.prediction = prediction;
+  STATE.prediction = prediction ? { ...prediction, horizon: prediction?.horizon || STATE.predictionHorizon } : { horizon: STATE.predictionHorizon };
   STATE.dataSources = dataSources;
   STATE.analysisRuns = Array.isArray(analysisRuns) ? analysisRuns : [];
   STATE.simulationRuns = Array.isArray(simulationRuns) ? simulationRuns : [];
@@ -148,8 +177,8 @@ function _renderAll() {
       ${_voiceDomainHintBanner()}
       ${renderHeader({ patientLabel, condition, summary: STATE.summary, dataSources: STATE.dataSources })}
       ${renderDataSources({ summary: STATE.summary, dataSources: STATE.dataSources })}
-      ${renderSignalMatrix({ signals: STATE.signals })}
-      ${renderTimeline({ patientId: STATE.patientId }, HOST_TIMELINE)}
+      ${renderSignalMatrix({ signals: STATE.signals, signalState: STATE.signalsPayload })}
+      ${renderTimeline({ patientId: STATE.patientId, timeline: STATE.timelinePayload, selectedKinds: STATE.timelineFilters }, HOST_TIMELINE)}
       ${renderCorrelations({ correlations: STATE.correlations }, HOST_CORR)}
       ${renderCausal({ correlations: STATE.correlations })}
       ${renderPrediction({ prediction: STATE.prediction }, HOST_PRED)}
@@ -203,7 +232,14 @@ function _wirePredictionTabs() {
       const host = document.getElementById(HOST_PRED);
       if (host) host.innerHTML = loadingBlock('Recomputing…');
       const pred = await getTwinPredictions(STATE.patientId, h);
-      STATE.prediction = pred;
+      STATE.prediction = pred ? { ...pred, horizon: pred?.horizon || h } : { horizon: h };
+      const section = document.getElementById('dt-prediction-section');
+      if (section) {
+        section.outerHTML = renderPrediction({ prediction: STATE.prediction }, HOST_PRED);
+        mountPrediction(HOST_PRED, STATE.prediction);
+        _wirePredictionTabs();
+        return;
+      }
       mountPrediction(HOST_PRED, pred);
     });
   });
@@ -378,9 +414,9 @@ function _wireReportButtons() {
           </div>
         `;
         out.querySelector('button[data-dl="json"]')?.addEventListener('click', () =>
-          downloadBlob(`deeptwin_${kind}_${STATE.patientId}.json`, reportToJSONString(report), 'application/json'));
+          downloadBlob(buildDeepTwinExportFilename(kind, STATE.patientId, 'json'), reportToJSONString(report), 'application/json'));
         out.querySelector('button[data-dl="md"]')?.addEventListener('click', () =>
-          downloadBlob(`deeptwin_${kind}_${STATE.patientId}.md`, reportToMarkdown(report), 'text/markdown'));
+          downloadBlob(buildDeepTwinExportFilename(kind, STATE.patientId, 'md'), reportToMarkdown(report), 'text/markdown'));
       } catch (e) {
         out.innerHTML = errorBlock('Report failed: ' + (e.message || e));
       }

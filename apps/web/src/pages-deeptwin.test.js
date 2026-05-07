@@ -2,12 +2,21 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
+import { api } from './api.js';
 import {
+  buildDeepTwinExportFilename,
   deeptwinHasPatientScope,
   deeptwinResolvedTab,
 } from './pages-deeptwin.js';
 import {
+  renderCorrelations,
+  renderPrediction,
+  renderSignalMatrix,
+  renderTimeline,
+} from './deeptwin/components.js';
+import {
   applyDashboard360PatientContext,
+  loadDashboard360,
   renderDashboard360,
   wireDashboard360Actions,
 } from './deeptwin/dashboard360.js';
@@ -51,6 +60,25 @@ function installDom() {
       globalThis.HTMLElement = previous.HTMLElement;
       globalThis.Node = previous.Node;
     },
+  };
+}
+
+function installToken(token) {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem(key) {
+        return key === 'ds_access_token' ? token : null;
+      },
+    },
+  });
+  return () => {
+    if (previous) {
+      Object.defineProperty(globalThis, 'localStorage', previous);
+    } else {
+      delete globalThis.localStorage;
+    }
   };
 }
 
@@ -142,4 +170,144 @@ test('DeepTwin demo dashboard prediction panel is fail-closed without a validate
   const html = renderDashboard360(payload);
   assert.match(html, /Prediction output is withheld until a validated DeepTwin model is connected/i);
   assert.match(html, /reason: no_validated_prediction_model/i);
+});
+
+test('DeepTwin overview renders explicit unavailable states for withheld clinician payloads', () => {
+  const signalsHtml = renderSignalMatrix({
+    signals: [],
+    signalState: {
+      available: false,
+      status: 'withheld',
+      reason: 'patient_scope_incomplete',
+      summary: 'Signal aggregation is withheld until patient-linked feeds are confirmed.',
+    },
+  });
+  assert.match(signalsHtml, /Signals unavailable/i);
+  assert.match(signalsHtml, /Signal aggregation is withheld until patient-linked feeds are confirmed/i);
+  assert.match(signalsHtml, /status: withheld/i);
+  assert.match(signalsHtml, /reason: patient_scope_incomplete/i);
+
+  const timelineHtml = renderTimeline({
+    patientId: 'pt-123',
+    timeline: {
+      available: false,
+      status: 'unavailable',
+      reason: 'timeline_backfill_pending',
+      summary: 'Timeline aggregation is waiting for clinical backfill.',
+      events: [],
+    },
+    selectedKinds: ['session'],
+  }, 'dt-test-timeline');
+  assert.match(timelineHtml, /Timeline unavailable/i);
+  assert.match(timelineHtml, /Timeline aggregation is waiting for clinical backfill/i);
+
+  const corrHtml = renderCorrelations({
+    correlations: {
+      status: 'unavailable',
+      reason: 'insufficient_longitudinal_data',
+      summary: 'Exploratory relationships are withheld until enough repeated measures exist.',
+      cards: [],
+      matrix: [],
+      labels: [],
+      hypotheses: [],
+    },
+  }, 'dt-test-corr');
+  assert.match(corrHtml, /Correlations unavailable/i);
+  assert.match(corrHtml, /Exploratory relationships are withheld until enough repeated measures exist/i);
+
+  const predHtml = renderPrediction({
+    prediction: {
+      available: false,
+      status: 'not_implemented',
+      reason: 'no_validated_prediction_model',
+      summary: 'Prediction output is withheld until a validated DeepTwin model is connected.',
+      disclaimer: 'Clinician review remains required.',
+      horizon: '6w',
+      traces: [],
+    },
+  }, 'dt-test-pred');
+  assert.match(predHtml, /Prediction output withheld/i);
+  assert.match(predHtml, /Prediction output is withheld until a validated DeepTwin model is connected/i);
+  assert.match(predHtml, /reason: no_validated_prediction_model/i);
+  assert.equal(predHtml.includes('id="dt-test-pred"'), false);
+});
+
+test('DeepTwin overview renders explicit pending states for empty clinician payloads', () => {
+  const signalsHtml = renderSignalMatrix({
+    signals: [],
+    signalState: { signals: [] },
+  });
+  assert.match(signalsHtml, /No patient-linked signals yet/i);
+  assert.match(signalsHtml, /will populate this matrix after patient-linked metrics are ingested/i);
+
+  const timelineHtml = renderTimeline({
+    patientId: 'pt-123',
+    timeline: { events: [] },
+    selectedKinds: ['session', 'qeeg'],
+  }, 'dt-test-timeline');
+  assert.match(timelineHtml, /No timeline events available yet/i);
+  assert.equal(timelineHtml.includes('data-tl-kind='), false);
+});
+
+test('loadDashboard360 fails closed for real clinician sessions when the API rejects', async () => {
+  const restoreToken = installToken('real-clinician-token');
+  const original = api.deeptwinDashboard360;
+  const err = new Error('dashboard unavailable');
+  err.status = 503;
+  api.deeptwinDashboard360 = async () => {
+    throw err;
+  };
+
+  try {
+    await assert.rejects(
+      loadDashboard360('pt-360'),
+      /dashboard unavailable/,
+    );
+  } finally {
+    api.deeptwinDashboard360 = original;
+    restoreToken();
+  }
+});
+
+test('loadDashboard360 may still use the demo payload for demo-token sessions', async () => {
+  const restoreToken = installToken('abc-demo-token');
+  const original = api.deeptwinDashboard360;
+  api.deeptwinDashboard360 = async () => {
+    throw new Error('offline demo path');
+  };
+
+  try {
+    const payload = await loadDashboard360('pt-demo');
+    assert.equal(payload?.patient_id, 'pt-demo');
+    assert.equal(Array.isArray(payload?.domains), true);
+    assert.equal(payload?.domains?.length, 22);
+  } finally {
+    api.deeptwinDashboard360 = original;
+    restoreToken();
+  }
+});
+
+test('buildDeepTwinExportFilename masks the raw patient id in real clinician sessions', () => {
+  const restoreToken = installToken('real-clinician-token');
+
+  try {
+    const filename = buildDeepTwinExportFilename('clinician_deep', 'patient-raw-123', 'json');
+    assert.match(filename, /^deeptwin_clinician_deep_patient-[a-z0-9]+\.json$/);
+    assert.equal(filename.includes('patient-raw-123'), false);
+  } finally {
+    restoreToken();
+  }
+});
+
+test('buildDeepTwinExportFilename uses a stable demo filename for demo-token sessions', () => {
+  const restoreToken = installToken('abc-demo-token');
+
+  try {
+    assert.equal(
+      buildDeepTwinExportFilename('prediction', 'demo-pt-123', 'md'),
+      'deeptwin_prediction_demo-patient.md',
+    );
+  } finally {
+    restoreToken();
+  }
 });
