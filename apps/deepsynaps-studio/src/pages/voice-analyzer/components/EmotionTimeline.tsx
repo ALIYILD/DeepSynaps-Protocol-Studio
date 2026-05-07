@@ -20,6 +20,9 @@ export function EmotionTimeline({ emotions }: EmotionTimelineProps) {
   return (
     <section className="rounded border p-4">
       <h2 className="text-lg font-medium">Emotion timeline</h2>
+      <p className="text-xs text-yellow-700">
+        Research indicator only — not a clinical emotion assessment.
+      </p>
       <p>{emotions?.dominant_label ?? "Awaiting analysis…"}</p>
     </section>
   );
