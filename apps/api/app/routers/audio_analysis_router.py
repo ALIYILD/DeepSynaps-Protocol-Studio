@@ -166,6 +166,8 @@ def analyze_voice(
     task_protocol = _normalize_required_text(body.task_protocol, field_name="task_protocol")
     transcript = _normalize_optional_text(body.transcript)
     require_minimum_role(actor, "clinician")
+    if not patient_id:
+        raise HTTPException(status_code=422, detail="patient_id is required for live analysis")
     _gate_patient_access(actor, patient_id, db)
     _require_pipeline()
 
@@ -285,6 +287,8 @@ def analyze_voice_from_recording(
         raise HTTPException(status_code=404, detail="recording not found")
 
     effective_patient_id = patient_id or record.patient_id
+    if not effective_patient_id:
+        raise HTTPException(status_code=422, detail="patient_id is required for live analysis")
     _gate_patient_access(actor, effective_patient_id, db)
     _require_pipeline()
 

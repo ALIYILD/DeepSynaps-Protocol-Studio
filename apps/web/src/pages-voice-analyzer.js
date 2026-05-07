@@ -21,10 +21,21 @@ function _readVaAccessToken() {
   }
 }
 
-/** True only when the session uses the offline demo-token shim — mirrors shouldUseDeepTwinDemoFixtures. */
+function _hasVaAccessToken() {
+  const t = _readVaAccessToken();
+  return !!String(t || '').trim();
+}
+
+const _VA_DEMO_FORCED = (
+  globalThis._VA_DEMO_FORCED ||
+  (typeof import.meta !== 'undefined' && import.meta?.env?.VITE_ENABLE_DEMO === '1')
+);
+
+/** True only when the session uses the offline demo-token shim, or when the build is forced-demo with no token (logged-out Netlify preview). Mirrors shouldUseDeepTwinDemoFixtures. */
 export function shouldUseVoiceAnalyzerDemoFixtures() {
   const t = _readVaAccessToken();
-  return !!(t && String(t).endsWith('-demo-token'));
+  if (t && String(t).endsWith('-demo-token')) return true;
+  return !!(globalThis._VA_DEMO_FORCED || _VA_DEMO_FORCED) && !_hasVaAccessToken();
 }
 
 const VA_LAST_ANALYSIS_KEY = 'ds_va_last_analysis_id';
