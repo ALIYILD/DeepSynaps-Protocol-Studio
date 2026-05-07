@@ -103,6 +103,16 @@ def isolated_database() -> None:
                 package_id="enterprise",
                 clinic_id=_clinic_id,
             ))
+        if _db.query(User).filter_by(id="actor-supervisor-demo").first() is None:
+            _db.add(User(
+                id="actor-supervisor-demo",
+                email="demo_supervisor@example.com",
+                display_name="Supervisor Demo User",
+                hashed_password="x",
+                role="supervisor",
+                package_id="enterprise",
+                clinic_id=_clinic_id,
+            ))
         # Re-seed default package budgets after fast truncate deletes them.
         _seeded = {r.package_id for r in _db.query(PackageTokenBudget).all()}
         for pkg_id, ti, to, cp in (
@@ -152,4 +162,5 @@ def auth_headers() -> dict[str, dict[str, str]]:
         "patient": {"Authorization": "Bearer patient-demo-token"},
         "clinician": {"Authorization": "Bearer clinician-demo-token"},
         "admin": {"Authorization": "Bearer admin-demo-token"},
+        "supervisor": {"Authorization": "Bearer supervisor-demo-token"},
     }

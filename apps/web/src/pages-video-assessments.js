@@ -14,9 +14,14 @@ import { isDemoSession } from './demo-session.js';
 import { currentUser } from './auth.js';
 
 const SESSION_STORAGE_KEY = 'ds_video_assessment_session_v2';
+export const VIDEO_ASSESSMENT_SESSION_STORAGE_KEY = SESSION_STORAGE_KEY;
 
 const DISCLAIMER =
   'Video Assessments are for guided capture and clinician review only. They are not a substitute for an in-person examination, emergency care, or autonomous diagnosis.';
+
+function _canReviewPriorSessions(role = '') {
+  return role === 'clinician' || role === 'supervisor' || role === 'admin';
+}
 
 function esc(v) {
   if (v == null) return '';
@@ -82,6 +87,20 @@ var _vaPatientsLoadFailed = false;
 var _vaSelectedPatientId = null;
 /** @type {(id: string, params?: unknown) => void} */
 var _vaNavigate = () => {};
+var _vaPriorSessionsState = {
+  sessionId: null,
+  loading: false,
+  loaded: false,
+  error: null,
+  items: [],
+  trendItems: [],
+  selectedIds: [],
+  aiSummaryLoading: false,
+  aiSummaryError: null,
+  aiSummaryResult: null,
+  aiSummarySelectionKey: '',
+  aiSummaryStaleReason: '',
+};
 
 function _readStoredPatientId() {
   try {
@@ -210,6 +229,586 @@ function _syncSessionPatientId() {
     _vaSession.patient_id = pid;
     _persistSession();
   }
+}
+
+function _isPersistedSessionId(id) {
+  return !!(id && !String(id).startsWith('vas_'));
+}
+
+function _currentPriorComparisonSessionId() {
+  const sid = _vaSession?.id || '';
+  return _isPersistedSessionId(sid) ? sid : null;
+}
+
+function _resetPriorSessionsState() {
+  _vaPriorSessionsState = {
+    sessionId: null,
+    loading: false,
+    loaded: false,
+    error: null,
+    items: [],
+    trendItems: [],
+    selectedIds: [],
+    aiSummaryLoading: false,
+    aiSummaryError: null,
+    aiSummaryResult: null,
+    aiSummarySelectionKey: '',
+    aiSummaryStaleReason: '',
+  };
+}
+
+function _formatPriorSessionDate(ts) {
+  if (!ts) return 'Unknown date';
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return String(ts);
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(d);
+  } catch (_) {
+    return d.toLocaleString();
+  }
+}
+
+function _priorSessionStatusLabel(item) {
+  const status = String(item?.overall_status || '').trim().toLowerCase();
+  return status ? status.replace(/_/g, ' ') : 'unknown status';
+}
+
+function _priorSessionClipLabel(item) {
+  return item?.has_clips ? 'Clips available' : 'No stored clips';
+}
+
+function _priorSessionSeverityLabel(item) {
+  const severity = String(item?.summary?.severity_level || item?.severity_level || '').trim().toLowerCase();
+  return severity || 'not stated';
+}
+
+function _priorSessionTasksLabel(item) {
+  const completed = Number.isFinite(item?.summary?.tasks_completed)
+    ? item.summary.tasks_completed
+    : Number.isFinite(item?.tasks_completed)
+      ? item.tasks_completed
+      : 0;
+  const total = Number.isFinite(item?.summary?.tasks_total)
+    ? item.summary.tasks_total
+    : Number.isFinite(item?.tasks_total)
+      ? item.tasks_total
+      : 0;
+  return `${completed} / ${total}`;
+}
+
+function _priorSessionSummaryText(item) {
+  const text = String(item?.summary?.key_findings || '').trim();
+  return text || 'No clinician summary recorded.';
+}
+
+function _selectedPriorSessions() {
+  const byId = new Map((_vaPriorSessionsState.items || []).map((item) => [item.session_id, item]));
+  return (_vaPriorSessionsState.selectedIds || [])
+    .map((sessionId) => byId.get(sessionId))
+    .filter(Boolean);
+}
+
+function _selectedPriorSessionIds() {
+  return _selectedPriorSessions().map((item) => item.session_id);
+}
+
+function _currentAiSummarySelectionKey() {
+  return _selectedPriorSessionIds().join('|');
+}
+
+function _shortSessionId(sessionId) {
+  const text = String(sessionId || '').trim();
+  if (!text) return 'unknown';
+  return text.length <= 12 ? text : text.slice(-8);
+}
+
+function _aiSummaryStatusLabel(status) {
+  switch (String(status || '').trim()) {
+    case 'fresh':
+      return 'Current summary';
+    case 'unchanged':
+      return 'Unchanged from prior generation';
+    case 'regenerated_selection_changed':
+      return 'Regenerated: selected sessions changed';
+    case 'regenerated_source_changed':
+      return 'Regenerated: source data changed';
+    case 'regenerated_logic_changed':
+      return 'Regenerated: summary logic updated';
+    default:
+      return 'Summary status unavailable';
+  }
+}
+
+function _aiSummaryStaleCopy(reason) {
+  if (reason === 'selection_changed') {
+    return 'The previous AI historical summary no longer matches the current selected prior sessions and must be regenerated.';
+  }
+  return '';
+}
+
+function _currentSessionContextLabel() {
+  const session = _vaSession || _ensureSession();
+  return [
+    `Session ${session?.id || 'unknown'}`,
+    `Patient ${session?.patient_id || 'not-selected'}`,
+    `Protocol ${VIDEO_ASSESSMENT_PROTOCOL.protocol_name}`,
+    `Status ${session?.overall_status || 'unknown'}`,
+  ].join(' · ');
+}
+
+function _sortPriorSessionsOldestFirst(items = []) {
+  return [...items].sort((a, b) => {
+    const aKey = String(a?.finalized_at || a?.occurred_at || '');
+    const bKey = String(b?.finalized_at || b?.occurred_at || '');
+    if (aKey === bKey) {
+      return String(a?.session_id || '').localeCompare(String(b?.session_id || ''));
+    }
+    return aKey.localeCompare(bKey);
+  });
+}
+
+function _sortPriorSessionsNewestFirst(items = []) {
+  return [...items].sort((a, b) => {
+    const aKey = String(a?.finalized_at || a?.occurred_at || '');
+    const bKey = String(b?.finalized_at || b?.occurred_at || '');
+    if (aKey === bKey) {
+      return String(b?.session_id || '').localeCompare(String(a?.session_id || ''));
+    }
+    return bKey.localeCompare(aKey);
+  });
+}
+
+function _severityRank(level) {
+  return {
+    none: 0,
+    mild: 1,
+    moderate: 2,
+    severe: 3,
+  }[String(level || '').trim().toLowerCase()] ?? null;
+}
+
+function _buildTrendDeltas(values = []) {
+  const deltas = [];
+  for (let i = 1; i < values.length; i += 1) {
+    deltas.push(values[i] - values[i - 1]);
+  }
+  return deltas;
+}
+
+function _classifyTrend(values, { decreaseLabel, sameLabel, increaseLabel } = {}) {
+  if (!Array.isArray(values) || values.length < 2) return 'insufficient data';
+  const deltas = _buildTrendDeltas(values);
+  if (deltas.length === 0) return 'insufficient data';
+  if (deltas.every((delta) => delta === 0)) return sameLabel;
+  if (deltas.every((delta) => delta <= 0) && deltas.some((delta) => delta < 0)) return decreaseLabel;
+  if (deltas.every((delta) => delta >= 0) && deltas.some((delta) => delta > 0)) return increaseLabel;
+  return 'mixed';
+}
+
+/*
+ * Longitudinal trend summary is read-only. It uses persisted finalized-session
+ * backend data only and must not evolve into inferred clinical recommendations
+ * or any write-capable workflow in this phase.
+ */
+function _computePriorTrendSummary(trendItems = []) {
+  const ordered = _sortPriorSessionsOldestFirst(trendItems);
+  if (ordered.length < 2) {
+    return {
+      ordered,
+      enoughData: false,
+      severityTrend: 'insufficient data',
+      completionTrend: 'insufficient data',
+      clipTrend: 'insufficient data',
+    };
+  }
+
+  const severityValues = ordered
+    .map((item) => _severityRank(item?.severity_level))
+    .filter((value) => value != null);
+  const completionValues = ordered
+    .map((item) => {
+      const total = Number(item?.tasks_total);
+      const completed = Number(item?.tasks_completed);
+      if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(completed)) return null;
+      return completed / total;
+    })
+    .filter((value) => value != null);
+  const clipValues = ordered
+    .map((item) => (typeof item?.has_clips === 'boolean' ? item.has_clips : null))
+    .filter((value) => value != null);
+
+  const severityTrend = _classifyTrend(severityValues, {
+    decreaseLabel: 'improved',
+    sameLabel: 'stable',
+    increaseLabel: 'worsened',
+  });
+  const completionTrend = _classifyTrend(completionValues, {
+    decreaseLabel: 'declined',
+    sameLabel: 'stable',
+    increaseLabel: 'improved',
+  });
+  let clipTrend = 'insufficient data';
+  if (clipValues.length >= 2) {
+    clipTrend = clipValues.every((value) => value === clipValues[0]) ? 'consistent' : 'inconsistent';
+  }
+
+  return {
+    ordered,
+    enoughData: severityValues.length >= 2 || completionValues.length >= 2 || clipValues.length >= 2,
+    severityTrend,
+    completionTrend,
+    clipTrend,
+  };
+}
+
+function _renderHistoricalExportTrendSummary(trend) {
+  if (!trend.enoughData) {
+    return '<p style="margin:0;color:#4b5563">Not enough finalized sessions to determine trend.</p>';
+  }
+  return `<div style="display:grid;gap:8px">
+    <div><strong>Severity trajectory:</strong> ${esc(trend.severityTrend)}.</div>
+    <div><strong>Task completion trajectory:</strong> ${esc(trend.completionTrend)}.</div>
+    <div><strong>Clip availability:</strong> ${esc(trend.clipTrend)}.</div>
+  </div>`;
+}
+
+function _renderHistoricalExportAiSummary(summary) {
+  if (!summary) return '';
+  const observations = Array.isArray(summary.trend_observations) ? summary.trend_observations : [];
+  const limitations = Array.isArray(summary.limitations) ? summary.limitations : [];
+  const basis = summary.data_basis || {};
+  const provenance = summary.provenance || {};
+  const statusLabel = _aiSummaryStatusLabel(summary.summary_status);
+  const dataBasisLine = [
+    `${basis.session_count ?? 0} finalized session(s)`,
+    `severity data ${basis.has_severity_data ? 'available' : 'limited'}`,
+    `task completion ${basis.has_task_completion_data ? 'available' : 'limited'}`,
+    `clip availability ${basis.has_clip_availability_data ? 'available' : 'limited'}`,
+  ].join(' · ');
+  const provenanceLine = [
+    `Generated ${_formatPriorSessionDate(summary.generated_at)}`,
+    `Logic ${provenance.summary_logic_version || 'unknown'}`,
+    `${provenance.session_count ?? 0} source session(s)`,
+    `Sources ${(Array.isArray(provenance.source_session_ids) ? provenance.source_session_ids : []).map(_shortSessionId).join(', ') || 'none'}`,
+  ].join(' · ');
+  return `<section class="panel">
+      <h2>AI historical summary</h2>
+      <p class="meta"><strong>Status:</strong> ${esc(statusLabel)}</p>
+      <p>${esc(summary.summary_text || 'No advisory summary text returned.')}</p>
+      <div style="margin-top:10px">
+        <strong>Trend observations</strong>
+        <ul style="margin:6px 0 0 18px;padding:0">${observations.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>
+      </div>
+      <p class="meta" style="margin-top:10px"><strong>Data basis:</strong> ${esc(dataBasisLine)}</p>
+      <p class="meta" style="margin-top:10px"><strong>Provenance / generation metadata:</strong> ${esc(provenanceLine)}</p>
+      <div style="margin-top:10px">
+        <strong>Limitations</strong>
+        <ul style="margin:6px 0 0 18px;padding:0">${limitations.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>
+      </div>
+      <p class="meta" style="margin-top:12px">Advisory summary generated from persisted finalized-session comparison data. Not a diagnosis or treatment recommendation.</p>
+    </section>`;
+}
+
+/*
+ * Historical comparison export is a presentation layer over already-authorized,
+ * persisted backend summaries that are already visible in the UI. It must not
+ * fetch broader review payloads or expose hidden local draft state in this phase.
+ */
+function _buildHistoricalComparisonExportHtml() {
+  const session = _vaSession || _ensureSession();
+  const selected = _selectedPriorSessions();
+  const trend = _computePriorTrendSummary(_vaPriorSessionsState.trendItems || []);
+  const aiSummary = _vaPriorSessionsState.aiSummaryResult;
+  const generatedAt = _formatPriorSessionDate(new Date().toISOString());
+  const selectedSummaryRows = selected.length
+    ? selected.map((item) => `<tr>
+        <td style="padding:8px;border-bottom:1px solid #d1d5db">${esc(_formatPriorSessionDate(item.occurred_at))}</td>
+        <td style="padding:8px;border-bottom:1px solid #d1d5db">${esc(_priorSessionSeverityLabel(item))}</td>
+        <td style="padding:8px;border-bottom:1px solid #d1d5db">${esc(_priorSessionTasksLabel(item))}</td>
+        <td style="padding:8px;border-bottom:1px solid #d1d5db">${esc(_priorSessionClipLabel(item))}</td>
+        <td style="padding:8px;border-bottom:1px solid #d1d5db">${esc(item.finalized_by || 'Clinician')} · ${esc(_formatPriorSessionDate(item.finalized_at))}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="5" style="padding:8px;border-bottom:1px solid #d1d5db;color:#4b5563">No prior finalized sessions selected for export.</td></tr>';
+
+  const comparisonTable = selected.length
+    ? (() => {
+        const headerCells = selected
+          .map((item) => `<th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;vertical-align:top;min-width:180px">${esc(_formatPriorSessionDate(item.occurred_at))}</th>`)
+          .join('');
+        const row = (label, mapper) => `<tr>
+          <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;vertical-align:top;width:180px">${label}</th>
+          ${selected.map((item) => `<td style="padding:8px;border-bottom:1px solid #d1d5db;vertical-align:top">${mapper(item)}</td>`).join('')}
+        </tr>`;
+        return `<table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db">Field</th>
+              ${headerCells}
+            </tr>
+          </thead>
+          <tbody>
+            ${row('Session date', (item) => esc(_formatPriorSessionDate(item.occurred_at)))}
+            ${row('Severity level', (item) => esc(_priorSessionSeverityLabel(item)))}
+            ${row('Tasks completed / total', (item) => esc(_priorSessionTasksLabel(item)))}
+            ${row('High-level summary', (item) => esc(_priorSessionSummaryText(item)))}
+            ${row('Has clips', (item) => esc(item.has_clips ? 'Yes' : 'No'))}
+            ${row('Finalized by / at', (item) => esc(`${item.finalized_by || 'Clinician'} · ${_formatPriorSessionDate(item.finalized_at)}`))}
+          </tbody>
+        </table>`;
+      })()
+    : '<p style="margin:0;color:#4b5563">No prior finalized sessions selected for side-by-side comparison.</p>';
+
+  const trendStrip = trend.ordered.length
+    ? `<table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db">Trend field</th>
+            ${trend.ordered.map((item) => `<th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;vertical-align:top">${esc(_formatPriorSessionDate(item.occurred_at))}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;vertical-align:top">Severity trajectory</th>
+            ${trend.ordered.map((item) => `<td style="padding:8px;border-bottom:1px solid #d1d5db;vertical-align:top">${esc(_priorSessionSeverityLabel(item))}</td>`).join('')}
+          </tr>
+          <tr>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;vertical-align:top">Task completion trajectory</th>
+            ${trend.ordered.map((item) => `<td style="padding:8px;border-bottom:1px solid #d1d5db;vertical-align:top">${esc(_priorSessionTasksLabel(item))}</td>`).join('')}
+          </tr>
+          <tr>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;vertical-align:top">Clip availability</th>
+            ${trend.ordered.map((item) => `<td style="padding:8px;border-bottom:1px solid #d1d5db;vertical-align:top">${esc(_priorSessionClipLabel(item))}</td>`).join('')}
+          </tr>
+        </tbody>
+      </table>`
+    : '<p style="margin:0;color:#4b5563">Not enough finalized sessions to determine trend.</p>';
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Video assessment historical comparison</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 24px; color: #111827; line-height: 1.45; }
+      h1, h2 { margin: 0 0 12px; }
+      h2 { margin-top: 24px; font-size: 18px; }
+      p { margin: 0 0 10px; }
+      .meta { color: #4b5563; font-size: 12px; }
+      .panel { margin-top: 18px; padding: 16px; border: 1px solid #d1d5db; border-radius: 10px; }
+      table { margin-top: 8px; }
+      @media print {
+        body { margin: 12mm; }
+        .panel { break-inside: avoid; }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Video assessment historical comparison</h1>
+    <p class="meta"><strong>Current session context:</strong> ${esc(_currentSessionContextLabel())}</p>
+    <p class="meta"><strong>Generated:</strong> ${esc(generatedAt)}</p>
+    <p class="meta"><strong>Attached session:</strong> ${esc(session?.id || 'unknown')}</p>
+
+    <section class="panel">
+      <h2>Selected prior finalized sessions summary</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db">Session date</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db">Severity level</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db">Tasks completed / total</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db">Clips</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db">Finalized by / at</th>
+          </tr>
+        </thead>
+        <tbody>${selectedSummaryRows}</tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>Side-by-side comparison</h2>
+      ${comparisonTable}
+    </section>
+
+    <section class="panel">
+      <h2>Longitudinal trend summary</h2>
+      ${trendStrip}
+      <div style="margin-top:12px">
+        ${_renderHistoricalExportTrendSummary(trend)}
+      </div>
+    </section>
+
+    ${aiSummary ? _renderHistoricalExportAiSummary(aiSummary) : ''}
+
+    <p class="meta" style="margin-top:24px">Read-only historical comparison generated from persisted finalized-session backend data.</p>
+  </body>
+</html>`;
+}
+
+function _exportHistoricalComparisonReport() {
+  const role = currentUser?.role || '';
+  if (!_canReviewPriorSessions(role) || !_currentPriorComparisonSessionId()) return;
+  const reportWindow = window.open('', '_blank', 'noopener,noreferrer');
+  if (!reportWindow || !reportWindow.document) {
+    showToast('Could not open the historical comparison export window.');
+    return;
+  }
+  const html = _buildHistoricalComparisonExportHtml();
+  reportWindow.document.open();
+  reportWindow.document.write(html);
+  reportWindow.document.close();
+  try {
+    reportWindow.focus();
+  } catch (_) {}
+}
+
+async function _ensurePriorSessionsLoaded() {
+  const role = currentUser?.role || '';
+  const sessionId = _currentPriorComparisonSessionId();
+  if (!_canReviewPriorSessions(role) || !sessionId || _vaUiMode !== 'clinician') {
+    if (
+      _vaPriorSessionsState.sessionId ||
+      _vaPriorSessionsState.loading ||
+      _vaPriorSessionsState.loaded ||
+      _vaPriorSessionsState.error ||
+      _vaPriorSessionsState.items.length
+    ) {
+      _resetPriorSessionsState();
+    }
+    return;
+  }
+  if (_vaPriorSessionsState.loading) return;
+  if (_vaPriorSessionsState.loaded && _vaPriorSessionsState.sessionId === sessionId) return;
+
+  _vaPriorSessionsState = {
+    sessionId,
+    loading: true,
+    loaded: false,
+    error: null,
+    items: [],
+    trendItems: [],
+    selectedIds: [],
+    aiSummaryLoading: false,
+    aiSummaryError: null,
+    aiSummaryResult: null,
+    aiSummarySelectionKey: '',
+    aiSummaryStaleReason: '',
+  };
+  _render();
+  try {
+    const res = await api.getVideoAssessmentPriorFinalizedSessions(sessionId);
+    const items = _sortPriorSessionsNewestFirst(Array.isArray(res?.sessions) ? res.sessions : []);
+    const trendItems = _sortPriorSessionsOldestFirst(Array.isArray(res?.trend_sessions) ? res.trend_sessions : []);
+    _vaPriorSessionsState = {
+      sessionId,
+      loading: false,
+      loaded: true,
+      error: null,
+      items,
+      trendItems,
+      selectedIds: [],
+      aiSummaryLoading: false,
+      aiSummaryError: null,
+      aiSummaryResult: null,
+      aiSummarySelectionKey: '',
+      aiSummaryStaleReason: '',
+    };
+  } catch (e) {
+    _vaPriorSessionsState = {
+      sessionId,
+      loading: false,
+      loaded: true,
+      error: e?.message || 'Could not load prior finalized sessions from the backend.',
+      items: [],
+      trendItems: [],
+      selectedIds: [],
+      aiSummaryLoading: false,
+      aiSummaryError: null,
+      aiSummaryResult: null,
+      aiSummarySelectionKey: '',
+      aiSummaryStaleReason: '',
+    };
+  }
+  _render();
+}
+
+function _togglePriorSessionSelection(sessionId) {
+  const current = new Set(_vaPriorSessionsState.selectedIds || []);
+  const hadSummary = !!_vaPriorSessionsState.aiSummaryResult;
+  if (current.has(sessionId)) {
+    current.delete(sessionId);
+  } else {
+    if (current.size >= 3) {
+      showToast('Select up to 3 prior finalized sessions for comparison.');
+      return;
+    }
+    current.add(sessionId);
+  }
+  _vaPriorSessionsState = {
+    ..._vaPriorSessionsState,
+    selectedIds: Array.from(current),
+    aiSummaryLoading: false,
+    aiSummaryError: null,
+    aiSummaryResult: null,
+    aiSummarySelectionKey: '',
+    aiSummaryStaleReason: hadSummary ? 'selection_changed' : '',
+  };
+  _render();
+}
+
+async function _generateHistoricalAiSummary() {
+  const role = currentUser?.role || '';
+  const sessionId = _currentPriorComparisonSessionId();
+  if (!_canReviewPriorSessions(role) || !sessionId) return;
+  const selectedIds = _selectedPriorSessionIds();
+  const selectionKey = selectedIds.join('|');
+  if (!selectedIds.length) {
+    showToast('Select at least one prior finalized session first.');
+    return;
+  }
+  _vaPriorSessionsState = {
+    ..._vaPriorSessionsState,
+    aiSummaryLoading: true,
+    aiSummaryError: null,
+    aiSummaryResult: null,
+    aiSummarySelectionKey: selectionKey,
+    aiSummaryStaleReason: '',
+  };
+  _render();
+  try {
+    const result = await api.generateVideoAssessmentHistoricalAiSummary(sessionId, {
+      selected_session_ids: selectedIds,
+    });
+    if (_currentPriorComparisonSessionId() !== sessionId || _currentAiSummarySelectionKey() !== selectionKey) {
+      return;
+    }
+    _vaPriorSessionsState = {
+      ..._vaPriorSessionsState,
+      aiSummaryLoading: false,
+      aiSummaryError: null,
+      aiSummaryResult: result || null,
+      aiSummarySelectionKey: selectionKey,
+      aiSummaryStaleReason: '',
+    };
+  } catch (e) {
+    if (_currentPriorComparisonSessionId() !== sessionId || _currentAiSummarySelectionKey() !== selectionKey) {
+      return;
+    }
+    _vaPriorSessionsState = {
+      ..._vaPriorSessionsState,
+      aiSummaryLoading: false,
+      aiSummaryError: e?.message || 'Historical AI summary is temporarily unavailable.',
+      aiSummaryResult: null,
+      aiSummarySelectionKey: selectionKey,
+      aiSummaryStaleReason: '',
+    };
+  }
+  _render();
 }
 
 function _mimeForRecorder() {
@@ -710,6 +1309,236 @@ function _renderClinicianForm(task) {
   </div>`;
 }
 
+/*
+ * Prior finalized-session comparison is read-only. It consumes compact,
+ * persisted backend summaries only and must never trigger patch/finalize/upload
+ * writes from this UI surface.
+ */
+function _renderPriorSessionsComparison() {
+  const role = currentUser?.role || '';
+  const attachedSessionId = _currentPriorComparisonSessionId();
+  if (!_canReviewPriorSessions(role) || !attachedSessionId) return '';
+
+  const currentStatus = _vaSession?.overall_status || 'unknown';
+  const state = _vaPriorSessionsState;
+  let body = '';
+
+  if (state.loading) {
+    body = '<p class="va-muted" style="font-size:12px;margin:0">Loading prior finalized sessions from the backend…</p>';
+  } else if (state.error) {
+    body = `<p class="va-muted" role="alert" style="font-size:12px;margin:0;color:var(--amber)">Prior finalized sessions are temporarily unavailable. Refresh to retry. ${esc(state.error)}</p>`;
+  } else if ((state.items || []).length === 0) {
+    body = '<p class="va-muted" style="font-size:12px;margin:0">No prior finalized sessions are available for this patient and assessment context.</p>';
+  } else {
+    const selectedCount = (state.selectedIds || []).length;
+    const exportDisabled = state.loading || !!state.error;
+    const aiSummaryDisabled = exportDisabled || selectedCount === 0;
+    const aiSummaryActionLabel =
+      state.aiSummaryResult || state.aiSummaryStaleReason
+        ? 'Regenerate AI historical summary'
+        : 'Generate AI historical summary';
+    const staleNotice = state.aiSummaryStaleReason
+      ? `<p class="va-muted" role="status" style="font-size:12px;margin:0 0 12px;color:var(--amber)">${esc(_aiSummaryStaleCopy(state.aiSummaryStaleReason))}</p>`
+      : '';
+    const cards = (state.items || []).map((item) => {
+      const selected = state.selectedIds.includes(item.session_id);
+      const disableNewSelection = !selected && selectedCount >= 3;
+      const summary = item.summary || {};
+      const comparePanelId = `va-prior-compare-panel-${esc(item.session_id)}`;
+      return `<div class="ds-card" style="margin:0;border:${selected ? '1px solid rgba(0,212,188,.45)' : '1px solid var(--border)'}">
+        <div class="ds-card__body" style="padding:12px;display:grid;gap:8px">
+          <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+            <div>
+              <strong style="display:block;font-size:13px">${esc(_formatPriorSessionDate(item.occurred_at))}</strong>
+              <span class="va-muted" style="font-size:11px">Status: ${esc(_priorSessionStatusLabel(item))}</span>
+            </div>
+            <button
+              type="button"
+              class="btn ${selected ? 'btn-secondary' : 'btn-primary'} btn-sm"
+              data-va-prior-select="${esc(item.session_id)}"
+              aria-pressed="${selected ? 'true' : 'false'}"
+              aria-controls="${comparePanelId}"
+              ${disableNewSelection ? 'disabled aria-disabled="true"' : ''}
+            >${selected ? 'Selected' : 'Compare'}</button>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;font-size:10px">
+            <span style="padding:2px 8px;border:1px solid rgba(255,181,71,.35);background:rgba(255,181,71,.10);border-radius:999px;color:var(--amber)">Finalized</span>
+            <span style="padding:2px 8px;border:1px solid var(--border);border-radius:999px">Severity: ${esc(_priorSessionSeverityLabel(item))}</span>
+            <span style="padding:2px 8px;border:1px solid var(--border);border-radius:999px">Tasks: ${esc(_priorSessionTasksLabel(item))}</span>
+            <span style="padding:2px 8px;border:1px solid ${item.has_clips ? 'rgba(0,212,188,.35)' : 'var(--border)'};background:${item.has_clips ? 'rgba(0,212,188,.08)' : 'transparent'};border-radius:999px;color:${item.has_clips ? 'var(--teal)' : 'var(--text-secondary)'}">${esc(_priorSessionClipLabel(item))}</span>
+          </div>
+          <p class="va-muted" style="font-size:12px;line-height:1.5;margin:0">${esc(_priorSessionSummaryText(item))}</p>
+          <div class="va-muted" style="font-size:11px">Finalized by ${esc(item.finalized_by || 'Clinician')} · ${esc(_formatPriorSessionDate(item.finalized_at))}</div>
+        </div>
+      </div>`;
+    }).join('');
+
+    const selected = _selectedPriorSessions();
+    let compareTable = '';
+    if (selected.length > 0) {
+      const headers = selected.map((item) => `<th id="va-prior-compare-panel-${esc(item.session_id)}" style="text-align:left;padding:8px;border-bottom:1px solid var(--border);min-width:220px">${esc(_formatPriorSessionDate(item.occurred_at))}</th>`).join('');
+      const row = (label, mapper) => `<tr>
+        <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);vertical-align:top">${label}</th>
+        ${selected.map((item) => `<td style="padding:8px;border-bottom:1px solid var(--border);vertical-align:top">${mapper(item)}</td>`).join('')}
+      </tr>`;
+      compareTable = `<div class="ds-card" style="margin-top:12px">
+        <div class="ds-card__header"><h3 style="margin:0">Side-by-side comparison</h3></div>
+        <div class="ds-card__body" style="overflow:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
+            <thead>
+              <tr>
+                <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">Field</th>
+                ${headers}
+              </tr>
+            </thead>
+            <tbody>
+              ${row('Session date', (item) => esc(_formatPriorSessionDate(item.occurred_at)))}
+              ${row('Severity level', (item) => esc(_priorSessionSeverityLabel(item)))}
+              ${row('Tasks completed / total', (item) => esc(_priorSessionTasksLabel(item)))}
+              ${row('High-level summary', (item) => esc(_priorSessionSummaryText(item)))}
+              ${row('Has clips', (item) => esc(item.has_clips ? 'Yes' : 'No'))}
+              ${row('Finalized by / at', (item) => esc(`${item.finalized_by || 'Clinician'} · ${_formatPriorSessionDate(item.finalized_at)}`))}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+    }
+
+    body = `
+      <p class="va-muted" style="font-size:12px;margin-top:0">Current session status: <strong>${esc(currentStatus)}</strong>. Select 1 to 3 prior finalized sessions to compare. This area is read-only and uses persisted backend data only.</p>
+      ${staleNotice}
+      <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 12px">
+        <button type="button" class="btn btn-secondary btn-sm" id="va-generate-history-ai" ${aiSummaryDisabled ? 'disabled title="Select at least one prior finalized session to summarize"' : ''}>${state.aiSummaryLoading ? 'Generating…' : aiSummaryActionLabel}</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="va-export-history" ${exportDisabled ? 'disabled' : ''}>Export historical comparison</button>
+      </div>
+      <div class="va-prior-session-grid" style="display:grid;gap:10px" role="list" aria-label="Prior finalized sessions">${cards}</div>
+      ${_renderLongitudinalTrendSummary()}
+      ${_renderHistoricalAiSummaryPanel()}
+      ${compareTable}
+    `;
+  }
+
+  return `<div class="ds-card" style="margin-top:12px">
+    <div class="ds-card__header"><h3 style="margin:0">Prior finalized sessions (read-only, backend data)</h3></div>
+    <div class="ds-card__body">${body}</div>
+  </div>`;
+}
+
+function _renderLongitudinalTrendSummary() {
+  const role = currentUser?.role || '';
+  if (!_canReviewPriorSessions(role) || !_currentPriorComparisonSessionId()) return '';
+
+  const trend = _computePriorTrendSummary(_vaPriorSessionsState.trendItems || []);
+  if (!trend.ordered.length) return '';
+
+  if (!trend.enoughData) {
+    return `<div class="ds-card" style="margin-top:12px">
+      <div class="ds-card__header"><h3 style="margin:0">Longitudinal trend summary (read-only, finalized sessions)</h3></div>
+      <div class="ds-card__body">
+        <p class="va-muted" style="font-size:12px;margin:0">Not enough finalized sessions to determine trend.</p>
+      </div>
+    </div>`;
+  }
+
+  const headerCells = trend.ordered
+    .map((item) => `<th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);min-width:140px">${esc(_formatPriorSessionDate(item.occurred_at))}</th>`)
+    .join('');
+  const valueRow = (label, values) => `<tr>
+    <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);vertical-align:top">${label}</th>
+    ${values.map((value) => `<td style="padding:8px;border-bottom:1px solid var(--border);vertical-align:top">${value}</td>`).join('')}
+  </tr>`;
+  const textualSummary = [
+    `Severity trajectory: ${trend.severityTrend}.`,
+    `Task completion trajectory: ${trend.completionTrend}.`,
+    `Clip availability: ${trend.clipTrend}.`,
+  ].join(' ');
+
+  return `<div class="ds-card" style="margin-top:12px">
+    <div class="ds-card__header"><h3 style="margin:0">Longitudinal trend summary (read-only, finalized sessions)</h3></div>
+    <div class="ds-card__body">
+      <div style="overflow:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">Trend field</th>
+              ${headerCells}
+            </tr>
+          </thead>
+          <tbody>
+            ${valueRow('Severity trajectory', trend.ordered.map((item) => esc(_priorSessionSeverityLabel(item))))}
+            ${valueRow('Task completion trajectory', trend.ordered.map((item) => esc(_priorSessionTasksLabel(item))))}
+            ${valueRow('Clip availability', trend.ordered.map((item) => esc(_priorSessionClipLabel(item))))}
+          </tbody>
+        </table>
+      </div>
+      <div class="va-muted" style="font-size:12px;line-height:1.6;margin-top:12px">
+        <strong style="color:var(--text-primary)">Trend summary</strong>
+        <p style="margin:6px 0 0">${esc(textualSummary)}</p>
+      </div>
+    </div>
+  </div>`;
+}
+
+function _renderHistoricalAiSummaryPanel() {
+  const role = currentUser?.role || '';
+  if (!_canReviewPriorSessions(role) || !_currentPriorComparisonSessionId()) return '';
+  const state = _vaPriorSessionsState;
+  if (state.aiSummaryLoading) {
+    return `<div class="ds-card" style="margin-top:12px">
+      <div class="ds-card__header"><h3 style="margin:0">AI historical summary</h3></div>
+      <div class="ds-card__body">
+        <p class="va-muted" style="font-size:12px;margin:0">Generating advisory summary from persisted finalized-session comparison data…</p>
+      </div>
+    </div>`;
+  }
+  if (state.aiSummaryError) {
+    return `<div class="ds-card" style="margin-top:12px">
+      <div class="ds-card__header"><h3 style="margin:0">AI historical summary</h3></div>
+      <div class="ds-card__body">
+        <p class="va-muted" role="alert" style="font-size:12px;margin:0;color:var(--amber)">Historical AI summary is temporarily unavailable. ${esc(state.aiSummaryError)}</p>
+      </div>
+    </div>`;
+  }
+  const summary = state.aiSummaryResult;
+  if (!summary) return '';
+  const observations = Array.isArray(summary.trend_observations) ? summary.trend_observations : [];
+  const limitations = Array.isArray(summary.limitations) ? summary.limitations : [];
+  const basis = summary.data_basis || {};
+  const provenance = summary.provenance || {};
+  const statusLabel = _aiSummaryStatusLabel(summary.summary_status);
+  const dataBasisLine = [
+    `${basis.session_count ?? 0} finalized session(s)`,
+    `severity data ${basis.has_severity_data ? 'available' : 'limited'}`,
+    `task completion ${basis.has_task_completion_data ? 'available' : 'limited'}`,
+    `clip availability ${basis.has_clip_availability_data ? 'available' : 'limited'}`,
+  ].join(' · ');
+  const provenanceLine = [
+    `Generated ${_formatPriorSessionDate(summary.generated_at)}`,
+    `Logic ${provenance.summary_logic_version || 'unknown'}`,
+    `${provenance.session_count ?? 0} source session(s)`,
+    `Sources ${(Array.isArray(provenance.source_session_ids) ? provenance.source_session_ids : []).map(_shortSessionId).join(', ') || 'none'}`,
+  ].join(' · ');
+  return `<div class="ds-card" style="margin-top:12px">
+    <div class="ds-card__header"><h3 style="margin:0">AI historical summary</h3></div>
+    <div class="ds-card__body" style="font-size:12px;line-height:1.6">
+      <p class="va-muted" style="margin-top:0"><strong style="color:var(--text-primary)">Status</strong>: ${esc(statusLabel)}</p>
+      <p style="margin-top:0">${esc(summary.summary_text || 'No advisory summary text returned.')}</p>
+      <div style="margin-top:12px">
+        <strong style="display:block;margin-bottom:6px">Trend observations</strong>
+        <ul style="margin:0;padding-left:18px">${observations.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>
+      </div>
+      <p class="va-muted" style="margin:12px 0 0"><strong style="color:var(--text-primary)">Data basis</strong>: ${esc(dataBasisLine)}</p>
+      <!-- Freshness / provenance metadata indicates traceability and state alignment only, not summary correctness. -->
+      <p class="va-muted" style="margin:8px 0 0"><strong style="color:var(--text-primary)">Provenance / generation metadata</strong>: ${esc(provenanceLine)}</p>
+      <div style="margin-top:12px">
+        <strong style="display:block;margin-bottom:6px">Limitations</strong>
+        <ul style="margin:0;padding-left:18px">${limitations.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>
+      </div>
+      <p class="va-muted" style="margin:12px 0 0">Advisory summary generated from persisted finalized-session comparison data. Not a diagnosis or treatment recommendation.</p>
+    </div>
+  </div>`;
+}
+
 function _renderClinicianColumn() {
   const session = _ensureSession();
   session.mode = 'clinician_review';
@@ -738,8 +1567,6 @@ function _renderClinicianColumn() {
     })
     .join('');
 
-  const historyPlaceholder = `<div class="ds-card" style="margin-top:12px"><div class="ds-card__header"><h3>Prior sessions</h3></div><div class="ds-card__body"><p class="va-muted" style="font-size:12px">Side-by-side comparison with prior visits will appear here after longitudinal storage is enabled.</p></div></div>`;
-
   return `<div class="va-col va-col-clinician">
     <div class="va-clin-layout">
       <aside class="va-sidebar" aria-label="Tasks">${sidebar}</aside>
@@ -747,7 +1574,7 @@ function _renderClinicianColumn() {
         <h4 style="margin:0 0 8px">${task ? esc(task.task_name) : ''}</h4>
         <p class="va-muted" style="font-size:12px">${def ? esc(def.clinical_purpose) : ''}</p>
         ${_renderClinicianForm(task)}
-        ${historyPlaceholder}
+        ${_renderPriorSessionsComparison()}
       </div>
     </div>
     <p class="va-muted" style="font-size:11px;margin-top:10px">Tip: use ↑ / ↓ to move between tasks when the sidebar is focused.</p>
@@ -825,6 +1652,7 @@ function _render() {
 </div>`;
 
   _wire();
+  void _ensurePriorSessionsLoaded();
 }
 
 function _collectReviewFromDom(task) {
@@ -893,6 +1721,27 @@ function _wire() {
   document.getElementById('va-mode-clinician')?.addEventListener('click', () => {
     _vaUiMode = 'clinician';
     _render();
+  });
+
+  document.querySelectorAll('[data-va-prior-select]').forEach((btn) => {
+    const toggleSelection = () => {
+      const sessionId = btn.getAttribute('data-va-prior-select') || '';
+      if (!sessionId) return;
+      _togglePriorSessionSelection(sessionId);
+    };
+    btn.addEventListener('click', toggleSelection);
+    btn.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      toggleSelection();
+    });
+  });
+
+  document.getElementById('va-export-history')?.addEventListener('click', () => {
+    _exportHistoricalComparisonReport();
+  });
+  document.getElementById('va-generate-history-ai')?.addEventListener('click', () => {
+    void _generateHistoricalAiSummary();
   });
 
   document.getElementById('va-setup-continue')?.addEventListener('click', () => {
@@ -1129,6 +1978,7 @@ export async function pgVideoAssessments(setTopbar, navigate) {
 
   const storedPid = _readStoredPatientId();
   _vaSelectedPatientId = storedPid || null;
+  _resetPriorSessionsState();
 
   _vaSession = null;
   const persisted = _loadPersistedSession();
