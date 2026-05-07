@@ -118,3 +118,28 @@ test('Outcome sparkline is hand-rolled SVG (no external chart library)', () => {
   assert.ok(s.includes('<svg') || s.includes('<polyline'));
   assert.equal(s.includes('chart.js') || s.includes('d3') || s.includes('plotly'), false);
 });
+
+test('All 5 demo patients are present in treatment sessions fixture', () => {
+  const here = path.dirname(url.fileURLToPath(import.meta.url));
+  const fixtureSrc = fs.readFileSync(path.join(here, 'demo-fixtures-analyzers.js'), 'utf8');
+  assert.ok(fixtureSrc.includes("'demo-pt-samantha-li'"));
+  assert.ok(fixtureSrc.includes("'demo-pt-marcus-chen'"));
+  assert.ok(fixtureSrc.includes("'demo-pt-elena-vasquez'"));
+  assert.ok(fixtureSrc.includes("'demo-pt-omar-haddad'"));
+  assert.ok(fixtureSrc.includes("'demo-pt-amelia-brown'"));
+});
+
+test('Demo fixtures include varied clinical scenarios (adherence, deviations, AEs, outcomes)', () => {
+  const here = path.dirname(url.fileURLToPath(import.meta.url));
+  const fixtureSrc = fs.readFileSync(path.join(here, 'demo-fixtures-analyzers.js'), 'utf8');
+  // Multiple deviations
+  assert.ok(fixtureSrc.includes('deviationIndices: [6, 9]'));
+  // Low adherence
+  assert.ok(fixtureSrc.includes('adherence_pct: 45'));
+  // Multiple outcome scales
+  assert.ok(fixtureSrc.includes('all_summaries'));
+  // AE flag
+  assert.ok(fixtureSrc.includes('aeIndices'));
+  // Unsigned sessions
+  assert.ok(fixtureSrc.includes('unsignedIndices'));
+});

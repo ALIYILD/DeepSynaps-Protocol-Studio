@@ -1195,10 +1195,69 @@ const _TS_DETAIL = {
       outcomes: { scale: 'HAM-D', scores: [28, 27, 25, 23, 21, 19, 18] },
     };
   },
+  'demo-pt-omar-haddad': () => {
+    const sessions = _tsBuildSessions('omar', 20, 12, {
+      modality: 'rTMS', intensity: '110% rMT · 1 Hz · 1800 pulses · right motor cortex',
+      duration: 30, comfort: 8, cadenceDays: 2, startISO: '2026-03-10T11:00:00Z',
+      deviationIndices: [6, 9], deviationDuration: 35,
+      aeIndices: [3],
+      unsignedIndices: [11, 12],
+    });
+    return {
+      course: {
+        id: 'demo-course-omar-rtms', patient_id: 'demo-pt-omar-haddad', patient_name: 'Demo Patient D (synthetic)',
+        protocol_name: '1 Hz rTMS · Right M1 for post-stroke fatigue', modality: 'rTMS', target_site: 'R-M1 (hand knob)',
+        total_sessions: 20, completed_sessions: 12, adherence_pct: 80,
+        current_week: 6, total_weeks: 8, started_at: '2026-03-10T11:00:00Z',
+      },
+      sessions,
+      summary: { signed_count: 10, delivered_count: 12 },
+      deviations: [
+        {
+          session_number: 6, scheduled_at: '2026-03-22T11:00:00Z',
+          parameter: 'Stimulus duration', prescribed: '30 min', delivered: '35 min',
+          note: 'Operator extended session per patient request; requires clinician review.',
+        },
+        {
+          session_number: 9, scheduled_at: '2026-03-28T11:00:00Z',
+          parameter: 'Stimulus duration', prescribed: '30 min', delivered: '35 min',
+          note: 'Repeated extension; flag for protocol adherence review.',
+        },
+      ],
+      outcomes: { scale: 'FSS', scores: [42, 40, 38, 37, 36, 35, 34, 33, 32, 31, 30, 29] },
+    };
+  },
+  'demo-pt-amelia-brown': () => {
+    const sessions = _tsBuildSessions('amelia', 30, 5, {
+      modality: 'tDCS', intensity: '2 mA · 30 min · F4-anodal / F3-cathodal',
+      duration: 30, comfort: 7, cadenceDays: 2, startISO: '2026-04-20T14:00:00Z',
+      aeIndices: [2],
+      unsignedIndices: [4, 5],
+    });
+    return {
+      course: {
+        id: 'demo-course-amelia-tdcs', patient_id: 'demo-pt-amelia-brown', patient_name: 'Demo Patient E (synthetic)',
+        protocol_name: 'Anodal tDCS · R-DLPFC for complex PTSD', modality: 'tDCS', target_site: 'R-DLPFC (F4)',
+        total_sessions: 30, completed_sessions: 5, adherence_pct: 45,
+        current_week: 3, total_weeks: 12, started_at: '2026-04-20T14:00:00Z',
+      },
+      sessions,
+      summary: { signed_count: 3, delivered_count: 5 },
+      deviations: [],
+      outcomes: {
+        scale: 'PCL-5',
+        scores: [62, 60, 58, 55, 53],
+        all_summaries: [
+          { template_id: 'pcl5', template_title: 'PCL-5', scores: [62, 60, 58, 55, 53] },
+          { template_id: 'isi', template_title: 'ISI', scores: [18, 17, 16, 15, 14] },
+        ],
+      },
+    };
+  },
 };
 
 const _TREATMENT_SESSIONS = {
-  patients: ['demo-pt-samantha-li', 'demo-pt-marcus-chen', 'demo-pt-elena-vasquez'],
+  patients: ['demo-pt-samantha-li', 'demo-pt-marcus-chen', 'demo-pt-elena-vasquez', 'demo-pt-omar-haddad', 'demo-pt-amelia-brown'],
   detail: (pid) => (_TS_DETAIL[pid] ? _TS_DETAIL[pid]() : null),
 };
 
