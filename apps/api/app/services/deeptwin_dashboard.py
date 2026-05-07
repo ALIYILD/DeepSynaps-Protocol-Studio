@@ -18,9 +18,9 @@ Honesty rules (enforced here, not in the UI):
   assessments in 90 days).
 - ``available`` means rows exist with reasonable coverage.
 
-Prediction confidence is reported with ``status="placeholder"`` and
-``real_ai=False`` until a validated model is wired in. We never claim
-calibrated confidence we don't have.
+Prediction output is withheld with ``available=False`` and
+``status="not_implemented"`` until a validated model is wired in. We
+never surface plausible-looking confidence or predictions we do not have.
 """
 
 from __future__ import annotations
@@ -563,26 +563,27 @@ def _outcomes(session: Session, patient_id: str) -> tuple[dict[str, Any], dict[s
 
 
 def _twin_predictions(_session: Session, _patient_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Honest placeholder: model is deterministic synthetic, not validated."""
+    """Fail closed until a validated prediction model exists."""
     card = _domain(
-        "twin_predictions", status="partial",
-        summary="DeepTwin predictions are model-estimated and uncalibrated.",
+        "twin_predictions", status="unavailable",
+        summary="DeepTwin prediction output is withheld until a validated model is connected.",
         warnings=[
-            "DeepTwin model is currently a deterministic placeholder; "
-            "no validated outcome calibration.",
+            "No validated DeepTwin prediction model or outcome calibration is connected.",
         ],
     )
     pred_block = {
-        "status": "placeholder",
+        "available": False,
+        "status": "not_implemented",
         "real_ai": False,
         "confidence": None,
-        "confidence_label": "Not calibrated",
-        "summary": "Decision-support only. Requires clinician review.",
+        "confidence_label": "Withheld",
+        "summary": "DeepTwin prediction output is withheld until a validated model is connected.",
+        "reason": "no_validated_prediction_model",
         "drivers": [],
         "limitations": [
-            "No validated outcome dataset bound to this engine.",
-            "Encoders are deterministic feature extractors, not trained ML.",
-            "Predictions must not be used as autonomous treatment recommendations.",
+            "No validated outcome dataset is bound to a production prediction engine.",
+            "Prediction output is intentionally withheld instead of rendering deterministic placeholders.",
+            "DeepTwin must not be used as an autonomous treatment recommendation engine.",
         ],
     }
     return card, pred_block

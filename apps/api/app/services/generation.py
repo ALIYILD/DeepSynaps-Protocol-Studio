@@ -1,6 +1,5 @@
 from deepsynaps_core_schema import (
     HandbookGenerateRequest,
-    HandbookGenerateResponse,
     ProtocolDraftRequest,
     ProtocolDraftResponse,
 )
@@ -11,6 +10,7 @@ from app.entitlements import require_any_feature
 from app.errors import ApiServiceError
 from app.packages import Feature
 from app.services.clinical_data import (
+    HandbookGenerateAPIResponse,
     generate_handbook_from_clinical_data,
     generate_protocol_draft_from_clinical_data,
 )
@@ -111,7 +111,7 @@ def generate_protocol_draft(payload: ProtocolDraftRequest, actor: AuthenticatedA
     return response.model_copy(update={"device_resolution": dr}) if dr is not None else response
 
 
-def generate_handbook(payload: HandbookGenerateRequest, actor: AuthenticatedActor) -> HandbookGenerateResponse:
+def generate_handbook(payload: HandbookGenerateRequest, actor: AuthenticatedActor) -> HandbookGenerateAPIResponse:
     require_minimum_role(
         actor,
         "clinician",

@@ -452,16 +452,16 @@ def _predict_suicide_self_harm(ctx: PatientContext, strat_by_cat: dict[str, dict
 
     return {
         "analyzer_id": "suicide_self_harm",
-        "title": "Suicide / self-harm — short-horizon model estimate",
+        "title": "Suicide / self-harm — short-horizon review index",
         "score": score,
-        "score_type": "probability",
+        "score_type": "index",
         "band_label": "elevated" if score >= 0.55 else ("watch" if score >= 0.35 else "lower"),
         "horizon_hours": 72,
         "horizon_label": "72 hours (label only)",
         "contributing_factors": factors,
         "confidence": {
             "level": "low",
-            "calibration_note": "Rule-based logistic-style index; not calibrated to population incidence. "
+            "calibration_note": "Rule-based review index; not calibrated to population incidence or event probability. "
             "Do not use as sole basis for discharge or treatment decisions.",
             "target_population_note": "Adults in neuromodulation clinic contexts with PHQ-9/C-SSRS-style instruments.",
         },
@@ -541,16 +541,16 @@ def _predict_harm_to_others(ctx: PatientContext, strat_by_cat: dict[str, dict]) 
 
     return {
         "analyzer_id": "harm_to_others",
-        "title": "Harm to others — structured concern profile",
+        "title": "Harm to others — structured concern index",
         "score": score,
-        "score_type": "probability",
+        "score_type": "index",
         "band_label": "elevated" if score >= 0.55 else "lower",
         "horizon_hours": 72,
         "horizon_label": "72 hours",
         "contributing_factors": factors,
         "confidence": {
             "level": "low",
-            "calibration_note": "Keyword and AE heuristic; clinician formulation required for any security action.",
+            "calibration_note": "Keyword and AE review index; not a calibrated probability or security prediction. Clinician formulation is required for any security action.",
             "target_population_note": "General clinic cohort; not validated for forensic or ED settings.",
         },
         "model": {"id": "harm_to_others_rule_v1", "version": "1.0.0", "kind": "rule_based"},
@@ -579,14 +579,6 @@ def _merge_relapse_adherence(clinical_scores: dict[str, Any]) -> dict:
 
     rv = _safe_float(rel_v if rel_v is not None else rel_d.get("value"))
     av = _safe_float(adh_v if adh_v is not None else adh_d.get("value"))
-    composite = None
-    if rv is not None and av is not None:
-        composite = round((rv + av) / 2.0, 3)
-    elif rv is not None:
-        composite = rv
-    elif av is not None:
-        composite = av
-
     msg_parts = []
     if rel_d.get("message"):
         msg_parts.append(str(rel_d["message"]))
@@ -595,22 +587,24 @@ def _merge_relapse_adherence(clinical_scores: dict[str, Any]) -> dict:
 
     return {
         "analyzer_id": "relapse_adherence",
-        "title": "Relapse / adherence — research-grade composite",
-        "score": composite,
+        "title": "Relapse / adherence — composite withheld",
+        "score": None,
         "score_type": "index",
         "band_label": None,
         "horizon_hours": 168,
         "horizon_label": "7 days (care-pathway horizon)",
+        "status": "not_implemented",
+        "reason": "no_calibrated_model",
         "contributing_factors": [
-            {"name": "relapse_risk (clinical_scores)", "direction": "neutral", "weight_or_rank": rv, "detail": rel_d.get("summary") or rel_d.get("message") or ""},
-            {"name": "adherence_risk (clinical_scores)", "direction": "neutral", "weight_or_rank": av, "detail": adh_d.get("summary") or adh_d.get("message") or ""},
+            {"name": "relapse_risk (clinical_scores)", "direction": "neutral", "weight_or_rank": None, "detail": rel_d.get("summary") or rel_d.get("message") or ""},
+            {"name": "adherence_risk (clinical_scores)", "direction": "neutral", "weight_or_rank": None, "detail": adh_d.get("summary") or adh_d.get("message") or ""},
         ],
         "confidence": {
-            "level": "low",
-            "calibration_note": "Uses ``build_all_clinical_scores`` relapse and adherence builders — research-grade, not safety-critical tier.",
+            "level": "no_data",
+            "calibration_note": "Composite output is withheld until a validated relapse/adherence model exists. Underlying research-grade signals may still inform clinician review.",
             "target_population_note": "Neuromodulation cohorts with PROM and adherence telemetry when available.",
         },
-        "model": {"id": "relapse_adherence_composite", "version": "1.0.0", "kind": "research_composite"},
+        "model": {"id": "relapse_adherence_composite_withheld", "version": "1.0.0", "kind": "research_composite_withheld"},
         "computed_at": datetime.now(timezone.utc).isoformat(),
         "provenance": {"upstream": ["risk_clinical_scores"]},
         "detail_messages": msg_parts,
@@ -675,9 +669,6 @@ def _recommended_actions(
     sp_status = (safety_plan.get("status") or (formulation.get("safety_plan_status") or {}).get("status") or "none")
     if sp_status in (None, "none", "needs_review", "expired"):
         add("same_day", "safety_plan", "Review collaborative safety plan", "Update warning signs, coping steps, supports, and crisis numbers.", ["formulation"])
-
-    if suicide_card.get("score", 0) >= 0.45:
-        add("same_day", "review", "Discuss short-horizon model drivers with patient", "Model output is adjunctive — integrate with formulation, not replace it.", ["prediction"])
 
     if not actions:
         add("routine", "review", "Continue routine monitoring", "No automatic escalation flags from rules; maintain standard documentation.", ["policy"])

@@ -4,7 +4,31 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { _parseOutcomeSummaries, _summarizeOutcomeScores, _completionPct } from './pages-treatment-sessions-analyzer.js';
+import {
+  canUseTreatmentSessionsAnalyzerWorkspace,
+  _parseOutcomeSummaries,
+  _summarizeOutcomeScores,
+  _completionPct,
+  _renderSignoffQueue,
+  _renderAuditTeaser,
+} from './pages-treatment-sessions-analyzer.js';
+
+test('canUseTreatmentSessionsAnalyzerWorkspace allows clinician-like roles only', () => {
+  assert.equal(canUseTreatmentSessionsAnalyzerWorkspace('clinician'), true);
+  assert.equal(canUseTreatmentSessionsAnalyzerWorkspace(' clinic-admin '), true);
+  assert.equal(canUseTreatmentSessionsAnalyzerWorkspace('TECHNICIAN'), true);
+  assert.equal(canUseTreatmentSessionsAnalyzerWorkspace('resident'), true);
+  assert.equal(canUseTreatmentSessionsAnalyzerWorkspace('reviewer'), true);
+  assert.equal(canUseTreatmentSessionsAnalyzerWorkspace('patient'), false);
+  assert.equal(canUseTreatmentSessionsAnalyzerWorkspace('guest'), false);
+  assert.equal(canUseTreatmentSessionsAnalyzerWorkspace(''), false);
+  assert.equal(canUseTreatmentSessionsAnalyzerWorkspace(null), false);
+});
+
+test('canUseTreatmentSessionsAnalyzerWorkspace can preserve demo previews with missing role only when opted in', () => {
+  assert.equal(canUseTreatmentSessionsAnalyzerWorkspace('', { allowUnknown: true }), true);
+  assert.equal(canUseTreatmentSessionsAnalyzerWorkspace('patient', { allowUnknown: true }), false);
+});
 
 test('_parseOutcomeSummaries reads first scale and pickSeries', () => {
   const resp = {
@@ -65,4 +89,25 @@ test('_summarizeOutcomeScores is neutral directional labels only', () => {
 test('_completionPct respects planned sessions', () => {
   assert.equal(_completionPct({ planned_sessions_total: 10 }, { sessions_delivered: 5 }), 50);
   assert.equal(_completionPct({ planned_sessions_total: 0 }, {}), null);
+});
+
+test('_renderSignoffQueue hides bulk sign-off action when role policy disallows it', () => {
+  const unsigned = [{ session_number: 2, scheduled_at: '2026-02-01T09:30:00Z', modality: 'TMS' }];
+  const denied = _renderSignoffQueue(unsigned, { canSignAll: false });
+  assert.ok(denied.includes('authorised clinical staff role'));
+  assert.ok(!denied.includes('data-action="sign-all"'));
+
+  const allowed = _renderSignoffQueue(unsigned, { canSignAll: true });
+  assert.ok(allowed.includes('data-action="sign-all"'));
+});
+
+test('_renderAuditTeaser distinguishes empty audit history from endpoint failure', () => {
+  const empty = _renderAuditTeaser([], false, false);
+  const unavailable = _renderAuditTeaser([], false, true);
+
+  assert.match(empty, /No audit events were returned for this course/i);
+  assert.doesNotMatch(empty, /could not be loaded from the backend/i);
+
+  assert.match(unavailable, /could not be loaded from the backend right now/i);
+  assert.doesNotMatch(unavailable, /No audit events were returned for this course/i);
 });

@@ -17,6 +17,8 @@ import { isDemoSession } from './demo-session.js';
 import { currentUser } from './auth.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 
+const CLINICAL_RISK_ANALYZER_ROLES = new Set(['clinician', 'admin']);
+
 function _isEmptyClinicSummary(s) {
   return !s || !Array.isArray(s.patients) || s.patients.length === 0;
 }
@@ -27,6 +29,22 @@ function esc(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+export function canUseRiskAnalyzerWorkspace(role, opts = {}) {
+  const normalized = String(role || '').trim().toLowerCase();
+  if (!normalized) return !!opts.allowUnknown;
+  return CLINICAL_RISK_ANALYZER_ROLES.has(normalized);
+}
+
+export function applyRiskAnalyzerPatientContext(pageId, patientId, win = globalThis?.window) {
+  const pid = String(patientId || '').trim();
+  if (!pid || !win) return;
+  try { win._selectedPatientId = pid; } catch {}
+  try { win._profilePatientId = pid; } catch {}
+  if (pageId === 'deeptwin') {
+    try { win._deeptwinPatientId = pid; } catch {}
+  }
 }
 
 /** Merge workspace / legacy API shapes into a single view model */
@@ -420,26 +438,25 @@ function _renderRecommendedActions(actions, demoMode) {
   </div>`;
 }
 
-function _renderLinkedToolbar(patientId) {
-  const pid = encodeURIComponent(patientId);
+function _renderLinkedToolbar() {
   const links = [
-    ['Patient profile', `window._selectedPatientId='${pid}';window._profilePatientId='${pid}';window._nav('patient-profile')`, 'Open patient chart summary'],
-    ['Assessments', `window._selectedPatientId='${pid}';window._nav('assessments-hub')`, 'Open assessments hub'],
-    ['Documents', `window._selectedPatientId='${pid}';window._nav('documents-hub')`, 'Documents hub'],
-    ['Inbox', `window._nav('clinician-inbox')`, 'Clinician inbox'],
-    ['Schedule', `window._nav('scheduling-hub')`, 'Scheduling hub'],
-    ['Live session', `window._selectedPatientId='${pid}';window._nav('live-session')`, 'Virtual care / live session'],
-    ['DeepTwin', `window._selectedPatientId='${pid}';window._profilePatientId='${pid}';window._nav('deeptwin')`, 'DeepTwin workspace'],
-    ['Biomarkers', `window._nav('biomarkers')`, 'Biomarker maps'],
-    ['qEEG', `window._selectedPatientId='${pid}';window._nav('qeeg-launcher')`, 'qEEG entry'],
-    ['MRI', `window._selectedPatientId='${pid}';window._nav('mri-analysis')`, 'MRI analysis'],
-    ['Video', `window._selectedPatientId='${pid}';window._nav('video-assessments')`, 'Video assessments'],
-    ['Voice', `window._selectedPatientId='${pid}';window._nav('voice-analyzer')`, 'Voice analyzer'],
-    ['Text / notes', `window._selectedPatientId='${pid}';window._nav('text-analyzer')`, 'Text analyzer'],
-    ['Protocol Studio', `window._nav('protocol-studio')`, 'Protocol Studio'],
+    ['Patient profile', 'patient-profile', 'Open patient chart summary'],
+    ['Assessments', 'assessments-v2', 'Open assessments hub'],
+    ['Documents', 'documents-v2', 'Documents hub'],
+    ['Inbox', 'clinician-inbox', 'Clinician inbox'],
+    ['Schedule', 'schedule-v2', 'Scheduling hub'],
+    ['Live session', 'live-session', 'Virtual care / live session'],
+    ['DeepTwin', 'deeptwin', 'DeepTwin workspace'],
+    ['Biomarkers', 'biomarkers', 'Biomarker maps'],
+    ['qEEG', 'qeeg-launcher', 'qEEG entry'],
+    ['MRI', 'mri-analysis', 'MRI analysis'],
+    ['Video', 'video-assessments', 'Video assessments'],
+    ['Voice', 'voice-analyzer', 'Voice analyzer'],
+    ['Text / notes', 'text-analyzer', 'Text analyzer'],
+    ['Protocol Studio', 'protocol-studio', 'Protocol Studio'],
   ];
-  const btns = links.map(([label, cmd, title]) =>
-    `<button type="button" class="btn btn-ghost btn-sm" style="min-height:40px;white-space:nowrap" title="${esc(title)}" onclick="(function(){try{${cmd}}catch(e){console.error(e)}})()">${esc(label)}</button>`).join('');
+  const btns = links.map(([label, page, title]) =>
+    `<button type="button" class="btn btn-ghost btn-sm" style="min-height:40px;white-space:nowrap" title="${esc(title)}" data-action="open-linked-workflow" data-page="${esc(page)}">${esc(label)}</button>`).join('');
   return `<div style="margin:14px 0;padding:12px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.02)">
     <div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text-primary)">Linked workflows</div>
     <div style="display:flex;flex-wrap:wrap;gap:8px">${btns}</div>
@@ -461,7 +478,7 @@ function _renderPatientDetail(workspace, auditBundle, demoMode, patientId) {
   const policy = _policyBanner(ws);
   const predict = _renderPredictionSupport(ws.prediction_support, demoMode);
   const actions = _renderRecommendedActions(ws.recommended_actions, demoMode);
-  const toolbar = _renderLinkedToolbar(patientId);
+  const toolbar = _renderLinkedToolbar();
 
   const headerTime = genAt ? `Workspace generated ${genAt}` : '';
 
@@ -486,9 +503,6 @@ function _renderPatientDetail(workspace, auditBundle, demoMode, patientId) {
     </div>`;
 }
 
-/** Match FastAPI `require_minimum_role(..., "clinician")` on risk endpoints (technician ≥ clinician in ROLE_ORDER). */
-const CLINICAL_RISK_ROLES = new Set(['clinician', 'admin', 'clinic-admin', 'supervisor', 'reviewer', 'technician']);
-
 export async function pgRiskAnalyzer(setTopbar, navigate) {
   try {
     setTopbar({
@@ -502,8 +516,9 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
   const el = document.getElementById('content');
   if (!el) return;
 
-  const role = currentUser?.role || 'guest';
-  if (!CLINICAL_RISK_ROLES.has(role)) {
+  const demoMode = isDemoSession();
+  const role = String(currentUser?.role || '').trim().toLowerCase();
+  if (!canUseRiskAnalyzerWorkspace(role, { allowUnknown: demoMode })) {
     el.innerHTML = `
       <div class="auth-required-notice" style="max-width:520px;margin:48px auto;padding:24px">
         <div class="auth-required-icon" aria-hidden="true">🛡️</div>
@@ -737,6 +752,14 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
   function wirePatientDetail(workspace, demoMode) {
     const body = $('ra-body');
     if (!body) return;
+
+    body.querySelectorAll('[data-action="open-linked-workflow"]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const page = button.getAttribute('data-page');
+        applyRiskAnalyzerPatientContext(page, activePatientId);
+        navigate?.(page);
+      });
+    });
 
     body.querySelector('[data-action="recompute"]')?.addEventListener('click', async (ev) => {
       const btn = ev.currentTarget;

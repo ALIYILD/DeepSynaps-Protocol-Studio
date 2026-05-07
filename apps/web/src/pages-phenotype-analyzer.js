@@ -11,6 +11,8 @@ import { currentUser } from './auth.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 
+const CLINICAL_PHENOTYPE_ANALYZER_ROLES = new Set(['clinician', 'admin']);
+
 function esc(s) {
   return String(s ?? '')
     .replace(/&/g, '&amp;')
@@ -19,10 +21,25 @@ function esc(s) {
     .replace(/"/g, '&quot;');
 }
 
+export function canUsePhenotypeAnalyzerWorkspace(role, opts = {}) {
+  const normalized = String(role || '').trim().toLowerCase();
+  if (!normalized) return !!opts.allowUnknown;
+  return CLINICAL_PHENOTYPE_ANALYZER_ROLES.has(normalized);
+}
+
 function _canEditAssignments() {
   const r = String(currentUser?.role || '').toLowerCase();
   /* Matches phenotype_router POST/DELETE: require_minimum_role(actor, "clinician"). */
   return r === 'clinician' || r === 'admin';
+}
+
+function _renderPhenotypeAnalyzerRestrictedCard() {
+  return `<div role="region" aria-label="Phenotype analyzer access restricted" style="max-width:560px;margin:48px auto;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);text-align:center">
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px">Clinician workspace</div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
+      Phenotype hypothesis review is restricted to clinician and admin roles because it surfaces clinic-wide and patient-linked stratification labels that require governed review.
+    </div>
+  </div>`;
 }
 
 const _CHIP_TINTS = [
@@ -497,6 +514,13 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
   const el = document.getElementById('content');
   if (!el) return;
 
+  const demoMode = isDemoSession();
+  const actorRole = String(currentUser?.role || '').toLowerCase();
+  if (!canUsePhenotypeAnalyzerWorkspace(actorRole, { allowUnknown: demoMode })) {
+    el.innerHTML = _renderPhenotypeAnalyzerRestrictedCard();
+    return;
+  }
+
   let view = 'clinic';
   let registryCache = [];
   let allAssignmentsCache = [];
@@ -527,13 +551,13 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
   function _syncDemoBanner() {
     const slot = $('ph-demo-banner');
     if (!slot) return;
-    slot.innerHTML = usingFixtures && isDemoSession() ? DEMO_FIXTURE_BANNER_HTML : '';
+    slot.innerHTML = usingFixtures && demoMode ? DEMO_FIXTURE_BANNER_HTML : '';
   }
 
   async function _emitPageAudit(event, note = '') {
     try {
       if (!api.getToken?.()) return;
-      if (usingFixtures && isDemoSession()) return;
+      if (usingFixtures && demoMode) return;
       await api.postPhenotypeAuditEvent({
         event,
         patient_id: activePatientId || undefined,
@@ -669,7 +693,7 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
     } catch {
       patientsRoster = [];
     }
-    if ((!patientsRoster.length) && isDemoSession() && ANALYZER_DEMO_FIXTURES?.patients?.length) {
+    if ((!patientsRoster.length) && demoMode && ANALYZER_DEMO_FIXTURES?.patients?.length) {
       patientsRoster = ANALYZER_DEMO_FIXTURES.patients.map((p) => ({ id: p.id, name: p.name }));
     }
   }
@@ -689,14 +713,14 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
       ]);
       registryCache = regResp || registryCache;
       assignments = _normaliseList(asgResp);
-      if ((!assignments || !assignments.length) && isDemoSession() && ANALYZER_DEMO_FIXTURES?.phenotype) {
+      if ((!assignments || !assignments.length) && demoMode && ANALYZER_DEMO_FIXTURES?.phenotype) {
         assignments = ANALYZER_DEMO_FIXTURES.phenotype.all_assignments.slice();
         usingFixtures = true;
       } else if (assignments && assignments.length) {
         usingFixtures = false;
       }
     } catch (e) {
-      if (isDemoSession() && ANALYZER_DEMO_FIXTURES?.phenotype) {
+      if (demoMode && ANALYZER_DEMO_FIXTURES?.phenotype) {
         assignments = ANALYZER_DEMO_FIXTURES.phenotype.all_assignments.slice();
         usingFixtures = true;
       } else {
@@ -753,12 +777,12 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
         api.listPhenotypeAssignments({ patient_id: activePatientId }).catch(() => null),
       ]);
       assignments = _normaliseList(asgResp);
-      if ((!assignments || !assignments.length) && isDemoSession() && ANALYZER_DEMO_FIXTURES?.phenotype) {
+      if ((!assignments || !assignments.length) && demoMode && ANALYZER_DEMO_FIXTURES?.phenotype) {
         assignments = ANALYZER_DEMO_FIXTURES.phenotype.assignments_for(activePatientId);
         usingFixtures = true;
       }
     } catch (e) {
-      if (isDemoSession() && ANALYZER_DEMO_FIXTURES?.phenotype) {
+      if (demoMode && ANALYZER_DEMO_FIXTURES?.phenotype) {
         assignments = ANALYZER_DEMO_FIXTURES.phenotype.assignments_for(activePatientId);
         usingFixtures = true;
       } else {
@@ -788,7 +812,7 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
       } catch {
         auditNote = 'Could not load server audit trail — check API session.';
       }
-    } else if (usingFixtures && isDemoSession()) {
+    } else if (usingFixtures && demoMode) {
       auditNote = 'Demo fixture session — phenotype audit API calls are skipped in offline preview.';
     }
     const auditHtml = _renderCombinedAudit(patientAssignmentsCache, auditItems, auditNote);

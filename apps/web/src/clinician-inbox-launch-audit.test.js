@@ -76,13 +76,17 @@ function inboxSummaryHonestUnreadCount(serverSummaryResp) {
   return Number.isFinite(v) && v >= 0 ? v : 0;
 }
 
+function inboxHasUsableLoadedState(state) {
+  return !!(state && state.loaded && !state.error);
+}
+
 const SURFACE_DRILL_OUT_PAGE = {
   patient_messages: 'patient-messages',
-  adherence_events: 'adherence-events',
-  home_program_tasks: 'home-program-tasks',
+  adherence_events: 'adherence-hub',
+  home_program_tasks: 'home-tasks-v2',
   wearables: 'patient-wearables',
   wearables_workbench: 'monitor',
-  adverse_events_hub: 'adverse-events-hub',
+  adverse_events_hub: 'adverse-events',
   quality_assurance: 'quality-assurance',
   course_detail: 'course-detail',
   patient_profile: 'patient-profile',
@@ -197,17 +201,25 @@ test('Summary unread: read straight off server, no UI math', () => {
   assert.equal(inboxSummaryHonestUnreadCount({ high_priority_unread: 'lots' }), 0);
 });
 
+test('Loaded-state fallback: preserve stale UI after any successful load, including empty inbox', () => {
+  assert.equal(inboxHasUsableLoadedState(null), false);
+  assert.equal(inboxHasUsableLoadedState({ loaded: false, error: null }), false);
+  assert.equal(inboxHasUsableLoadedState({ loaded: true, error: 'network failed' }), false);
+  assert.equal(inboxHasUsableLoadedState({ loaded: true, error: null, items: [] }), true);
+  assert.equal(inboxHasUsableLoadedState({ loaded: true, error: null, items: [{ event_id: 'e1' }] }), true);
+});
+
 
 // ── Drill-out wiring ───────────────────────────────────────────────────────
 
 
 test('Drill-out: known surfaces map to a real page id', () => {
   assert.equal(inboxDrillOutPageFor('patient_messages'), 'patient-messages');
-  assert.equal(inboxDrillOutPageFor('adherence_events'), 'adherence-events');
-  assert.equal(inboxDrillOutPageFor('home_program_tasks'), 'home-program-tasks');
+  assert.equal(inboxDrillOutPageFor('adherence_events'), 'adherence-hub');
+  assert.equal(inboxDrillOutPageFor('home_program_tasks'), 'home-tasks-v2');
   assert.equal(inboxDrillOutPageFor('wearables'), 'patient-wearables');
   assert.equal(inboxDrillOutPageFor('wearables_workbench'), 'monitor');
-  assert.equal(inboxDrillOutPageFor('adverse_events_hub'), 'adverse-events-hub');
+  assert.equal(inboxDrillOutPageFor('adverse_events_hub'), 'adverse-events');
 });
 
 test('Drill-out: unknown surface returns null (no fake nav)', () => {
@@ -218,13 +230,13 @@ test('Drill-out: unknown surface returns null (no fake nav)', () => {
 
 test('Drill-out URL: includes patient_id when present', () => {
   const u = inboxBuildDrillOutUrl({ surface: 'adherence_events', patient_id: 'p1' });
-  assert.ok(u.includes('page=adherence-events'));
+  assert.ok(u.includes('page=adherence-hub'));
   assert.ok(u.includes('patient_id=p1'));
 });
 
 test('Drill-out URL: omits patient_id when absent', () => {
   const u = inboxBuildDrillOutUrl({ surface: 'adverse_events_hub' });
-  assert.ok(u.includes('page=adverse-events-hub'));
+  assert.ok(u.includes('page=adverse-events'));
   assert.equal(u.includes('patient_id'), false);
 });
 
@@ -277,6 +289,12 @@ test('Source contract: pages-inbox renders honest empty state copy', () => {
   // No AI happy-talk snuck in
   assert.equal(/your clinic is doing great/i.test(src), false);
   assert.equal(/AI scored/i.test(src), false);
+});
+
+test('Source contract: pages-inbox keeps stale refresh for previously loaded empty states', () => {
+  const src = readSrc('pages-inbox.js');
+  assert.ok(src.includes('export function inboxHasUsableLoadedState'));
+  assert.ok(src.includes("state.loaded && !state.error"));
 });
 
 test('Source contract: visible scope / safety note (work queue, not triage)', () => {

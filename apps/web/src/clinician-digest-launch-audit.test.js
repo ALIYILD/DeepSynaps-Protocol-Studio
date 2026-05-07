@@ -318,6 +318,9 @@ test('Source contract: digest renders DEMO banner + queued copy (not fabricated)
   // Honest about queued vs delivered status.
   assert.ok(src.includes('Email queued'));
   assert.ok(src.includes('SMTP wire-up'));
+  // Demo exports should be DEMO-prefixed when possible.
+  assert.ok(src.includes('download="DEMO-clinician-digest.csv"'));
+  assert.ok(src.includes('download="DEMO-clinician-digest.ndjson"'));
 });
 
 test('Source contract: scope note + shortcut table (no fake module counts)', () => {

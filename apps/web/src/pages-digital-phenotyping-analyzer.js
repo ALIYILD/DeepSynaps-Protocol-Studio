@@ -93,12 +93,56 @@ function _errorCard(message) {
 const GOVERNANCE_REQUIRED_COPY =
   'Digital phenotype outputs are exploratory decision-support cues. They require clinician review and do not diagnose, monitor continuously, or approve treatment.';
 
-function _emptyClinicCard() {
-  return `<div style="max-width:560px;margin:48px auto;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);text-align:center">
-    <div style="font-size:15px;font-weight:600;margin-bottom:8px">No analyzable digital phenotype cues for this roster yet.</div>
+export function canUseDigitalPhenotypingWorkspace(role, opts = {}) {
+  const r = String(role || '').trim().toLowerCase();
+  if (!r) return Boolean(opts.allowUnknown);
+  return r === 'clinician' || r === 'admin';
+}
+
+export function resolveDigitalPhenotypingPatientId(win = globalThis?.window) {
+  if (!win) return '';
+  return String(win._selectedPatientId || win._profilePatientId || win._deeptwinPatientId || '').trim();
+}
+
+export function applyDigitalPhenotypingPatientContext(pageId, patientId, win = globalThis?.window) {
+  const pid = String(patientId || '').trim();
+  if (!pid || !win) return;
+  try { win._selectedPatientId = pid; } catch {}
+  try { win._profilePatientId = pid; } catch {}
+  if (pageId === 'deeptwin') {
+    try { win._deeptwinPatientId = pid; } catch {}
+  }
+}
+
+export function wireDigitalPhenotypingLinkedNav(container, navigate, patientId, win = globalThis?.window) {
+  if (!container) return 0;
+  let count = 0;
+  container.querySelectorAll('[data-nav-page]').forEach((btn) => {
+    count += 1;
+    btn.addEventListener('click', () => {
+      const page = btn.getAttribute('data-nav-page');
+      if (!page || !navigate) return;
+      applyDigitalPhenotypingPatientContext(page, patientId, win);
+      try { navigate(page, patientId ? { id: patientId } : {}); } catch {}
+    });
+  });
+  return count;
+}
+
+export function digitalPhenotypingClinicEmptyStateHtml(opts = {}) {
+  const unsupported = !!opts.unsupportedLiveSummary;
+  const title = unsupported
+    ? 'Clinic-wide digital phenotyping summary is unavailable on this environment'
+    : 'No clinic digital phenotyping rows matched this view';
+  const body = unsupported
+    ? 'This page supports patient-scoped review. The clinic-summary backend feed is unavailable on this environment, so absence of rows here does not imply absence of concern elsewhere. Open a patient from the roster or chart to review digital phenotype cues safely in context.'
+    : 'This clinic-summary route is live, but it returned no patient rows for the current view. That can mean there are no sourced digital phenotype summaries yet, or no rows matched the current clinic scope. Open a patient from the roster or chart to review digital phenotype cues safely in context.';
+  return `<div style="max-width:560px;margin:48px auto;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);text-align:center" role="status">
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px">${esc(title)}</div>
     <div style="font-size:12px;color:var(--text-secondary);line-height:1.5">
-      This does not mean “no concern” — it may reflect insufficient linked data, connectivity, or consent. Connect authorized wearables or apps, complete assessments, or add source-backed observations where your workflow allows.
+      ${esc(body)}
     </div>
+    <button type="button" class="btn btn-primary btn-sm" id="dp-go-patients" style="margin-top:14px;min-height:44px">Open patient roster</button>
   </div>`;
 }
 
@@ -135,8 +179,8 @@ function _flagPill(label, severity) {
   return `<span class="pill" style="background:${bg};color:${color};border:1px solid ${border};font-size:10.5px;padding:2px 8px;min-height:24px">${esc(label)}</span>`;
 }
 
-function _renderClinicTable(rows, sortKey, sortDir) {
-  if (!Array.isArray(rows) || !rows.length) return _emptyClinicCard();
+function _renderClinicTable(rows, sortKey, sortDir, opts = {}) {
+  if (!Array.isArray(rows) || !rows.length) return digitalPhenotypingClinicEmptyStateHtml(opts);
   const dir = sortDir === 'asc' ? 1 : -1;
   const sevRank = (s) => ({ red: 3, amber: 2, green: 1 }[_sevKey(s)] || 0);
   const trendRank = (t) => ({ worsening: 3, stable: 2, improving: 1 }[String(t || '').toLowerCase()] || 0);
@@ -305,11 +349,15 @@ function _renderAnnotationForm() {
   </form>`;
 }
 
-function _renderAuditPanel(audit) {
+function _renderAuditPanel(audit, unavailableNote = '') {
   const items = Array.isArray(audit?.items) ? audit.items : [];
+  const banner = unavailableNote
+    ? `<div style="font-size:11px;color:var(--amber);margin-bottom:8px;line-height:1.45">${esc(unavailableNote)}</div>`
+    : '';
   if (!items.length) {
     return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
       <div style="font-weight:600;font-size:13px;margin-bottom:8px">Audit trail</div>
+      ${banner}
       <div style="font-size:12px;color:var(--text-tertiary)">No recomputes, observations, or annotations in view — empty audit does not imply absence of risk or “all clear.”</div>
     </div>`;
   }
@@ -333,6 +381,7 @@ function _renderAuditPanel(audit) {
   }).join('');
   return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
     <div style="font-weight:600;font-size:13px;margin-bottom:8px">Audit trail</div>
+    ${banner}
     <ul style="list-style:none;margin:0;padding:0">${rows}</ul>
   </div>`;
 }
@@ -475,7 +524,7 @@ function _renderLinkedModuleStrip(raw) {
   </div>`;
 }
 
-function _renderPatientDetail(profile, audit, navigate, rawPayload) {
+function _renderPatientDetail(profile, audit, navigate, rawPayload, auditUnavailableNote = '') {
   const captured = profile?.captured_at ? new Date(profile.captured_at).toLocaleString() : 'No observation timestamp — data may be missing or stale.';
   const cards = SIGNAL_ORDER.map((k) => _renderSignalCard(k, profile?.signals?.[k], navigate)).join('');
   const displayName = profile?.patient_name || rawPayload?.patient_display_name || rawPayload?.patient_id || 'Patient';
@@ -500,7 +549,7 @@ function _renderPatientDetail(profile, audit, navigate, rawPayload) {
     <div style="margin-top:18px;display:grid;grid-template-columns:1fr;gap:14px">
       ${_renderObservationForm()}
       ${_renderAnnotationForm()}
-      ${_renderAuditPanel(audit)}
+      ${_renderAuditPanel(audit, auditUnavailableNote)}
     </div>`;
 }
 
@@ -565,39 +614,17 @@ function _projectFromBackendPayload(raw) {
   };
 }
 
-async function _loadClinicSummary() {
-  const personas = ANALYZER_DEMO_VIEWS?.patients || [];
-  const ids = personas.map((p) => p.id);
-  const results = await Promise.all(
-    ids.map((pid) => api.getDigitalPhenotypingProfile(pid).then((r) => r).catch(() => null))
-  );
-  const SIGNAL_KEYS = ['sleep', 'mobility', 'social', 'typing_cadence', 'screen_time', 'voice_diary'];
-  const sevRank = (s) => ({ red: 3, amber: 2, green: 1 }[_sevKey(s)] || 0);
-  const patients = [];
-  results.forEach((raw) => {
-    const r = _projectFromBackendPayload(raw);
-    if (r && r.patient_id && r.signals) {
-      const enriched = _enrichPatientName(r);
-      const flags = SIGNAL_KEYS.map((k) => ({
-        key: k,
-        label: k.replace('_', ' '),
-        severity: enriched.signals?.[k]?.severity || null,
-      })).filter((f) => f.severity);
-      const worst = flags.reduce((acc, f) => Math.max(acc, sevRank(f.severity)), 0);
-      const reds = flags.filter((f) => f.severity === 'red').length;
-      const greens = flags.filter((f) => f.severity === 'green').length;
-      const trend = greens > reds ? 'improving' : reds > greens ? 'worsening' : 'stable';
-      patients.push({
-        patient_id: enriched.patient_id,
-        patient_name: enriched.patient_name,
-        captured_at: enriched.captured_at,
-        flags,
-        worst_severity: worst === 3 ? 'red' : worst === 2 ? 'amber' : 'green',
-        trend,
-      });
-    }
-  });
-  return { patients };
+export async function loadDigitalPhenotypingClinicSummary(opts = {}) {
+  if (opts.useDemoFixtures && ANALYZER_DEMO_VIEWS?.digitalPhenotyping?.clinic_summary) {
+    return {
+      ...(ANALYZER_DEMO_VIEWS.digitalPhenotyping.clinic_summary() || { patients: [] }),
+      fromDemoOnly: true,
+    };
+  }
+  if (opts.api?.getDigitalPhenotypingClinicSummary) {
+    return opts.api.getDigitalPhenotypingClinicSummary();
+  }
+  return { patients: [], unsupportedLiveSummary: true };
 }
 
 export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
@@ -613,8 +640,9 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
   const el = document.getElementById('content');
   if (!el) return;
 
-  const role = currentUser?.role || 'guest';
-  if (role !== 'clinician' && role !== 'admin') {
+  const demoMode = isDemoSession();
+  const role = String(currentUser?.role || '').trim().toLowerCase();
+  if (!canUseDigitalPhenotypingWorkspace(role, { allowUnknown: demoMode })) {
     el.innerHTML = `
       <div class="ds-dp-analyzer-shell" style="max-width:560px;margin:48px auto;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card)">
         <div style="font-weight:600;margin-bottom:8px;color:var(--text-primary)">Clinician or administrator access required</div>
@@ -633,9 +661,17 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
   let profileCache = null;
   let rawProfileCache = null;
   let auditCache = null;
+  let auditUnavailableNote = '';
   let sortKey = 'worst';
   let sortDir = 'desc';
   let usingFixtures = false;
+  const handoffPatientId = resolveDigitalPhenotypingPatientId();
+
+  if (handoffPatientId) {
+    activePatientId = handoffPatientId;
+    activePatientName = 'Patient';
+    view = 'patient';
+  }
 
   el.innerHTML = `
     <div class="ds-dp-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
@@ -661,7 +697,11 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
     const bc = $('dp-breadcrumb');
     if (!bc) return;
     if (view === 'clinic') {
-      bc.innerHTML = `<span style="font-weight:600">Clinic digital phenotyping summary</span>`;
+      bc.innerHTML = `<span style="font-weight:600">Clinic digital phenotyping summary</span>
+        <button type="button" class="btn btn-ghost btn-sm" id="dp-select-patient" style="margin-left:8px;min-height:44px">Select patient…</button>`;
+      $('dp-select-patient')?.addEventListener('click', () => {
+        try { navigate?.('patients-v2'); } catch {}
+      });
     } else {
       bc.innerHTML = `<button type="button" class="btn btn-ghost btn-sm" id="dp-back" style="min-height:44px">← Back to clinic</button>
         <span style="color:var(--text-tertiary)">/</span>
@@ -678,16 +718,18 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
     if (!body) return;
     body.innerHTML = `<div style="padding:18px;background:var(--bg-card);border:1px solid var(--border);border-radius:14px">${_skeletonChips(5)}</div>`;
     try {
-      summaryCache = await _loadClinicSummary();
-      if ((!summaryCache || !summaryCache.patients?.length) && isDemoSession() && ANALYZER_DEMO_VIEWS?.digitalPhenotyping?.clinic_summary) {
-        summaryCache = ANALYZER_DEMO_VIEWS.digitalPhenotyping.clinic_summary();
+      summaryCache = await loadDigitalPhenotypingClinicSummary({ api });
+      if ((!summaryCache || !summaryCache.patients?.length) && demoMode && ANALYZER_DEMO_VIEWS?.digitalPhenotyping?.clinic_summary) {
+        summaryCache = await loadDigitalPhenotypingClinicSummary({ useDemoFixtures: true });
+        usingFixtures = true;
+      } else if (summaryCache?.fromDemoOnly) {
         usingFixtures = true;
       } else if (summaryCache && summaryCache.patients?.length) {
         usingFixtures = false;
       }
     } catch (e) {
-      if (isDemoSession() && ANALYZER_DEMO_VIEWS?.digitalPhenotyping?.clinic_summary) {
-        summaryCache = ANALYZER_DEMO_VIEWS.digitalPhenotyping.clinic_summary();
+      if (demoMode && ANALYZER_DEMO_VIEWS?.digitalPhenotyping?.clinic_summary) {
+        summaryCache = await loadDigitalPhenotypingClinicSummary({ useDemoFixtures: true });
         usingFixtures = true;
       } else {
         const msg = (e && e.message) || String(e);
@@ -697,13 +739,16 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
       }
     }
     _syncDemoBanner();
-    body.innerHTML = _renderClinicTable(summaryCache?.patients || [], sortKey, sortDir);
+    body.innerHTML = _renderClinicTable(summaryCache?.patients || [], sortKey, sortDir, summaryCache || {});
+    body.querySelector('#dp-go-patients')?.addEventListener('click', () => {
+      try { navigate?.('patients-v2'); } catch {}
+    });
     body.querySelectorAll('[data-sort-key]').forEach((th) => {
       th.addEventListener('click', () => {
         const k = th.getAttribute('data-sort-key');
         if (k === sortKey) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
         else { sortKey = k; sortDir = k === 'name' ? 'asc' : 'desc'; }
-        body.innerHTML = _renderClinicTable(summaryCache?.patients || [], sortKey, sortDir);
+        body.innerHTML = _renderClinicTable(summaryCache?.patients || [], sortKey, sortDir, summaryCache || {});
         wireClinicRows();
       });
     });
@@ -716,6 +761,7 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
       const pid = tr.getAttribute('data-patient-id');
       const open = () => {
         const p = (summaryCache?.patients || []).find((x) => x.patient_id === pid);
+        applyDigitalPhenotypingPatientContext('patient-profile', pid);
         activePatientId = pid;
         activePatientName = p?.patient_name || pid;
         view = 'patient';
@@ -734,6 +780,7 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
         ev.stopPropagation();
         const pid = btn.getAttribute('data-patient-id');
         const p = (summaryCache?.patients || []).find((x) => x.patient_id === pid);
+        applyDigitalPhenotypingPatientContext('patient-profile', pid);
         activePatientId = pid;
         activePatientName = p?.patient_name || pid;
         view = 'patient';
@@ -749,11 +796,17 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
     try {
       const [rawProfile, audit] = await Promise.all([
         api.getDigitalPhenotypingProfile(activePatientId),
-        api.getPhenotypingAudit(activePatientId).catch(() => ({ items: [] })),
+        api.getPhenotypingAudit(activePatientId).catch((e) => ({
+          items: [],
+          _loadError: (e && e.message) || String(e),
+        })),
       ]);
       rawProfileCache = rawProfile && typeof rawProfile === 'object' ? rawProfile : null;
       const projected = _projectFromBackendPayload(rawProfile);
       profileCache = projected;
+      auditUnavailableNote = audit?._loadError
+        ? `Audit activity could not be loaded from the API: ${audit._loadError}. Empty history below may reflect a transport or backend issue, not true absence of events.`
+        : '';
       auditCache = audit && Array.isArray(audit.items)
         ? audit
         : (audit && Array.isArray(audit.events))
@@ -763,6 +816,7 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
       if (thin && isDemoSession() && ANALYZER_DEMO_VIEWS?.digitalPhenotyping?.patient_profile) {
         profileCache = ANALYZER_DEMO_VIEWS.digitalPhenotyping.patient_profile(activePatientId);
         auditCache = ANALYZER_DEMO_VIEWS.digitalPhenotyping.patient_audit(activePatientId);
+        auditUnavailableNote = '';
         if (typeof ANALYZER_DEMO_VIEWS.digitalPhenotyping.payload === 'function') {
           rawProfileCache = ANALYZER_DEMO_VIEWS.digitalPhenotyping.payload(activePatientId);
         }
@@ -770,10 +824,12 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
       } else if (profileCache) {
         usingFixtures = false;
       }
+      activePatientName = profileCache?.patient_name || rawProfileCache?.patient_display_name || activePatientId;
     } catch (e) {
       if (isDemoSession() && ANALYZER_DEMO_VIEWS?.digitalPhenotyping?.patient_profile) {
         profileCache = ANALYZER_DEMO_VIEWS.digitalPhenotyping.patient_profile(activePatientId);
         auditCache = ANALYZER_DEMO_VIEWS.digitalPhenotyping.patient_audit(activePatientId);
+        auditUnavailableNote = '';
         if (typeof ANALYZER_DEMO_VIEWS.digitalPhenotyping.payload === 'function') {
           rawProfileCache = ANALYZER_DEMO_VIEWS.digitalPhenotyping.payload(activePatientId);
         }
@@ -786,14 +842,14 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
       }
     }
     _syncDemoBanner();
-    body.innerHTML = _renderPatientDetail(profileCache, auditCache, navigate, rawProfileCache);
+    body.innerHTML = _renderPatientDetail(profileCache, auditCache, navigate, rawProfileCache, auditUnavailableNote);
     wirePatientDetail();
   }
 
   function _rerenderPatient() {
     const body = $('dp-body');
     if (!body) return;
-    body.innerHTML = _renderPatientDetail(profileCache, auditCache, navigate, rawProfileCache);
+    body.innerHTML = _renderPatientDetail(profileCache, auditCache, navigate, rawProfileCache, auditUnavailableNote);
     wirePatientDetail();
   }
 
@@ -801,12 +857,8 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
     const body = $('dp-body');
     if (!body) return;
 
-    body.querySelectorAll('[data-nav-page]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const p = btn.getAttribute('data-nav-page');
-        try { navigate?.(p); } catch {}
-      });
-    });
+    applyDigitalPhenotypingPatientContext('patient-profile', activePatientId);
+    wireDigitalPhenotypingLinkedNav(body, navigate, activePatientId);
 
     body.querySelector('[data-action="recompute"]')?.addEventListener('click', async (ev) => {
       const btn = ev.currentTarget;

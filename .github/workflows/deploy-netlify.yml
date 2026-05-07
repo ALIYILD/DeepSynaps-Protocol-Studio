@@ -3,11 +3,11 @@
 # Also usable on-demand via the "Run workflow" button on GitHub Actions.
 #
 # Requires one repo secret:
-#   NETLIFY_AUTH_TOKEN — Netlify personal access token, create at:
-#                         https://app.netlify.com/user/applications#personal-access-tokens
+#   NETLIFY_BUILD_HOOK_URL — Netlify build hook URL for the
+#                            deepsynaps-studio-preview site.
 #
-# The Netlify site ID is pinned in the workflow (and matches netlify.toml
-# at the repo root). API base URL is fixed to the Fly preview deployment.
+# The site ID remains pinned in netlify.toml. GitHub Actions validates the
+# web build locally, then triggers a production Netlify build via the hook.
 
 name: Deploy web → Netlify
 
@@ -52,19 +52,16 @@ jobs:
       - name: Build (demo flag on, API → Fly)
         run: npm run build:web
 
-      - name: Deploy to Netlify
+      - name: Trigger Netlify Build Hook
         env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_BUILD_HOOK_URL: ${{ secrets.NETLIFY_BUILD_HOOK_URL }}
         run: |
-          if [ -z "$NETLIFY_AUTH_TOKEN" ]; then
-            echo "::error::NETLIFY_AUTH_TOKEN secret is missing."
-            echo "Create one at https://app.netlify.com/user/applications#personal-access-tokens"
+          if [ -z "$NETLIFY_BUILD_HOOK_URL" ]; then
+            echo "::error::NETLIFY_BUILD_HOOK_URL secret is missing."
+            echo "Create a Netlify site build hook for the preview site and store its URL as a GitHub Actions secret."
             echo "then add it at Settings → Secrets and variables → Actions → New repository secret."
             exit 1
           fi
-          npx --yes netlify-cli@17 deploy \
-            --dir apps/web/dist \
-            --prod \
-            --site "$NETLIFY_SITE_ID" \
-            --filter @deepsynaps/web \
-            --message "GHA ${GITHUB_SHA::7}"
+          curl --fail --show-error --silent \
+            -X POST \
+            "$NETLIFY_BUILD_HOOK_URL"

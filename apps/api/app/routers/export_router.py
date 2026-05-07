@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from io import BytesIO
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -36,6 +38,7 @@ from app.services.fhir_export import build_neuromodulation_fhir_bundle
 router = APIRouter(prefix="", tags=["export"])
 
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+PDF_MEDIA_TYPE = "application/pdf"
 
 
 def _safe_filename_part(value: str) -> str:
@@ -93,6 +96,7 @@ class ExportHandbookDocxRequest(BaseModel):
     condition_name: str = Field(..., max_length=_EXPORT_NAME_MAX)
     modality_name: str = Field(..., max_length=_EXPORT_NAME_MAX)
     device_name: str = Field(default="", max_length=_EXPORT_NAME_MAX)
+    handbook_kind: Literal["clinician_handbook", "patient_guide", "technician_sop"] = "clinician_handbook"
 
 
 class ExportPatientGuideDocxRequest(BaseModel):
@@ -120,6 +124,52 @@ class _ProtocolDocxAdapter:
     contraindications: list[str] = field(default_factory=list)
     safety_checks: list[str] = field(default_factory=list)
     session_structure: object = None
+
+
+_HANDBOOK_KIND_LABEL = {
+    "clinician_handbook": "Clinician handbook",
+    "patient_guide": "Patient guide",
+    "technician_sop": "Technician SOP",
+}
+
+
+def _handbook_bundle_export_context(
+    payload: ExportHandbookDocxRequest,
+    actor: AuthenticatedActor,
+):
+    """Regenerate handbook + structured report and registry-backed protocol draft meta."""
+    handbook_request = HandbookGenerateRequest(
+        handbook_kind=payload.handbook_kind,
+        condition=payload.condition_name,
+        modality=payload.modality_name,
+        device=payload.device_name or "",
+    )
+    result = generate_handbook_from_clinical_data(handbook_request, actor)
+
+    draft_request = ProtocolDraftRequest(
+        condition=payload.condition_name,
+        symptom_cluster="General",
+        modality=payload.modality_name,
+        device=payload.device_name or "",
+        setting="Clinic",
+        evidence_threshold="Systematic Review",
+        off_label=False,
+    )
+    evidence_grade = ""
+    approval_badge = ""
+    try:
+        draft = generate_protocol_draft_from_clinical_data(draft_request, actor)
+        evidence_grade = draft.evidence_grade or ""
+        approval_badge = draft.approval_status_badge or ""
+    except ApiServiceError:
+        pass
+
+    generated_at = datetime.now(timezone.utc).isoformat()
+    if result.detailed_report is not None and getattr(result.detailed_report, "generated_at", None):
+        generated_at = str(result.detailed_report.generated_at)
+
+    kind_label = _HANDBOOK_KIND_LABEL.get(payload.handbook_kind, payload.handbook_kind)
+    return result, evidence_grade, approval_badge, generated_at, kind_label
 
 
 # ---------------------------------------------------------------------------
@@ -192,16 +242,8 @@ def export_handbook_docx(
 ) -> StreamingResponse:
     require_minimum_role(actor, "clinician")
 
-    handbook_request = HandbookGenerateRequest(
-        handbook_kind="clinician_handbook",
-        condition=payload.condition_name,
-        modality=payload.modality_name,
-    )
-    result = generate_handbook_from_clinical_data(handbook_request, actor)
-    doc = result.document
-
     try:
-        from deepsynaps_render_engine.renderers import render_protocol_docx
+        from deepsynaps_render_engine.handbook_bundle import render_handbook_bundle_docx
     except ImportError as exc:
         raise ApiServiceError(
             code="render_engine_unavailable",
@@ -210,51 +252,88 @@ def export_handbook_docx(
             status_code=500,
         ) from exc
 
-    # Build a minimal adapter for render_protocol_docx
-    adapter = _ProtocolDocxAdapter(
-        condition_name=payload.condition_name,
-        modality_name=payload.modality_name,
-        device_name=payload.device_name,
-        evidence_grade="",
-        approval_badge="",
-        contraindications=[c for c in doc.safety if c],
-        safety_checks=[c for c in doc.session_workflow if c],
+    result, evidence_grade, approval_badge, generated_at, kind_label = _handbook_bundle_export_context(
+        payload, actor
     )
 
-    # Build a handbook_plan adapter with sections
-    @dataclass
-    class _Section:
-        title: str
-        body: str
-
-    @dataclass
-    class _HandbookAdapter:
-        sections: list
-
-    sections = []
-    if doc.overview:
-        sections.append(_Section(title="Overview", body=doc.overview))
-    for label, items in [
-        ("Eligibility", doc.eligibility),
-        ("Setup", doc.setup),
-        ("Session Workflow", doc.session_workflow),
-        ("Troubleshooting", doc.troubleshooting),
-        ("Escalation", doc.escalation),
-        ("References", doc.references),
-    ]:
-        if items:
-            sections.append(_Section(title=label, body="\n".join(items)))
-
-    handbook_adapter = _HandbookAdapter(sections=sections)
-    docx_bytes = render_protocol_docx(adapter, handbook_plan=handbook_adapter)
+    docx_bytes = render_handbook_bundle_docx(
+        result.document,
+        result.detailed_report,
+        condition_name=payload.condition_name,
+        modality_name=payload.modality_name,
+        device_name=payload.device_name or "",
+        handbook_kind_label=kind_label,
+        evidence_grade=evidence_grade,
+        approval_badge=approval_badge,
+        generated_at=generated_at,
+    )
 
     condition_slug = _safe_filename_part(payload.condition_name)
     modality_slug = _safe_filename_part(payload.modality_name)
-    filename = f"handbook_{condition_slug}_{modality_slug}.docx"
+    filename = f"handbook_bundle_{condition_slug}_{modality_slug}.docx"
 
     return StreamingResponse(
         BytesIO(docx_bytes),
         media_type=DOCX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/api/v1/export/handbook-pdf")
+@limiter.limit("10/minute")
+def export_handbook_pdf(
+    request: Request,
+    payload: ExportHandbookDocxRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+):
+    """PDF bundle — requires WeasyPrint + system libs on the API host."""
+    require_minimum_role(actor, "clinician")
+
+    try:
+        from deepsynaps_render_engine.handbook_bundle import render_handbook_bundle_pdf
+        from deepsynaps_render_engine.renderers import PdfRendererUnavailable
+    except ImportError as exc:
+        raise ApiServiceError(
+            code="render_engine_unavailable",
+            message="The render engine package is not installed.",
+            warnings=[str(exc)],
+            status_code=500,
+        ) from exc
+
+    result, evidence_grade, approval_badge, generated_at, kind_label = _handbook_bundle_export_context(
+        payload, actor
+    )
+
+    try:
+        pdf_bytes = render_handbook_bundle_pdf(
+            result.document,
+            result.detailed_report,
+            condition_name=payload.condition_name,
+            modality_name=payload.modality_name,
+            device_name=payload.device_name or "",
+            handbook_kind_label=kind_label,
+            evidence_grade=evidence_grade,
+            approval_badge=approval_badge,
+            generated_at=generated_at,
+        )
+    except PdfRendererUnavailable as exc:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "code": "pdf_renderer_unavailable",
+                "available": False,
+                "format": "pdf",
+                "message": str(exc),
+            },
+        )
+
+    condition_slug = _safe_filename_part(payload.condition_name)
+    modality_slug = _safe_filename_part(payload.modality_name)
+    filename = f"handbook_bundle_{condition_slug}_{modality_slug}.pdf"
+
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type=PDF_MEDIA_TYPE,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
