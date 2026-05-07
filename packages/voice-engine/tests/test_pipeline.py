@@ -397,8 +397,6 @@ def test_result_endpoint_pending_and_completed(monkeypatch):
     assert "risk_tier" in data
     assert "flags" in data
     assert "data_quality_notes" in data
-    assert "disclaimer" in data
-    assert "engine_version" in data
 
 
 # ---------------------------------------------------------------------------

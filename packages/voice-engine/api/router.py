@@ -350,10 +350,6 @@ async def get_voice_result(
         except Exception:
             blob = {}
 
-    # engine_version: use persisted value so historic reports trace to the engine that
-    # produced them; fall back to current constant if the blob pre-dates this field.
-    persisted_version = blob.get("engine_version") or _ENGINE_VERSION
-
     return {
         "status": "completed",
         "session_id": session_id,
