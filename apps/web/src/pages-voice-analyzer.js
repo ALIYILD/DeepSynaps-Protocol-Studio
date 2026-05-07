@@ -13,6 +13,20 @@ import {
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 
+function _readVaAccessToken() {
+  try {
+    return globalThis.localStorage?.getItem?.('ds_access_token') ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** True only when the session uses the offline demo-token shim — mirrors shouldUseDeepTwinDemoFixtures. */
+export function shouldUseVoiceAnalyzerDemoFixtures() {
+  const t = _readVaAccessToken();
+  return !!(t && String(t).endsWith('-demo-token'));
+}
+
 const VA_LAST_ANALYSIS_KEY = 'ds_va_last_analysis_id';
 const VA_LAST_ANALYSIS_PATIENT_KEY = 'ds_va_last_analysis_patient_id';
 const VA_PATIENT_STORAGE = 'ds_pat_selected_id';
@@ -69,7 +83,7 @@ export function voiceAnalyzerShouldAutoLoadStoredReport(currentPatientId, stored
   const current = String(currentPatientId || '').trim();
   const stored = String(storedPatientId || '').trim();
   if (!stored) return true;
-  if (!current) return true;
+  if (!current) return false;
   return current === stored;
 }
 
@@ -649,7 +663,9 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
   el.querySelectorAll('[data-va-nav]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const page = btn.getAttribute('data-va-nav');
-      const pid = effectivePatientId().patientId;
+      const patientCtx = effectivePatientId();
+      if (patientCtx.error) return;
+      const pid = patientCtx.patientId;
       if (pid) _persistPatientSelection(pid);
       try {
         window._deeptwinPatientId = pid || window._deeptwinPatientId;
@@ -662,9 +678,10 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
     try { window._resEvidenceTab = 'search'; } catch (_) {}
     navigate('research-evidence');
   });
-  document.getElementById('va-open-biomarkers')?.addEventListener('click', () => window._nav('biomarkers-ref'));
   document.getElementById('va-open-deeptwin')?.addEventListener('click', () => {
-    const pid = effectivePatientId().patientId;
+    const patientCtx = effectivePatientId();
+    if (patientCtx.error) return;
+    const pid = patientCtx.patientId;
     if (pid) _persistPatientSelection(pid);
     try { window._deeptwinPatientId = pid || window._deeptwinPatientId; } catch (_) {}
     navigate('deeptwin');
@@ -906,7 +923,7 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
 
   await _tryLoadPendingReport(statusEl, resultEl, resultWrap, effectivePatientId().patientId);
 
-  if (demoMode && resultWrap().style.display === 'none') {
+  if (shouldUseVoiceAnalyzerDemoFixtures() && resultWrap().style.display === 'none') {
     resultWrap().style.display = '';
     resultEl().innerHTML = voiceAnalyzerDemoFixtureBanner() + renderVoiceReportHtml(ANALYZER_DEMO_FIXTURES.voice, { demoFixture: true });
     statusEl().textContent = 'Showing labelled demo report — not from a live upload.';
@@ -958,7 +975,7 @@ async function _tryLoadPendingReport(statusEl, resultEl, resultWrap, currentPati
     statusEl().textContent = 'Showing stored report.';
     _persistLastAnalysisId(id, storedPatientId);
   } catch (e) {
-    if (isDemoSession()) {
+    if (shouldUseVoiceAnalyzerDemoFixtures()) {
       if (resultWrap) resultWrap.style.display = '';
       resultEl().innerHTML = voiceAnalyzerDemoFixtureBanner() + renderVoiceReportHtml(ANALYZER_DEMO_FIXTURES.voice, { demoFixture: true });
       statusEl().textContent = 'Showing labelled demo report.';
