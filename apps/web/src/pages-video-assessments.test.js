@@ -204,20 +204,17 @@ function stubVideoAssessmentApi(overrides = {}) {
     (async () => makeHistoricalAiSummary({ sessionCount: 1, sourceSessionIds: ['sess-prior-1'] }));
   api.getVideoAssessmentHistoricalAiSummaryFeedback =
     overrides.getVideoAssessmentHistoricalAiSummaryFeedback ??
-    (async () => {
-      const err = new Error('Feedback not found');
-      err.status = 404;
-      throw err;
-    });
-  api.saveVideoAssessmentHistoricalAiSummaryFeedback =
-    overrides.saveVideoAssessmentHistoricalAiSummaryFeedback ??
-    (async (_sessionId, payload) => ({
-      summary_event_id: payload.summary_event_id,
-      feedback_status: payload.feedback_status,
-      feedback_note: payload.feedback_note || '',
-      updated_at: '2026-05-07T13:00:00Z',
+    (async () => ({
+      has_feedback: false,
+      summary_event_id: 'va-historical-summary-test',
+      feedback_status: '',
+      feedback_note: null,
+      updated_at: null,
       actor_role: 'clinician',
     }));
+  api.saveVideoAssessmentHistoricalAiSummaryFeedback =
+    overrides.saveVideoAssessmentHistoricalAiSummaryFeedback ??
+    (async (_, data) => makeHistoricalAiSummaryFeedback({ ...data, summaryEventId: data?.summary_event_id }));
 
   return () => {
     Object.assign(api, saved);
@@ -322,6 +319,24 @@ function makeHistoricalAiSummary({
       session_count: sessionCount,
       source_input_fingerprint: sourceInputFingerprint,
     },
+  };
+}
+
+function makeHistoricalAiSummaryFeedback({
+  summaryEventId = 'va-historical-summary-test',
+  feedbackStatus = 'accepted',
+  feedbackNote = 'Useful longitudinal framing.',
+  actorRole = 'clinician',
+  updatedAt = '2026-05-07T12:30:00Z',
+  hasFeedback = true,
+} = {}) {
+  return {
+    has_feedback: hasFeedback,
+    summary_event_id: summaryEventId,
+    feedback_status: feedbackStatus,
+    feedback_note: feedbackNote,
+    updated_at: updatedAt,
+    actor_role: actorRole,
   };
 }
 
