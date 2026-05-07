@@ -141,6 +141,20 @@ function _errorCard(message, retryLabel = 'Try again') {
   </div>`;
 }
 
+function _prependInlineError(host, message, onRetry, retryLabel = 'Try again') {
+  if (!host) return;
+  host.querySelector('[data-inline-error="movement"]')?.remove();
+  host.insertAdjacentHTML(
+    'afterbegin',
+    `<div data-inline-error="movement">${_errorCard(message, retryLabel)}</div>`,
+  );
+  const retryBtn = host.querySelector('[data-inline-error="movement"] [data-action="retry"]');
+  retryBtn?.addEventListener('click', () => {
+    host.querySelector('[data-inline-error="movement"]')?.remove();
+    try { onRetry?.(); } catch {}
+  });
+}
+
 function _emptyClinicCard() {
   return `<div style="max-width:640px;margin:48px auto;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);text-align:center">
     <div style="font-size:15px;font-weight:600;margin-bottom:8px">No movement workspace rows loaded</div>
@@ -936,7 +950,12 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
           wirePatientDetail();
         }
       } catch (e) {
-        body.insertAdjacentHTML('afterbegin', _errorCard((e && e.message) || String(e)));
+        _prependInlineError(
+          body,
+          (e && e.message) || String(e),
+          () => body.querySelector('[data-action="export-json"]')?.click(),
+          'Retry export',
+        );
       } finally {
         if (btn.isConnected) {
           btn.disabled = false;
@@ -1022,7 +1041,12 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
       } catch (e) {
         btn.disabled = false;
         btn.textContent = old;
-        body.insertAdjacentHTML('afterbegin', _errorCard((e && e.message) || String(e)));
+        _prependInlineError(
+          body,
+          (e && e.message) || String(e),
+          () => body.querySelector('[data-action="recompute"]')?.click(),
+          'Retry recompute',
+        );
       }
     });
 
