@@ -3506,8 +3506,8 @@ function renderAIPanel(state) {
           </div>
           <div style="font-size:11px;color:#1a1a1a;margin-bottom:8px;line-height:1.4">${esc(s.explanation||'')}</div>
           <div style="display:flex;gap:6px">
-            <button class="qwb-side-btn" data-ai-action="accept" data-ai-id="${esc(s.id)}">Accept</button>
-            <button class="qwb-side-btn" data-ai-action="reject" data-ai-id="${esc(s.id)}">Reject</button>
+            <button class="qwb-side-btn" data-ai-action="accept" data-ai-decision="accepted" data-ai-id="${esc(s.id)}">Accept</button>
+            <button class="qwb-side-btn" data-ai-action="reject" data-ai-decision="rejected" data-ai-id="${esc(s.id)}">Reject</button>
             <button class="qwb-side-btn" data-ai-action="inspect" data-ai-id="${esc(s.id)}">Inspect</button>
           </div>
           <div style="font-size:10px;color:#6b6660;margin-top:6px">Status: ${esc(s.decision_status||'suggested')}</div>
