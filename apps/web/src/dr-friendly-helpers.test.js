@@ -4,7 +4,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { clinicalBand, drHero } from './helpers.js';
+import { clinicalBand, drHero, trajectoryChip } from './helpers.js';
+import { loadPatientFlagSummary } from './dr-friendly-flags.js';
 
 // ── clinicalBand ──────────────────────────────────────────────────────────────
 
@@ -94,4 +95,140 @@ test('drHero alert chip has role=status so screen readers announce it', () => {
   const calmHtml = drHero({ question: 'Q', flagCount: 0 });
   assert.match(flagsHtml, /role="status"/);
   assert.match(calmHtml, /role="status"/);
+});
+
+// ── trajectoryChip ────────────────────────────────────────────────────────────
+
+test('trajectoryChip returns "" when prior is null/missing — graceful no-op', () => {
+  assert.equal(trajectoryChip(0.5, null), '');
+  assert.equal(trajectoryChip(0.5, undefined), '');
+  assert.equal(trajectoryChip(null, 0.5), '');
+});
+
+test('trajectoryChip returns "" when prior is 0 — undefined % change', () => {
+  assert.equal(trajectoryChip(0.5, 0), '');
+});
+
+test('trajectoryChip returns "" when current/prior are NaN', () => {
+  assert.equal(trajectoryChip(NaN, 0.5), '');
+  assert.equal(trajectoryChip(0.5, NaN), '');
+});
+
+test('trajectoryChip lower-better: drop is improvement (green ↓)', () => {
+  const html = trajectoryChip(0.5, 0.8, { direction: 'lower-better' });
+  assert.match(html, /↓/);
+  assert.match(html, /38%/);
+  assert.match(html, /var\(--green\)/);
+});
+
+test('trajectoryChip lower-better: rise ≥10% is significant worsening (red ↑)', () => {
+  const html = trajectoryChip(1.0, 0.8, { direction: 'lower-better' });
+  assert.match(html, /↑/);
+  assert.match(html, /25%/);
+  assert.match(html, /var\(--red\)/);
+});
+
+test('trajectoryChip lower-better: rise <10% is mild worsening (amber ↑)', () => {
+  const html = trajectoryChip(0.85, 0.80, { direction: 'lower-better' });
+  assert.match(html, /↑/);
+  assert.match(html, /var\(--amber\)/);
+});
+
+test('trajectoryChip higher-better: rise is improvement (green ↑)', () => {
+  const html = trajectoryChip(0.9, 0.7, { direction: 'higher-better' });
+  assert.match(html, /↑/);
+  assert.match(html, /var\(--green\)/);
+});
+
+test('trajectoryChip higher-better: drop ≥10% is significant worsening (red ↓)', () => {
+  const html = trajectoryChip(0.5, 0.7, { direction: 'higher-better' });
+  assert.match(html, /↓/);
+  assert.match(html, /var\(--red\)/);
+});
+
+test('trajectoryChip near-zero change shows ~stable, not green/amber/red', () => {
+  const html = trajectoryChip(0.500, 0.502, { direction: 'lower-better' });
+  assert.match(html, /~stable/);
+});
+
+test('trajectoryChip uses custom priorLabel when supplied', () => {
+  const html = trajectoryChip(0.5, 0.8, { priorLabel: 'vs Apr 24' });
+  assert.match(html, /vs Apr 24/);
+});
+
+test('trajectoryChip default priorLabel is "vs prior"', () => {
+  const html = trajectoryChip(0.5, 0.8);
+  assert.match(html, /vs prior/);
+});
+
+// ── loadPatientFlagSummary ────────────────────────────────────────────────────
+
+test('loadPatientFlagSummary returns calm shape for empty patientId', async () => {
+  const r = await loadPatientFlagSummary(null);
+  assert.deepEqual(r, { flagCount: 0, flagSummary: '', loaded: false });
+});
+
+test('loadPatientFlagSummary counts elevated/high/critical categories', async () => {
+  const fakeApi = {
+    getPatientRiskProfile: async () => ({
+      categories: [
+        { category: 'safety', level: 'High' },
+        { category: 'adherence', level: 'elevated' },
+        { category: 'wellbeing', level: 'low' },
+        { category: 'engagement', level: 'CRITICAL' },
+        { category: 'caregiver', level: 'moderate' },
+      ],
+    }),
+  };
+  const r = await loadPatientFlagSummary('p-1', fakeApi);
+  assert.equal(r.flagCount, 3);
+  assert.equal(r.loaded, true);
+  assert.match(r.flagSummary, /safety high/);
+  assert.match(r.flagSummary, /adherence elevated/);
+  assert.match(r.flagSummary, /engagement critical/);
+});
+
+test('loadPatientFlagSummary truncates flagSummary at 3 categories', async () => {
+  const fakeApi = {
+    getPatientRiskProfile: async () => ({
+      categories: [
+        { category: 'a', level: 'high' },
+        { category: 'b', level: 'high' },
+        { category: 'c', level: 'high' },
+        { category: 'd', level: 'high' },
+      ],
+    }),
+  };
+  const r = await loadPatientFlagSummary('p-1', fakeApi);
+  assert.equal(r.flagCount, 4);
+  // 3 separators-of-2 in summary: "a high · b high · c high"
+  assert.equal(r.flagSummary.split(' · ').length, 3);
+  assert.doesNotMatch(r.flagSummary, /\bd\b/);
+});
+
+test('loadPatientFlagSummary returns calm shape on api failure (loaded: false)', async () => {
+  const fakeApi = {
+    getPatientRiskProfile: async () => { throw new Error('500'); },
+  };
+  const r = await loadPatientFlagSummary('p-1', fakeApi);
+  assert.deepEqual(r, { flagCount: 0, flagSummary: '', loaded: false });
+});
+
+test('loadPatientFlagSummary handles missing categories array gracefully', async () => {
+  const fakeApi = {
+    getPatientRiskProfile: async () => ({}),
+  };
+  const r = await loadPatientFlagSummary('p-1', fakeApi);
+  assert.equal(r.flagCount, 0);
+  assert.equal(r.loaded, true);
+});
+
+test('loadPatientFlagSummary normalises underscored category labels', async () => {
+  const fakeApi = {
+    getPatientRiskProfile: async () => ({
+      categories: [{ category: 'clinical_deterioration', level: 'high' }],
+    }),
+  };
+  const r = await loadPatientFlagSummary('p-1', fakeApi);
+  assert.match(r.flagSummary, /clinical deterioration high/);
 });

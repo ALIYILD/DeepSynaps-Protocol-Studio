@@ -162,6 +162,54 @@ export function drHero(opts = {}) {
   </section>`;
 }
 
+/**
+ * Compact "vs prior" trajectory chip with arrow + percent change.
+ *
+ *   trajectoryChip(0.62, 0.78, { direction: 'lower-better', priorLabel: 'vs Apr 24' })
+ *     → "↓ 21% vs Apr 24" (green pill — improvement when lower-better)
+ *   trajectoryChip(0.78, 0.62, { direction: 'lower-better' })
+ *     → "↑ 26% vs prior" (red pill — worsening ≥10%)
+ *
+ * `direction` defaults to 'lower-better' (most clinical scores: PHQ-9,
+ * dysarthria severity, fall risk — improvement means the number went down).
+ * Pass `direction: 'higher-better'` for metrics where higher is good
+ * (cognitive scores on a healthy-side scale, adherence rates, etc.).
+ *
+ * Returns "" when prior or current is null/NaN, or when prior is 0 (can't
+ * compute % change) — graceful no-op.
+ */
+export function trajectoryChip(current, prior, opts = {}) {
+  if (current == null || prior == null) return '';
+  const c = Number(current); const p = Number(prior);
+  if (Number.isNaN(c) || Number.isNaN(p) || p === 0) return '';
+  const delta = c - p;
+  const pct = (delta / Math.abs(p)) * 100;
+  const direction = opts.direction || 'lower-better';
+  const arrow = delta > 0 ? '↑' : delta < 0 ? '↓' : '·';
+  const isImprovement = direction === 'lower-better' ? delta < 0 : delta > 0;
+  const isWorsening = direction === 'lower-better' ? delta > 0 : delta < 0;
+
+  let bg, color, label;
+  if (Math.abs(pct) < 1) {
+    bg = 'rgba(255,255,255,0.06)'; color = 'var(--text-secondary)'; label = '~stable';
+  } else if (isImprovement) {
+    bg = 'rgba(74,222,128,0.10)'; color = 'var(--green)'; label = `${arrow} ${Math.abs(pct).toFixed(0)}%`;
+  } else if (isWorsening) {
+    const big = Math.abs(pct) >= 10;
+    bg = big ? 'rgba(255,107,107,0.12)' : 'rgba(255,181,71,0.10)';
+    color = big ? 'var(--red)' : 'var(--amber)';
+    label = `${arrow} ${Math.abs(pct).toFixed(0)}%`;
+  } else {
+    bg = 'rgba(255,255,255,0.06)'; color = 'var(--text-secondary)'; label = '~stable';
+  }
+  const priorLabel = opts.priorLabel || 'vs prior';
+  const tip = opts.helpText || `Change vs prior measurement: ${pct > 0 ? '+' : ''}${pct.toFixed(1)}% (${direction === 'lower-better' ? 'lower is better' : 'higher is better'})`;
+  return `<span title="${tip}" style="cursor:help;display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 8px;border-radius:6px;background:${bg};color:${color};border:1px solid ${color}33">
+    <span>${label}</span>
+    <span style="opacity:.7;font-weight:500;font-size:10px">${priorLabel}</span>
+  </span>`;
+}
+
 // Governance flag row
 export function govFlag(text, severity = 'warn') {
   const col = severity === 'error' ? 'var(--red)' : 'var(--amber)';
