@@ -281,14 +281,24 @@ def _normalize_decision_status(value: Any) -> str:
 
 
 def _ai_suggestion_key(row: QeegCleaningAnnotation) -> str:
-    payload = row.payload_json or "{}"
+    # ``payload_json`` is not a column on QeegCleaningAnnotation today — the
+    # related ``payload_json`` column lives on the separate ``cleaning_decisions``
+    # table introduced in migration 047. We still ``getattr`` for forward
+    # compatibility in case callers pass a richer row shape (e.g. a join), but
+    # the key derivation must work from native annotation columns.
+    payload = getattr(row, "payload_json", None) or "{}"
     try:
         data = json.loads(payload)
     except (TypeError, ValueError):
         data = {}
     if not isinstance(data, dict):
         data = {}
-    raw_key = data.get("suggestion_key") or data.get("ai_label") or data.get("label")
+    raw_key = (
+        data.get("suggestion_key")
+        or data.get("ai_label")
+        or data.get("label")
+        or getattr(row, "ai_label", None)
+    )
     if raw_key:
         return str(raw_key)
     parts = [
@@ -315,28 +325,38 @@ def load_ai_suggestion_decision_state(analysis_id: str, db: Session) -> dict[str
     grouped: dict[str, dict[str, Any]] = {}
     for row in rows:
         key = _ai_suggestion_key(row)
+        # ``payload_json`` and ``accepted_by_user`` are not columns on
+        # QeegCleaningAnnotation today; defensively ``getattr`` so the
+        # function works against the current schema while still picking up
+        # the richer fields if the model is ever extended.
         try:
-            payload = json.loads(row.payload_json or "{}")
+            payload = json.loads(getattr(row, "payload_json", None) or "{}")
         except (TypeError, ValueError):
             payload = {}
         if not isinstance(payload, dict):
             payload = {}
         status = _normalize_decision_status(row.decision_status or payload.get("decision_status"))
+        accepted_flag = getattr(row, "accepted_by_user", None)
+        if accepted_flag is None:
+            # Derive from the decision_status column when the explicit flag
+            # column is absent (matches Phase-7 semantics where "accepted"
+            # is the only way a clinician can mark a suggestion taken).
+            accepted_flag = True if status == "accepted" else (False if status == "rejected" else None)
         item = grouped.setdefault(
             key,
             {
                 "suggestion_key": key,
-                "ai_label": payload.get("ai_label") or row.label or "suggestion",
+                "ai_label": payload.get("ai_label") or row.ai_label or "suggestion",
                 "channel": row.channel,
                 "start_sec": row.start_sec,
                 "end_sec": row.end_sec,
                 "decision_status": status,
-                "accepted_by_user": row.accepted_by_user,
+                "accepted_by_user": accepted_flag,
                 "latest_note": row.note,
             },
         )
         item["decision_status"] = status
-        item["accepted_by_user"] = row.accepted_by_user
+        item["accepted_by_user"] = accepted_flag
         item["latest_note"] = row.note or item.get("latest_note")
 
     items = list(grouped.values())
