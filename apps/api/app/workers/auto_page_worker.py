@@ -83,7 +83,6 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor
 from app.database import SessionLocal
 from app.persistence.models import (
-    AuditEventRecord,
     EscalationChain,
     OncallPage,
     User,
@@ -438,7 +437,6 @@ class AutoPageWorker:
         from app.routers.care_team_coverage_router import (  # noqa: PLC0415
             _list_breaches,
             _page_oncall_impl,
-            _split_action,
         )
 
         # 1) Find the set of clinics that have AT LEAST ONE chain row with

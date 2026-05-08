@@ -37,7 +37,6 @@ from app.services.irb_reviewer_sla_outcome_pairing import (
     OUTCOME_DECIDED_WITHIN_SLA,
     OUTCOME_STILL_PENDING,
     ReviewerSLAOutcomeRecord,
-    _coerce_utc,
     compute_reviewer_calibration,
     pair_breaches_with_decisions,
 )

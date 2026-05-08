@@ -36,10 +36,7 @@ from app.database import SessionLocal
 from app.persistence.models import (
     AuditEventRecord,
     Clinic,
-    EscalationChain,
-    OncallPage,
     Patient,
-    SLAConfig,
     ShiftRoster,
     User,
 )

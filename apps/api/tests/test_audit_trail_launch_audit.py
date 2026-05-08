@@ -16,11 +16,10 @@ import io
 import csv
 import json
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
-from app.persistence.models import AuditEventRecord, Clinic, User
+from app.persistence.models import AuditEventRecord
 
 
 def _seed_audit_event(

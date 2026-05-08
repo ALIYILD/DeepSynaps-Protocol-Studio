@@ -57,7 +57,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends
@@ -68,7 +68,6 @@ from app.auth import AuthenticatedActor, get_authenticated_actor
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import (
-    AuditEventRecord,
     CaregiverConsentGrant,
     CaregiverDigestPreference,
     User,

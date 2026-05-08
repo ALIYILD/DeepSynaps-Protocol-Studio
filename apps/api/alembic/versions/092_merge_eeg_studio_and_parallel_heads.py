@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from typing import Sequence, Union
 
-from alembic import op
 
 revision: str = "092_merge_eeg_studio_and_parallel_heads"
 down_revision: Union[str, Sequence[str], None] = (

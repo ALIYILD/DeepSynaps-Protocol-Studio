@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import importlib
 
-import pytest
 
 
 def test_facade_importable_without_pipeline() -> None:

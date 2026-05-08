@@ -21,7 +21,6 @@ Stripe still gets a 200 so it stops redelivering at their layer.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest

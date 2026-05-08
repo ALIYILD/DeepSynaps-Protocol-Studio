@@ -11,7 +11,6 @@ GET    /api/v1/risk/patient/{patient_id}/audit            — audit trail
 from __future__ import annotations
 
 import json
-import uuid
 from datetime import datetime, timezone
 from typing import Optional
 

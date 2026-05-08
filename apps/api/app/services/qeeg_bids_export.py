@@ -18,10 +18,8 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor
 from app.errors import ApiServiceError
 from app.persistence.models import QEEGAIReport, QEEGAnalysis, QEEGReportAudit
-from app.services.media_storage import read_upload
 from app.services.qeeg_clinician_review import can_export
 from app.services.qeeg_claim_governance import resolve_patient_facing_report
-from app.settings import get_settings
 
 _log = logging.getLogger(__name__)
 

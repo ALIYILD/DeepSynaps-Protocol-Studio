@@ -15,7 +15,6 @@ from app.persistence.models import (
     OutcomeEvent,
     OutcomeSeries,
     QEEGAnalysis,
-    QEEGComparison,
     QEEGTimelineEvent,
     WearableDailySummary,
 )

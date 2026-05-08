@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 from app.auth import AuthenticatedActor, get_authenticated_actor
 from app.database import SessionLocal
 from app.main import app
-from app.persistence.models import AgentRunAudit, Clinic, User
+from app.persistence.models import AgentRunAudit, Clinic
 
 
 # ---------------------------------------------------------------------------

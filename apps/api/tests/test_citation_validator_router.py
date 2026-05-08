@@ -9,11 +9,10 @@ from __future__ import annotations
 import json
 import uuid
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
-from app.persistence.models import DsClaimCitation, DsGroundingAudit, DsPaper, KgHyperedge
+from app.persistence.models import DsClaimCitation, DsPaper
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

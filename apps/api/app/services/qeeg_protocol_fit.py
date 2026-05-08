@@ -11,7 +11,6 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
-from app.errors import ApiServiceError
 from app.persistence.models import Patient, QEEGAnalysis, QEEGProtocolFit
 
 _log = logging.getLogger(__name__)

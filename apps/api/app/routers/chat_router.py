@@ -27,7 +27,6 @@ from app.services.chat_service import (
     chat_clinician,
     chat_patient,
     chat_public_faq,
-    chat_agent,
     chat_agent_with_evidence,
     chat_wearable_patient,
     chat_wearable_clinician,

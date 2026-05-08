@@ -6,7 +6,6 @@ import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal

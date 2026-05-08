@@ -8,7 +8,6 @@ import numpy as np
 
 
 def fit_ica_on_epochs(epochs: Any, *, n_components: int = 15, random_state: int = 42) -> dict[str, Any]:
-    import mne
     from mne.preprocessing import ICA
 
     n_comp = min(n_components, len(epochs.ch_names))

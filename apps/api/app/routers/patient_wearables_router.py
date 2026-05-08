@@ -62,7 +62,7 @@ import json
 import logging
 import re
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Path, Query, Response
@@ -79,7 +79,6 @@ from app.persistence.models import (
     Patient,
     User,
     WearableAlertFlag,
-    WearableDailySummary,
     WearableObservation,
 )
 

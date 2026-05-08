@@ -20,7 +20,7 @@ from app.auth import (
 )
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.repositories.treatment_sessions import ClinicalSession, ClinicalSessionEvent, DeliveredSessionParameters, TreatmentCourse
+from app.repositories.treatment_sessions import ClinicalSession, ClinicalSessionEvent, DeliveredSessionParameters
 from app.repositories.patients import resolve_patient_clinic_id
 from app.repositories.treatment_courses import get_treatment_course
 

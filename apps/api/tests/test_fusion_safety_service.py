@@ -10,7 +10,6 @@ import json
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
-import pytest
 
 from app.services.fusion_safety_service import (
     _check_red_flags,

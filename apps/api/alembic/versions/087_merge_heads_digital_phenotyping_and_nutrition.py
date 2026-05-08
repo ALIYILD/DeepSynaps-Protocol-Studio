@@ -6,8 +6,6 @@ Create Date: 2026-05-02 16:05:00.000000
 
 """
 from typing import Sequence, Union
-from alembic import op
-import sqlalchemy as sa
 
 
 revision: str = "087_merge_heads_digital_phenotyping_and_nutrition"

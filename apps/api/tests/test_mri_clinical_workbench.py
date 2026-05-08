@@ -14,7 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
-from app.persistence.models import MriAnalysis, MriReportAudit, MriReportFinding
+from app.persistence.models import MriAnalysis, MriReportFinding
 
 def _do_upload(client: TestClient, auth_headers: dict) -> str:
     import io

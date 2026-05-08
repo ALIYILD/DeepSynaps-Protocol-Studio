@@ -15,7 +15,6 @@ re-open the cross-clinic hole.
 """
 from __future__ import annotations
 
-import json
 import uuid
 from typing import Any
 
@@ -25,7 +24,6 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.persistence.models import (
-    AutoCleanRun,
     Clinic,
     Patient,
     QEEGAnalysis,

@@ -35,9 +35,7 @@ from app.persistence.models import (
     QEEGComparison,
     QEEGProtocolFit,
     QEEGRecord,
-    QEEGReportAudit,
     QEEGReportFinding,
-    QEEGTimelineEvent,
 )
 from app.repositories.patients import resolve_patient_clinic_id
 from app.services.evidence_intelligence import list_saved_citations

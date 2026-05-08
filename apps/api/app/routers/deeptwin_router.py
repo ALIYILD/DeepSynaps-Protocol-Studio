@@ -1616,7 +1616,6 @@ from app.services.deeptwin_tribe import (  # noqa: E402  (intentional late impor
     ProtocolSpec as TribeProtocolSpec,
     compare_protocols as tribe_compare_protocols,
     compute_patient_latent as tribe_compute_patient_latent,
-    encode_all as tribe_encode_all,
     simulate_protocol as tribe_simulate_protocol,
     to_jsonable as tribe_to_jsonable,
 )
