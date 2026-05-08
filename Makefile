@@ -11,7 +11,17 @@ install-python:
 		-e ./packages/modality-registry \
 		-e ./packages/device-registry \
 		-e ./packages/biometrics-pipeline \
+		-e ./packages/deepsynaps-core \
 		-e ./packages/deeptwin-neuroai-lab \
+		-e ./packages/audio-pipeline \
+		-e ./packages/evidence \
+		-e ./packages/feature-store \
+		-e ./packages/mri-pipeline \
+		-e ./packages/qa \
+		-e ./packages/qeeg-encoder \
+		-e ./packages/qeeg-pipeline \
+		-e ./packages/text-pipeline \
+		-e ./packages/video-pipeline \
 		-e ./packages/safety-engine \
 		-e ./packages/generation-engine \
 		-e ./packages/render-engine \
