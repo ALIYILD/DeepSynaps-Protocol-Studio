@@ -401,6 +401,94 @@ export async function pgResearchEvidence(setTopbar, navigate) {
 
 
 /* ══════════════════════════════════════════════════════════════════════════════
+   Evidence Database card (Library Hub homepage one-click entry)
+
+   Surfaces the live indications spine (29 indications · 184k+ papers · 1.3k
+   trials · 35+ cleared devices) as a single homepage card so clinicians can
+   reach the Indications (Live DB) tab in one click, instead of hunting for a
+   tab in the bar. Uses the same `evidenceIndicationsSummary()` source that
+   powers the spine itself, so counts always match.
+
+   Honest empty state: if `evidenceIndicationsSummary` rejects (auth, 503, or
+   the evidence DB is not ingested), the card shows a neutral "open page to
+   retry" affordance — never fabricated numbers.
+   ══════════════════════════════════════════════════════════════════════════════ */
+export async function _renderEvidenceDbCard() {
+  let summary = null;
+  let summaryError = null;
+  try {
+    summary = await api.evidenceIndicationsSummary();
+  } catch (err) {
+    summaryError = err;
+  }
+
+  const navAttr =
+    'onclick="window._resEvidenceTab=\'indications\';window._nav(\'research-evidence\')"';
+  const cardOuter = (inner) => (
+    '<div class="ch-card" role="button" tabindex="0" data-testid="evidence-db-card" ' +
+    'aria-label="Open Indications (Live DB) tab" ' +
+    navAttr +
+    ' onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();window._resEvidenceTab=\'indications\';window._nav(\'research-evidence\')}" ' +
+    'style="padding:14px 16px;margin-bottom:14px;border-left:3px solid var(--teal);' +
+    'cursor:pointer;display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between">' +
+    inner +
+    '</div>'
+  );
+
+  if (summaryError || !Array.isArray(summary)) {
+    const inner = (
+      '<div style="flex:1 1 280px">' +
+      '<div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:4px">Evidence Database</div>' +
+      '<div style="font-size:12px;color:var(--text-secondary);line-height:1.5">' +
+      'Evidence DB unavailable — open page to retry.' +
+      '</div></div>' +
+      '<div><span class="btn btn-sm btn-ghost" aria-hidden="true">Open Indications →</span></div>'
+    );
+    return cardOuter(inner);
+  }
+
+  if (summary.length === 0) {
+    const inner = (
+      '<div style="flex:1 1 280px">' +
+      '<div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:4px">Evidence Database</div>' +
+      '<div style="font-size:12px;color:var(--text-secondary);line-height:1.5">' +
+      'No indications curated yet — open page to seed the spine.' +
+      '</div></div>' +
+      '<div><span class="btn btn-sm btn-ghost" aria-hidden="true">Open Indications →</span></div>'
+    );
+    return cardOuter(inner);
+  }
+
+  const indCount = summary.length;
+  const totalPapers  = summary.reduce((s, r) => s + Number(r.paper_count  || 0), 0);
+  const totalTrials  = summary.reduce((s, r) => s + Number(r.trial_count  || 0), 0);
+  const totalDevices = summary.reduce((s, r) => s + Number(r.device_count || 0), 0);
+
+  // Honest pluralisation; counts come straight from the evidence DB and are
+  // never fabricated. fmtK() rolls 184,000 → "184K" the same way the spine
+  // does, so subtitle and detail page agree.
+  const subtitle = (
+    `${fmt(indCount)} indication${indCount === 1 ? '' : 's'} · ` +
+    `${fmtK(totalPapers)} paper${totalPapers === 1 ? '' : 's'} · ` +
+    `${fmt(totalTrials)} trial${totalTrials === 1 ? '' : 's'} · ` +
+    `${fmt(totalDevices)} cleared device${totalDevices === 1 ? '' : 's'}`
+  );
+
+  const inner = (
+    '<div style="flex:1 1 280px">' +
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
+    '<div style="font-size:14px;font-weight:700;color:var(--text-primary)">Evidence Database</div>' +
+    '<span style="padding:2px 8px;border-radius:10px;background:rgba(45,212,191,0.18);color:var(--teal);font-size:10px;font-weight:700;letter-spacing:0.3px">LIVE DB</span>' +
+    '</div>' +
+    `<div style="font-size:12px;color:var(--text-secondary);line-height:1.5" data-testid="evidence-db-card-subtitle">${esc(subtitle)}</div>` +
+    '<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">Source: <code>GET /api/v1/evidence/indications/summary</code></div>' +
+    '</div>' +
+    '<div><span class="btn btn-sm btn-ghost" aria-hidden="true">Open Indications →</span></div>'
+  );
+  return cardOuter(inner);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
    TAB 1 — Overview
    ══════════════════════════════════════════════════════════════════════════════ */
 async function renderOverview(body, liveEvidence = null) {
@@ -570,9 +658,14 @@ async function renderOverview(body, liveEvidence = null) {
     : '<div style="font-size:12px;color:var(--text-tertiary)">No recent safety rows available.</div>';
   liveSafetyHtml += '</div>';
 
+  /* Evidence Database one-click card — live counts from
+     /api/v1/evidence/indications/summary; navigates to Indications tab. */
+  const evidenceDbCardHtml = await _renderEvidenceDbCard();
+
   /* two-column layout for charts */
   body.innerHTML =
     _resWorkspaceHeader(liveEvidence, { shortcuts: true }) +
+    evidenceDbCardHtml +
     kpiHtml + srcHtml + wearBridge +
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px">' +
     // merged from main: 90f0484e/bf505698 intent: live evidence-link, template, and safety panels
