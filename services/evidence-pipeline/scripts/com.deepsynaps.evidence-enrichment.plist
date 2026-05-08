@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Daily evidence-DB enrichment for DeepSynaps Studio (local v4 canonical DB).
+  Runs nightly_enrichment.sh once a day at 03:00 local time. EuropePMC has
+  no token requirement at this volume; ~10k papers per night → ~14 nights to
+  finish the remaining ~132k unenriched rows.
+
+  Install:
+    cp services/evidence-pipeline/scripts/com.deepsynaps.evidence-enrichment.plist \
+       ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.deepsynaps.evidence-enrichment.plist
+
+  Inspect:
+    launchctl list | grep deepsynaps
+    tail -50 ~/Library/Logs/deepsynaps-evidence-enrichment.log
+
+  Stop:
+    launchctl unload ~/Library/LaunchAgents/com.deepsynaps.evidence-enrichment.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.deepsynaps.evidence-enrichment</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>$HOME/DeepSynaps-Protocol-Studio/services/evidence-pipeline/scripts/nightly-enrichment.sh</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!--
+      RunAtLoad=false on purpose: don't fire a 17-minute job the moment you
+      `launchctl load` the plist. Wait for the next 03:00 cron tick.
+    -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/aliyildirim/Library/Logs/deepsynaps-evidence-enrichment.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/aliyildirim/Library/Logs/deepsynaps-evidence-enrichment.log</string>
+
+    <!--
+      Don't pile up overlapping runs if a previous one is still in flight
+      (network slow / DB locked).
+    -->
+    <key>AbandonProcessGroup</key>
+    <false/>
+</dict>
+</plist>
