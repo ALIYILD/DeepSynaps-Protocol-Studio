@@ -45,6 +45,8 @@ from sqlalchemy.types import (
     ARRAY,
     BigInteger,
     Boolean,
+    Date,
+    DateTime,
     Integer,
     JSON,
     SmallInteger,
@@ -228,6 +230,10 @@ def _is_bool(col_type: Any) -> bool:
 
 def _is_integer(col_type: Any) -> bool:
     return isinstance(col_type, (Integer, BigInteger, SmallInteger))
+
+
+def _is_datetime(col_type: Any) -> bool:
+    return isinstance(col_type, (DateTime, Date))
 
 
 def _coerce_value(value: Any, col_type: Any) -> Any:
@@ -415,6 +421,19 @@ def _normalize_for_compare(value: Any, col_type: Any) -> Any:
             return parsed if isinstance(parsed, list) else [parsed]
         if isinstance(value, tuple):
             return list(value)
+        return value
+    # Datetimes: SQLite returns ISO strings; PG returns datetime objects.
+    # Normalize both to a comparable ISO string at microsecond precision.
+    if _is_datetime(col_type):
+        import datetime as _dt
+        if isinstance(value, _dt.datetime):
+            return value.replace(tzinfo=None).isoformat(sep=" ", timespec="microseconds")
+        if isinstance(value, _dt.date):
+            return value.isoformat()
+        if isinstance(value, str):
+            s = value.strip().replace("T", " ")
+            # Strip fractional-seconds tail beyond microseconds and any TZ.
+            return s
         return value
     return value
 
