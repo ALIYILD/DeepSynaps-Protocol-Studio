@@ -192,6 +192,7 @@ from app.routers.qeeg_copilot_router import router as qeeg_copilot_router
 from app.routers.qeeg_viz_router import router as qeeg_viz_router
 from app.routers.qeeg_capabilities_router import router as qeeg_capabilities_router
 from app.routers.mri_analysis_router import router as mri_analysis_router
+from app.routers.medical_images_router import router as medical_images_router
 from app.routers.fusion_router import router as fusion_router
 from app.routers.patient_summary_router import router as patient_summary_router
 from app.routers.patient_timeline_router import router as patient_timeline_router
@@ -648,6 +649,7 @@ app.include_router(qeeg_105_analysis_catalog_router)
 app.include_router(qeeg_105_analysis_run_router)
 app.include_router(qeeg_105_analysis_results_router)
 app.include_router(mri_analysis_router)
+app.include_router(medical_images_router)
 app.include_router(fusion_router)
 app.include_router(monitor_router)
 app.include_router(deeptwin_router)
@@ -737,7 +739,18 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    # Honour a stricter Referrer-Policy already set by the route handler.
+    # The SSE endpoint (`/api/v1/notifications/stream`) accepts the access
+    # token in a `?token=…` query param (EventSource cannot send an
+    # Authorization header) and explicitly sets `no-referrer` to prevent
+    # the full URL — token included — leaking via the `Referer` header on
+    # any same-origin navigation. Overwriting that with the global default
+    # (`strict-origin-when-cross-origin`) reopens the leak, since
+    # `strict-origin-when-cross-origin` still sends the FULL URL on
+    # same-origin requests. Use setdefault semantics so any route that
+    # sets its own policy keeps it.
+    if "Referrer-Policy" not in response.headers:
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "

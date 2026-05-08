@@ -6,15 +6,32 @@ expression (PubMed syntax) and a looser `broad_q` / `trial_q` per indication.
 Until this script runs the M:N tables are empty, so `evidence_query_papers --slug
 rtms_mdd` returns zero rows even though the corpus has 184k titles.
 
-Conversion: PubMed `[Title/Abstract]` field tags are stripped (the local DB has
-no abstracts for the bulk papers, just titles). The remaining boolean tree
-(quotes, AND, OR, parens) maps directly onto FTS5 syntax.
+Conversion: PubMed `[Title/Abstract]` field tags are stripped. The remaining
+boolean tree (quotes, AND, OR, parens) maps directly onto FTS5 syntax. The
+local `papers_fts` virtual table is `(title, abstract)`-shaped, so once
+abstracts are enriched (see enrich_abstracts.py) the same query yields more
+hits without script changes.
 
 Usage:
     python3 services/evidence-pipeline/route_indications.py [--dry] [--top N]
+                                                            [--clear] [--only-slug SLUG]
 
 `--top N` caps each indication to the N best-ranked papers (BM25); default 1000.
 Trials are not capped (only ~1.3k trials total).
+`--clear` deletes existing rows for the targeted slug(s) before re-routing — use
+this when rerunning after abstracts get enriched or when an indication's pubmed_q
+is tightened.
+
+----------------------------------------------------------------------------
+Re-route history (canonical DB):
+  2026-05-08 (PR #597) — first pass against title-only FTS (10k abstracts none):
+                          6,746 paper_indications across 29 slugs.
+  2026-05-08 (PR #607) — snm_bladder_bowel tightened: -226 noise rows.
+  2026-05-08         — re-routed with 22,715 papers enriched (+18.6%):
+                          7,734 paper_indications. Long-tail gains: vns_epilepsy
+                          +242, dbs_essential_tremor +188, vns_depression +153.
+                          dbs_parkinson and rtms_mdd stayed at the 1000 cap.
+----------------------------------------------------------------------------
 """
 from __future__ import annotations
 

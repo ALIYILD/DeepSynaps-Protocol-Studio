@@ -33,6 +33,7 @@ import { renderTimeline, mountTimeline } from './qeeg-timeline.js';
 import { EvidenceChip, createEvidenceQueryForTarget, initEvidenceDrawer, openEvidenceDrawer, wireEvidenceChips } from './evidence-intelligence.js';
 import { renderLearningEEGReferenceCard } from './learning-eeg-reference.js';
 import { renderUploadWorkflow, mountUploadWorkflow, resetUploadWorkflow } from './qeeg-upload-workflow.js';
+import { mountMedicalImageCard } from './medical-image-card.js';
 import {
   erpApplyTrialMappingRows,
   erpFormatBidsSummaryHtml,
@@ -4838,12 +4839,18 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   }
   pageHtml += renderPatientSelector(_patients, patientId);
   pageHtml += renderTabBar(tab);
+  pageHtml += '<div id="ds-medical-image-card-qeeg-analysis" style="margin:12px 0 16px"></div>';
   pageHtml += '<div id="qeeg-tab-content" role="tabpanel" tabindex="0" aria-labelledby="qeeg-tab-' + tab + '"></div>';
   pageHtml += _qeegClinicalSafetyFooter();
   pageHtml += '</div>';
   el.innerHTML = pageHtml;
   _wireQEEGTabKeyboard();
   _qeegRestoreScroll(tab);
+
+  try {
+    var _miHost = document.getElementById('ds-medical-image-card-qeeg-analysis');
+    if (_miHost && patientId) mountMedicalImageCard(_miHost, { patientId: patientId, audience: 'clinician' });
+  } catch (_miErr) { /* non-fatal: medical-image card is optional */ }
 
   // Wire hero export + workbench buttons. Both fall back honestly when no
   // analysis is selected — we never silently swallow the click.

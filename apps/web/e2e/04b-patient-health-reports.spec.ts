@@ -83,7 +83,7 @@ test.describe('Patient Health Reports (v2)', () => {
   async function bootPatientShell(page: import('@playwright/test').Page) {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(800);
 
     await page.evaluate(() => {
       const win = window as unknown as {
@@ -100,6 +100,7 @@ test.describe('Patient Health Reports (v2)', () => {
       state: 'visible',
       timeout: 10000,
     });
+    await page.waitForTimeout(600);
   }
 
   test('Health Reports page loads at /#patient-health-reports', async ({ page }) => {
@@ -115,6 +116,7 @@ test.describe('Patient Health Reports (v2)', () => {
     // attach, then assert visibility — `waitForSelector` handles the async
     // render gap that `waitForTimeout` previously papered over.
     const tabs = page.locator('#pt-hr-tabs');
+    await page.waitForTimeout(400);
     await expect(tabs).toBeVisible({ timeout: 10000 });
   });
 
@@ -126,6 +128,7 @@ test.describe('Patient Health Reports (v2)', () => {
       win._navPatient?.('patient-health-reports');
     });
 
+    await page.waitForTimeout(400);
     await expect(page.locator('#pt-hr-tabs')).toBeVisible({ timeout: 10000 });
 
     const buttons = page.locator('#pt-hr-tabs button[data-tab]');
@@ -145,6 +148,7 @@ test.describe('Patient Health Reports (v2)', () => {
       win._navPatient?.('patient-health-reports');
     });
 
+    await page.waitForTimeout(400);
     await expect(page.locator('#pt-hr-tabs')).toBeVisible({ timeout: 10000 });
 
     // Outcomes is active by default — its panel renders without `hidden`.

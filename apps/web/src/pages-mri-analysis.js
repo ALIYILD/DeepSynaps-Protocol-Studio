@@ -18,6 +18,7 @@ import { api, downloadBlob, API_BASE } from './api.js';
 import { emptyState, showToast } from './helpers.js';
 import { EvidenceChip, createEvidenceQueryForTarget, initEvidenceDrawer, openEvidenceDrawer, wireEvidenceChips } from './evidence-intelligence.js';
 import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
+import { mountQuickPreviewSection } from './mri-quick-preview-section.js';
 // Cornerstone3D viewer is loaded dynamically — the @cornerstonejs/* packages
 // are optional and may not be installed.  When absent the build still succeeds
 // and the MRI page falls back to the NiiVue viewer.
@@ -2661,6 +2662,7 @@ export function renderFullView(state) {
     + renderDemoLiveBanner()
     + (showDemoBanner ? _mriDemoBanner() : '')
     + renderMRILinkedModules({ patientId: state.patientId || null, report: report })
+    + '<div id="ds-mri-quick-preview-mount"></div>'
     + renderHero(state.patientAnalyses)
     + '<div class="ds-mri-layout">'
     + '<div class="ds-mri-col ds-mri-col--left">' + left + '</div>'
@@ -3571,6 +3573,10 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
       });
     }
     _mountInlineMRIViewer(_report);
+    try {
+      var _qpHost = document.getElementById('ds-mri-quick-preview-mount');
+      if (_qpHost) mountQuickPreviewSection(_qpHost, { api: api });
+    } catch (_qpErr) { /* non-fatal: quick-preview is optional */ }
     _wireUploader(navigate);
     _wireRunButton(navigate);
     _wireRightColumn(navigate);
