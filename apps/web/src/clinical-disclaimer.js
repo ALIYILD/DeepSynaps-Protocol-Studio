@@ -78,8 +78,15 @@ export function renderNLPStatusBadge(status = 'demo') {
     unavailable: 'NLP: Unavailable',
   }[status] || 'NLP: Unknown';
 
+  const hint = {
+    active: 'NLP backend is active and processing real data.',
+    demo: 'Using demo fixtures or heuristic-only processing.',
+    unavailable: 'NLP backend unavailable; demo mode only.',
+  }[status] || '';
+
   return `<span style="display:inline-flex;align-items:center;${badgeStyle};`
-    + `padding:6px 10px;border-radius:4px;font-size:11px;font-weight:500">`
+    + `padding:6px 10px;border-radius:4px;font-size:11px;font-weight:500" `
+    + `title="${hint}">`
     + `${label}</span>`;
 }
 
