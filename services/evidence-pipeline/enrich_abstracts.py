@@ -50,6 +50,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
@@ -76,6 +77,16 @@ DEFAULT_LIMIT = 10_000      # top-N papers to target
 DEFAULT_SLEEP = 1.0         # seconds between batch requests
 MAX_CONSECUTIVE_429 = 3     # abort after this many back-to-back rate-limits
 REQUEST_TIMEOUT = 40        # seconds
+
+# ---------------------------------------------------------------------------
+# PubMed E-utilities efetch (fallback for EuropePMC misses)
+# ---------------------------------------------------------------------------
+# Without an API key, NCBI allows ~3 req/sec. We sleep 0.4s between batches.
+# Batch size is intentionally smaller than EuropePMC because efetch returns
+# a richer XML payload per PMID — paying for both bandwidth and parse time.
+PUBMED_EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+PUBMED_BATCH = 50
+PUBMED_SLEEP = 0.4
 
 
 def _europepmc_batch(pmids: list[str]) -> dict[str, str]:
@@ -115,6 +126,58 @@ def _europepmc_batch(pmids: list[str]) -> dict[str, str]:
     return out
 
 
+def _pubmed_efetch_batch(pmids: list[str]) -> dict[str, str]:
+    """Query NCBI E-utilities efetch for a batch of PMIDs. Returns {pmid: abstract}.
+
+    Used as the second-tier fallback for papers that EuropePMC marked
+    'europepmc:not_found'. PubMed has broader MEDLINE coverage than the
+    EuropePMC mirror — particularly for older / non-PMC papers.
+
+    Returns only PMIDs that resolved AND had a non-empty AbstractText.
+    Multi-section abstracts are joined with ' | ' to preserve the structure
+    (Background / Methods / Results / Conclusion) in a single TEXT field.
+    """
+    if not pmids:
+        return {}
+
+    params = urllib.parse.urlencode(
+        {
+            "db": "pubmed",
+            "id": ",".join(pmids),
+            "rettype": "abstract",
+            "retmode": "xml",
+        }
+    )
+    url = f"{PUBMED_EFETCH_URL}?{params}"
+
+    with urllib.request.urlopen(url, timeout=REQUEST_TIMEOUT) as resp:
+        body = resp.read()
+
+    out: dict[str, str] = {}
+    try:
+        root = ET.fromstring(body)
+    except ET.ParseError as exc:
+        log.warning("pubmed efetch: XML parse error: %s", exc)
+        return out
+
+    for article in root.iter("PubmedArticle"):
+        pmid_el = article.find(".//PMID")
+        if pmid_el is None or not (pmid_el.text or "").strip():
+            continue
+        pmid = pmid_el.text.strip()
+        # AbstractText may be split into Background / Methods / Results sections.
+        sections: list[str] = []
+        for at in article.iter("AbstractText"):
+            label = (at.get("Label") or "").strip()
+            text = "".join(at.itertext()).strip()
+            if not text:
+                continue
+            sections.append(f"{label}: {text}" if label else text)
+        if sections:
+            out[pmid] = " | ".join(sections)
+    return out
+
+
 def _ensure_abstract_source_column(conn) -> None:
     """Add abstract_source column if the migration has not been applied yet."""
     cols = {row[1] for row in conn.execute("PRAGMA table_info(papers)")}
@@ -138,6 +201,27 @@ def select_candidates(conn, limit: int) -> list[dict]:
         FROM   papers
         WHERE  (abstract IS NULL OR abstract = '')
           AND  abstract_source IS NULL
+          AND  pmid IS NOT NULL
+        ORDER BY cited_by_count DESC NULLS LAST
+        LIMIT  ?
+        """,
+        (limit,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def select_not_found_candidates(conn, limit: int) -> list[dict]:
+    """Rows that EuropePMC couldn't find — retry against PubMed efetch.
+
+    Targets `abstract_source = 'europepmc:not_found'`, ordered by citation
+    count so the most-impactful papers are tried first.
+    """
+    rows = conn.execute(
+        """
+        SELECT id, pmid, doi, cited_by_count
+        FROM   papers
+        WHERE  (abstract IS NULL OR abstract = '')
+          AND  abstract_source = 'europepmc:not_found'
           AND  pmid IS NOT NULL
         ORDER BY cited_by_count DESC NULLS LAST
         LIMIT  ?
@@ -174,12 +258,21 @@ def _run_enrichment_loop(
     batch_size: int,
     sleep_seconds: float,
     label: str = "batch",
+    fetch_fn=None,
+    source: str = "europepmc",
 ) -> dict[str, Any]:
     """Shared inner loop — processes `candidates` and writes results to DB.
+
+    `fetch_fn` defaults to `_europepmc_batch`; pass `_pubmed_efetch_batch` to
+    use the NCBI E-utilities fallback. `source` is the value written into
+    papers.abstract_source on success ('europepmc' or 'pubmed'); the
+    not-found marker becomes `f"{source}:not_found"`.
 
     Returns a summary dict with keys: targeted, enriched, not_found, errors,
     fill_rate_pct, stopped_early (bool).
     """
+    if fetch_fn is None:
+        fetch_fn = _europepmc_batch
     total = len(candidates)
     enriched = 0
     not_found = 0
@@ -206,7 +299,7 @@ def _run_enrichment_loop(
         )
 
         try:
-            abstracts = _europepmc_batch(pmids)
+            abstracts = fetch_fn(pmids)
             consecutive_429 = 0  # reset on success
         except urllib.error.HTTPError as exc:
             if exc.code == 429:
@@ -252,17 +345,17 @@ def _run_enrichment_loop(
                 conn.execute(
                     "UPDATE papers SET abstract = ?, abstract_source = ?, "
                     "last_ingested = datetime('now') WHERE id = ?",
-                    (abstract_text, "europepmc", paper_id),
+                    (abstract_text, source, paper_id),
                 )
                 enriched += 1
             else:
                 # Mark as attempted so a future re-run with a different source
                 # can target these; leave abstract NULL.
                 conn.execute(
-                    "UPDATE papers SET abstract_source = 'europepmc:not_found', "
+                    "UPDATE papers SET abstract_source = ?, "
                     "last_ingested = datetime('now') "
                     "WHERE id = ? AND (abstract IS NULL OR abstract = '')",
-                    (paper_id,),
+                    (f"{source}:not_found", paper_id),
                 )
                 not_found += 1
 
@@ -500,6 +593,16 @@ def main() -> None:
         action="store_true",
         help="Print fill-rate report and sample rows without running enrichment.",
     )
+    ap.add_argument(
+        "--retry-not-found",
+        action="store_true",
+        help=(
+            "Retry papers EuropePMC marked 'not_found' against PubMed efetch. "
+            "PubMed has broader MEDLINE coverage (older / non-PMC papers). "
+            "Targets up to --limit rows; idempotent — papers that PubMed also "
+            "misses get marked 'pubmed:not_found' and won't be retried again."
+        ),
+    )
     args = ap.parse_args()
 
     db_path = _db.resolve_db_path(args.db)
@@ -536,13 +639,39 @@ def main() -> None:
 
     # --- Enrich
     t0 = time.monotonic()
-    summary = enrich(
-        db_path,
-        limit=args.limit,
-        batch_size=args.batch,
-        sleep_seconds=args.sleep,
-        curated_first=args.curated_first,
-    )
+    if args.retry_not_found:
+        # PubMed efetch fallback for europepmc:not_found rows.
+        conn = _db.connect(db_path)
+        candidates = select_not_found_candidates(conn, args.limit)
+        log.info(
+            "PubMed fallback: %d papers marked 'europepmc:not_found' to retry "
+            "(--limit cap=%d).",
+            len(candidates),
+            args.limit,
+        )
+        if candidates:
+            summary = _run_enrichment_loop(
+                conn,
+                candidates,
+                batch_size=PUBMED_BATCH,
+                sleep_seconds=PUBMED_SLEEP,
+                label="pubmed-fallback",
+                fetch_fn=_pubmed_efetch_batch,
+                source="pubmed",
+            )
+        else:
+            summary = {"targeted": 0, "enriched": 0, "not_found": 0, "errors": 0,
+                       "fill_rate_pct": 0.0, "stopped_early": False}
+            log.info("PubMed fallback: nothing to do — no 'europepmc:not_found' rows.")
+        conn.close()
+    else:
+        summary = enrich(
+            db_path,
+            limit=args.limit,
+            batch_size=args.batch,
+            sleep_seconds=args.sleep,
+            curated_first=args.curated_first,
+        )
     elapsed = time.monotonic() - t0
     log.info("Enrichment complete in %.1f s: %s", elapsed, summary)
 
