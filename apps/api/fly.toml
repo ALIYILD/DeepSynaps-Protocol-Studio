@@ -56,7 +56,12 @@ primary_region = "lhr"
 #   stripe_worker — Polls StripeWebhookLog outbox every 5 min for retries
 [processes]
   app = "uvicorn app.main:app --host 0.0.0.0 --port 8080 --app-dir apps/api"
-  qeeg_worker = "celery -A app.jobs worker --workdir /app/apps/api --loglevel=INFO --without-gossip --without-mingle"
+  # NOTE: PYTHONPATH must be set BEFORE celery imports `-A app.jobs` —
+  # `--workdir` is honored only after Celery has already resolved the app
+  # spec on `sys.path`, so a bare `--workdir /app/apps/api` crash-loops with
+  # ModuleNotFoundError: No module named 'app'. Setting PYTHONPATH up front
+  # adds /app/apps/api to sys.path before any imports happen.
+  qeeg_worker = "sh -c 'PYTHONPATH=/app/apps/api celery -A app.jobs worker --loglevel=INFO --without-gossip --without-mingle'"
   stripe_worker = "sh -c 'while true; do python scripts/retry_stripe_webhooks.py; sleep 300; done'"
 
 [http_service]

@@ -18,7 +18,7 @@ OAuth V2 Production Checklist — complete ALL items before enabling OAuth
         Verify: `echo $WEARABLE_TOKEN_ENC_KEY` (must be non-empty)
 
 [ ] 2. Fly.io secret set (production)
-        fly secrets set WEARABLE_TOKEN_ENC_KEY=<generated_key> --app deepsynaps-api
+        fly secrets set WEARABLE_TOKEN_ENC_KEY=<generated_key> --app deepsynaps-studio
 
 [ ] 3. Every OAuth token write goes through encrypt_token()
         Search: grep -r "access_token_enc" apps/api --include="*.py"

@@ -37,6 +37,10 @@ COPY packages ./packages
 COPY apps/api ./apps/api
 COPY pyproject.toml ./
 COPY data ./data
+# scripts/retry_stripe_webhooks.py is the loop body for the `stripe_worker`
+# process group declared in apps/api/fly.toml. Without this COPY the worker
+# crash-loops with `python: can't open file 'scripts/retry_stripe_webhooks.py'`.
+COPY scripts ./scripts
 
 # Evidence pipeline code (source of truth — pure Python stdlib, no extra deps).
 # The SQLite evidence.db itself is gitignored and NOT baked in — mount it as
