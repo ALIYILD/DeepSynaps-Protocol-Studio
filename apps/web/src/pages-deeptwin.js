@@ -37,6 +37,7 @@ import {
 } from './deeptwin/components.js';
 import { decisionSupportBanner } from './deeptwin/safety.js';
 import { VOICE_DEEPTWIN_DOMAIN_NOTE } from './voice-decision-support.js';
+import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
 import { buildReport, reportToMarkdown, reportToJSONString, downloadBlob, renderReportPreview } from './deeptwin/reports.js';
 import { startHandoff } from './deeptwin/handoff.js';
 import { PRESET_SCENARIOS } from './deeptwin/mockData.js';
@@ -191,7 +192,22 @@ function _renderAll() {
       ${renderSafetyFooter()}
     </div>
   `;
-  _setMain(html);
+  const _aarEl = _setMain(html);
+  if (_aarEl && !_aarEl.querySelector('[data-aar-strip="deeptwin"]')) {
+    const _aarHost = document.createElement('div');
+    _aarHost.dataset.aarStrip = 'deeptwin';
+    _aarEl.prepend(_aarHost);
+    mountAnalyzerAIReportStrip({
+      container: _aarHost,
+      analyzerType: 'deeptwin',
+      getAnalysisId: () => {
+        const runs = Array.isArray(STATE.analysisRuns) ? STATE.analysisRuns : [];
+        const latest = runs[0]?.id || runs[runs.length - 1]?.id;
+        return latest || STATE.patientId;
+      },
+      label: 'AI Decision Support',
+    });
+  }
   // Mount Plotly charts after HTML is in DOM
   mountTimeline(HOST_TIMELINE, STATE.timeline, STATE.timelineFilters);
   mountCorrelations(HOST_CORR, STATE.correlations);

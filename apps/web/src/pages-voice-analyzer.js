@@ -14,6 +14,7 @@ import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 import { drHero, clinicalBand, trajectoryChip } from './helpers.js';
 import { loadPatientFlagSummary } from './dr-friendly-flags.js';
+import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
 
 // Clinical question this page actually answers — surfaced in topbar + drHero
 // so a doctor lands on "what am I looking at?" instead of "upload audio".
@@ -650,6 +651,40 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
         <p style="margin:0">Uploading or running analysis should be performed under your clinic’s policies. Server-side storage follows API persistence rules; this page does not replace signed documents or protocol approval workflows.</p>
       </section>
     </div>`;
+
+  // Mount the shared analyzer AI report strip (decision support).
+  // Row key: live audio analysis id, sourced from window._lastVoiceAnalysisId
+  // first (set by _persistLastAnalysisId after audioGetReport / upload), then
+  // sessionStorage VA_LAST_ANALYSIS_KEY as fallback. Both are the same id —
+  // we read them at click-time to capture the latest value.
+  if (!el.querySelector('[data-aar-strip="voice"]')) {
+    const _aarHost = document.createElement('div');
+    _aarHost.dataset.aarStrip = 'voice';
+    el.prepend(_aarHost);
+    mountAnalyzerAIReportStrip({
+      container: _aarHost,
+      analyzerType: 'voice',
+      getAnalysisId: () => {
+        try {
+          return window._lastVoiceAnalysisId
+            || sessionStorage.getItem(VA_LAST_ANALYSIS_KEY)
+            || '';
+        } catch (_) {
+          return window._lastVoiceAnalysisId || '';
+        }
+      },
+      getPatientContext: () => {
+        try {
+          return sessionStorage.getItem(VA_LAST_ANALYSIS_PATIENT_KEY)
+            || sessionStorage.getItem(VA_PATIENT_STORAGE)
+            || '';
+        } catch (_) {
+          return '';
+        }
+      },
+      label: 'AI Decision Support',
+    });
+  }
 
   const statusEl = () => document.getElementById('va-status');
   const resultEl = () => document.getElementById('va-result');
