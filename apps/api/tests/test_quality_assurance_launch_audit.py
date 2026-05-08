@@ -235,7 +235,7 @@ class TestFiltersAndSummary:
 
     def test_summary_counts(self, client: TestClient, auth_headers: dict) -> None:
         a = _create(client, auth_headers["clinician"], title="a", severity="major")
-        b = _create(client, auth_headers["clinician"], title="b", severity="critical")
+        _create(client, auth_headers["clinician"], title="b", severity="critical")
         client.post(
             f"/api/v1/qa/findings/{a['id']}/close",
             json={"note": "closed"},

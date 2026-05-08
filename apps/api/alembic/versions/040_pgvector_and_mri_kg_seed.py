@@ -82,9 +82,9 @@ MRI_BIOMARKERS: list[tuple[str, str, str]] = [
 ]
 
 ALL_ENTITIES: list[tuple[str, str, str, str]] = (
-    [("region_metric", n, c, l)  for n, c, l in REGION_METRICS]
-    + [("network_metric", n, c, l) for n, c, l in NETWORK_METRICS]
-    + [("mri_biomarker", n, c, l)  for n, c, l in MRI_BIOMARKERS]
+    [("region_metric", n, c, lbl)  for n, c, lbl in REGION_METRICS]
+    + [("network_metric", n, c, lbl) for n, c, lbl in NETWORK_METRICS]
+    + [("mri_biomarker", n, c, lbl)  for n, c, lbl in MRI_BIOMARKERS]
 )
 
 

@@ -203,7 +203,7 @@ def test_get_claim_citation(client: TestClient, auth_headers: dict):
         "claims": [{"claim_text": "tDCS targeting DLPFC reduces depressive symptoms"}],
         "min_relevance": 0.0,
     }
-    validate_resp = client.post("/api/v1/citations/validate", json=body, headers=auth_headers["clinician"])
+    client.post("/api/v1/citations/validate", json=body, headers=auth_headers["clinician"])
 
     # Fetch citation IDs from the DB
     session = SessionLocal()

@@ -61,7 +61,6 @@ def build_evidence_query_from_biometrics(req: BiometricsEvidenceRequest) -> Evid
             if k is None:
                 continue
             ks = str(k).replace(":", " ")
-            parts = ks.split()
             try:
                 v = float(coef)
             except (TypeError, ValueError):

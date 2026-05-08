@@ -217,7 +217,7 @@ def build_treatment_sessions_analyzer_payload(
         indication_slug = _slug_hint(patient_row.primary_condition)
 
     missed = _missed_from_sessions(sessions)
-    completed = sum(
+    _completed = sum(
         1 for s in sessions if (s.status or "").lower() == "completed"
     )
 

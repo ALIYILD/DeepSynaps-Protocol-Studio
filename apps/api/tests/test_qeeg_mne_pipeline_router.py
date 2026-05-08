@@ -210,7 +210,8 @@ def test_analyze_mne_pipeline_failure_marks_row_failed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Pipeline failures should surface on the persisted analysis row."""
-    _fail_fn = lambda *a, **k: {"success": False, "error": "pipeline dependency missing"}
+    def _fail_fn(*a, **k):
+        return {"success": False, "error": "pipeline dependency missing"}
     monkeypatch.setattr(
         "app.services.qeeg_pipeline.run_pipeline_safe",
         _fail_fn,

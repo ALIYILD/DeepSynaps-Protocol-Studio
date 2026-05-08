@@ -277,14 +277,14 @@ async def copilot_ws(
     # Build the system prompt from the analysis snapshot (best-effort).
     snapshot = _analysis_snapshot(analysis)
     recommendation = _latest_recommendation(db, analysis_id)
-    system_prompt: str = ""
     workflow_reference: str | None = None
     if copilot is not None:
         try:
             from deepsynaps_qeeg.knowledge import format_wineeg_workflow_context
 
             workflow_reference = format_wineeg_workflow_context()
-            system_prompt = copilot.render_system_prompt(
+            # Side-effect: warm copilot internal caches; result intentionally unused here.
+            copilot.render_system_prompt(
                 analysis_id=analysis_id,
                 features=snapshot["features"],
                 zscores=snapshot["zscores"],
@@ -296,7 +296,6 @@ async def copilot_ws(
             )
         except Exception as exc:  # pragma: no cover — should not happen
             _log.warning("render_system_prompt failed: %s", exc)
-            system_prompt = ""
 
     # ── Send welcome message ─────────────────────────────────────────────
     # NOTE: pre-fix this echoed the first 400 chars of the rendered

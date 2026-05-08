@@ -282,7 +282,7 @@ class TestFiltersAndSummary:
 
     def test_summary_counts(self, client: TestClient, auth_headers: dict) -> None:
         a = _create(client, auth_headers["clinician"], title="a", phase="ii")
-        b = _create(
+        _create(
             client, auth_headers["clinician"],
             title="b",
             phase="iii",

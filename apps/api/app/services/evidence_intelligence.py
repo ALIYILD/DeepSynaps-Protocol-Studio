@@ -751,8 +751,8 @@ def build_drivers(query: EvidenceQuery) -> list[EvidenceDriver]:
     }
     rows = defaults.get(query.target_name, [("Multimodal", query.target_name.replace("_", " "), "active finding", "contextual")])
     return [
-        EvidenceDriver(source_modality=m, label=l, value=v, direction=d, contribution_text=f"{l} is a top patient-specific driver for this claim.", weight=round(0.35 - i * 0.06, 2))
-        for i, (m, l, v, d) in enumerate(rows)
+        EvidenceDriver(source_modality=m, label=lbl, value=v, direction=d, contribution_text=f"{lbl} is a top patient-specific driver for this claim.", weight=round(0.35 - i * 0.06, 2))
+        for i, (m, lbl, v, d) in enumerate(rows)
     ]
 
 

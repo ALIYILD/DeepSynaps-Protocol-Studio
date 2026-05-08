@@ -1438,7 +1438,7 @@ async def upload_task_video(
         ext = ".mov"
 
     rid = str(uuid.uuid4())
-    out_dir = _va_storage_dir(patient.id, session_id)
+    out_dir = _va_storage_dir(patient.id, session_id)  # noqa: F841  # side effect: ensures storage dir exists
     rel_ref = f"video_assessments/{patient.id}/{session_id}/{task_id}_{rid}{ext}"
     abs_path = FsPath(get_settings().media_storage_root) / rel_ref
     abs_path.parent.mkdir(parents=True, exist_ok=True)
