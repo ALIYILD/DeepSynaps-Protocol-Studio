@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Evidence-DB enrichment for DeepSynaps Studio (local v4 canonical DB).
+  Fires every 7200s (2h) so the full ~132k unenriched corpus completes in
+  ~1.1 days at 10k papers per cycle (98% fill rate observed). EuropePMC
+  has no token requirement at this volume.
+
+  Install:
+    cp services/evidence-pipeline/scripts/com.deepsynaps.evidence-enrichment.plist \
+       ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.deepsynaps.evidence-enrichment.plist
+
+  Inspect:
+    launchctl list | grep deepsynaps
+    tail -50 ~/Library/Logs/deepsynaps-evidence-enrichment.log
+
+  Stop:
+    launchctl unload ~/Library/LaunchAgents/com.deepsynaps.evidence-enrichment.plist
+
+  Reload after editing:
+    launchctl unload ~/Library/LaunchAgents/com.deepsynaps.evidence-enrichment.plist
+    cp services/evidence-pipeline/scripts/com.deepsynaps.evidence-enrichment.plist \
+       ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.deepsynaps.evidence-enrichment.plist
+
+  The wrapper script holds an mkdir-based lock at
+  $TMPDIR/deepsynaps-evidence-enrichment.lock — overlapping ticks
+  exit immediately, so it's safe to fire every 2h even if a run takes
+  longer than the interval.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.deepsynaps.evidence-enrichment</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>$HOME/DeepSynaps-Protocol-Studio/services/evidence-pipeline/scripts/nightly-enrichment.sh</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <!--
+      Fire every 2 hours. Replaces the older daily 03:00 schedule. The
+      script's own lockfile guards against pile-ups if a cycle runs longer
+      than the interval.
+    -->
+    <key>StartInterval</key>
+    <integer>7200</integer>
+
+    <!--
+      RunAtLoad=false on purpose: don't fire a ~17-minute job the moment
+      you `launchctl load` the plist. Wait for the first 2h tick.
+    -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/aliyildirim/Library/Logs/deepsynaps-evidence-enrichment.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/aliyildirim/Library/Logs/deepsynaps-evidence-enrichment.log</string>
+
+    <key>AbandonProcessGroup</key>
+    <false/>
+</dict>
+</plist>
