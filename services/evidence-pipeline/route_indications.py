@@ -104,6 +104,11 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry", action="store_true", help="Print what would be inserted, don't write.")
     ap.add_argument("--top", type=int, default=1000, help="Cap papers per indication by BM25 rank.")
+    ap.add_argument("--only-slug", action="append", default=None,
+                    help="Limit routing to one or more slugs (repeatable).")
+    ap.add_argument("--clear", action="store_true",
+                    help="Before routing, DELETE existing paper_indications/trial_indications rows for the targeted slug(s). "
+                         "Use when re-running after a query is tightened so retired matches drop out.")
     args = ap.parse_args()
 
     conn = db.connect()
@@ -122,10 +127,21 @@ def main() -> None:
 
     for entry in SEED:
         slug = entry["slug"]
+        if args.only_slug and slug not in args.only_slug:
+            continue
         if slug not in indications:
             print(f"SKIP {slug} (not in indications table)")
             continue
         i_id = indications[slug]
+
+        if args.clear and not args.dry:
+            n_p = conn.execute(
+                "DELETE FROM paper_indications WHERE indication_id = ?", (i_id,)
+            ).rowcount
+            n_t = conn.execute(
+                "DELETE FROM trial_indications WHERE indication_id = ?", (i_id,)
+            ).rowcount
+            print(f"  cleared {slug}: -{n_p} papers / -{n_t} trials")
 
         # Prefer the strict pubmed_q for papers (high precision), falling back
         # to broad_q. For trials we use trial_q (looser).
