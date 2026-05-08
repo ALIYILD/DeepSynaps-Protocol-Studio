@@ -100,13 +100,25 @@ python3 route_indications.py --clear --top "$ROUTE_TOP"
 
 # 6. re-extract paper-derived protocols. Trial extraction is a no-op
 #    here — interventions_json doesn't change between runs.
-echo "[$(ts)] step 6/7 extract_protocols.py --source papers"
+echo "[$(ts)] step 6/9 extract_protocols.py --source papers"
 python3 extract_protocols.py --source papers
 
 # 7. scan paper abstracts for NCT IDs and bridge papers ↔ trials.
 #    Idempotent (PRIMARY KEY on paper_id, nct_id) so re-runs are cheap.
-echo "[$(ts)] step 7/7 link_papers_to_trials.py"
+echo "[$(ts)] step 7/9 link_papers_to_trials.py"
 python3 link_papers_to_trials.py
+
+# 8. self-heal unresolved links: fetch the actual CTGOV records for any
+#    NCT IDs the linker found but our trials table doesn't have yet. Each
+#    new trial typically resolves 2-3 paper edges (papers often cite the
+#    same trial). Capped per cycle so a 2h tick stays bounded.
+echo "[$(ts)] step 8/9 ingest_missing_trials.py --limit 100"
+python3 ingest_missing_trials.py --limit 100
+
+# 9. re-extract trial-derived protocols now that step 8 may have added
+#    new trials with rich interventions_json.
+echo "[$(ts)] step 9/9 extract_protocols.py --source trials --all-trials"
+python3 extract_protocols.py --source trials --all-trials
 
 # Health summary
 echo "[$(ts)] HEALTH"
