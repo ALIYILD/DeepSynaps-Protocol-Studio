@@ -8,8 +8,21 @@ from pathlib import Path
 # Priority order:
 #   1. EVIDENCE_DB_PATH     — the production Studio uses this (set in fly.toml).
 #   2. DEEPSYNAPS_DB        — legacy / dev override.
-#   3. <pipeline_dir>/evidence.db — local developer default.
-DEFAULT_DB_PATH = str(Path(__file__).parent / "evidence.db")
+#   3. <pipeline_dir>/neuromodulation_evidence_2026-04-29_v4.db  — canonical local dev DB
+#      (184,670 papers / 1,279 trials / 39 devices; seeded indications; ingested 2026-04-29).
+#   4. <pipeline_dir>/evidence.db — legacy fallback kept for backwards compat.
+#
+# ROOT CAUSE NOTE (fixed 2026-05-08): the MCP server was registered pointing at
+#   ~/Desktop/DeepSynaps-Protocol-Studio/services/evidence-pipeline/mcp_server.py
+# That copy resolves __file__.parent to the Desktop mirror, which contains an empty
+# (schema-less) SQLite file -- hence "no such table: papers".
+# One-line re-registration fix (run in your terminal, not in chat):
+#   claude mcp add deepsynaps-evidence -s user -- python3 \
+#       ~/DeepSynaps-Protocol-Studio/services/evidence-pipeline/mcp_server.py
+_PIPELINE_DIR = Path(__file__).parent
+_V4_PATH = _PIPELINE_DIR / "neuromodulation_evidence_2026-04-29_v4.db"
+_LEGACY_PATH = _PIPELINE_DIR / "evidence.db"
+DEFAULT_DB_PATH = str(_V4_PATH if _V4_PATH.exists() else _LEGACY_PATH)
 DB_PATH = (
     os.environ.get("EVIDENCE_DB_PATH")
     or os.environ.get("DEEPSYNAPS_DB")
