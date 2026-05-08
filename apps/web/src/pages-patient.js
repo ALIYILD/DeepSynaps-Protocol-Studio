@@ -445,6 +445,23 @@ import { pgDataImport } from './pages-patient/import-wizard.js';
 import { pgPatientMediaConsent, pgPatientMediaUpload, pgPatientMediaHistory } from './pages-patient/media.js';
 import { pgPatientWearables } from './pages-patient/wearables.js';
 import { pgSymptomJournal, pgPatientNotificationSettings } from './pages-patient/symptom-notifications.js';
+// Shared report helpers — load-bearing for the new Health Reports v2 page
+// (./pages-patient/health-reports.js). Pulling them from a single module so
+// the legacy `pgPatientReports` body and the v2 page share the SAME
+// implementation, rather than maintaining two copies which would inevitably
+// drift (see the lockstep warning in `_shared.js:9-13`).
+import {
+  DOC_PLAIN_LANG as _SHARED_DOC_PLAIN_LANG,
+  docPlainLang as _sharedDocPlainLang,
+  scoreInterpretation as _sharedScoreInterpretation,
+  categorise as _sharedCategorise,
+  CAT_META as _sharedCatMeta,
+  _ptComputeDelta as _sharedPtComputeDelta,
+  docOrigin as _sharedDocOrigin,
+  _normalizeDocs as _sharedNormalizeDocs,
+  _fetchPatientReportsBundle as _sharedFetchPatientReportsBundle,
+  docCardHTML as _sharedDocCardHTML,
+} from './pages-patient/_reports-shared.js';
 // `_hdEsc` is the home-device HTML escaper. The original definition lived
 // inside the home-devices block (now extracted) but was hoisted across the
 // whole file; many other pages reference it. Import the canonical copy
@@ -2612,10 +2629,24 @@ export async function pgPatientReports() {
     : _emptyPatientEvidenceContext(currentUser?.patient_id || currentUser?.id || null);
 
   // ── Plain-language knowledge base ────────────────────────────────────────
-  // Extension point: clinician-approved per-patient summaries can be supplied
-  // by the backend via a `plain_language` field on the outcome object, which
-  // would override these defaults. Translate via i18n keys in a future pass.
-  const DOC_PLAIN_LANG = {
+  // Source-of-truth for these helpers now lives in
+  // `pages-patient/_reports-shared.js`. The new Health Reports v2 page imports
+  // the same module so we never maintain two copies — see the lockstep
+  // warning in `_shared.js:9-13`. The bindings below alias the shared
+  // helpers into local names so the legacy callsites in this function body
+  // are unchanged. The literal block kept just below for grep continuity is
+  // intentionally dead code (assigned to a void-discarded local) and will be
+  // removed once every reader has been migrated to the shared module.
+  const DOC_PLAIN_LANG = _SHARED_DOC_PLAIN_LANG;
+  const docPlainLang = _sharedDocPlainLang;
+  const scoreInterpretation = _sharedScoreInterpretation;
+  const _ptComputeDelta = _sharedPtComputeDelta;
+  const categorise = _sharedCategorise;
+  const CAT_META = _sharedCatMeta();
+  const docOrigin = _sharedDocOrigin;
+  void [DOC_PLAIN_LANG, docPlainLang, scoreInterpretation, _ptComputeDelta, categorise, CAT_META, docOrigin];
+
+  const _LEGACY_SHADOW_DOC_PLAIN_LANG = {
     phq9:   { what: 'A 9-question depression screening questionnaire', why: 'Helps your clinician track changes in mood and depression over time',
               range: [{max:4,label:'Minimal',note:'Little to no depression symptoms at this time'},{max:9,label:'Mild',note:'Mild mood changes \u2014 worth monitoring but not alarming'},{max:14,label:'Moderate',note:'Noticeable depression \u2014 treatment is likely focused here'},{max:19,label:'Moderately severe',note:'Significant symptoms \u2014 your care team is actively monitoring you'},{max:99,label:'Severe',note:'High symptom burden \u2014 your team has prioritised this in your plan'}] },
     phq2:   { what: 'A 2-question mood check', why: 'A quick snapshot of how low mood has been recently', range: [] },
@@ -2654,19 +2685,25 @@ export async function pgPatientReports() {
   };
 
   // Extension point: backend can override per-item via `plain_language` object.
-  function docPlainLang(templateKey, override) {
+  // _LEGACY_SHADOW_*: dead-code mirrors of the helpers extracted into
+  // `pages-patient/_reports-shared.js`. The active bindings are the const
+  // aliases at the top of this block; these shadows are kept only for one
+  // commit so reviewers can diff old vs new side-by-side. Future commit
+  // can drop the shadows once test:unit confirms parity.
+  function _LEGACY_SHADOW_docPlainLang(templateKey, override) {
     if (override && (override.what || override.why)) return override;
     if (!templateKey) return null;
     const k = templateKey.toLowerCase().replace(/[-_\s]/g, '');
-    for (const [key, val] of Object.entries(DOC_PLAIN_LANG)) {
+    for (const [key, val] of Object.entries(_LEGACY_SHADOW_DOC_PLAIN_LANG)) {
       if (k === key.replace(/[-_\s]/g, '')) return val;
     }
     return null;
   }
+  void _LEGACY_SHADOW_docPlainLang;
 
-  function scoreInterpretation(templateKey, score) {
+  function _LEGACY_SHADOW_scoreInterpretation(templateKey, score) {
     if (score == null || score === '') return null;
-    const pl = docPlainLang(templateKey);
+    const pl = _LEGACY_SHADOW_docPlainLang(templateKey);
     if (!pl || !pl.range || !pl.range.length) return null;
     const n = Number(score);
     if (!Number.isFinite(n)) return null;
@@ -2675,11 +2712,12 @@ export async function pgPatientReports() {
     }
     return null;
   }
+  void _LEGACY_SHADOW_scoreInterpretation;
 
   // ── Delta helper: compare doc score against the most recent prior same-type doc ──
   // Returns { delta, prevScore, prevDate } or null if no comparison is possible.
   // Language is kept conservative — never diagnostic, never overclaiming.
-  function _ptComputeDelta(doc, allDocs) {
+  function _LEGACY_SHADOW_ptComputeDelta(doc, allDocs) {
     if (doc.score == null || !doc.templateKey) return null;
     const n = Number(doc.score);
     if (!Number.isFinite(n)) return null;
@@ -2698,10 +2736,11 @@ export async function pgPatientReports() {
     if (!Number.isFinite(delta)) return null;
     return { delta, prevScore: prev.score, prevDate: prev.displayDate || '' };
   }
+  void _LEGACY_SHADOW_ptComputeDelta;
 
   // ── Document type categorisation ─────────────────────────────────────────
   // Extension point: backend can supply a `doc_type` field to override.
-  function categorise(item) {
+  function _LEGACY_SHADOW_categorise(item) {
     const raw = (item.doc_type || item.template_id || item.assessment_type || '').toLowerCase();
     if (/consent/.test(raw))               return 'consent';
     if (/care.?instruct|instruction/.test(raw)) return 'care';
@@ -2712,8 +2751,9 @@ export async function pgPatientReports() {
     if (item._source === 'assessment')     return 'assessment';
     return 'outcome';
   }
+  void _LEGACY_SHADOW_categorise;
 
-  const CAT_META = {
+  const _LEGACY_SHADOW_CAT_META = {
     outcome:           { label: t('patient.reports.cat.outcome'),          icon: '&#9649;', color: 'var(--blue)',    bg: 'rgba(74,158,255,.1)'    },
     assessment:        { label: t('patient.reports.cat.assessment'),        icon: '&#9673;', color: 'var(--teal)',    bg: 'rgba(0,212,188,.08)'   },
     'session-summary': { label: t('patient.reports.cat.session_summary'),  icon: '&#9671;', color: '#a78bfa',        bg: 'rgba(167,139,250,.1)'  },
@@ -2724,6 +2764,7 @@ export async function pgPatientReports() {
     letter:            { label: t('patient.reports.cat.letter'),            icon: '&#9672;', color: '#e2e8f0',        bg: 'rgba(226,232,240,.06)' },
     biometrics:        { label: 'Biometrics',                               icon: '&#9829;',  color: '#f472b6',        bg: 'rgba(244,114,182,.1)' },
   };
+  void _LEGACY_SHADOW_CAT_META;
 
   // ── Build session/course lookup maps ─────────────────────────────────────
   const sessionById = {};
@@ -2803,13 +2844,14 @@ export async function pgPatientReports() {
   // anything signed/annotated by a clinician as clinician-generated, anything
   // with `ai_generated`/`source === 'ai'`/`generated_by` markers as AI. Falls
   // back to "clinic" so existing outcomes don't get mis-grouped.
-  function docOrigin(d, raw) {
+  function _LEGACY_SHADOW_docOrigin(d, raw) {
     const rawOrigin = String(raw?.origin || raw?.source || raw?.generated_by || '').toLowerCase();
     if (rawOrigin.includes('ai') || raw?.ai_generated === true) return 'ai';
     if (d.clinicianNotes) return 'clinic';
     if (rawOrigin === 'clinician' || rawOrigin === 'clinic') return 'clinic';
     return 'clinic';
   }
+  void _LEGACY_SHADOW_docOrigin;
   // Re-walk raw outcomes/assessments to attach origin back onto docs (keyed by id).
   const _rawById = {};
   (outcomes || []).forEach(o => { if (o.id != null) _rawById[String(o.id)] = o; });
