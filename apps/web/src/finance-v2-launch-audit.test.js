@@ -21,6 +21,20 @@ test('app.js: guest and patient nav hide includes finance-v2', () => {
   assert.match(app, /patient:\s*\[\s*'finance-v2'\s*\]/);
 });
 
+test('app.js: technician and reviewer nav hide also includes finance-v2', () => {
+  const app = read('app.js');
+  assert.match(app, /technician:\s*\[[^\]]*'finance-v2'/);
+  assert.match(app, /reviewer:\s*\[[^\]]*'finance-v2'/);
+});
+
+test('app.js: route guard redirects non-finance roles away from finance-v2', () => {
+  const app = read('app.js');
+  // FINANCE_ALLOWED_ROLES restricts page rendering even on direct ?page=finance-v2 nav
+  assert.match(app, /FINANCE_ALLOWED_ROLES\s*=\s*new Set\(\[/);
+  assert.match(app, /'admin',\s*'clinic_admin',\s*'clinician'/);
+  assert.match(app, /case 'finance-v2'[^}]*FINANCE_ALLOWED_ROLES\.has/);
+});
+
 test('pages-clinical-hubs: Finance disclaimer copy present', () => {
   const hubs = read('pages-clinical-hubs.js');
   assert.match(

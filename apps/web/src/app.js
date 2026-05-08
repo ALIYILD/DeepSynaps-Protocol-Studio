@@ -510,12 +510,16 @@ let currentPage = 'dashboard';
 
 // ── Role-based nav visibility ─────────────────────────────────────────────────
 const ROLE_NAV_HIDE = {
-  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'risk-analyzer', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
-  reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'population-analytics', 'brain-map-planner', 'brainmap-v2'],
+  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'finance-v2', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'risk-analyzer', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
+  reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'finance-v2', 'population-analytics', 'brain-map-planner', 'brainmap-v2'],
   patient:    ['finance-v2'],
   guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-v2', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'treatment-sessions-analyzer', 'audittrail', 'billing', 'finance-v2', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report', 'tickets'],
   clinician:  ['population-analytics'],
 };
+
+// Routes that admin/clinic_admin/clinician get; everyone else lands on a safe
+// fallback if they direct-navigate via ?page=… or _nav('finance-v2').
+const FINANCE_ALLOWED_ROLES = new Set(['admin', 'clinic_admin', 'clinician']);
 
 // ── Nav definition — design-v2 grouping (TODAY / PATIENTS / ANALYZERS / PROTOCOL / MARKETPLACE / ADMIN)
 // Ordered to match a clinician's day: top-of-day triage → patient roster → analyzers
@@ -1974,7 +1978,16 @@ async function renderPage() {
     case 'home-tasks-v2':      { const m = await loadClinicalTools(); await m.pgHomePrograms(setTopbar, navigate); break; }
     case 'documents-v2':       { const m = await loadClinicalHubs(); await m.pgDocumentsHubNew(setTopbar, navigate); break; }
     case 'reports-v2':         { const m = await loadClinicalHubs(); await m.pgReportsHubNew(setTopbar, navigate); break; }
-    case 'finance-v2':         { const m = await loadClinicalHubs(); await m.pgFinanceHub(setTopbar, navigate); break; }
+    case 'finance-v2':         {
+      if (!FINANCE_ALLOWED_ROLES.has(currentUser?.role)) {
+        // Soft-redirect non-finance roles away from direct ?page=finance-v2 navigation
+        // (sidebar entry is already hidden via ROLE_NAV_HIDE; this guards URL access).
+        const fallback = currentUser?.role === 'patient' ? 'home' : 'home';
+        if (typeof window._nav === 'function') { await window._nav(fallback); return; }
+        break;
+      }
+      const m = await loadClinicalHubs(); await m.pgFinanceHub(setTopbar, navigate); break;
+    }
     case 'ai-agent-v2':        { const m = await loadAgents(); await m.pgAgentChat(setTopbar); break; }
     case 'research-v2':        { const m = await loadResearch(); await m.pgResearch(setTopbar, navigate); break; }
     case 'governance-v2':      { window._settingsHubTab = 'governance'; const m = await loadPractice(); await m.pgSettingsHub(setTopbar, navigate); break; }
