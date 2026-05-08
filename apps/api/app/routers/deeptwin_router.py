@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -2025,6 +2025,7 @@ class DataSourcesOut(BaseModel):
 
 
 class AnalysisRunIn(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     analysis_type: str = Field(..., min_length=1)
     input_sources_json: dict[str, Any] | None = None
     output_summary_json: dict[str, Any] | None = None
@@ -2034,6 +2035,7 @@ class AnalysisRunIn(BaseModel):
 
 
 class AnalysisRunOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     id: str
     patient_id: str
     clinician_id: str

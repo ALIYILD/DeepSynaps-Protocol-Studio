@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
@@ -225,6 +225,7 @@ class AiSummarizeRequest(BaseModel):
 
 
 class AiSummarizeDraft(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     status: str = "draft"
     review_status: str = "draft"
     source_trust: str = "ai_generated"
