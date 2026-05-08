@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import time
 import urllib.parse
 import urllib.request
@@ -74,42 +75,72 @@ def upsert_papers(conn, results: list[dict], indication_id: int | None = None) -
         if isinstance(pmid_val, str):
             pmid = pmid_val.rsplit("/", 1)[-1]
 
-        # Match on pmid, doi, or openalex_id
-        existing = conn.execute(
-            "SELECT id, sources_json FROM papers WHERE openalex_id=? "
-            "OR (pmid IS NOT NULL AND pmid=?) OR (doi IS NOT NULL AND doi=?)",
-            (oa_id, pmid, doi),
-        ).fetchone()
+        # Look up by the most-canonical key first to avoid promoting a row
+        # into a UNIQUE collision with another row already holding that key.
+        # Order: doi > openalex_id > pmid.
+        existing = None
+        if doi:
+            existing = conn.execute(
+                "SELECT id, sources_json FROM papers WHERE doi=?",
+                (doi,),
+            ).fetchone()
+        if existing is None and oa_id:
+            existing = conn.execute(
+                "SELECT id, sources_json FROM papers WHERE openalex_id=?",
+                (oa_id,),
+            ).fetchone()
+        if existing is None and pmid:
+            existing = conn.execute(
+                "SELECT id, sources_json FROM papers WHERE pmid=?",
+                (pmid,),
+            ).fetchone()
         if existing:
             srcs = set(json.loads(existing["sources_json"] or "[]"))
             srcs.add("openalex")
-            conn.execute(
-                "UPDATE papers SET openalex_id=COALESCE(openalex_id,?), "
-                "pmid=COALESCE(pmid,?), doi=COALESCE(doi,?), "
-                "title=COALESCE(title,?), abstract=COALESCE(abstract,?), "
-                "year=COALESCE(year,?), journal=COALESCE(journal,?), "
-                "cited_by_count=COALESCE(?,cited_by_count), "
-                "sources_json=?, last_ingested=? WHERE id=?",
-                (
-                    oa_id, pmid, doi, title, abstract, year, journal, cited,
-                    json.dumps(sorted(srcs)), now, existing["id"],
-                ),
-            )
+            try:
+                conn.execute(
+                    "UPDATE papers SET openalex_id=COALESCE(openalex_id,?), "
+                    "pmid=COALESCE(pmid,?), doi=COALESCE(doi,?), "
+                    "title=COALESCE(title,?), abstract=COALESCE(abstract,?), "
+                    "year=COALESCE(year,?), journal=COALESCE(journal,?), "
+                    "cited_by_count=COALESCE(?,cited_by_count), "
+                    "sources_json=?, last_ingested=? WHERE id=?",
+                    (
+                        oa_id, pmid, doi, title, abstract, year, journal, cited,
+                        json.dumps(sorted(srcs)), now, existing["id"],
+                    ),
+                )
+            except sqlite3.IntegrityError:
+                # Another row already holds one of pmid/doi/openalex_id we'd
+                # be promoting this row into. Skip metadata merge; still link
+                # to indication below.
+                pass
             paper_id = existing["id"]
         else:
-            cur = conn.execute(
-                "INSERT INTO papers(openalex_id, pmid, doi, title, abstract, year, journal, "
-                "authors_json, pub_types_json, cited_by_count, sources_json, last_ingested) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                (
-                    oa_id, pmid, doi, title, abstract, year, journal,
-                    json.dumps(authors, ensure_ascii=False),
-                    json.dumps(pub_types, ensure_ascii=False),
-                    cited, json.dumps(["openalex"]), now,
-                ),
-            )
-            paper_id = cur.lastrowid
-            n += 1
+            try:
+                cur = conn.execute(
+                    "INSERT INTO papers(openalex_id, pmid, doi, title, abstract, year, journal, "
+                    "authors_json, pub_types_json, cited_by_count, sources_json, last_ingested) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        oa_id, pmid, doi, title, abstract, year, journal,
+                        json.dumps(authors, ensure_ascii=False),
+                        json.dumps(pub_types, ensure_ascii=False),
+                        cited, json.dumps(["openalex"]), now,
+                    ),
+                )
+                paper_id = cur.lastrowid
+                n += 1
+            except sqlite3.IntegrityError:
+                fallback = conn.execute(
+                    "SELECT id FROM papers WHERE (? IS NOT NULL AND doi=?) "
+                    "OR (? IS NOT NULL AND openalex_id=?) "
+                    "OR (? IS NOT NULL AND pmid=?)",
+                    (doi, doi, oa_id, oa_id, pmid, pmid),
+                ).fetchone()
+                if fallback is None:
+                    continue
+                paper_id = fallback["id"]
         if indication_id:
             conn.execute(
                 "INSERT OR IGNORE INTO paper_indications(paper_id, indication_id) VALUES (?,?)",
