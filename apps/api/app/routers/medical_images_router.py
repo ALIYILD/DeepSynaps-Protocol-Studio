@@ -74,6 +74,7 @@ _MAX_UPLOAD_BYTES = preview_service.MAX_PREVIEW_BYTES
 # ── Pydantic schemas — explicit response surface ─────────────────────────────
 
 
+# core-schema-exempt: router-private medical-image metadata projection (underscore-prefixed, never reused outside this router)
 class _MedicalImageMetadataOut(BaseModel):
     filename: str
     format: str
@@ -91,12 +92,14 @@ class _MedicalImageMetadataOut(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+# core-schema-exempt: router-private preview URLs sub-model (underscore-prefixed, only nested in _MedicalImagePreviewOut)
 class _MedicalImagePreviewUrls(BaseModel):
     axial_url: Optional[str] = None
     coronal_url: Optional[str] = None
     sagittal_url: Optional[str] = None
 
 
+# core-schema-exempt: router-private preview response envelope (underscore-prefixed, emitted only from this router's preview endpoints)
 class _MedicalImagePreviewOut(BaseModel):
     id: str
     patient_id: Optional[str] = None
@@ -113,19 +116,23 @@ class _MedicalImagePreviewOut(BaseModel):
     processed_at: Optional[str] = None
 
 
+# core-schema-exempt: router-private supported-formats list response (underscore-prefixed, only on this router's GET /formats)
 class _SupportedFormatsOut(BaseModel):
     formats: list[dict[str, Any]]
     disclaimer: str = preview_service.PREVIEW_DISCLAIMER
 
 
+# core-schema-exempt: router-private clinician imaging-note request body (underscore-prefixed, only consumed by this router's report-context POST)
 class _ReportContextIn(BaseModel):
     clinician_imaging_note: Optional[str] = None
 
 
+# core-schema-exempt: router-private clinician imaging-note response shape (underscore-prefixed, only emitted from this router's report-context POST)
 class _ReportContextOut(BaseModel):
     medical_image_context: dict[str, Any]
 
 
+# core-schema-exempt: router-private patient-images list wrapper (underscore-prefixed, only on this router's GET /patient/{id})
 class _PatientImageListOut(BaseModel):
     items: list[_MedicalImagePreviewOut]
     disclaimer: str = preview_service.PREVIEW_DISCLAIMER
