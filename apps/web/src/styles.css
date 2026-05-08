@@ -9686,7 +9686,8 @@ body.light-theme .logo-wrap { border-bottom-color: rgba(0,0,0,0.08); }
 }
 [data-section="clinical"]  .nav-item:not(.active) .nav-icon { color: var(--nav-section-clinical);  opacity: 0.85; }
 [data-section="protocol"]  .nav-item:not(.active) .nav-icon { color: var(--nav-section-protocol);  opacity: 0.85; }
-[data-section="analyzers"] .nav-item:not(.active) .nav-icon { color: var(--nav-section-analyzers); opacity: 0.85; }
+/* Analyzer subsections all share the violet tint — `analyzers`, `analyzers-risk`, `analyzers-mood`, etc. */
+[data-section^="analyzers"] .nav-item:not(.active) .nav-icon { color: var(--nav-section-analyzers); opacity: 0.85; }
 [data-section="marketplace-section"] .nav-item:not(.active) .nav-icon { color: var(--nav-section-marketplace); opacity: 0.85; }
 [data-section="admin"]     .nav-item:not(.active) .nav-icon { color: var(--nav-section-admin);     opacity: 0.7;  }
 /* Hover lifts saturation slightly without competing with the active state. */
@@ -9694,7 +9695,7 @@ body.light-theme .logo-wrap { border-bottom-color: rgba(0,0,0,0.08); }
 /* Section header label dot — tint each visible section (same hues as icons). */
 [data-section="clinical"]  .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--nav-section-clinical);  margin-right:7px; vertical-align:middle; opacity:0.85; }
 [data-section="protocol"]  .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--nav-section-protocol);  margin-right:7px; vertical-align:middle; opacity:0.85; }
-[data-section="analyzers"] .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--nav-section-analyzers); margin-right:7px; vertical-align:middle; opacity:0.85; }
+[data-section^="analyzers"] .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--nav-section-analyzers); margin-right:7px; vertical-align:middle; opacity:0.85; }
 [data-section="marketplace-section"] .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--nav-section-marketplace); margin-right:7px; vertical-align:middle; opacity:0.85; }
 [data-section="admin"]     .nav-section-label::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--nav-section-admin);     margin-right:7px; vertical-align:middle; opacity:0.7;  }
 
