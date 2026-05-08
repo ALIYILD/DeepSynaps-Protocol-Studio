@@ -935,6 +935,16 @@ function _agentsOrDemo(agents) {
 // the catalog/activity panels can show an "Offline — retry" affordance.
 let _marketplaceAgentsLoadFailed = false;
 
+// Restored 2026-05-08 after a concurrent-session refactor accidentally
+// emptied the function body (broke 5+ unit tests with
+// "_marketplaceApiBase is not defined"). Mirrors the pattern used by
+// other modules: read VITE_API_BASE_URL at runtime, fall back to the
+// local dev port for unit tests where import.meta.env is unset.
+function _marketplaceApiBase() {
+  try { return import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'; }
+  catch { return 'http://127.0.0.1:8000'; }
+}
+
 
 async function _fetchMarketplaceAgents() {
   if (_marketplaceLoading) return _marketplaceAgents;

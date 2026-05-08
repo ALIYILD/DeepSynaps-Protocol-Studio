@@ -94,6 +94,7 @@ class AgentListResponse(BaseModel):
     agents: list[AgentListItem]
 
 
+# core-schema-exempt: router-local DTO for /agents/{id}/hire; not reused elsewhere
 class HireAgentResponse(BaseModel):
     agent_id: str
     hired: bool = True
