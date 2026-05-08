@@ -114,3 +114,30 @@ test('shared module is the source of truth for the legacy page (no in-file copy)
   // legacy file. Verify the legacy page imports from the shared module.
   assert.match(PAGE, /from\s+'\.\/pages-patient\/_reports-shared\.js'/);
 });
+
+test('_reports-shared.js exports the CTA handler installer + module-level handlers (commit 9 fix)', () => {
+  // Commit 9 — lift CTA click handlers (acknowledge/share-back/question/view/
+  // ask/toggle-pl/report-opened/report-downloaded) to module level so they
+  // exist from JS-eval time. Otherwise a patient landing on v2 directly hits
+  // a silent no-op because the legacy `pgPatientReports` closure never runs.
+  assert.match(SHARED, /export\s+function\s+installPatientReportsCtaHandlers\b/);
+  assert.match(SHARED, /export\s+function\s+ptToggleDocPl\b/);
+  assert.match(SHARED, /export\s+function\s+ptViewDoc\b/);
+  assert.match(SHARED, /export\s+function\s+ptReportOpened\b/);
+  assert.match(SHARED, /export\s+function\s+ptReportDownloaded\b/);
+  assert.match(SHARED, /export\s+function\s+ptAskAbout\b/);
+  assert.match(SHARED, /export\s+async\s+function\s+ptAcknowledgeReport\b/);
+  assert.match(SHARED, /export\s+async\s+function\s+ptShareBackReport\b/);
+  assert.match(SHARED, /export\s+async\s+function\s+ptStartQuestionForReport\b/);
+  // The installer must wire every CTA the doc-card template references.
+  assert.match(SHARED, /window\._ptAcknowledgeReport\s*=/);
+  assert.match(SHARED, /window\._ptShareBackReport\s*=/);
+  assert.match(SHARED, /window\._ptStartQuestionForReport\s*=/);
+});
+
+test('both patient-report pages call installPatientReportsCtaHandlers at mount (commit 9 fix)', () => {
+  // Both the legacy page and v2 health-reports must install the handlers so
+  // the CTAs work from either entry point.
+  assert.match(PAGE,    /_sharedInstallPatientReportsCtaHandlers\s*\(/);
+  assert.match(HR_PAGE, /installPatientReportsCtaHandlers\s*\(/);
+});

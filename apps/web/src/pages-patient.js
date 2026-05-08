@@ -476,6 +476,7 @@ import {
   _normalizeDocs as _sharedNormalizeDocs,
   _fetchPatientReportsBundle as _sharedFetchPatientReportsBundle,
   docCardHTML as _sharedDocCardHTML,
+  installPatientReportsCtaHandlers as _sharedInstallPatientReportsCtaHandlers,
   logPatientReportsAuditEvent as _sharedLogPatientReportsAuditEvent,
 } from './pages-patient/_reports-shared.js';
 // `_hdEsc` is the home-device HTML escaper. The original definition lived
@@ -2849,6 +2850,20 @@ export async function pgPatientReports() {
     // Re-sort after adding biometrics so the newest are at the top again.
     docs.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
   }
+
+  // ── Install shared CTA click handlers (2026-05-08) ───────────────────────
+  // Single source of truth lives in `_reports-shared.js`. Both this legacy
+  // page and the v2 `pgPatientHealthReports` call the same installer so the
+  // doc-card CTAs work regardless of which page the patient lands on first.
+  // The legacy in-closure assignments below intentionally overwrite the
+  // module-level handlers with closure-aware copies — they are kept as a
+  // belt-and-braces while the original behaviour is exercised in production.
+  _sharedInstallPatientReportsCtaHandlers({
+    docs,
+    patientReportsServerLive: _patientReportsServerLive,
+    patientReportsConsentActive: _patientReportsConsentActive,
+    patientReportsIsDemo: _patientReportsIsDemo,
+  });
 
   // ── Empty state ──────────────────────────────────────────────────────────
   if (docs.length === 0) {

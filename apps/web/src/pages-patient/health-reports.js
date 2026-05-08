@@ -18,6 +18,7 @@ import {
   _fetchPatientReportsBundle,
   _normalizeDocs,
   docCardHTML,
+  installPatientReportsCtaHandlers,
   logPatientReportsAuditEvent,
 } from './_reports-shared.js';
 
@@ -46,36 +47,19 @@ function _tabDefs() {
 
 // ── Audit-event scope (2026-05-08) ───────────────────────────────────────
 // The doc-card HTML emitted by `docCardHTML` references global click handlers
-// (window._ptReportOpened / _ptReportDownloaded) that the legacy
-// `pgPatientReports` function defines lazily on render. The v2 page is a
-// distinct entry point — when a patient lands on Health Reports without
-// having visited the legacy page first, those handlers do not exist and the
-// audit row is silently dropped. We register module-level fallbacks here so
-// per-doc view/download events are always recorded.
+// (window._ptReportOpened / _ptReportDownloaded / _ptAcknowledgeReport / etc.)
+// that historically lived inside the legacy `pgPatientReports` closure. The
+// v2 page is a distinct entry point — when a patient lands on Health Reports
+// without having visited the legacy page first, those handlers used to be
+// missing and CTA clicks silently no-op'd. The handlers now live at module
+// scope in `_reports-shared.js`; both pages call
+// `installPatientReportsCtaHandlers(ctx)` at mount-time so the wiring is
+// idempotent and lives in a single source of truth.
 //
-// `_pgHrLastDemoFlag` is set by `pgPatientHealthReports()` on each render so
-// the per-card handlers know whether the page is currently in demo mode.
+// `_pgHrLastDemoFlag` is retained so the tab-change audit handler (a
+// surface-specific concern that does not move into the shared module) can
+// stamp the demo flag on each tab_change ping.
 let _pgHrLastDemoFlag = false;
-if (typeof window !== 'undefined') {
-  if (!window._ptReportOpened) {
-    window._ptReportOpened = function(reportId, kind) {
-      logPatientReportsAuditEvent('report_opened', {
-        report_id: reportId,
-        using_demo_data: _pgHrLastDemoFlag,
-        note: kind || 'view',
-      });
-    };
-  }
-  if (!window._ptReportDownloaded) {
-    window._ptReportDownloaded = function(reportId) {
-      logPatientReportsAuditEvent('report_downloaded', {
-        report_id: reportId,
-        using_demo_data: _pgHrLastDemoFlag,
-        note: 'download click',
-      });
-    };
-  }
-}
 
 /**
  * Tab-switch handler. Toggles `.active` on the button and shows/hides the
@@ -343,6 +327,17 @@ export async function pgPatientHealthReports() {
   for (const it of items) {
     if (it && it.id) patientReportsById[String(it.id)] = it;
   }
+
+  // Wire up doc-card CTA click handlers from the shared module. Both this
+  // page and the legacy `pgPatientReports` call the same installer so the
+  // window._pt* globals exist regardless of which page the patient lands
+  // on first. See `_reports-shared.js:installPatientReportsCtaHandlers`.
+  installPatientReportsCtaHandlers({
+    docs,
+    patientReportsServerLive: _serverLive,
+    patientReportsConsentActive: _consentActive,
+    patientReportsIsDemo: _isDemo,
+  });
 
   // Mount-time audit ping (parity with legacy `pgPatientReports`). Records
   // that the patient opened the v2 Health Reports page with an honest

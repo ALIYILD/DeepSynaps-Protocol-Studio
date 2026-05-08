@@ -624,3 +624,290 @@ export async function logPatientReportsAuditEvent(event, extra) {
     }
   } catch (_) { /* audit failures must never block UI */ }
 }
+
+// ── Module-level CTA click handlers (2026-05-08) ─────────────────────────────
+// `docCardHTML` renders CTAs that reference `window._pt*` global handlers
+// (Acknowledge, Share-back, Question, View, Ask, Toggle plain-language).
+// Historically these were assigned inside the `pgPatientReports` closure in
+// `pages-patient.js`. When a patient now lands on the v2 `pgPatientHealthReports`
+// page directly (without ever visiting the legacy page first), the legacy
+// closure never runs and the CTAs silently no-op. We hoist the handlers to
+// module scope here and let both pages call `installPatientReportsCtaHandlers`
+// at mount-time to wire them onto `window` from a single source of truth.
+//
+// Closure state (api server-live flags, current docs[], the demo-mode flag,
+// and the patient-messages navigator) is held in `_ctaCtx` and refreshed on
+// each page mount via the install helper.
+let _ctaCtx = {
+  docs: [],
+  patientReportsServerLive: true,
+  patientReportsConsentActive: true,
+  patientReportsIsDemo: false,
+  navigateToMessages: null, // optional () => void; legacy + v2 wire window._navPatient
+};
+
+// Tiny self-contained toast — keeps the handlers UI-self-sufficient regardless
+// of which page mounted them. Mirrors the in-page `_prToast` helper used by
+// the legacy `pgPatientReports`.
+function _ctaToast(msg) {
+  try {
+    if (typeof document === 'undefined') return;
+    const tEl = document.createElement('div');
+    tEl.setAttribute('role', 'status');
+    tEl.setAttribute('aria-live', 'polite');
+    tEl.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0f172a;color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,0.18);max-width:90vw';
+    tEl.textContent = String(msg || '');
+    document.body.appendChild(tEl);
+    setTimeout(() => { try { tEl.remove(); } catch (_) {} }, 3200);
+  } catch (_) { /* noop */ }
+}
+
+/** Toggle the plain-language accordion for a doc card. */
+export function ptToggleDocPl(docId) {
+  if (typeof document === 'undefined' || !docId) return;
+  const safeId = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(docId) : String(docId);
+  const body = document.querySelector(`#pt-doc-pl-${safeId}`);
+  const chev = document.querySelector(`#chev-${safeId}`);
+  const btn  = document.querySelector(`[aria-controls="pt-doc-pl-${safeId}"]`);
+  if (!body) return;
+  const opening = body.hasAttribute('hidden');
+  if (opening) { body.removeAttribute('hidden'); } else { body.setAttribute('hidden', ''); }
+  if (chev) chev.textContent = opening ? '▴' : '▾';
+  if (btn)  btn.setAttribute('aria-expanded', String(opening));
+}
+
+/** View a document — open external URL or surface an unavailable notice. */
+export function ptViewDoc(docId) {
+  if (typeof document === 'undefined' || !docId) return;
+  const doc = (_ctaCtx.docs || []).find(d => String(d.id) === String(docId));
+  if (doc && doc.url) {
+    try { window.open(doc.url, '_blank', 'noopener,noreferrer'); } catch (_) {}
+    return;
+  }
+  const safeId = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(docId) : String(docId);
+  const card = document.querySelector(`.pt-doc-card[data-id="${safeId}"]`);
+  if (!card) return;
+  if (card.querySelector('.pt-doc-unavail')) return;
+  const notice = document.createElement('div');
+  notice.className = 'pt-doc-unavail';
+  notice.textContent = t('patient.media.doc_unavailable');
+  card.appendChild(notice);
+}
+
+/** Stamp report_opened audit when the patient clicks the View link. */
+export function ptReportOpened(reportId, kind) {
+  logPatientReportsAuditEvent('report_opened', {
+    report_id: String(reportId || ''),
+    using_demo_data: _ctaCtx.patientReportsIsDemo,
+    note: kind || 'view',
+  });
+}
+
+/** Stamp report_downloaded audit when the patient clicks the Download link. */
+export function ptReportDownloaded(reportId) {
+  logPatientReportsAuditEvent('report_downloaded', {
+    report_id: String(reportId || ''),
+    using_demo_data: _ctaCtx.patientReportsIsDemo,
+    note: 'download click',
+  });
+}
+
+/**
+ * Ask-about — prefills a question and surfaces a toast with a deep-link to
+ * Messages. The legacy page also renders a `#pt-docs-ask-anchor` for a richer
+ * inline confirmation; if that anchor is in the DOM we use it, otherwise we
+ * fall back to the floating toast so v2 entries do not silently no-op.
+ */
+export function ptAskAbout(docId, title) {
+  if (typeof document === 'undefined') return;
+  const promptText = 'Explain "' + (title || '') + '" in simple language. What does this report mean for me?';
+  if (typeof window !== 'undefined') window._ptPendingAsk = promptText;
+  logPatientReportsAuditEvent('ask_clicked', {
+    report_id: String(docId || ''),
+    using_demo_data: _ctaCtx.patientReportsIsDemo,
+    note: 'prefill prompt',
+  });
+  const anchor = document.querySelector('#pt-docs-ask-anchor');
+  if (anchor) {
+    anchor.innerHTML = `
+      <div class="pt-doc-ask-toast" role="status">
+        <span class="pt-doc-ask-toast-msg">Your question is ready about: <em>${esc(title)}</em></span>
+        <button class="pt-doc-ask-toast-btn" onclick="window._navPatient && window._navPatient('patient-messages')">Go to Messages →</button>
+        <button class="pt-doc-ask-toast-close" aria-label="Dismiss"
+                onclick="document.querySelector('#pt-docs-ask-anchor').innerHTML=''">&#10005;</button>
+      </div>`;
+    anchor.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    return;
+  }
+  // v2 surface has no inline anchor — surface a floating toast + Messages
+  // navigation hook so the click is never a silent no-op.
+  _ctaToast('Your question is ready about: ' + (title || 'this report') + ' — open Messages to send.');
+}
+
+/**
+ * Acknowledge a report — calls /acknowledge. Updates the in-place button
+ * state on success so the patient sees an immediate response. Failures
+ * surface a toast; the audit row is recorded server-side regardless.
+ */
+export async function ptAcknowledgeReport(reportId, title) {
+  if (!reportId) return;
+  if (!_ctaCtx.patientReportsServerLive) {
+    _ctaToast('Reconnect to acknowledge this report.');
+    return;
+  }
+  if (_ctaCtx.patientReportsConsentActive === false) {
+    _ctaToast('Acknowledgements are paused while consent is withdrawn.');
+    return;
+  }
+  logPatientReportsAuditEvent('acknowledge_clicked', {
+    report_id: String(reportId),
+    using_demo_data: _ctaCtx.patientReportsIsDemo,
+  });
+  try {
+    const res = await api.acknowledgePatientReport(reportId, null);
+    if (res && res.accepted) {
+      const safeId = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(String(reportId)) : String(reportId);
+      const btn = document.querySelector(`.pt-doc-card[data-id="${safeId}"] .pt-doc-cta-ack`);
+      if (btn) {
+        btn.textContent = '✓ Acknowledged';
+        btn.setAttribute('disabled', '');
+        btn.setAttribute('aria-disabled', 'true');
+        btn.dataset.acknowledged = '1';
+      }
+      _ctaToast('Acknowledged "' + (title || 'report') + '"');
+    } else {
+      _ctaToast('Could not acknowledge — please try again.');
+    }
+  } catch (_e) {
+    _ctaToast('Could not acknowledge — please try again.');
+  }
+}
+
+/**
+ * Request a share-back — prompts the patient for audience + reason, then
+ * calls /request-share-back. Server validates note presence (>= 2 chars) so
+ * the prompt re-runs if the patient leaves it blank.
+ */
+export async function ptShareBackReport(reportId, title) {
+  if (!reportId) return;
+  if (!_ctaCtx.patientReportsServerLive) {
+    _ctaToast('Reconnect to request a share-back.');
+    return;
+  }
+  if (_ctaCtx.patientReportsConsentActive === false) {
+    _ctaToast('Share-back requests are paused while consent is withdrawn.');
+    return;
+  }
+  const audience = (typeof window !== 'undefined' && window.prompt && window.prompt('Who should receive a copy? (e.g. "GP", "family member", "insurer")', 'GP')) || '';
+  if (!audience.trim()) return;
+  const note = (typeof window !== 'undefined' && window.prompt && window.prompt('Add a short note for your clinician — why are you requesting this share-back?', '')) || '';
+  if (note.trim().length < 2) {
+    _ctaToast('A short reason is required so your clinician can review.');
+    return;
+  }
+  logPatientReportsAuditEvent('share_back_clicked', {
+    report_id: String(reportId),
+    using_demo_data: _ctaCtx.patientReportsIsDemo,
+    note: 'audience=' + audience.slice(0, 60),
+  });
+  try {
+    const res = await api.requestPatientReportShareBack(reportId, audience.trim(), note.trim());
+    if (res && res.accepted) {
+      const safeId = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(String(reportId)) : String(reportId);
+      const btn = document.querySelector(`.pt-doc-card[data-id="${safeId}"] .pt-doc-cta-share`);
+      if (btn) {
+        btn.textContent = 'Share-back requested';
+        btn.setAttribute('disabled', '');
+        btn.setAttribute('aria-disabled', 'true');
+        btn.dataset.shareBackPending = '1';
+      }
+      _ctaToast('Share-back request sent to your clinician for review.');
+    } else {
+      _ctaToast('Could not send share-back — please try again.');
+    }
+  } catch (_e) {
+    _ctaToast('Could not send share-back — please try again.');
+  }
+  // unused-arg ack — `title` is reserved for richer toast copy in a future revision.
+  void title;
+}
+
+/**
+ * Start a question thread linked to this report — prompts the patient for the
+ * question text, calls /start-question, then deep-links into Messages on
+ * success.
+ */
+export async function ptStartQuestionForReport(reportId, title) {
+  if (!reportId) return;
+  if (!_ctaCtx.patientReportsServerLive) {
+    _ctaToast('Reconnect to start a question thread.');
+    return;
+  }
+  if (_ctaCtx.patientReportsConsentActive === false) {
+    _ctaToast('Question threads are paused while consent is withdrawn.');
+    return;
+  }
+  const prefill = title ? ('I have a question about "' + title + '": ') : '';
+  const question = (typeof window !== 'undefined' && window.prompt && window.prompt('What is your question? Your clinician will reply through Messages.', prefill)) || '';
+  if (question.trim().length < 2) return;
+  logPatientReportsAuditEvent('question_clicked', {
+    report_id: String(reportId),
+    using_demo_data: _ctaCtx.patientReportsIsDemo,
+  });
+  try {
+    const res = await api.startPatientReportQuestion(reportId, question.trim());
+    if (res && res.accepted) {
+      _ctaToast('Question sent — your clinician will reply in Messages.');
+      // Deep-link the patient straight into Messages.
+      if (typeof _ctaCtx.navigateToMessages === 'function') {
+        _ctaCtx.navigateToMessages();
+      } else if (typeof window !== 'undefined' && typeof window._navPatient === 'function') {
+        window._navPatient('patient-messages');
+      }
+    } else {
+      _ctaToast('Could not start the question — please try again.');
+    }
+  } catch (_e) {
+    _ctaToast('Could not start the question — please try again.');
+  }
+}
+
+/**
+ * Install the doc-card CTA click handlers on `window`. Called by both
+ * `pgPatientReports` (legacy) and `pgPatientHealthReports` (v2) at mount-time
+ * so the handlers are always wired regardless of which page the patient lands
+ * on first.
+ *
+ * The handlers themselves live at module scope; this helper only refreshes
+ * the shared per-page context (server-live flag, consent flag, demo flag,
+ * docs[], navigateToMessages) and assigns the functions onto `window`. Safe
+ * to call multiple times.
+ *
+ * @param {object} ctx
+ * @param {Array}    ctx.docs                        normalized docs from `_normalizeDocs`
+ * @param {boolean}  ctx.patientReportsServerLive    server reachable for /reports endpoints
+ * @param {boolean}  ctx.patientReportsConsentActive consent gate
+ * @param {boolean}  ctx.patientReportsIsDemo        demo session flag
+ * @param {Function} [ctx.navigateToMessages]        optional override; falls back to window._navPatient
+ */
+export function installPatientReportsCtaHandlers(ctx = {}) {
+  _ctaCtx = {
+    docs: Array.isArray(ctx.docs) ? ctx.docs : [],
+    patientReportsServerLive: ctx.patientReportsServerLive !== false,
+    patientReportsConsentActive: ctx.patientReportsConsentActive !== false,
+    patientReportsIsDemo: !!ctx.patientReportsIsDemo,
+    navigateToMessages: typeof ctx.navigateToMessages === 'function' ? ctx.navigateToMessages : null,
+  };
+  if (typeof window === 'undefined') return;
+  // Always (re-)assign so the latest closure-state context is the one the
+  // handlers see. The functions themselves are module-level so the reference
+  // is stable; only `_ctaCtx` changes between mounts.
+  window._ptToggleDocPl            = ptToggleDocPl;
+  window._ptViewDoc                = ptViewDoc;
+  window._ptReportOpened           = ptReportOpened;
+  window._ptReportDownloaded       = ptReportDownloaded;
+  window._ptAskAbout               = ptAskAbout;
+  window._ptAcknowledgeReport      = ptAcknowledgeReport;
+  window._ptShareBackReport        = ptShareBackReport;
+  window._ptStartQuestionForReport = ptStartQuestionForReport;
+}
