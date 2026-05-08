@@ -141,6 +141,45 @@ export function formatFactorLine(ref, opts = {}) {
   return t;
 }
 
+/**
+ * Render compact modality-source chips for a risk category — addresses the
+ * "modality-opaque" audit gap. A clinician scanning the card sees at-a-glance
+ * which inputs fed the band ("from: voice · assessments"), instead of having
+ * to parse the factor text to guess.
+ */
+function _sourceChips(cat) {
+  const raw = [];
+  const dataSources = Array.isArray(cat?.data_sources) ? cat.data_sources : [];
+  for (const s of dataSources) {
+    const label = typeof s === 'string'
+      ? s
+      : (s && typeof s === 'object' ? (s.modality || s.source || s.label || s.id) : null);
+    if (label) raw.push(String(label));
+  }
+  // Refs sometimes carry their own modality / source field — pull those too.
+  const refs = Array.isArray(cat?.evidence_refs) ? cat.evidence_refs : [];
+  for (const r of refs) {
+    const label = r && typeof r === 'object' ? (r.modality || r.source) : null;
+    if (label) raw.push(String(label));
+  }
+  // Normalise + dedupe + drop placeholder values.
+  const seen = new Set();
+  const chips = [];
+  for (const v of raw) {
+    const key = v.replace(/_/g, ' ').toLowerCase().trim();
+    if (!key || key === 'demo fixture' || seen.has(key)) continue;
+    seen.add(key);
+    chips.push(key);
+  }
+  if (!chips.length) return '';
+  const tip = `Modalities feeding this band: ${chips.join(', ')}`;
+  const chipHtml = chips.slice(0, 5).map((c) => `<span style="display:inline-block;font-size:10px;font-weight:600;padding:2px 7px;border-radius:999px;background:rgba(74,158,255,0.10);color:var(--blue);border:1px solid rgba(74,158,255,0.22)">${esc(c)}</span>`).join(' ');
+  const overflow = chips.length > 5 ? `<span style="font-size:10px;color:var(--text-tertiary)">+${chips.length - 5}</span>` : '';
+  return `<div title="${esc(tip)}" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px">
+    <span>From</span>${chipHtml}${overflow}
+  </div>`;
+}
+
 function _topContributingFactors(cat, demoMode) {
   const refs = Array.isArray(cat.evidence_refs) ? cat.evidence_refs : [];
   const sources = Array.isArray(cat.data_sources) ? cat.data_sources : [];
@@ -246,11 +285,13 @@ function _renderCategoryCard(cat, demoMode) {
   const method = cat.provenance?.engine || cat.provenance?.source
     ? `<span style="font-size:10px;color:var(--text-tertiary)">${esc(cat.provenance?.engine || cat.provenance?.source || '')}</span>`
     : '';
+  const sourcesHtml = _sourceChips(cat);
   return `<div data-category="${esc(cat.category)}" style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;min-height:200px">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
       <div style="font-weight:600;font-size:13px">${esc(_labelFor(cat.category, cat.label))}</div>
       <div>${_pillFor(cat.level)}</div>
     </div>
+    ${sourcesHtml}
     <div style="font-size:11px;color:var(--text-secondary)">
       Model level: ${esc(cat.computed_level || '—')}${overridden ? ` <span style="color:var(--amber)">• clinician override applied</span>` : ''}
       ${method ? `<span style="display:block;margin-top:4px">${method}</span>` : ''}
