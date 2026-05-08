@@ -6,6 +6,17 @@ from typing import Any
 
 from app.settings import get_settings
 
+# Anthropic is an optional dependency — the call-sites lazy-import it so the
+# api can boot when the package isn't installed. We re-export the symbol
+# here at module level so unit tests can monkeypatch
+# ``chat_service.Anthropic``. ``None`` when the package isn't installed;
+# call-sites must continue to use their own ``from anthropic import
+# Anthropic`` fallback.
+try:
+    from anthropic import Anthropic  # noqa: F401
+except ImportError:  # pragma: no cover
+    Anthropic = None  # type: ignore[assignment]
+
 _llm_log = logging.getLogger(__name__)
 
 
@@ -273,7 +284,12 @@ def _llm_chat(
                 exc,
             )
     if settings.anthropic_api_key:
-        from anthropic import Anthropic
+        # Module-level import is conditional; assert + use the rebindable
+        # symbol so unit tests can monkeypatch chat_service.Anthropic.
+        if Anthropic is None:
+            raise RuntimeError(
+                "anthropic package is not installed; cannot use Anthropic fallback."
+            )
         client = Anthropic(api_key=settings.anthropic_api_key)
         resp = client.messages.create(
             model=_anthropic_fallback_model(),
@@ -564,7 +580,8 @@ def _agent_llm_dispatch(
             return f"OpenAI error: {str(e)}"
 
     if provider == "anthropic" and settings.anthropic_api_key:
-        from anthropic import Anthropic
+        if Anthropic is None:
+            return "Anthropic package not installed on this server. Use the default provider instead."
         client = Anthropic(api_key=settings.anthropic_api_key)
         response = client.messages.create(
             model=_anthropic_fallback_model(),
