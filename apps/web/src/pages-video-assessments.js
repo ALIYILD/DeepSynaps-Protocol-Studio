@@ -24,6 +24,23 @@ const DISCLAIMER =
   'It does not diagnose, prescribe, triage emergencies, approve treatment, or act autonomously. ' +
   'All outputs require clinician review.';
 
+/**
+ * FUTURE MOTOR FEATURE PANEL (Post-MVP)
+ * When MediaPipe / pose-detection backend becomes available:
+ * - Joint overlay visualization (shoulders, elbows, wrists, hips, knees)
+ * - Confidence scores per keypoint (0–1.0, only show >= 0.7 threshold)
+ * - Tremor band power (4–6 Hz) when motion envelope supports it
+ * - Bradykinesia amplitude trend (frame-to-frame)
+ * - Gait stride length / cadence when walking tasks recorded
+ * See video-assessment-protocol.js future_automation_notes for per-task signals.
+ *
+ * SAFETY NOTES:
+ * - All motor features labeled as "model-assisted observation cues"—not autonomous diagnosis
+ * - Clinician must confirm any flagged cues manually
+ * - Demo mode shows synthetic sample visualizations only (no live camera)
+ * - Backend availability guarded by HAS_VIDEO_PIPELINE flag (TBD)
+ */
+
 function _canReviewPriorSessions(role = '') {
   return role === 'clinician' || role === 'supervisor' || role === 'admin';
 }
