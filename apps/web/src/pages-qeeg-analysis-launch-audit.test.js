@@ -119,11 +119,12 @@ test('demo banner output is marked data-demo for downstream filtering', () => {
 
 test('clinical safety footer lists non-diagnosis and review-required disclaimers', () => {
   const src = _readSrc('pages-qeeg-analysis.js');
-  assert.match(src, /support interpretation and require clinician review/);
-  assert.match(src, /are not prescriptive/);
-  assert.match(src, /Z-scores are referenced against the embedded normative dataset/);
-  assert.match(src, /AI interpretation runs after deterministic numerics/);
-  assert.match(src, /Red flags require clinician review per local policy/);
+  // Canonical strict copy from PR 446b1596 — match by durable phrases.
+  assert.match(src, /not autonomous diagnosis/);
+  assert.match(src, /draft ideas for clinician review/);
+  assert.match(src, /Normative Model Card/);
+  assert.match(src, /Red flags and quality alerts are review cues/);
+  assert.match(src, /AI-assisted text summarises/);
 });
 
 test('Open Raw Workbench hero button is wired to the canonical workbench id', () => {
