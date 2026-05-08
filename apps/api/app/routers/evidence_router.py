@@ -360,19 +360,6 @@ class PromoteOut(BaseModel):
     title: str
 
 
-class ByFindingRequest(BaseModel):
-    patient_id: str
-    context_type: str = "biomarker"
-    target_name: str
-    finding_label: Optional[str] = None
-    modality: Optional[str] = None
-    diagnosis: Optional[str] = None
-    intervention: Optional[str] = None
-    phenotype_tags: list[str] = Field(default_factory=list)
-    feature_summary: list[dict] = Field(default_factory=list)
-    max_results: int = Field(default=8, ge=1, le=50)
-
-
 class ResearchDatasetOut(BaseModel):
     key: str
     label: str

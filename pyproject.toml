@@ -24,5 +24,19 @@ dev = [
 [tool.ruff]
 line-length = 100
 
+[tool.ruff.lint.per-file-ignores]
+# E402 module-level imports not at top of file. The listed routers/services
+# do environment setup (logging, settings, conditional shims) before pulling
+# heavy router/service modules; reordering would either crash at import time
+# or hide intentional load-order coupling. Tests in this list set sys.path /
+# fixtures before importing the module under test.
+"apps/api/app/routers/labs_analyzer_router.py" = ["E402"]
+"apps/api/app/routers/chat_router.py" = ["E402"]
+"apps/api/app/routers/assessments_router.py" = ["E402"]
+"apps/api/app/routers/library_router.py" = ["E402"]
+"apps/api/app/services/media_analysis_service.py" = ["E402"]
+"apps/api/tests/test_mri_analysis_router.py" = ["E402"]
+"apps/api/tests/test_dashboard_router.py" = ["E402"]
+
 [tool.pytest.ini_options]
 testpaths = ["apps/api/tests"]
