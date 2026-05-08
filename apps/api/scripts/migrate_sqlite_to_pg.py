@@ -51,10 +51,41 @@ from sqlalchemy.types import (
 )
 
 
-_ALEMBIC_REVISION_RE = re.compile(r'^revision\s*[:=]\s*["\']([0-9a-fA-F_]+)["\']', re.MULTILINE)
-_ALEMBIC_DOWN_REVISION_RE = re.compile(
-    r'^down_revision\s*[:=]\s*["\']([0-9a-fA-F_]+)["\']', re.MULTILINE
-)
+def _parse_alembic_revisions(text_blob: str) -> tuple[str | None, list[str]]:
+    """Return (revision, list_of_down_revisions) from a migration file body.
+
+    Uses AST so multiline tuple `down_revision = (\n  "a",\n  "b",\n)`
+    parses correctly. Returns (None, []) if the file isn't a migration.
+    """
+    import ast
+
+    try:
+        tree = ast.parse(text_blob)
+    except SyntaxError:
+        return None, []
+    revision: str | None = None
+    down: list[str] = []
+    for node in tree.body:
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        targets = (
+            [t.id for t in node.targets if isinstance(t, ast.Name)]
+            if isinstance(node, ast.Assign)
+            else ([node.target.id] if isinstance(node.target, ast.Name) else [])
+        )
+        value = node.value
+        if "revision" in targets and isinstance(value, ast.Constant) and isinstance(value.value, str):
+            revision = value.value
+        if "down_revision" in targets:
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                down = [value.value]
+            elif isinstance(value, (ast.Tuple, ast.List)):
+                down = [
+                    elt.value
+                    for elt in value.elts
+                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+                ]
+    return revision, down
 
 
 # --- CLI -------------------------------------------------------------------
@@ -83,14 +114,12 @@ def _discover_alembic_head(versions_dir: Path) -> str:
     referenced: set[str] = set()
     for path in sorted(versions_dir.glob("*.py")):
         text_blob = path.read_text(encoding="utf-8", errors="replace")
-        rev_match = _ALEMBIC_REVISION_RE.search(text_blob)
-        if not rev_match:
+        rev, down_ids = _parse_alembic_revisions(text_blob)
+        if rev is None:
             continue
-        rev = rev_match.group(1)
-        down_match = _ALEMBIC_DOWN_REVISION_RE.search(text_blob)
-        revisions[rev] = down_match.group(1) if down_match else None
-        if down_match:
-            referenced.add(down_match.group(1))
+        revisions[rev] = down_ids[0] if down_ids else None
+        for parent in down_ids:
+            referenced.add(parent)
 
     heads = [rev for rev in revisions if rev not in referenced]
     if not heads:
