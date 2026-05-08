@@ -16,7 +16,29 @@ _log = logging.getLogger(__name__)
 _APP_ENV = os.environ.get("DEEPSYNAPS_APP_ENV", "development").strip().lower()
 _BROKER_URL = os.environ.get("CELERY_BROKER_URL", "").strip()
 _BACKEND_URL = os.environ.get("CELERY_RESULT_BACKEND", "").strip()
+_DATABASE_URL = os.environ.get("DEEPSYNAPS_DATABASE_URL", "").strip()
 _REQUIRE_REAL_CELERY = _APP_ENV in ("production", "staging")
+
+
+def _database_is_shareable_across_processes(url: str) -> bool:
+    """True when the configured DB can be opened from multiple machines/processes.
+
+    SQLite databases live on a single Fly volume that is attached to exactly
+    one machine. The ``app`` process group has the production volume mounted
+    at ``/data``; the ``qeeg_worker`` process group does not — its ``/data``
+    is the empty Docker layer baked into the image. When the worker opens
+    ``sqlite:////data/...`` it silently creates a fresh empty file there and
+    every ``QEEGAnalysis`` lookup fails with ``no such table: qeeg_analyses``.
+
+    Postgres / MySQL / network-reachable URLs are fine — they are accessible
+    from every process group.
+    """
+    if not url:
+        return False
+    lowered = url.lower().strip()
+    if lowered.startswith("sqlite"):
+        return False
+    return True
 
 
 def _broker_host(url: str) -> str:
@@ -43,6 +65,22 @@ class _NoopCeleryApp:
             return fn
 
         return _decorator
+
+
+def _running_as_celery_worker() -> bool:
+    """True when this module is being loaded by ``celery ... worker``.
+
+    Celery's CLI puts the literal token ``worker`` (and usually ``-A`` / app
+    spec) on ``sys.argv``. Importing ``app.jobs`` from the FastAPI process
+    won't have that. We use this distinction to fail loudly on the worker
+    side when the DB is unshareable, while letting the API process continue
+    to boot (it will fall back to ``BackgroundTasks`` for qEEG dispatch).
+    """
+    import sys
+
+    argv = " ".join(sys.argv).lower()
+    # celery CLI: ``celery -A app.jobs worker --loglevel=INFO ...``
+    return "celery" in (sys.argv[0] or "").lower() and "worker" in argv
 
 
 def _build_celery_app() -> Any:
@@ -74,6 +112,41 @@ def _build_celery_app() -> Any:
             "This is only safe in development/test — jobs will NOT run async.",
             _APP_ENV,
         )
+        return _NoopCeleryApp()
+
+    # Cross-process DB reachability gate.
+    #
+    # The qeeg_worker process group runs on a separate Fly machine that does
+    # NOT have the production ``deepsynaps_data`` volume mounted (only the
+    # ``app`` process group does — see ``apps/api/fly.toml``). When
+    # DEEPSYNAPS_DATABASE_URL is a SQLite path under ``/data``, the worker
+    # opens an empty fresh file inside its own writable layer and every
+    # ``QEEGAnalysis`` lookup fails with ``no such table: qeeg_analyses``.
+    #
+    # Two outcomes depending on which process is importing this module:
+    #  - Worker (``celery ... worker``): RAISE so the worker crash-loops with
+    #    a clear message instead of silently failing every analysis. Ops can
+    #    then either point the worker at a network DB (Postgres) or stop the
+    #    worker process group until they migrate.
+    #  - API: log a loud warning and return the noop Celery app so the
+    #    qEEG router falls back to ``BackgroundTasks.add_task`` — those run
+    #    in the API process which DOES have the production DB.
+    if not _database_is_shareable_across_processes(_DATABASE_URL):
+        msg = (
+            "DEEPSYNAPS_DATABASE_URL is a SQLite path "
+            f"({_DATABASE_URL or '<unset>'!r}) which lives on a single Fly "
+            "volume and cannot be shared with the qeeg_worker process group. "
+            "Async qEEG jobs would run against an empty database on the "
+            "worker. Refusing to wire Celery — point DEEPSYNAPS_DATABASE_URL "
+            "at a network-reachable database (e.g. Postgres) to enable async "
+            "workers. The API will continue to dispatch qEEG analyses via "
+            "FastAPI BackgroundTasks in-process."
+        )
+        if _running_as_celery_worker():
+            # Crash-loop with a clear error rather than silently corrupting
+            # every analysis the broker hands us.
+            raise RuntimeError(msg)
+        _log.warning(msg)
         return _NoopCeleryApp()
 
     backend = _BACKEND_URL or _BROKER_URL
