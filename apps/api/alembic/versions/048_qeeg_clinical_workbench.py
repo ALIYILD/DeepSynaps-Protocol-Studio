@@ -77,13 +77,13 @@ def upgrade() -> None:
         sa.Column("symptom_linkage_json", sa.Text(), nullable=True),
         sa.Column("contraindications_json", sa.Text(), nullable=True),
         sa.Column("evidence_grade", sa.String(8), nullable=True),
-        sa.Column("off_label_flag", sa.Boolean(), nullable=False, server_default="0"),
+        sa.Column("off_label_flag", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("candidate_protocol_json", sa.Text(), nullable=True),
         sa.Column("alternative_protocols_json", sa.Text(), nullable=True),
         sa.Column("match_rationale", sa.Text(), nullable=True),
         sa.Column("caution_rationale", sa.Text(), nullable=True),
         sa.Column("required_checks_json", sa.Text(), nullable=True),
-        sa.Column("clinician_reviewed", sa.Boolean(), nullable=False, server_default="0"),
+        sa.Column("clinician_reviewed", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
     )
 

@@ -56,7 +56,7 @@ def upgrade() -> None:
             sa.Column("evidence_links_json", sa.Text(), nullable=True),
             sa.Column("confidence", sa.Float(), nullable=True),
             sa.Column("limitations", sa.Text(), nullable=True),
-            sa.Column("clinician_review_required", sa.Boolean(), nullable=False, server_default="1"),
+            sa.Column("clinician_review_required", sa.Boolean(), nullable=False, server_default=sa.text("true")),
             sa.Column("created_at", sa.DateTime(), nullable=False),
             sa.Column("reviewed_at", sa.DateTime(), nullable=True),
             sa.Column("reviewed_by", sa.String(64), nullable=True),
