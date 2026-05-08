@@ -494,8 +494,15 @@ def _select_tables(
     only: Iterable[str],
     skip: Iterable[str],
 ) -> list[str]:
+    skip_set = {t for t in skip if t}
+    only_set = {t for t in only if t}
     sqlite_set = set(sqlite_tables)
     pg_set = set(pg_tables)
+    # Apply --skip-table to BOTH sides before drift comparison so a deliberately
+    # skipped table (e.g. patient_vectors with pgvector absent) doesn't trip the
+    # ABORT below.
+    sqlite_set -= skip_set
+    pg_set -= skip_set
     sqlite_only = sorted(sqlite_set - pg_set)
     pg_only = sorted(pg_set - sqlite_set)
     intersect = sorted(sqlite_set & pg_set)
@@ -510,8 +517,6 @@ def _select_tables(
         )
 
     selected = list(intersect)
-    only_set = {t for t in only if t}
-    skip_set = {t for t in skip if t}
     if only_set:
         bad = only_set - set(selected)
         if bad:
