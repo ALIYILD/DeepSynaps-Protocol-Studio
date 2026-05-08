@@ -687,6 +687,14 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
         ${esc(GOVERNANCE_REQUIRED_COPY)}
         <span style="display:block;margin-top:8px;font-size:11px;color:var(--text-tertiary)">Combine interview, assessments, biometrics, and other modalities — digital cues alone are not diagnostic and may reflect missing or stale data.</span>
       </div>
+      <div role="region" aria-label="Related clinical workspace" style="margin-bottom:14px;padding:12px 16px;border-radius:10px;border:1px solid rgba(74,158,255,0.20);background:rgba(74,158,255,0.04);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:10px;color:var(--blue);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;margin-bottom:2px">Related workspace</div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:2px">Phenotype labels</div>
+          <div style="font-size:11px;color:var(--text-tertiary);line-height:1.4">Clinician hypothesis labels with confidence levels — useful when interpreting whether digital cues align with assigned subtype.</div>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" onclick="window._nav && window._nav('phenotype-analyzer')" style="white-space:nowrap">Open Phenotype Analyzer →</button>
+      </div>
       <div id="dp-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px"></div>
       <div id="dp-body"></div>
     </div>`;
