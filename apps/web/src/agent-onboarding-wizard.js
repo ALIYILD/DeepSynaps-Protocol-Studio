@@ -18,7 +18,7 @@
 // `import.meta.env`).
 // ════════════════════════════════════════════════════════════════════════════════
 
-import { api } from './api.js';
+import { api, API_BASE } from './api.js';
 
 function _obEsc(v) {
   if (v == null) return '';
@@ -51,10 +51,6 @@ let _agentOnb = {
   inviteResult: null,    // { kind: 'ok'|'partial'|'fallback'|'error', text }
 };
 
-function _agentOnbApiBase() {
-  try { return import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'; }
-  catch { return 'http://127.0.0.1:8000'; }
-}
 
 function _agentOnbHeaders() {
   const headers = { 'Content-Type': 'application/json' };

@@ -287,7 +287,7 @@ def load_settings() -> AppSettings:
         ]
 
     try:
-        return AppSettings.model_validate(
+        _settings = AppSettings.model_validate(
             {
                 "app_env": _app_env,
                 "api_title": os.getenv("DEEPSYNAPS_API_TITLE", "DeepSynaps Protocol Studio API"),
@@ -395,6 +395,22 @@ def load_settings() -> AppSettings:
         )
     except ValidationError as exc:
         raise RuntimeError(f"Invalid DeepSynaps environment configuration: {exc}") from exc
+
+    if _app_env in ("production", "staging"):
+        if not (
+            os.getenv("ANTHROPIC_API_KEY", "")
+            or os.getenv("OPENAI_API_KEY", "")
+            or os.getenv("GLM_API_KEY", "")
+            or os.getenv("OPENROUTER_API_KEY", "")
+        ):
+            import logging
+
+            logging.getLogger("app.settings").warning(
+                "No LLM API keys configured (ANTHROPIC_API_KEY, OPENAI_API_KEY, GLM_API_KEY). "
+                "AI chat and summarization features will return deterministic fallbacks."
+            )
+
+    return _settings
 
 
 @lru_cache(maxsize=1)

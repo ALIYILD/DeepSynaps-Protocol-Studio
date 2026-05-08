@@ -1,4 +1,4 @@
-import { api } from './api.js';
+import { api, API_BASE } from './api.js';
 
 /** Shown on AI Agent v2 — required governance copy for clinician-controlled decision support. */
 export const AI_AGENT_V2_GOVERNANCE_COPY =
@@ -935,10 +935,6 @@ function _agentsOrDemo(agents) {
 // the catalog/activity panels can show an "Offline — retry" affordance.
 let _marketplaceAgentsLoadFailed = false;
 
-function _marketplaceApiBase() {
-  try { return import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'; }
-  catch { return 'http://127.0.0.1:8000'; }
-}
 
 async function _fetchMarketplaceAgents() {
   if (_marketplaceLoading) return _marketplaceAgents;

@@ -5,7 +5,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { spinner } from './helpers.js';
-import { api } from './api.js';
+import { api, API_BASE } from './api.js';
 
 /* ── Design-v2 tokens (matches pages-brainmap.js pattern) ─────────────────── */
 const T = {
@@ -208,14 +208,13 @@ function demoUptime() {
 }
 
 /* ── Fetch with fallback ──────────────────────────────────────────────────── */
-const _API_BASE = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
 
 async function fetchOr(endpoint, fallback) {
   try {
     const token = typeof localStorage !== 'undefined' && localStorage.getItem('ds_access_token');
     const headers = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    const res = await fetch(`${_API_BASE}${endpoint}`, { headers });
+    const res = await fetch(`${API_BASE}${endpoint}`, { headers });
     if (!res.ok) {
       const preview = fallback();
       try { preview.__demo = true; } catch {}

@@ -12,12 +12,22 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from fastapi import APIRouter
+
 _VOICE_ENGINE_DIR = (
     Path(__file__).resolve().parents[4] / "packages" / "voice-engine"
 )
 if str(_VOICE_ENGINE_DIR) not in sys.path:
     sys.path.insert(0, str(_VOICE_ENGINE_DIR))
 
-from api.router import router  # noqa: E402
+try:
+    from api.router import router  # noqa: E402
+except ImportError:
+    router = APIRouter()
+
+    @router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+    async def _voice_engine_unavailable(path: str):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=503, detail="voice-engine package not available")
 
 __all__ = ["router"]
