@@ -9,10 +9,16 @@ emit multiple rows — each rooted in a single source text block.
 
 Usage:
     python3 services/evidence-pipeline/extract_protocols.py [--dry] [--limit N]
+                                                            [--csv PATH] [--all-trials]
+
+`--all-trials` runs against every trial with a non-empty interventions_json
+(falls back to text-based modality inference when trial_indications is empty,
+which is the current state on the canonical DB).
 """
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import re
 import sys
@@ -163,21 +169,74 @@ def _parse_block(text: str, modality: str | None) -> dict | None:
 
 # ── Source readers ───────────────────────────────────────────────────────────
 
-def _extract_from_trials(conn, limit: int | None, dry: bool) -> int:
-    rows = conn.execute(
-        "SELECT t.id AS tid, t.nct_id, t.interventions_json, "
-        "i.id AS iid, i.modality "
-        "FROM trials t "
-        "JOIN trial_indications ti ON ti.trial_id = t.id "
-        "JOIN indications i ON i.id = ti.indication_id "
-        + (f"LIMIT {limit}" if limit else "")
-    ).fetchall()
+# Heuristic modality inference from intervention text. Used only when a trial
+# has no entry in trial_indications (current state on the canonical DB; the
+# curated linkage is a follow-up ingest step).
+_MODALITY_HEURISTICS = (
+    ("dTMS",   re.compile(r"\b(?:deep\s*tms|dtms|h[-\s]?coil|brainsway)\b", re.IGNORECASE)),
+    ("rTMS",   re.compile(r"\b(?:r[-\s]?tms|repetitive\s+transcranial|tbs|theta\s*burst|itbs|ctbs|spaced\s*tms)\b", re.IGNORECASE)),
+    ("tDCS",   re.compile(r"\b(?:t[-\s]?dcs|transcranial\s+direct\s+current)\b", re.IGNORECASE)),
+    ("tACS",   re.compile(r"\b(?:t[-\s]?acs|transcranial\s+alternating\s+current)\b", re.IGNORECASE)),
+    ("DBS",    re.compile(r"\b(?:dbs|deep\s+brain\s+stimulation)\b", re.IGNORECASE)),
+    ("VNS",    re.compile(r"\b(?:vns|vagus\s+nerve\s+stim|tavns|auricular)\b", re.IGNORECASE)),
+    ("SCS",    re.compile(r"\b(?:scs|spinal\s+cord\s+stim|burst[-\s]?dr|hf10)\b", re.IGNORECASE)),
+    ("DRG",    re.compile(r"\bdorsal\s+root\s+ganglion\b", re.IGNORECASE)),
+    ("RNS",    re.compile(r"\b(?:rns|responsive\s+neurostim)\b", re.IGNORECASE)),
+    ("HNS",    re.compile(r"\b(?:hns|hypoglossal\s+nerve|inspire)\b", re.IGNORECASE)),
+    ("SNM",    re.compile(r"\b(?:snm|sacral\s+(?:nerve|neuro))\b", re.IGNORECASE)),
+    ("MRgFUS", re.compile(r"\b(?:mrgfus|focused\s+ultrasound|exablate)\b", re.IGNORECASE)),
+    ("PBM",    re.compile(r"\b(?:pbm|photobiomodulation|low[-\s]?level\s+laser|near[-\s]?infrared)\b", re.IGNORECASE)),
+    ("NFB",    re.compile(r"\b(?:neurofeedback|nfb|eeg\s+biofeedback)\b", re.IGNORECASE)),
+)
+
+
+def _infer_modality(text: str) -> str | None:
+    for label, rex in _MODALITY_HEURISTICS:
+        if rex.search(text):
+            return label
+    return None
+
+
+def _extract_from_trials(conn, limit: int | None, dry: bool, all_trials: bool = False) -> int:
+    """Iterate trials and emit one row per intervention arm with extractable params.
+
+    By default joins through trial_indications (uses the curated indication's
+    modality). If `all_trials` is True (or trial_indications is empty), runs
+    against every trial with a non-empty interventions_json and infers modality
+    from the intervention text.
+    """
+    has_curated_links = conn.execute(
+        "SELECT COUNT(*) FROM trial_indications"
+    ).fetchone()[0] > 0
+
+    if all_trials or not has_curated_links:
+        sql = (
+            "SELECT t.id AS tid, t.nct_id, t.interventions_json, "
+            "NULL AS iid, NULL AS modality "
+            "FROM trials t "
+            "WHERE t.interventions_json IS NOT NULL "
+            "  AND t.interventions_json != '' "
+            "  AND t.interventions_json != '[]' "
+            + (f"LIMIT {limit}" if limit else "")
+        )
+    else:
+        sql = (
+            "SELECT t.id AS tid, t.nct_id, t.interventions_json, "
+            "i.id AS iid, i.modality "
+            "FROM trials t "
+            "JOIN trial_indications ti ON ti.trial_id = t.id "
+            "JOIN indications i ON i.id = ti.indication_id "
+            + (f"LIMIT {limit}" if limit else "")
+        )
+
+    rows = conn.execute(sql).fetchall()
     n = 0
     for r in rows:
         ivs = json.loads(r["interventions_json"] or "[]")
         for idx, iv in enumerate(ivs):
             desc = (iv.get("description") or "") + " " + (iv.get("name") or "")
-            rec = _parse_block(desc, r["modality"])
+            modality = r["modality"] or _infer_modality(desc)
+            rec = _parse_block(desc, modality)
             if not rec:
                 continue
             rec["indication_id"] = r["iid"]
@@ -186,6 +245,7 @@ def _extract_from_trials(conn, limit: int | None, dry: bool) -> int:
             rec["arm_label"] = iv.get("name") or f"arm_{idx}"
             if dry:
                 print(f"  ctgov {r['nct_id']} arm={rec['arm_label'][:40]} "
+                      f"mod={rec['modality']} "
                       f"Hz={rec['frequency_hz']} pw={rec['pulse_width_us']} "
                       f"pulses={rec['pulses_per_session']} sessions={rec['total_sessions']} "
                       f"({rec['confidence']})")
@@ -193,6 +253,27 @@ def _extract_from_trials(conn, limit: int | None, dry: bool) -> int:
                 _upsert(conn, rec)
             n += 1
     return n
+
+
+def _export_csv(conn, path: Path, limit: int | None = None) -> int:
+    cols = [
+        "source_type", "source_id", "arm_label", "modality", "target_anatomy",
+        "frequency_hz", "frequency_hz_max", "pulse_width_us",
+        "amplitude_mA", "amplitude_V", "motor_threshold_pct",
+        "pulses_per_session", "session_duration_min", "sessions_per_week",
+        "total_sessions", "total_pulses", "confidence",
+    ]
+    sql = f"SELECT {', '.join(cols)} FROM protocols ORDER BY confidence DESC, source_id"
+    if limit:
+        sql += f" LIMIT {limit}"
+    rows = conn.execute(sql).fetchall()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(cols)
+        for r in rows:
+            w.writerow([r[c] for c in cols])
+    return len(rows)
 
 
 def _extract_from_devices(conn, limit: int | None, dry: bool) -> int:
@@ -225,12 +306,19 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry", action="store_true", help="Parse + print, don't write.")
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--all-trials", action="store_true",
+                    help="Skip trial_indications JOIN; run against every trial "
+                         "with interventions_json (uses text-based modality inference).")
+    ap.add_argument("--csv", type=Path, default=None,
+                    help="After extraction, write the protocols table to this CSV path.")
+    ap.add_argument("--csv-limit", type=int, default=None,
+                    help="Cap rows in the exported CSV (default: all).")
     args = ap.parse_args()
 
     conn = db.connect()
     conn.executescript(SCHEMA)
 
-    n_trials = _extract_from_trials(conn, args.limit, args.dry)
+    n_trials = _extract_from_trials(conn, args.limit, args.dry, args.all_trials)
     n_fda = _extract_from_devices(conn, args.limit, args.dry)
     print(f"extracted {n_trials} trial protocols, {n_fda} FDA protocols ({'dry' if args.dry else 'written'})")
 
@@ -239,7 +327,18 @@ def main() -> None:
         conf = dict(conn.execute(
             "SELECT confidence, count(*) FROM protocols GROUP BY confidence"
         ).fetchall())
+        modality_breakdown = dict(conn.execute(
+            "SELECT COALESCE(modality, 'unknown'), COUNT(*) FROM protocols GROUP BY modality"
+        ).fetchall())
         print(f"protocols in DB: {total}  |  confidence: {conf}")
+        print(f"modality breakdown: {modality_breakdown}")
+
+    if args.csv:
+        if args.dry:
+            print(f"(dry run — skipping CSV export to {args.csv})")
+        else:
+            written = _export_csv(conn, args.csv, args.csv_limit)
+            print(f"csv: wrote {written} rows to {args.csv}")
 
 
 if __name__ == "__main__":
