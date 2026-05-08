@@ -3039,7 +3039,7 @@ function _qeegClinicalSafetyFooter() {
   return '<div data-testid="qeeg-safety-footer" class="qeeg-safety-footer" style="margin-top:24px;padding:14px 16px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border);font-size:12px;color:var(--text-secondary);line-height:1.6">'
     + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:6px">Clinical safety disclaimers</div>'
     + '<ul style="margin:0;padding-left:18px">'
-    + '<li>qEEG findings <strong>support clinical decision-making and require clinician review</strong>.</li>'
+    + '<li>qEEG findings <strong>support interpretation and require clinician review</strong>.</li>'
     + '<li>Z-scores are referenced against the embedded normative dataset (see Normative Model Card).</li>'
     + '<li>Protocol-fit suggestions are decision-support and <strong>are not prescriptive</strong>.</li>'
     + '<li>Red flags require clinician review per local policy before any treatment action.</li>'
@@ -3866,8 +3866,8 @@ var DEMO_QEEG_REPORT = {
       + 'COMPLEXITY:\n'
       + 'Sample entropy (1.52), Higuchi fractal dimension (1.62), and Lempel-Ziv complexity (0.71) are within typical research-norm ranges.\n\n'
       + 'RESEARCH SUMMARY:\n'
-      + 'This is a research and wellness brain map summary. It is informational, is not a medical diagnosis or treatment recommendation, and any findings should be discussed with a qualified clinician.',
-    clinical_overview: 'This research brain map summary describes the relative distribution of EEG features across cortical regions. Frontal channels (F3, F4, Fz) show theta-band elevation with reduced alpha; parietal channels (P3, Pz, P4) show lower alpha amplitude relative to age-norm research databases; occipital channels (O1, O2) show alpha peak frequencies of 10.2Hz and 10.0Hz. Temporal-channel features are within research-norm bands. Discuss any observations with a qualified clinician.',
+      + 'This is a decision-support brain map summary. It is informational, is not a medical diagnosis or treatment recommendation, and any findings should be discussed with a qualified clinician.',
+    clinical_overview: 'This decision-support brain map summary describes the relative distribution of EEG features across cortical regions. Frontal channels (F3, F4, Fz) show theta-band elevation with reduced alpha; parietal channels (P3, Pz, P4) show lower alpha amplitude relative to age-norm research databases; occipital channels (O1, O2) show alpha peak frequencies of 10.2Hz and 10.0Hz. Temporal-channel features are within research-norm bands. Discuss any observations with a qualified clinician.',
     key_observations: {
       frontal: {channels: 'F3, F4, Fz', finding: 'Theta-band elevation (~4.5Hz), reduced alpha (research observation)', impact: 'Associated with attentional-regulation profiles in the research literature'},
       parietal: {channels: 'P3, Pz, P4', finding: 'Lower alpha amplitude relative to research norms', impact: 'Associated with sensory-integration profiles in the research literature'},
@@ -4946,7 +4946,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         ? '<button class="btn btn-primary btn-sm" onclick="window._qeegSelectedId=\'demo\';window._qeegTab=\'analysis\';window._nav(\'qeeg-analysis\')">Open Analysis (demo data)</button>'
         : '';
       tabEl.innerHTML =
-        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);text-align:center">'
+        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:var(--surface-tint-1);border:1px solid var(--border);text-align:center">'
         + '<div style="font-size:32px;margin-bottom:8px">📊</div>'
         + '<div style="font-size:18px;font-weight:700;margin-bottom:6px">No analysis selected</div>'
         + '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">Open the analysis view with sample data, jump to an existing analysis, or upload a new EDF.</div>'
@@ -5479,7 +5479,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
         ? '<button class="btn btn-primary btn-sm" onclick="window._qeegSelectedId=\'demo\';window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')">Open AI Report (demo data)</button>'
         : '';
       tabEl.innerHTML =
-        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);text-align:center">'
+        '<div style="max-width:620px;margin:48px auto;padding:32px;border-radius:14px;background:var(--surface-tint-1);border:1px solid var(--border);text-align:center">'
         + '<div style="font-size:32px;margin-bottom:8px">📝</div>'
         + '<div style="font-size:18px;font-weight:700;margin-bottom:6px">No analysis selected</div>'
         + '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">Open the AI report with sample data, jump to an existing analysis, or upload a new EDF.</div>'
@@ -6320,7 +6320,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
     // Hint when only 2 analyses exist — trend section unlocks at 3
     if (completedAnalyses.length === 2) {
       var trendHintHost = document.createElement('div');
-      trendHintHost.style.cssText = 'margin-top:16px;padding:14px;border-radius:10px;background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.12);font-size:12px;color:var(--text-secondary);text-align:center';
+      trendHintHost.style.cssText = 'margin-top:16px;padding:14px;border-radius:10px;background:var(--surface-tint-1);border:1px dashed rgba(255,255,255,0.12);font-size:12px;color:var(--text-secondary);text-align:center';
       trendHintHost.innerHTML = '<strong>Longitudinal trend</strong> requires <strong>3+ completed analyses</strong>. Upload one more recording to unlock trend tracking.';
       tabEl.appendChild(trendHintHost);
     }
@@ -6833,7 +6833,7 @@ window._qeegExportJSON = function () {
       demo: _isDemoExport,
       disclaimer: _isDemoExport
         ? 'DEMO — not for clinical use. Synthetic sample recording.'
-        : 'qEEG findings support clinical decision-making and require clinician review.',
+        : 'qEEG findings support interpretation and require clinician review.',
     },
     analysis: _currentAnalysis,
   };

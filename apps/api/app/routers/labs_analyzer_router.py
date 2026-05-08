@@ -36,6 +36,7 @@ from app.repositories.labs import (
     get_patient_display_name,
     get_patient_profile,
     insert_lab_result_batch,
+    list_clinic_patients,
 )
 from app.repositories.patients import resolve_patient_clinic_id
 from app.schemas.labs_analyzer import (
@@ -50,6 +51,24 @@ from app.services.labs_analyzer import (
 )
 
 router = APIRouter(prefix="/api/v1/labs/analyzer", tags=["Labs Analyzer"])
+
+
+# core-schema-exempt: clinic-summary response shape; not reused outside this router
+class ClinicLabsPatientSummary(BaseModel):
+    patient_id: str
+    patient_name: str
+    captured_at: str | None = None
+    abnormal_count: int = 0
+    critical_count: int = 0
+    top_flag_label: str = ""
+    top_flag_status: str | None = None
+
+
+# core-schema-exempt: clinic-summary response shape; not reused outside this router
+class ClinicLabsSummaryResponse(BaseModel):
+    patients: list[ClinicLabsPatientSummary] = Field(default_factory=list)
+    total: int = 0
+    captured_at: str | None = None
 
 
 # core-schema-exempt: minimal router-local annotation request body; not reused outside this router
@@ -181,25 +200,63 @@ def _normalize_item(it: LabResultUpsertItem) -> dict:
         or it.analyte
         or ""
     ).strip()
-    code = (it.analyte_code or display.lower().replace(" ", "_") or "unknown")[:64].strip()
+    normalized_code = (it.analyte_code or "").strip()
+    code = (normalized_code or display.lower().replace(" ", "_") or "unknown")[:64].strip()
     if not display:
         raise HTTPException(
             status_code=422,
             detail="lab result requires an analyte name (analyte / analyte_display_name)",
         )
     value_numeric = it.value_numeric if it.value_numeric is not None else it.value
+    sample_collected_at_raw = (it.sample_collected_at or "").strip() or None
+    sample_collected_at = _parse_dt(sample_collected_at_raw)
+    if sample_collected_at_raw and sample_collected_at is None:
+        raise HTTPException(
+            status_code=422,
+            detail="sample_collected_at must be a valid ISO date or datetime",
+        )
+    panel_name = ((it.panel_name or it.panel or "").strip() or None)
+    value_text = ((it.value_text or "").strip() or None)
+    unit_ucum = ((it.unit_ucum or it.unit or "").strip() or None)
+    ref_text = ((it.ref_text or "").strip() or None)
+    if panel_name is not None and len(panel_name) > 255:
+        raise HTTPException(
+            status_code=422,
+            detail="panel_name must be 255 characters or fewer",
+        )
+    if value_text is not None and len(value_text) > 255:
+        raise HTTPException(
+            status_code=422,
+            detail="value_text must be 255 characters or fewer",
+        )
+    if unit_ucum is not None and len(unit_ucum) > 64:
+        raise HTTPException(
+            status_code=422,
+            detail="unit_ucum must be 64 characters or fewer",
+        )
+    if ref_text is not None and len(ref_text) > 255:
+        raise HTTPException(
+            status_code=422,
+            detail="ref_text must be 255 characters or fewer",
+        )
+    source = (((it.source or "").strip().lower()) or "manual")
+    if len(source) > 32:
+        raise HTTPException(
+            status_code=422,
+            detail="source must be 32 characters or fewer",
+        )
     return {
         "analyte_code": code,
         "analyte_display_name": display[:255],
-        "panel_name": it.panel_name or it.panel,
+        "panel_name": panel_name,
         "value_numeric": value_numeric,
-        "value_text": it.value_text,
-        "unit_ucum": it.unit_ucum or it.unit,
+        "value_text": value_text,
+        "unit_ucum": unit_ucum,
         "ref_low": it.ref_low,
         "ref_high": it.ref_high,
-        "ref_text": it.ref_text,
-        "sample_collected_at": _parse_dt(it.sample_collected_at),
-        "source": it.source or "manual",
+        "ref_text": ref_text,
+        "sample_collected_at": sample_collected_at,
+        "source": source,
     }
 
 
@@ -389,6 +446,30 @@ def _audit_event_to_pr457(event: LabReviewAuditEvent) -> dict[str, Any]:
     }
 
 
+def _summarise_profile_for_clinic(profile: dict[str, Any]) -> ClinicLabsPatientSummary:
+    all_results: list[dict[str, Any]] = []
+    for panel in profile.get("panels") or []:
+        if isinstance(panel, dict):
+            all_results.extend(panel.get("results") or [])
+    abnormal = [
+        r for r in all_results
+        if isinstance(r, dict) and r.get("status") and r.get("status") != "normal"
+    ]
+    top = next((r for r in abnormal if r.get("status") == "critical"), None) or (abnormal[0] if abnormal else None)
+    top_label = ""
+    if top:
+        top_label = f"{top.get('analyte', '')} {top.get('value', '')} {top.get('unit') or ''} — {top.get('status', '')}".strip()
+    return ClinicLabsPatientSummary(
+        patient_id=str(profile.get("patient_id") or ""),
+        patient_name=str(profile.get("patient_name") or profile.get("patient_id") or "Patient"),
+        captured_at=profile.get("captured_at"),
+        abnormal_count=len(abnormal),
+        critical_count=sum(1 for r in abnormal if r.get("status") == "critical"),
+        top_flag_label=top_label,
+        top_flag_status=top.get("status") if top else None,
+    )
+
+
 @router.get("/patient/{patient_id}")
 def get_labs_analyzer_payload(
     patient_id: str,
@@ -413,6 +494,7 @@ def get_labs_analyzer_payload(
             timestamp=_ts(),
             payload={"source": "get_labs_analyzer_payload"},
         ),
+        db,
     )
     payload = build_labs_analyzer_payload(
         patient_id,
@@ -422,6 +504,33 @@ def get_labs_analyzer_payload(
         include_ai_narrative=ai_narrative,
     )
     return _fold_to_pr457_shape(payload)
+
+
+@router.get("/clinic/summary", response_model=ClinicLabsSummaryResponse)
+def get_labs_clinic_summary(
+    ai_narrative: bool = Query(False, description="Optional LLM synthesis (requires provider keys)"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    require_minimum_role(actor, "clinician")
+    patients = list_clinic_patients(
+        db,
+        clinic_id=actor.clinic_id,
+        include_all=actor.role == "admin",
+    )
+    items: list[ClinicLabsPatientSummary] = []
+    for patient in patients:
+        display, condition = _patient_profile(db, patient.id)
+        payload = build_labs_analyzer_payload(
+            patient.id,
+            db,
+            patient_name=display,
+            primary_condition=condition,
+            include_ai_narrative=ai_narrative,
+        )
+        items.append(_summarise_profile_for_clinic(_fold_to_pr457_shape(payload)))
+    latest = max((item.captured_at or "" for item in items), default="") or None
+    return ClinicLabsSummaryResponse(patients=items, total=len(items), captured_at=latest)
 
 
 @router.post("/patient/{patient_id}/recompute")
@@ -498,7 +607,7 @@ def post_labs_results_batch(
         timestamp=_ts(),
         payload={"kind": "lab_results_batch", "count": created},
     )
-    append_audit_event(patient_id, event)
+    append_audit_event(patient_id, event, db)
     # Return the audit-shaped event so the frontend can append it to its cache
     # (frontend `addLabResult` expects an audit-item-like object back; the
     # additional `inserted` count is additive context).
@@ -541,7 +650,7 @@ def post_labs_annotation(
             "tags": body.tags,
         },
     )
-    append_audit_event(patient_id, event)
+    append_audit_event(patient_id, event, db)
     return _audit_event_to_pr457(event)
 
 
@@ -576,7 +685,7 @@ def post_labs_review_note(
             "evidence_ack_ids": body.evidence_ack_ids,
         },
     )
-    append_audit_event(patient_id, event)
+    append_audit_event(patient_id, event, db)
     return _audit_event_to_pr457(event)
 
 
@@ -593,7 +702,7 @@ def get_labs_audit(
     if not exists:
         raise HTTPException(status_code=404, detail="Patient not found")
 
-    items = get_audit_trail(patient_id)
+    items = get_audit_trail(patient_id, db)
     # Newest-first to match the frontend cache convention.
     return {
         "patient_id": patient_id,

@@ -7,8 +7,11 @@
  */
 
 import { api } from './api.js';
+import { currentUser } from './auth.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
+
+const CLINICAL_TEXT_ANALYZER_ROLES = new Set(['clinician', 'admin']);
 
 function esc(s) {
   return String(s ?? '')
@@ -48,6 +51,58 @@ const ILLUSTRATIVE_SAMPLE = '**Demo sample note (illustrative only — not a rea
   + 'Patient example, 40 y/o, with anxiety and sleep concerns. Currently on an SSRI '
   + 'and sleep hygiene support. Plan: follow-up in four weeks. Contact on file for clinic use.';
 
+export function canUseTextAnalyzerWorkspace(role, opts = {}) {
+  const normalized = String(role || '').trim().toLowerCase();
+  if (!normalized) return !!opts.allowUnknown;
+  return CLINICAL_TEXT_ANALYZER_ROLES.has(normalized);
+}
+
+export function resolveTextAnalyzerPatientId(win = globalThis?.window) {
+  if (!win) return '';
+  return String(win._selectedPatientId || win._profilePatientId || '').trim();
+}
+
+export function applyTextAnalyzerPatientContext(pageId, patientId, win = globalThis?.window) {
+  const pid = String(patientId || '').trim();
+  if (!pid || !win) return;
+  try { win._selectedPatientId = pid; } catch {}
+  try { win._profilePatientId = pid; } catch {}
+  if (pageId === 'deeptwin') {
+    try { win._deeptwinPatientId = pid; } catch {}
+  }
+}
+
+export function canRunTextAnalyzerLiveOperation(patientId, opts = {}) {
+  const pid = String(patientId || '').trim();
+  if (pid) return true;
+  return !!opts.allowPatientlessDemo;
+}
+
+export function redactTextAnalyzerDeidentifyAuditResponse(res) {
+  if (!res || typeof res !== 'object') return res;
+  const replacements = Array.isArray(res.replacements)
+    ? res.replacements.map((item) => {
+      if (!item || typeof item !== 'object') return item;
+      return {
+        ...item,
+        text: item.text ? '[redacted]' : item.text,
+        value: item.value ? '[redacted]' : item.value,
+        span_text: item.span_text ? '[redacted]' : item.span_text,
+      };
+    })
+    : res.replacements;
+  return { ...res, replacements };
+}
+
+function _renderTextAnalyzerRestrictedCard() {
+  return `<div role="region" aria-label="Text analyzer access restricted" style="max-width:560px;margin:48px auto;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);text-align:center">
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px">Clinician workspace</div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
+      Clinical text extraction and de-identification are restricted to clinician and admin roles because this workspace can process live patient narrative and governed redaction previews.
+    </div>
+  </div>`;
+}
+
 /** Map UI source type values to API `source_type` (see `openmed/schemas.py` SourceType). */
 export function toApiSourceType(v) {
   const m = {
@@ -56,6 +111,10 @@ export function toApiSourceType(v) {
     discharge_summary: 'document_text',
     referral_letter: 'referral',
     research_note: 'transcript',
+    stimulation_log: 'stimulation_log',
+    device_interrogation: 'device_interrogation',
+    programming_note: 'programming_note',
+    session_note: 'session_note',
   };
   return m[v] || 'free_text';
 }
@@ -186,6 +245,81 @@ function _renderAnalyzeResult(res) {
   return html;
 }
 
+
+function _renderNeuromodulationResult(res) {
+  const entities = normaliseEntityRows(res, 'entity');
+  const meta = [];
+  if (res?.backend) meta.push(`Backend: ${res.backend}`);
+  if (res?.schema_id) meta.push(`Schema: ${res.schema_id}`);
+  if (res?.char_count != null) meta.push(`${res.char_count} characters`);
+  const summary = (res?.summary || '').trim();
+  const safeFooter = (res?.safety_footer || '').trim();
+
+  let html = '';
+  if (meta.length) {
+    html += `<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:12px">${esc(meta.join(' · '))}</div>`;
+  }
+  if (summary) {
+    html += `<div style="margin-bottom:16px;padding:12px 14px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,.02)">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-tertiary);margin-bottom:6px">AI-assisted roll-up (not a clinical interpretive report)</div>
+      <div style="font-size:13px;line-height:1.5;color:var(--text-secondary)">${esc(summary)}</div>
+      ${safeFooter ? `<div style="margin-top:8px;font-size:11px;color:var(--text-tertiary)">${esc(safeFooter)}</div>` : ''}
+    </div>`;
+  }
+
+  const neuromodLabels = new Set([
+    'stimulation_protocol', 'device_parameter', 'electrode_placement',
+    'outcome_measure', 'adverse_event', 'neuromodulation_device',
+  ]);
+  const neuroEnts = entities.filter((e) => neuromodLabels.has(String(e.label || '').toLowerCase()));
+  const otherEnts = entities.filter((e) => !neuromodLabels.has(String(e.label || '').toLowerCase()));
+
+  const colors = {
+    stimulation_protocol: '#818cf8',
+    device_parameter: '#34d399',
+    electrode_placement: '#fbbf24',
+    outcome_measure: '#f472b6',
+    adverse_event: '#f87171',
+    neuromodulation_device: '#60a5fa',
+  };
+
+  if (neuroEnts.length) {
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:16px">';
+    const byLabel = {};
+    for (const e of neuroEnts) {
+      const k = String(e.label || 'other');
+      if (!byLabel[k]) byLabel[k] = [];
+      byLabel[k].push(e);
+    }
+    for (const [label, items] of Object.entries(byLabel)) {
+      const color = colors[label] || 'var(--text-secondary)';
+      const title = label.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+      const chips = items.map((e) => `<span style="display:inline-block;padding:4px 8px;border-radius:6px;background:${color}15;border:1px solid ${color}40;font-size:12px;color:${color};margin:2px">${esc(e.text)}</span>`).join('');
+      html += `<div style="padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--bg-card)">
+        <div style="font-size:11px;font-weight:600;color:${color};margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">${esc(title)}</div>
+        <div style="line-height:1.6">${chips}</div>
+      </div>`;
+    }
+    html += '</div>';
+  }
+
+  if (otherEnts.length) {
+    html += _renderEntityTable(otherEnts, { title: 'Other extracted spans' });
+  }
+  if (!neuroEnts.length && !otherEnts.length) {
+    html += '<div style="color:var(--text-tertiary);font-size:12px;padding:8px 0">No neuromodulation-specific spans returned for this pass.</div>';
+  }
+
+  const piiSidecar = normaliseEntityRows(res, 'pii');
+  if (piiSidecar.length) {
+    html += `<details style="margin-top:16px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:var(--bg-card)">
+      <summary style="cursor:pointer;font-size:12px;font-weight:600">PII-like spans also detected (${piiSidecar.length})</summary>
+      <div style="margin-top:10px">${_renderEntityTable(piiSidecar, { title: 'PII candidates' })}</div>
+    </details>`;
+  }
+  return html;
+}
+
 function _renderJsonDetails(label, obj) {
   return `<details style="margin-top:14px;border:1px solid var(--border);border-radius:10px;overflow:hidden">
     <summary style="cursor:pointer;padding:10px 12px;font-weight:600;font-size:12px;background:rgba(255,255,255,.02)">${esc(label)}</summary>
@@ -223,7 +357,7 @@ function _renderResultSection(title, body) {
 }
 
 function _patientSummaryLine() {
-  const pid = typeof window !== 'undefined' ? (window._selectedPatientId || '') : '';
+  const pid = resolveTextAnalyzerPatientId(typeof window !== 'undefined' ? window : undefined);
   if (!pid) {
     return '<span style="color:var(--text-tertiary)">No patient selected — choose a patient from Patients or open a profile first.</span>';
   }
@@ -245,6 +379,12 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
 
   const el = document.getElementById('content');
   if (!el) return;
+  const demoMode = isDemoSession();
+  const actorRole = String(currentUser?.role || '').trim().toLowerCase();
+  if (!canUseTextAnalyzerWorkspace(actorRole, { allowUnknown: demoMode })) {
+    el.innerHTML = _renderTextAnalyzerRestrictedCard();
+    return;
+  }
 
   el.innerHTML = `
     <div class="ds-text-analyzer-shell" style="max-width:980px;margin:0 auto;padding:16px 20px 48px">
@@ -314,6 +454,10 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
               <option value="discharge_summary">Document text</option>
               <option value="referral_letter">Referral</option>
               <option value="research_note">Transcript / session text</option>
+              <option value="stimulation_log">Stimulation log</option>
+              <option value="device_interrogation">Device interrogation report</option>
+              <option value="programming_note">Programming note</option>
+              <option value="session_note">Session note</option>
             </select>
           </div>
           <div>
@@ -330,8 +474,9 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
           <button type="button" class="btn btn-primary" id="ta-analyze">Run extraction</button>
           <button type="button" class="btn btn-ghost" id="ta-pii">Detect PII spans</button>
           <button type="button" class="btn btn-ghost" id="ta-deid">De-identify preview</button>
-          <button type="button" class="btn btn-ghost ${isDemoSession() ? '' : 'is-disabled'}" id="ta-offline-demo"
-            ${isDemoSession() ? '' : 'disabled title="Available in demo-token preview sessions"'}>Show offline demo panel</button>
+          <button type="button" class="btn btn-ghost" id="ta-analyze-neuromod" style="border-color:rgba(99,102,241,.45);color:#818cf8">Neuromodulation extraction</button>
+          <button type="button" class="btn btn-ghost ${demoMode ? '' : 'is-disabled'}" id="ta-offline-demo"
+            ${demoMode ? '' : 'disabled title="Available in demo-token preview sessions"'}>Show offline demo panel</button>
           <span id="ta-status" style="margin-left:4px;font-size:12px;color:var(--text-tertiary)" role="status" aria-live="polite"></span>
         </div>
         <p style="font-size:11px;color:var(--text-tertiary);margin:0;line-height:1.45">
@@ -352,24 +497,24 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
     text: $('ta-text')?.value || '',
     sourceType: toApiSourceType($('ta-source')?.value || 'free_text'),
     locale: $('ta-locale')?.value || 'en',
+    patientId: resolveTextAnalyzerPatientId() || null,
   });
 
   function wireNav(id, page) {
     $(id)?.addEventListener('click', () => {
-      try {
-        if (page === 'deeptwin' && window._selectedPatientId) window._deeptwinPatientId = window._selectedPatientId;
-      } catch (_) {}
+      applyTextAnalyzerPatientContext(page, resolveTextAnalyzerPatientId());
       navigate(page);
     });
   }
 
   wireNav('ta-open-patient-hub', 'patients-hub');
   $('ta-open-profile')?.addEventListener('click', () => {
-    if (!window._selectedPatientId) {
+    const patientId = resolveTextAnalyzerPatientId();
+    if (!patientId) {
       status('Select a patient from Patients (or another workflow) first.');
       return;
     }
-    try { window._profilePatientId = window._selectedPatientId; } catch (_) {}
+    applyTextAnalyzerPatientContext('patient-profile', patientId);
     navigate('patient-profile');
   });
   wireNav('ta-nav-assessments', 'assessments-v2');
@@ -450,10 +595,15 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
     }
   }
 
-  async function _runOp(label, apiCall, renderFn, includeRaw = true) {
+  async function _runOp(label, apiCall, renderFn, includeRaw = true, auditTransform = null, auditEvent = null) {
     const payload = getPayload();
+    const patientId = resolveTextAnalyzerPatientId();
     if (!payload.text.trim()) {
       status('Paste text or load the illustrative sample first.');
+      return;
+    }
+    if (!canRunTextAnalyzerLiveOperation(patientId, { allowPatientlessDemo: demoMode })) {
+      status('Select a patient before running live text analysis.');
       return;
     }
     if (payload.text.length > 200_000) {
@@ -465,13 +615,25 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
       const res = await apiCall(payload);
       status(`${label} complete — review all spans before reuse.`);
       let inner = renderFn(res);
-      if (includeRaw) inner += _renderJsonDetails('Raw API response (audit)', res);
+      if (includeRaw) {
+        const auditPayload = typeof auditTransform === 'function' ? auditTransform(res) : res;
+        inner += _renderJsonDetails('Raw API response (audit)', auditPayload);
+      }
       resultEl().innerHTML = inner;
+      if (patientId && auditEvent && typeof api.recordPatientProfileAuditEvent === 'function') {
+        try {
+          await api.recordPatientProfileAuditEvent(patientId, {
+            event: auditEvent,
+            note: `${label} completed in Text Analyzer`,
+            using_demo_data: !!demoMode,
+          });
+        } catch (_) {}
+      }
     } catch (e) {
       const msg = (e && e.message) || String(e);
       status(`${label} failed.`);
       let extra = '';
-      if (isDemoSession()) {
+      if (demoMode) {
         extra = `<div style="margin-top:12px;font-size:12px;color:var(--text-secondary)">
           Demo-token sessions often cannot reach authenticated NLP routes. Use “Show offline demo panel” for labelled placeholder output, or sign in with a clinician account against the hosted API.</div>`;
       }
@@ -486,6 +648,9 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
     'Entity extraction',
     api.clinicalTextAnalyze,
     (res) => _renderResultSection('Clinical mention extraction (requires review)', _renderAnalyzeResult(res)),
+    true,
+    null,
+    'text_analyzer_extract',
   ));
 
   $('ta-pii')?.addEventListener('click', () => _runOp(
@@ -497,6 +662,9 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
         Candidate personally identifiable spans for redaction review — not a certification that all PHI has been found.</div>`;
       return _renderResultSection('PII span detection', hdr + _renderEntityTable(spans, { title: 'PII candidates' }));
     },
+    true,
+    null,
+    'text_analyzer_pii_detect',
   ));
 
   $('ta-deid')?.addEventListener('click', () => _runOp(
@@ -508,6 +676,18 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
         Algorithmic redaction preview only — verify before sharing externally.${foot ? ` ${esc(foot)}` : ''}</div>`;
       return _renderResultSection('De-identified text preview', hdr + _deidentifiedBody(res));
     },
+    true,
+    redactTextAnalyzerDeidentifyAuditResponse,
+    'text_analyzer_deidentify',
+  ));
+
+  $('ta-analyze-neuromod')?.addEventListener('click', () => _runOp(
+    'Neuromodulation extraction',
+    api.clinicalTextAnalyzeNeuromodulation,
+    (res) => _renderResultSection('Neuromodulation extraction (requires review)', _renderNeuromodulationResult(res)),
+    true,
+    null,
+    'text_analyzer_neuromod_extract',
   ));
 
   $('ta-offline-demo')?.addEventListener('click', () => {
@@ -518,9 +698,17 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
   await refreshBackendStatus();
   updateMetaHint();
 
-  if (isDemoSession()) {
+  if (demoMode) {
     const ta = $('ta-text');
-    if (ta && !ta.value.trim()) ta.value = ANALYZER_DEMO_FIXTURES.text.source_text;
+    const src = $('ta-source')?.value || '';
+    if (ta && !ta.value.trim()) {
+      const neuroTypes = ['stimulation_log', 'device_interrogation', 'programming_note', 'session_note'];
+      if (neuroTypes.includes(src) && ANALYZER_DEMO_FIXTURES.text.neuro) {
+        ta.value = ANALYZER_DEMO_FIXTURES.text.neuro.source_text;
+      } else {
+        ta.value = ANALYZER_DEMO_FIXTURES.text.source_text;
+      }
+    }
     updateMetaHint();
   }
 }

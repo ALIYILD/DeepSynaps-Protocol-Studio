@@ -21,6 +21,7 @@ from app.persistence.models import (
     DigitalPhenotypingObservation,
     DigitalPhenotypingPatientState,
     Patient,
+    User,
 )
 
 
@@ -34,6 +35,30 @@ def get_patient_display_name(session: Session, patient_id: str) -> Optional[str]
     parts = [row.first_name or "", row.last_name or ""]
     name = " ".join(p for p in parts if p).strip()
     return name or None
+
+
+def list_clinic_patients(
+    session: Session,
+    *,
+    clinic_id: str | None,
+    include_all: bool = False,
+) -> list[Patient]:
+    """Return active patients visible to a clinic dashboard.
+
+    Non-admin callers pass their ``clinic_id`` and only see active patients
+    whose assigned clinician belongs to that clinic. Admin callers can set
+    ``include_all=True`` to see the full active surface.
+    """
+    stmt = (
+        select(Patient)
+        .join(User, User.id == Patient.clinician_id, isouter=True)
+        .where(Patient.status == "active")
+    )
+    if not include_all:
+        if not clinic_id:
+            return []
+        stmt = stmt.where(User.clinic_id == clinic_id)
+    return list(session.execute(stmt).scalars().all())
 
 
 def load_or_create_state(

@@ -656,12 +656,23 @@ def build_brain_age_score(
 
     is_stub = bool(brain_age_payload.get("is_stub"))
     if is_stub:
-        cautions.append(
-            Caution(
-                code="stub-model-fallback",
-                severity="warning",
-                message="Brain-age model fell back to deterministic stub — interpret with caution.",
-            )
+        return _no_data_response(
+            "brain_age",
+            "years",
+            cautions=[
+                Caution(
+                    code="no_calibrated_model",
+                    severity="warning",
+                    message="Brain-age output is withheld because the upstream model fell back to a deterministic stub.",
+                )
+            ],
+            model_id=f"brain-age-{source}-withheld",
+            inputs={
+                "predicted_years": predicted,
+                "chronological_years": brain_age_payload.get("chronological_years"),
+                "target_source": source,
+                "withheld": True,
+            },
         )
 
     chrono = brain_age_payload.get("chronological_years")
@@ -955,19 +966,18 @@ def build_response_probability_score(
     primary_target: str = "depression",
     evidence_refs: Optional[list[EvidenceRef]] = None,
 ) -> ScoreResponse:
-    """Response probability — research-grade; cohort-similarity prior.
+    """Response probability is withheld until a validated model exists.
 
-    NEVER asserts a calibrated probability. Uses the qEEG ``*_like``
-    similarity index for the primary target as a *prior* and explicitly
-    caps confidence at MED.
+    The earlier cohort-similarity prior was an exploratory heuristic, not a
+    calibrated response model. Live clinician APIs should not publish a
+    numeric response-probability score until a validated model is connected.
     """
     cautions: list[Caution] = [
         Caution(
-            code="research-grade-score",
+            code="no_calibrated_model",
             severity="warning",
             message=(
-                "Response probability has no calibrated clinical model. "
-                "Surfaced as research-grade prior only — NOT a probability of clinical response."
+                "Response probability output is withheld until a validated clinical model exists."
             ),
         ),
         Caution(
@@ -986,65 +996,15 @@ def build_response_probability_score(
         "insomnia": "insomnia_like",
     }
     label = target_to_label.get(primary_target.lower(), "mdd_like")
-
-    if not isinstance(qeeg_risk_payload, dict):
-        return _no_data_response(
-            "response_probability",
-            "research_grade",
-            cautions=cautions,
-            model_id="response-cohort-prior-v1",
-        )
-    block = qeeg_risk_payload.get(label)
+    block = qeeg_risk_payload.get(label) if isinstance(qeeg_risk_payload, dict) else None
     sim = _safe_float(block.get("score")) if isinstance(block, dict) else None
-    if sim is None:
-        return _no_data_response(
-            "response_probability",
-            "research_grade",
-            cautions=cautions,
-            model_id="response-cohort-prior-v1",
-        )
-
-    # Higher similarity → higher prior of response (very rough!) — cap at 0.7.
-    prior = round(min(0.7, max(0.05, sim * 0.85)), 3)
-    contributors = [
-        TopContributor(
-            feature=label,
-            weight=sim,
-            direction="higher_when_better_match",
-            value=sim,
-        )
-    ]
-    confidence = cap_confidence(
-        "med",
-        has_validated_anchor=False,
-        research_grade=True,
-    )
-    provenance = MethodProvenance(
-        model_id="response-cohort-prior-v1",
-        version="v1",
-        inputs_hash=hash_inputs({"label": label, "sim": sim, "target": primary_target}),
-        upstream_is_stub=True,
-    )
-    out = ScoreResponse(
-        score_id="response_probability",
-        value=prior,
-        scale="research_grade",
-        interpretation=(
-            f"Cohort-similarity prior = {prior:.2f} for target '{primary_target}'; "
-            "may indicate alignment with responder cohort — NOT a calibrated probability. "
-            "Discuss with clinician."
-        ),
-        confidence=confidence,
-        uncertainty_band=None,
-        top_contributors=contributors,
-        assessment_anchor=None,
-        evidence_refs=evidence_refs or [],
+    return _no_data_response(
+        "response_probability",
+        "research_grade",
         cautions=cautions,
-        method_provenance=provenance,
-        computed_at=_now(),
+        model_id="response-cohort-prior-withheld-v1",
+        inputs={"label": label, "sim": sim, "target": primary_target, "withheld": True},
     )
-    _emit_log("response_probability", provenance, confidence)
-    return out
 
 
 # ── Aggregator ───────────────────────────────────────────────────────────────

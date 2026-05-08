@@ -255,6 +255,8 @@ def override_risk_category(
     """Clinician manual override of a risk category traffic light."""
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, patient_id, db)
+    level = (body.level or "").strip().lower()
+    reason = (body.reason or "").strip()
 
     if category not in RISK_CATEGORIES:
         raise ApiServiceError(
@@ -262,15 +264,21 @@ def override_risk_category(
             message=f"Invalid category: {category}. Must be one of {RISK_CATEGORIES}",
             status_code=422,
         )
-    if body.level not in ("green", "amber", "red"):
+    if level not in ("green", "amber", "red"):
         raise ApiServiceError(
             code="invalid_level",
             message="Level must be green, amber, or red",
             status_code=422,
         )
+    if not reason:
+        raise ApiServiceError(
+            code="invalid_reason",
+            message="Reason is required",
+            status_code=422,
+        )
 
     res = apply_category_override(
-        patient_id, category, body.level, body.reason, actor.actor_id, db
+        patient_id, category, level, reason, actor.actor_id, db
     )
     if not res.get("ok"):
         raise ApiServiceError(
@@ -278,7 +286,7 @@ def override_risk_category(
             message="Patient or risk category not found",
             status_code=404,
         )
-    return {"status": "ok", "category": category, "override_level": body.level}
+    return {"status": "ok", "category": category, "override_level": level}
 
 
 @router.post("/patient/{patient_id}/recompute", response_model=PatientRiskProfile)

@@ -205,6 +205,11 @@ def test_clinical_scores_owning_clinician_succeeds(
     body = resp.json()
     assert body["patient_id"] == pid
     assert "scores" in body
+    response_probability = body["scores"]["response_probability"]
+    assert response_probability["value"] is None
+    assert response_probability["confidence"] == "no_data"
+    caution_codes = {c["code"] for c in response_probability.get("cautions") or []}
+    assert "no_calibrated_model" in caution_codes
 
 
 # ── Profile shape ─────────────────────────────────────────────────────────────
@@ -286,6 +291,27 @@ def test_override_sets_level_and_creates_audit_entry(
     ), f"No audit entry found for override: {items}"
 
 
+def test_override_trims_reason_before_persist(
+    client: TestClient, risk_setup: dict[str, Any]
+) -> None:
+    pid = risk_setup["patient_id"]
+    headers = _auth(risk_setup["token_a"])
+
+    resp = client.post(
+        f"/api/v1/risk/patient/{pid}/suicide_risk/override",
+        json={"level": " RED ", "reason": "  Clinical escalation  "},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["override_level"] == "red"
+
+    profile = client.get(f"/api/v1/risk/patient/{pid}", headers=headers)
+    assert profile.status_code == 200, profile.text
+    cats = {c["category"]: c for c in profile.json()["categories"]}
+    assert cats["suicide_risk"]["override_reason"] == "Clinical escalation"
+    assert cats["suicide_risk"]["override_level"] == "red"
+
+
 def test_override_rejects_invalid_level(
     client: TestClient, risk_setup: dict[str, Any]
 ) -> None:
@@ -296,6 +322,20 @@ def test_override_rejects_invalid_level(
         headers=_auth(risk_setup["token_a"]),
     )
     assert resp.status_code == 422, resp.text
+
+
+def test_override_rejects_blank_reason(
+    client: TestClient, risk_setup: dict[str, Any]
+) -> None:
+    pid = risk_setup["patient_id"]
+    resp = client.post(
+        f"/api/v1/risk/patient/{pid}/suicide_risk/override",
+        json={"level": "red", "reason": "   "},
+        headers=_auth(risk_setup["token_a"]),
+    )
+    assert resp.status_code == 422, resp.text
+    body = resp.json()
+    assert body["code"] == "invalid_reason"
 
 
 def test_override_rejects_invalid_category(

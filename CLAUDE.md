@@ -57,3 +57,25 @@ gh pr list --state open              # what's still in flight
 gh run list --branch main --limit 3  # CI state on main
 gh pr merge <N> --squash --admin     # land when CI blocked on billing
 ```
+
+## Deploy Configuration (configured by /setup-deploy)
+- Platform: Fly.io (API) + Netlify (web preview)
+- Production URL: https://deepsynaps-studio.fly.dev
+- Preview URL: https://deepsynaps-studio-preview.netlify.app
+- Deploy workflow: .github/workflows/deploy-netlify.yml
+- Deploy status command: fly status --app deepsynaps-studio
+- Merge method: squash
+- Project type: web app + API
+- Post-deploy health check: https://deepsynaps-studio.fly.dev/health
+
+### Custom deploy hooks
+- Pre-merge: npm run build (inside apps/web)
+- Deploy trigger: automatic on push to main (Netlify via GitHub Actions; Fly via fly deploy)
+- Deploy status: fly status --app deepsynaps-studio
+- Health check: curl -sf https://deepsynaps-studio.fly.dev/health
+
+### Notes
+- Fly app `deepsynaps-studio` runs in `lhr` region with 3 processes: app (FastAPI), qeeg_worker (Celery), stripe_worker.
+- Netlify preview is built from repo root with `npm run build:web` and publishes `apps/web/dist`.
+- API calls from Netlify are proxied to Fly backend via `_redirects` in netlify.toml.
+- VITE_ENABLE_DEMO=1 on Netlify so landing-page demo buttons work without backend.

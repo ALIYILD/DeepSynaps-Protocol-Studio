@@ -147,14 +147,14 @@ def _emit_phenotype_audit(
     if actor.clinic_id:
         parts.append(f"clinic_id={actor.clinic_id}")
     if extra_note:
-        parts.append(extra_note[:400])
+        parts.append(extra_note)
     note = "; ".join(parts)
     create_audit_event(
         session=db,
         event_id=event_id,
         target_id=patient_id,
         target_type=SURFACE,
-        action=action[:32],
+        action=action,
         role=actor.role,
         actor_id=actor.actor_id,
         note=note,
@@ -219,18 +219,31 @@ def post_phenotype_audit_event(
     db: Session = Depends(get_db_session),
 ) -> PhenotypeAuditEventAck:
     require_minimum_role(actor, "clinician")
+    event = (body.event or "").strip()
+    if not event:
+        raise ApiServiceError(
+            code="invalid_event",
+            message="Audit event must not be blank.",
+            status_code=422,
+        )
+    if len(event) > 32:
+        raise ApiServiceError(
+            code="invalid_event",
+            message="Audit event must be 32 characters or fewer.",
+            status_code=422,
+        )
 
     if body.patient_id:
         _gate_patient_scoped(actor, body.patient_id, db)
 
     target_pid = body.patient_id or actor.actor_id
-    extra = body.note or ""
+    extra = (body.note or "").strip()
     if body.using_demo_data:
         extra = (extra + "; demo_mode=1").strip("; ")
     eid = _emit_phenotype_audit(
         db,
         actor,
-        action=body.event[:32],
+        action=event,
         patient_id=target_pid,
         extra_note=extra or None,
     )
@@ -247,6 +260,42 @@ def create_phenotype_assignment(
 
     _gate_patient_scoped(actor, body.patient_id, db)
 
+    phenotype_id = body.phenotype_id.strip()
+    phenotype_name = body.phenotype_name.strip()
+    domain = body.domain.strip() if isinstance(body.domain, str) else None
+    rationale = body.rationale.strip() if isinstance(body.rationale, str) else None
+
+    if not phenotype_id:
+        raise ApiServiceError(
+            code="invalid_phenotype_id",
+            message="Phenotype id must not be blank.",
+            status_code=422,
+        )
+    if len(phenotype_id) > 64:
+        raise ApiServiceError(
+            code="invalid_phenotype_id",
+            message="Phenotype id must be 64 characters or fewer.",
+            status_code=422,
+        )
+    if not phenotype_name:
+        raise ApiServiceError(
+            code="invalid_phenotype_name",
+            message="Phenotype name must not be blank.",
+            status_code=422,
+        )
+    if len(phenotype_name) > 255:
+        raise ApiServiceError(
+            code="invalid_phenotype_name",
+            message="Phenotype name must be 255 characters or fewer.",
+            status_code=422,
+        )
+    if domain and len(domain) > 120:
+        raise ApiServiceError(
+            code="invalid_domain",
+            message="Domain must be 120 characters or fewer.",
+            status_code=422,
+        )
+
     if body.confidence is not None and body.confidence.lower() not in _VALID_CONFIDENCES:
         raise ApiServiceError(
             code="invalid_confidence",
@@ -259,15 +308,19 @@ def create_phenotype_assignment(
         try:
             assigned_at = datetime.fromisoformat(body.assigned_at.rstrip("Z"))
         except ValueError:
-            pass
+            raise ApiServiceError(
+                code="invalid_assigned_at",
+                message="assigned_at must be a valid ISO datetime.",
+                status_code=422,
+            )
 
     record = PhenotypeAssignment(
         patient_id=body.patient_id,
         clinician_id=actor.actor_id,
-        phenotype_id=body.phenotype_id,
-        phenotype_name=body.phenotype_name.strip(),
-        domain=body.domain,
-        rationale=body.rationale,
+        phenotype_id=phenotype_id,
+        phenotype_name=phenotype_name,
+        domain=domain or None,
+        rationale=rationale or None,
         qeeg_supported=body.qeeg_supported,
         confidence=body.confidence.lower() if body.confidence else None,
         assigned_at=assigned_at,

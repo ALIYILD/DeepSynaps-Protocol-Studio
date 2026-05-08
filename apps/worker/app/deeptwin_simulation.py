@@ -5,7 +5,6 @@ import logging
 import os
 from typing import Any
 
-import numpy as np
 from pydantic import BaseModel, Field
 
 
@@ -57,8 +56,9 @@ def run_deeptwin_simulation(job: DeeptwinSimulationJob) -> dict[str, Any]:
       message rather than 500ing.
     - If `autoresearch` is importable, return a structured placeholder
       describing integration state (``not_implemented``).
-    - Otherwise run a deterministic stub simulation so the UI and audit
-      plumbing can ship.
+    - Otherwise fail closed with ``not_implemented`` rather than emitting
+      deterministic placeholder trajectories that can be mistaken for a
+      live simulation engine.
     """
     if not _is_simulation_enabled():
         _log.warning(
@@ -89,21 +89,22 @@ def run_deeptwin_simulation(job: DeeptwinSimulationJob) -> dict[str, Any]:
     except Exception:
         pass
 
-    base = abs(hash((job.patient_id, job.protocol_id))) % 1000
-    rng = np.random.default_rng(base)
-    days = list(range(0, job.horizon_days + 1, 7))
-    v = 0.0
-    curve = []
-    for d in days:
-        v += float(rng.normal(loc=-0.15, scale=0.05))
-        curve.append({"day": d, "delta_symptom_score": round(v, 3)})
-
     return {
-        "engine": {"name": "stub", "status": "placeholder", "real_ai": False,
-                   "notice": "No production simulation model is connected. "
-                             "Output is deterministic placeholder data for UI development only."},
+        "engine": {
+            "name": "deeptwin_simulation",
+            "status": "not_implemented",
+            "real_ai": False,
+            "notice": (
+                "No validated simulation engine is connected. "
+                "Placeholder trajectories are disabled."
+            ),
+        },
+        "status": "not_implemented",
         "job_id": job.job_id,
-        "timecourse": curve,
-        "modalities_used": job.modalities,
-        "scenario": job.scenario,
+        "inputs_echo": job.model_dump(),
+        "reason": "no_validated_simulation_engine",
+        "message": (
+            "DeepTwin simulation is not implemented. "
+            "Requests must fail closed until a validated engine is available."
+        ),
     }

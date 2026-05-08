@@ -1,3 +1,116 @@
+"""Dashboard router demo readiness tests.
+
+Scope:
+  - /api/v1/dashboard/overview does not crash on empty DB
+  - demo-seeded DB returns stable shape
+  - /api/v1/dashboard/search returns route-compatible url_path values
+  - audit-write failures do not break responses (best-effort)
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+from sqlalchemy.orm import Session
+
+
+def _mk_demo_patient(db: Session, *, pid: str, clinician_id: str) -> None:
+    from app.persistence.models import Patient
+
+    db.add(Patient(
+        id=pid,
+        clinician_id=clinician_id,
+        first_name="DEMO",
+        last_name=f"Patient {pid[-4:]}",
+        dob="1980-01-01",
+        email=None,
+        phone=None,
+        gender="prefer_not_to_say",
+        primary_condition="Demo",
+        primary_modality="Demo",
+        consent_signed=True,
+        consent_date="2026-01-01",
+        status="active",
+        notes="[DEMO] synthetic non-PHI sample record",
+    ))
+
+
+def test_dashboard_overview_empty_db_does_not_crash(client, auth_headers) -> None:
+    r = client.get("/api/v1/dashboard/overview", headers=auth_headers["clinician"])
+    assert r.status_code == 200
+    body = r.json()
+    assert "metrics" in body
+    assert "schedule" in body
+    assert "safety_flags" in body
+    assert "activity_feed" in body
+    assert "system_health" in body
+
+
+def test_dashboard_overview_demo_seed_returns_complete_shape(client, auth_headers) -> None:
+    # Seed a minimal demo cohort directly to the authenticated clinician actor.
+    from app.database import SessionLocal
+    from app.persistence.models import TreatmentCourse
+
+    db = SessionLocal()
+    try:
+        clinician_id = "actor-clinician-demo"
+        _mk_demo_patient(db, pid="P-DEMO-1", clinician_id=clinician_id)
+        _mk_demo_patient(db, pid="P-DEMO-2", clinician_id=clinician_id)
+        now = datetime.now(timezone.utc)
+        db.add(TreatmentCourse(
+            id="C-DEMO-1",
+            patient_id="P-DEMO-1",
+            clinician_id=clinician_id,
+            protocol_id="demo-proto",
+            condition_slug="mdd",
+            modality_slug="tDCS",
+            device_slug="demo",
+            target_region="DLPFC",
+            evidence_grade="A",
+            on_label=True,
+            planned_sessions_total=20,
+            planned_sessions_per_week=3,
+            planned_session_duration_minutes=30,
+            status="active",
+            sessions_delivered=4,
+            review_required=False,
+            updated_at=now,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.get("/api/v1/dashboard/overview", headers=auth_headers["clinician"])
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("is_demo") is True
+    assert isinstance(body.get("metrics"), dict)
+    assert "active_caseload" in body["metrics"]
+    assert isinstance(body.get("schedule"), list)
+    assert isinstance(body.get("safety_flags"), list)
+    assert isinstance(body.get("activity_feed"), list)
+
+
+def test_dashboard_search_returns_route_compatible_url_paths(client, auth_headers) -> None:
+    from app.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        _mk_demo_patient(db, pid="P-DEMO-SEARCH", clinician_id="actor-clinician-demo")
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.get("/api/v1/dashboard/search?q=demo", headers=auth_headers["clinician"])
+    assert r.status_code == 200
+    body = r.json()
+    assert body["query"] == "demo"
+    # Patients group should contain at least one routeable result.
+    groups = body.get("groups") or {}
+    pats = groups.get("Patients") or []
+    assert isinstance(pats, list)
+    assert any("patient-profile" in (p.get("url_path") or "") for p in pats)
+
 """Tests for the dashboard router."""
 import pytest
 from fastapi.testclient import TestClient
@@ -74,6 +187,20 @@ def test_overview_audit_log_created():
     assert r.status_code == 200
 
 
+def test_overview_audit_failure_does_not_break(monkeypatch):
+    """Audit logging failures must never break the overview response."""
+    from app.repositories import audit as audit_repo
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("audit write failed")
+
+    monkeypatch.setattr(audit_repo, "create_audit_event", _boom)
+    r = client.get("/api/v1/dashboard/overview", headers=AUTH_HDR)
+    assert r.status_code == 200
+    data = r.json()
+    assert "metrics" in data
+
+
 def test_search_requires_auth():
     """Search must require authentication."""
     r = client.get("/api/v1/dashboard/search?q=test")
@@ -125,3 +252,22 @@ def test_search_case_insensitive():
     assert r.status_code == 200
     data = r.json()
     assert data["total"] >= 1
+
+
+def test_demo_seed_populates_overview_shape():
+    """Synthetic demo seed should populate schedule, flags, and inbox surfaces."""
+    from app.database import SessionLocal
+    from app.services.demo_clinic_seed import seed_demo_clinic_data
+
+    db = SessionLocal()
+    try:
+        seed_demo_clinic_data(db)
+    finally:
+        db.close()
+
+    r = client.get("/api/v1/dashboard/overview", headers=AUTH_HDR)
+    assert r.status_code == 200
+    data = r.json()
+    assert "metrics" in data
+    assert "schedule" in data and isinstance(data["schedule"], list)
+    assert "safety_flags" in data and isinstance(data["safety_flags"], list)

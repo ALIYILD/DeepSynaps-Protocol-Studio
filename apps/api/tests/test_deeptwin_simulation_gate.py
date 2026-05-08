@@ -2,8 +2,8 @@
 
 Covers:
 - Settings-level default-by-environment behavior + explicit override.
-- Worker behavior (returns disabled stub + WARNING log when off; falls
-  through to existing simulation path when on).
+- Worker behavior (returns disabled status + WARNING log when off; fails
+  closed with not_implemented when on but no validated engine exists).
 - Router behavior (HTTP 503 with deeptwin_simulation_disabled when off).
 """
 from __future__ import annotations
@@ -191,17 +191,12 @@ def test_worker_proceeds_past_gate_when_flag_on(
 
     # We don't fully assert the simulation shape — just that the gate is
     # past and one of the existing branches (autoresearch=not_implemented
-    # OR deterministic stub) was taken.
+    # OR fail-closed no-engine path) was taken.
     assert result.get("status") != "disabled"
     if result.get("status") == "not_implemented":
-        # autoresearch branch
-        assert result["engine"]["name"] == "autoresearch"
+        assert result["engine"]["name"] in {"autoresearch", "deeptwin_simulation"}
     else:
-        # deterministic stub branch
-        assert result["engine"]["name"] == "stub"
-        assert result["job_id"] == "job-gate-on"
-        assert isinstance(result["timecourse"], list)
-        assert result["timecourse"]
+        pytest.fail(f"unexpected worker simulation status: {result!r}")
 
 
 # ---------------------------------------------------------------------------

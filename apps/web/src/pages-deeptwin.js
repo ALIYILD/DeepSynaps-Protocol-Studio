@@ -14,7 +14,7 @@
 //  11. Safety footer
 //
 // Loading state, error block, and "no patient selected" empty state are
-// all handled. Falls back to deterministic demo data when API is empty.
+// all handled. Real clinician sessions fail closed on backend errors.
 
 import {
   getTwinSummary, getTwinSignals, getTwinTimeline, getTwinCorrelations,
@@ -22,6 +22,7 @@ import {
   createAnalysisRun, listAnalysisRuns, reviewAnalysisRun,
   createSimulationRun, listSimulationRuns, reviewSimulationRun,
   createClinicianNote, listClinicianNotes,
+  shouldUseDeepTwinDemoFixtures,
 } from './deeptwin/service.js';
 import {
   renderHeader, renderDataSources, renderSignalMatrix,
@@ -44,6 +45,7 @@ import {
   renderDashboard360, renderDashboard360Skeleton,
   wireDashboard360Actions, loadDashboard360,
 } from './deeptwin/dashboard360.js';
+import { renderNeuroAiLabSection, wireNeuroAiLab } from './deeptwin/neuroai-lab.js';
 
 const HOST_TIMELINE = 'dt-timeline-host';
 const HOST_CORR     = 'dt-corr-host';
@@ -58,15 +60,39 @@ function _selectedPatientId() {
 }
 
 function _resolvePatientLabel(patientId) {
-  const demo = getDemoPatient(patientId);
+  const demo = shouldUseDeepTwinDemoFixtures() ? getDemoPatient(patientId) : null;
   return demo?.name || patientId || 'Unknown patient';
 }
 
 function _resolveCondition(patientId) {
-  const demo = getDemoPatient(patientId);
+  const demo = shouldUseDeepTwinDemoFixtures() ? getDemoPatient(patientId) : null;
   if (!demo) return '';
   const sec = (demo.secondary || []).join(', ');
   return demo.primary + (sec ? ` · ${sec}` : '');
+}
+
+function _hashDeepTwinExportToken(value) {
+  const input = String(value || '').trim().toLowerCase();
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36).slice(0, 8) || '0';
+}
+
+export function buildDeepTwinExportFilename(kind, patientId, extension) {
+  const safeKind = String(kind || 'report')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '') || 'report';
+  const safeExt = String(extension || 'json')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '') || 'txt';
+  const patientToken = shouldUseDeepTwinDemoFixtures()
+    ? 'demo-patient'
+    : `patient-${_hashDeepTwinExportToken(patientId || 'unknown')}`;
+  return `deeptwin_${safeKind}_${patientToken}.${safeExt}`;
 }
 
 function _injectStylesOnce() {
@@ -78,7 +104,9 @@ function _injectStylesOnce() {
 const STATE = {
   patientId: '',
   summary: null,
+  signalsPayload: null,
   signals: null,
+  timelinePayload: null,
   timeline: null,
   correlations: null,
   prediction: null,
@@ -90,6 +118,14 @@ const STATE = {
   simulationRuns: [],
   clinicianNotes: [],
 };
+
+export function deeptwinHasPatientScope(patientId) {
+  return !!String(patientId || '').trim();
+}
+
+export function deeptwinResolvedTab(patientId, requestedTab) {
+  return deeptwinHasPatientScope(patientId) ? (requestedTab || 'overview') : 'overview';
+}
 
 function _setMain(html) {
   // The host element is content (Brain-Twin pattern) but page modules in
@@ -114,10 +150,12 @@ async function _loadAll(patientId) {
     listClinicianNotes(patientId),
   ]);
   STATE.summary = summary;
+  STATE.signalsPayload = signals;
   STATE.signals = signals?.signals || [];
+  STATE.timelinePayload = timeline;
   STATE.timeline = timeline?.events || [];
   STATE.correlations = correlations;
-  STATE.prediction = prediction;
+  STATE.prediction = prediction ? { ...prediction, horizon: prediction?.horizon || STATE.predictionHorizon } : { horizon: STATE.predictionHorizon };
   STATE.dataSources = dataSources;
   STATE.analysisRuns = Array.isArray(analysisRuns) ? analysisRuns : [];
   STATE.simulationRuns = Array.isArray(simulationRuns) ? simulationRuns : [];
@@ -131,11 +169,16 @@ function _renderAll() {
     <div class="dt-page">
       ${_renderTabStrip(STATE.activeTab || 'overview')}
       ${decisionSupportBanner()}
+      ${renderNeuroAiLabSection({
+        patientId: STATE.patientId,
+        timeline: STATE.timeline,
+        dataSources: STATE.dataSources,
+      })}
       ${_voiceDomainHintBanner()}
       ${renderHeader({ patientLabel, condition, summary: STATE.summary, dataSources: STATE.dataSources })}
       ${renderDataSources({ summary: STATE.summary, dataSources: STATE.dataSources })}
-      ${renderSignalMatrix({ signals: STATE.signals })}
-      ${renderTimeline({ patientId: STATE.patientId }, HOST_TIMELINE)}
+      ${renderSignalMatrix({ signals: STATE.signals, signalState: STATE.signalsPayload })}
+      ${renderTimeline({ patientId: STATE.patientId, timeline: STATE.timelinePayload, selectedKinds: STATE.timelineFilters }, HOST_TIMELINE)}
       ${renderCorrelations({ correlations: STATE.correlations }, HOST_CORR)}
       ${renderCausal({ correlations: STATE.correlations })}
       ${renderPrediction({ prediction: STATE.prediction }, HOST_PRED)}
@@ -164,6 +207,7 @@ function _renderAll() {
   _wireTabStrip();
   _wireHistoryReviewButtons();
   _wireClinicianNoteForm();
+  wireNeuroAiLab(STATE.patientId, STATE.timeline, STATE.dataSources);
 }
 
 function _wireTimelineFilters() {
@@ -188,7 +232,14 @@ function _wirePredictionTabs() {
       const host = document.getElementById(HOST_PRED);
       if (host) host.innerHTML = loadingBlock('Recomputing…');
       const pred = await getTwinPredictions(STATE.patientId, h);
-      STATE.prediction = pred;
+      STATE.prediction = pred ? { ...pred, horizon: pred?.horizon || h } : { horizon: h };
+      const section = document.getElementById('dt-prediction-section');
+      if (section) {
+        section.outerHTML = renderPrediction({ prediction: STATE.prediction }, HOST_PRED);
+        mountPrediction(HOST_PRED, STATE.prediction);
+        _wirePredictionTabs();
+        return;
+      }
       mountPrediction(HOST_PRED, pred);
     });
   });
@@ -363,9 +414,9 @@ function _wireReportButtons() {
           </div>
         `;
         out.querySelector('button[data-dl="json"]')?.addEventListener('click', () =>
-          downloadBlob(`deeptwin_${kind}_${STATE.patientId}.json`, reportToJSONString(report), 'application/json'));
+          downloadBlob(buildDeepTwinExportFilename(kind, STATE.patientId, 'json'), reportToJSONString(report), 'application/json'));
         out.querySelector('button[data-dl="md"]')?.addEventListener('click', () =>
-          downloadBlob(`deeptwin_${kind}_${STATE.patientId}.md`, reportToMarkdown(report), 'text/markdown'));
+          downloadBlob(buildDeepTwinExportFilename(kind, STATE.patientId, 'md'), reportToMarkdown(report), 'text/markdown'));
       } catch (e) {
         out.innerHTML = errorBlock('Report failed: ' + (e.message || e));
       }
@@ -499,6 +550,7 @@ function _setTopbar(setTopbar) {
 }
 
 function _renderTabStrip(active) {
+  const hasPatient = deeptwinHasPatientScope(STATE.patientId);
   const tabs = [
     { id: 'overview', label: 'Overview' },
     { id: '360', label: '360 Dashboard' },
@@ -510,7 +562,8 @@ function _renderTabStrip(active) {
     <nav class="dt-tabs" role="tablist" aria-label="DeepTwin views">
       ${tabs.map(t => `
         <button class="dt-tab ${t.id === active ? 'dt-tab--active' : ''}"
-                data-dt-tab="${t.id}" role="tab" aria-selected="${t.id === active}">
+                data-dt-tab="${t.id}" role="tab" aria-selected="${t.id === active}"
+                ${!hasPatient && t.id !== 'overview' ? 'aria-disabled="true" title="Select a patient first"' : ''}>
           ${t.label}
         </button>
       `).join('')}
@@ -538,7 +591,15 @@ function _wireTabStrip(setTopbar) {
   document.querySelectorAll('button[data-dt-tab]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const tab = btn.dataset.dtTab;
-      STATE.activeTab = tab;
+      if (!deeptwinHasPatientScope(STATE.patientId)) {
+        STATE.activeTab = 'overview';
+        try { sessionStorage.setItem('ds_dt_active_tab', 'overview'); } catch {}
+        _setMain(`<div class="dt-page">${_renderTabStrip('overview')}${decisionSupportBanner()}${emptyPatientBlock()}${renderSafetyFooter()}</div>`);
+        _wireTabStrip(_setTopbarRef);
+        window._showToast?.('Select a patient first.', 'warning');
+        return;
+      }
+      STATE.activeTab = deeptwinResolvedTab(STATE.patientId, tab);
       sessionStorage.setItem('ds_dt_active_tab', tab);
       await _renderActiveTab(_setTopbarRef);
     });
@@ -547,7 +608,13 @@ function _wireTabStrip(setTopbar) {
 
 async function _renderActiveTab(setTopbar) {
   const patientId = STATE.patientId;
-  const active = STATE.activeTab || 'overview';
+  const active = deeptwinResolvedTab(patientId, STATE.activeTab);
+  STATE.activeTab = active;
+  if (!deeptwinHasPatientScope(patientId)) {
+    _setMain(`<div class="dt-page">${_renderTabStrip('overview')}${decisionSupportBanner()}${emptyPatientBlock()}${renderSafetyFooter()}</div>`);
+    _wireTabStrip(setTopbar);
+    return;
+  }
   if (active === '360') {
     _setMain(`<div class="dt-page">${_renderTabStrip('360')}${renderDashboard360Skeleton()}</div>`);
     _wireTabStrip();
@@ -630,11 +697,11 @@ export async function pgDeeptwin(setTopbar /* , navigate */) {
   _injectStylesOnce();
   const patientId = _selectedPatientId();
   STATE.patientId = patientId;
-  STATE.activeTab = sessionStorage.getItem('ds_dt_active_tab') || 'overview';
+  STATE.activeTab = deeptwinResolvedTab(patientId, sessionStorage.getItem('ds_dt_active_tab') || 'overview');
   _setTopbar(setTopbar);
 
-  if (!patientId) {
-    _setMain(`<div class="dt-page">${_renderTabStrip(STATE.activeTab)}${decisionSupportBanner()}${emptyPatientBlock()}${renderSafetyFooter()}</div>`);
+  if (!deeptwinHasPatientScope(patientId)) {
+    _setMain(`<div class="dt-page">${_renderTabStrip('overview')}${decisionSupportBanner()}${emptyPatientBlock()}${renderSafetyFooter()}</div>`);
     _wireTabStrip(setTopbar);
     return;
   }

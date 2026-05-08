@@ -18,9 +18,9 @@ Honesty rules (enforced here, not in the UI):
   assessments in 90 days).
 - ``available`` means rows exist with reasonable coverage.
 
-Prediction confidence is reported with ``status="placeholder"`` and
-``real_ai=False`` until a validated model is wired in. We never claim
-calibrated confidence we don't have.
+Prediction output is withheld with ``available=False`` and
+``status="not_implemented"`` until a validated model is wired in. We
+never surface plausible-looking confidence or predictions we do not have.
 """
 
 from __future__ import annotations
@@ -37,6 +37,9 @@ from app.persistence.models import (
     AssessmentRecord,
     AudioAnalysis,
     ClinicalSession,
+    DeepTwinAnalysisRun,
+    DeepTwinClinicianNote,
+    DeepTwinSimulationRun,
     PatientLabResult,
     Message,
     MriAnalysis,
@@ -178,6 +181,82 @@ def _domain(
         # invent a new one here.
         "upload_links": list(upload_links or []),
     }
+
+
+def _coerce_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return None
+
+
+def _to_iso(value: Any) -> str | None:
+    parsed = _coerce_datetime(value)
+    return parsed.isoformat() if parsed else None
+
+
+def _decode_json_blob(value: Any) -> Any:
+    if value is None or isinstance(value, (dict, list, int, float, bool)):
+        return value
+    if not isinstance(value, str):
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _shorten(value: Any, limit: int = 180) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit - 1].rstrip()}…"
+
+
+def _timeline_severity(value: Any, *, default: str = "info") -> str:
+    sev = str(value or "").strip().lower()
+    if sev in {"serious", "severe", "urgent", "high"}:
+        return "warn"
+    if sev in {"warning", "moderate", "medium", "mild"}:
+        return "watch"
+    return default
+
+
+def _timeline_event(
+    items: list[tuple[datetime, dict[str, Any]]],
+    *,
+    ts: Any,
+    kind: str,
+    label: str,
+    severity: str = "info",
+    ref: str | None = None,
+) -> None:
+    parsed = _coerce_datetime(ts)
+    if parsed is None:
+        return
+    items.append((
+        parsed,
+        {
+            "ts": parsed.isoformat(),
+            "kind": kind,
+            "label": label,
+            "severity": severity,
+            "ref": ref,
+        },
+    ))
 
 
 def _identity(session: Session, patient: Patient) -> dict[str, Any]:
@@ -563,29 +642,402 @@ def _outcomes(session: Session, patient_id: str) -> tuple[dict[str, Any], dict[s
 
 
 def _twin_predictions(_session: Session, _patient_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Honest placeholder: model is deterministic synthetic, not validated."""
+    """Fail closed until a validated prediction model exists."""
     card = _domain(
-        "twin_predictions", status="partial",
-        summary="DeepTwin predictions are model-estimated and uncalibrated.",
+        "twin_predictions", status="unavailable",
+        summary="DeepTwin prediction output is withheld until a validated model is connected.",
         warnings=[
-            "DeepTwin model is currently a deterministic placeholder; "
-            "no validated outcome calibration.",
+            "No validated DeepTwin prediction model or outcome calibration is connected.",
         ],
     )
     pred_block = {
-        "status": "placeholder",
+        "available": False,
+        "status": "not_implemented",
         "real_ai": False,
         "confidence": None,
-        "confidence_label": "Not calibrated",
-        "summary": "Decision-support only. Requires clinician review.",
+        "confidence_label": "Withheld",
+        "summary": "DeepTwin prediction output is withheld until a validated model is connected.",
+        "reason": "no_validated_prediction_model",
         "drivers": [],
         "limitations": [
-            "No validated outcome dataset bound to this engine.",
-            "Encoders are deterministic feature extractors, not trained ML.",
-            "Predictions must not be used as autonomous treatment recommendations.",
+            "No validated outcome dataset is bound to a production prediction engine.",
+            "Prediction output is intentionally withheld instead of rendering deterministic placeholders.",
+            "DeepTwin must not be used as an autonomous treatment recommendation engine.",
         ],
     }
     return card, pred_block
+
+
+def _timeline(session: Session, patient_id: str, *, limit: int = 40) -> list[dict[str, Any]]:
+    items: list[tuple[datetime, dict[str, Any]]] = []
+
+    assessments = session.scalars(
+        select(AssessmentRecord)
+        .where(AssessmentRecord.patient_id == patient_id)
+        .order_by(AssessmentRecord.created_at.desc())
+        .limit(12)
+    ).all()
+    for row in assessments:
+        title = row.template_title or row.template_id or "Assessment"
+        _timeline_event(
+            items,
+            ts=row.completed_at or row.created_at,
+            kind="assessment",
+            label=f"Assessment submitted: {title}",
+            ref=row.id,
+        )
+        _timeline_event(
+            items,
+            ts=row.reviewed_at,
+            kind="review",
+            label=f"Assessment reviewed: {title}",
+            ref=row.id,
+        )
+
+    sessions = session.scalars(
+        select(ClinicalSession)
+        .where(ClinicalSession.patient_id == patient_id)
+        .order_by(ClinicalSession.created_at.desc())
+        .limit(12)
+    ).all()
+    for row in sessions:
+        label = "Clinical session logged"
+        if row.session_number:
+            label = f"Session {row.session_number} logged"
+        if row.modality:
+            label = f"{label}: {row.modality}"
+        _timeline_event(
+            items,
+            ts=row.completed_at or row.scheduled_at or row.created_at,
+            kind="session",
+            label=label,
+            severity="info" if row.status == "completed" else "watch",
+            ref=row.id,
+        )
+
+    qeeg_rows = session.scalars(
+        select(QEEGRecord)
+        .where(QEEGRecord.patient_id == patient_id)
+        .order_by(QEEGRecord.created_at.desc())
+        .limit(8)
+    ).all()
+    for row in qeeg_rows:
+        recording_type = row.recording_type or "qEEG"
+        _timeline_event(
+            items,
+            ts=row.created_at,
+            kind="qeeg",
+            label=f"qEEG recorded: {recording_type}",
+            ref=row.id,
+        )
+
+    mri_rows = session.scalars(
+        select(MriAnalysis)
+        .where(MriAnalysis.patient_id == patient_id)
+        .order_by(MriAnalysis.created_at.desc())
+        .limit(8)
+    ).all()
+    for row in mri_rows:
+        label = f"MRI analysis {row.state or 'queued'}"
+        _timeline_event(
+            items,
+            ts=row.reviewed_at or row.created_at,
+            kind="mri",
+            label=label,
+            severity="watch" if row.reviewed_at is None else "info",
+            ref=row.analysis_id,
+        )
+
+    medication_rows = session.scalars(
+        select(PatientMedication)
+        .where(PatientMedication.patient_id == patient_id)
+        .order_by(PatientMedication.updated_at.desc())
+        .limit(10)
+    ).all()
+    for row in medication_rows:
+        action = "started" if row.active else "updated"
+        _timeline_event(
+            items,
+            ts=row.started_at or row.updated_at or row.created_at,
+            kind="medication",
+            label=f"Medication {action}: {row.name}",
+            ref=row.id,
+        )
+
+    series_rows = session.scalars(
+        select(OutcomeSeries)
+        .where(OutcomeSeries.patient_id == patient_id)
+        .order_by(OutcomeSeries.administered_at.desc())
+        .limit(10)
+    ).all()
+    for row in series_rows:
+        detail = f" score {row.score}" if row.score not in (None, "") else ""
+        _timeline_event(
+            items,
+            ts=row.administered_at,
+            kind="outcome",
+            label=f"Outcome captured: {row.template_title}{detail}",
+            ref=row.id,
+        )
+
+    outcome_rows = session.scalars(
+        select(OutcomeEvent)
+        .where(OutcomeEvent.patient_id == patient_id)
+        .order_by(OutcomeEvent.recorded_at.desc())
+        .limit(12)
+    ).all()
+    for row in outcome_rows:
+        _timeline_event(
+            items,
+            ts=row.recorded_at,
+            kind="outcome",
+            label=f"Outcome event: {row.title}",
+            severity=_timeline_severity(row.severity),
+            ref=row.id,
+        )
+
+    adverse_rows = session.scalars(
+        select(AdverseEvent)
+        .where(AdverseEvent.patient_id == patient_id)
+        .order_by(AdverseEvent.reported_at.desc())
+        .limit(12)
+    ).all()
+    for row in adverse_rows:
+        _timeline_event(
+            items,
+            ts=row.reported_at,
+            kind="safety",
+            label=f"Adverse event: {row.event_type}",
+            severity=_timeline_severity(row.severity, default="watch"),
+            ref=row.id,
+        )
+
+    alert_rows = session.scalars(
+        select(WearableAlertFlag)
+        .where(WearableAlertFlag.patient_id == patient_id)
+        .order_by(WearableAlertFlag.triggered_at.desc())
+        .limit(12)
+    ).all()
+    for row in alert_rows:
+        _timeline_event(
+            items,
+            ts=row.triggered_at,
+            kind="wearable_flag",
+            label=f"Wearable flag: {row.flag_type}",
+            severity=_timeline_severity(row.severity, default="watch"),
+            ref=row.id,
+        )
+
+    analysis_rows = session.scalars(
+        select(DeepTwinAnalysisRun)
+        .where(DeepTwinAnalysisRun.patient_id == patient_id)
+        .order_by(DeepTwinAnalysisRun.created_at.desc())
+        .limit(12)
+    ).all()
+    for row in analysis_rows:
+        label = f"DeepTwin analysis completed: {row.analysis_type}"
+        if row.model_name:
+            label = f"{label} ({row.model_name})"
+        _timeline_event(
+            items,
+            ts=row.created_at,
+            kind="analysis",
+            label=label,
+            ref=row.id,
+        )
+        _timeline_event(
+            items,
+            ts=row.reviewed_at,
+            kind="review",
+            label=f"DeepTwin analysis reviewed: {row.analysis_type}",
+            ref=row.id,
+        )
+
+    simulation_rows = session.scalars(
+        select(DeepTwinSimulationRun)
+        .where(DeepTwinSimulationRun.patient_id == patient_id)
+        .order_by(DeepTwinSimulationRun.created_at.desc())
+        .limit(12)
+    ).all()
+    for row in simulation_rows:
+        _timeline_event(
+            items,
+            ts=row.created_at,
+            kind="simulation",
+            label="DeepTwin simulation saved",
+            severity="watch" if row.clinician_review_required else "info",
+            ref=row.id,
+        )
+        _timeline_event(
+            items,
+            ts=row.reviewed_at,
+            kind="review",
+            label="DeepTwin simulation reviewed",
+            ref=row.id,
+        )
+
+    note_rows = session.scalars(
+        select(DeepTwinClinicianNote)
+        .where(DeepTwinClinicianNote.patient_id == patient_id)
+        .order_by(DeepTwinClinicianNote.created_at.desc())
+        .limit(12)
+    ).all()
+    for row in note_rows:
+        _timeline_event(
+            items,
+            ts=row.created_at,
+            kind="note",
+            label=f"Clinician note added: {_shorten(row.note_text, 72)}",
+            ref=row.id,
+        )
+
+    items.sort(key=lambda item: item[0], reverse=True)
+    return [payload for _, payload in items[:limit]]
+
+
+def _extract_correlation_cards(payload: Any) -> list[dict[str, Any]]:
+    cards: list[dict[str, Any]] = []
+    decoded = _decode_json_blob(payload)
+    if not isinstance(decoded, dict):
+        return cards
+
+    nested = decoded.get("correlation")
+    if nested is not None:
+        cards.extend(_extract_correlation_cards(nested))
+
+    for key in ("cards", "priority_pairs"):
+        raw_cards = decoded.get(key)
+        if not isinstance(raw_cards, list):
+            continue
+        for raw in raw_cards:
+            if not isinstance(raw, dict):
+                continue
+            left = raw.get("left") or raw.get("a")
+            right = raw.get("right") or raw.get("b")
+            if not left or not right:
+                continue
+            strength = raw.get("strength")
+            if strength is None:
+                strength = raw.get("score")
+            if strength is None:
+                strength = raw.get("abs_strength")
+            try:
+                strength = round(float(strength), 3) if strength is not None else None
+            except (TypeError, ValueError):
+                strength = strength
+            cards.append({
+                "left": str(left),
+                "right": str(right),
+                "strength": strength,
+                "confidence": raw.get("confidence"),
+                "n_observations": raw.get("n_observations"),
+                "evidence_grade": raw.get("evidence_grade"),
+                "note": raw.get("note") or raw.get("clinical_readout") or raw.get("interpretation"),
+            })
+    return cards
+
+
+def _correlations(session: Session, patient_id: str, *, limit: int = 10) -> list[dict[str, Any]]:
+    runs = session.scalars(
+        select(DeepTwinAnalysisRun)
+        .where(DeepTwinAnalysisRun.patient_id == patient_id)
+        .order_by(DeepTwinAnalysisRun.created_at.desc())
+        .limit(20)
+    ).all()
+
+    seen: set[tuple[str, str]] = set()
+    correlations: list[dict[str, Any]] = []
+    for run in runs:
+        for card in _extract_correlation_cards(run.output_summary_json):
+            pair_key = (card["left"], card["right"])
+            if pair_key in seen:
+                continue
+            seen.add(pair_key)
+            correlations.append({
+                **card,
+                "source_run_id": run.id,
+                "source_model_name": run.model_name,
+                "observed_at": _to_iso(run.created_at),
+            })
+            if len(correlations) >= limit:
+                return correlations
+    return correlations
+
+
+def _clinician_notes(session: Session, patient_id: str, *, limit: int = 25) -> list[dict[str, Any]]:
+    rows = session.scalars(
+        select(DeepTwinClinicianNote)
+        .where(DeepTwinClinicianNote.patient_id == patient_id)
+        .order_by(DeepTwinClinicianNote.created_at.desc())
+        .limit(limit)
+    ).all()
+    return [
+        {
+            "id": row.id,
+            "author": row.clinician_id,
+            "at": _to_iso(row.created_at),
+            "text": row.note_text,
+            "related_analysis_id": row.related_analysis_id,
+            "related_simulation_id": row.related_simulation_id,
+        }
+        for row in rows
+    ]
+
+
+def _review(session: Session, patient_id: str) -> dict[str, Any]:
+    reviewables: list[dict[str, Any]] = []
+
+    analysis_rows = session.scalars(
+        select(DeepTwinAnalysisRun)
+        .where(DeepTwinAnalysisRun.patient_id == patient_id)
+        .order_by(DeepTwinAnalysisRun.created_at.desc())
+        .limit(25)
+    ).all()
+    for row in analysis_rows:
+        reviewables.append({
+            "kind": "analysis",
+            "id": row.id,
+            "created_at": _coerce_datetime(row.created_at),
+            "reviewed_at": _coerce_datetime(row.reviewed_at),
+            "reviewed_by": row.reviewed_by,
+        })
+
+    simulation_rows = session.scalars(
+        select(DeepTwinSimulationRun)
+        .where(DeepTwinSimulationRun.patient_id == patient_id)
+        .order_by(DeepTwinSimulationRun.created_at.desc())
+        .limit(25)
+    ).all()
+    for row in simulation_rows:
+        reviewables.append({
+            "kind": "simulation",
+            "id": row.id,
+            "created_at": _coerce_datetime(row.created_at),
+            "reviewed_at": _coerce_datetime(row.reviewed_at),
+            "reviewed_by": row.reviewed_by,
+        })
+
+    if not reviewables:
+        return {
+            "reviewed": False,
+            "reviewed_by": None,
+            "reviewed_at": None,
+            "pending_items": 0,
+        }
+
+    latest = max(
+        reviewables,
+        key=lambda item: item["created_at"] or datetime.min.replace(tzinfo=timezone.utc),
+    )
+    reviewed = latest["reviewed_at"] is not None
+    return {
+        "reviewed": reviewed,
+        "reviewed_by": latest["reviewed_by"] if reviewed else None,
+        "reviewed_at": _to_iso(latest["reviewed_at"]) if reviewed else None,
+        "pending_items": sum(1 for item in reviewables if item["reviewed_at"] is None),
+        "source_kind": latest["kind"],
+        "source_id": latest["id"],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -679,6 +1131,10 @@ def build_dashboard_payload(session: Session, patient: Patient) -> dict[str, Any
         "red_flags": wearable_flags,
         "medication_confounds": [],  # left empty until med-confound rules are wired
     }
+    timeline = _timeline(session, pid)
+    correlations = _correlations(session, pid)
+    clinician_notes = _clinician_notes(session, pid)
+    review_block = _review(session, pid)
 
     return {
         "patient_id": pid,
@@ -687,15 +1143,11 @@ def build_dashboard_payload(session: Session, patient: Patient) -> dict[str, Any
         "completeness": _completeness(domains),
         "safety": safety_block,
         "domains": domains,
-        "timeline": [],          # populated by deeptwin v1 timeline endpoint
-        "correlations": [],      # populated by deeptwin v1 correlations endpoint
+        "timeline": timeline,
+        "correlations": correlations,
         "outcomes": outcomes_block,
         "prediction_confidence": prediction_block,
-        "clinician_notes": [],
-        "review": {
-            "reviewed": False,
-            "reviewed_by": None,
-            "reviewed_at": None,
-        },
+        "clinician_notes": clinician_notes,
+        "review": review_block,
         "disclaimer": DASHBOARD_DISCLAIMER,
     }

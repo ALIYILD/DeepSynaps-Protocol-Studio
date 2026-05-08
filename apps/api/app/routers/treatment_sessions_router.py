@@ -157,9 +157,17 @@ def _aggregate_sign_review(rows: list[ClinicalSessionEvent]) -> tuple[
     pay_r = _parse_payload(latest_review) if latest_review else {}
 
     signed_by_raw = pay_s.get("signed_by") if latest_sign else None
-    signed_by = signed_by_raw if isinstance(signed_by_raw, str) else (latest_sign.actor_id if latest_sign else None)
+    signed_by = (
+        signed_by_raw.strip()
+        if isinstance(signed_by_raw, str) and signed_by_raw.strip()
+        else (latest_sign.actor_id if latest_sign else None)
+    )
     reviewed_by_raw = pay_r.get("reviewed_by") if latest_review else None
-    reviewed_by = reviewed_by_raw if isinstance(reviewed_by_raw, str) else (latest_review.actor_id if latest_review else None)
+    reviewed_by = (
+        reviewed_by_raw.strip()
+        if isinstance(reviewed_by_raw, str) and reviewed_by_raw.strip()
+        else (latest_review.actor_id if latest_review else None)
+    )
 
     sign_status: SignStatus = "signed" if latest_sign else "pending"
     review_status: ReviewStatus = "reviewed" if latest_review else ("pending" if latest_sign else "unknown")
@@ -194,8 +202,16 @@ def batch_session_sign_status(
             status_code=422,
         )
 
-    c_ids = list(dict.fromkeys([c for c in body.course_ids if c]))
-    s_ids = list(dict.fromkeys([s for s in body.session_ids if s]))
+    c_ids = list(
+        dict.fromkeys(
+            [(c or "").strip() for c in body.course_ids if (c or "").strip()]
+        )
+    )
+    s_ids = list(
+        dict.fromkeys(
+            [(s or "").strip() for s in body.session_ids if (s or "").strip()]
+        )
+    )
 
     if not c_ids and not s_ids:
         raise ApiServiceError(

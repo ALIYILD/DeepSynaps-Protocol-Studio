@@ -29,12 +29,83 @@ const DOMAIN_LABEL = {
   outcomes: 'Outcomes',
 };
 
+const UNAVAILABLE_STATUSES = new Set(['unavailable', 'withheld', 'not_implemented', 'not_available', 'disabled']);
+
+function _humanizeReason(reason) {
+  const raw = String(reason || '').trim();
+  if (!raw) return '';
+  return raw
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^./, (ch) => ch.toUpperCase());
+}
+
+function _sectionAvailability(payload, hasContent) {
+  const status = String(
+    payload?.status
+    || payload?.availability_status
+    || payload?.availability
+    || payload?.prediction_confidence?.status
+    || '',
+  ).toLowerCase();
+  const reason = payload?.reason
+    || payload?.availability_reason
+    || payload?.prediction_confidence?.reason
+    || '';
+  const summary = payload?.summary
+    || payload?.message
+    || payload?.detail
+    || payload?.prediction_confidence?.summary
+    || '';
+  if (payload?.available === false || payload?.withheld === true || UNAVAILABLE_STATUSES.has(status)) {
+    return { kind: 'unavailable', status, reason, summary };
+  }
+  if (!hasContent) {
+    return { kind: 'empty', status, reason, summary };
+  }
+  return null;
+}
+
+function _renderSectionState({
+  title,
+  body,
+  status,
+  reason,
+  tone = 'amber',
+}) {
+  const bits = [];
+  if (status) bits.push(`status: ${status}`);
+  if (reason) bits.push(`reason: ${reason}`);
+  const meta = bits.length
+    ? `<div class="dt-muted" style="font-size:11px;margin-top:8px">${escHtml(bits.join(' · '))}</div>`
+    : '';
+  return `
+    <div class="dt-notice dt-notice-${tone}" role="status" style="margin-top:12px">
+      <strong>${escHtml(title)}</strong> ${escHtml(body)}
+      ${meta}
+    </div>
+  `;
+}
+
 // 1. Twin status header --------------------------------------------------
 export function renderHeader({ patientLabel, condition, summary, dataSources }) {
   const demoRibbon = (summary?.is_demo_view || dataSources?.is_demo_view)
     ? `<div class="dt-notice dt-notice-amber" role="status" style="margin-bottom:12px">
         <strong>Demo / offline session.</strong> Twin metrics below are seeded for UI review — connect a clinician API session for patient-linked aggregation.
       </div>`
+    : '';
+  const hasSummaryContent = !!summary && Object.keys(summary).length > 0;
+  const summaryState = _sectionAvailability(summary, hasSummaryContent);
+  const summaryNotice = summaryState
+    ? _renderSectionState({
+        title: summaryState.kind === 'unavailable' ? 'Overview summary unavailable.' : 'Overview summary pending.',
+        body: summaryState.summary
+          || (summaryState.kind === 'unavailable'
+            ? (_humanizeReason(summaryState.reason) || 'Patient-linked summary fields were withheld for this session.')
+            : 'No patient-linked summary metadata has been aggregated yet.'),
+        status: summaryState.status,
+        reason: summaryState.reason,
+      })
     : '';
   const compl = dataSources?.completeness_score != null
     ? Math.round(dataSources.completeness_score * 100)
@@ -46,9 +117,12 @@ export function renderHeader({ patientLabel, condition, summary, dataSources }) 
     ? Object.keys(dataSources.sources).length
     : (sources + (summary?.sources_missing || []).length);
   const updated = summary?.last_updated ? new Date(summary.last_updated).toLocaleString() : '—';
+  const risk = summary?.risk_status ? riskChip(summary.risk_status) : '';
+  const review = summary?.review_status ? reviewStatusChip(summary.review_status) : '';
   return `
     <section class="dt-header card">
       ${demoRibbon}
+      ${summaryNotice}
       <div class="dt-header-left">
         <div class="dt-avatar">${escHtml((patientLabel || '?').slice(0, 2).toUpperCase())}</div>
         <div>
@@ -56,8 +130,8 @@ export function renderHeader({ patientLabel, condition, summary, dataSources }) 
           <div class="dt-title">${escHtml(patientLabel || 'No patient selected')}</div>
           <div class="dt-sub">${escHtml(condition || '')}</div>
           <div class="dt-meta">
-            ${riskChip(summary?.risk_status)}
-            ${reviewStatusChip(summary?.review_status)}
+            ${risk}
+            ${review}
             <span class="dt-chip dt-chip-muted">Last updated ${escHtml(updated)}</span>
             <span class="dt-chip dt-chip-muted">${sources}/${total} sources connected</span>
           </div>
@@ -76,6 +150,21 @@ export function renderDataSources({ summary, dataSources }) {
   // Prefer real data-sources map (migration 063); fall back to summary shape.
   if (dataSources?.sources) {
     const entries = Object.entries(dataSources.sources);
+    if (!entries.length) {
+      return `
+        <section class="card dt-section">
+          <header class="dt-section-h"><h3>Data sources</h3>
+            <span class="dt-section-sub">Clinic-ingested availability</span>
+          </header>
+          ${_renderSectionState({
+            title: 'Source inventory pending.',
+            body: 'No patient-linked source availability has been reported yet for this session.',
+            status: dataSources?.status,
+            reason: dataSources?.reason,
+          })}
+        </section>
+      `;
+    }
     const cells = entries.filter(([, s]) => s.available).map(([key, s]) => {
       const stale = s.last_updated && (Date.now() - new Date(s.last_updated).getTime() > 90 * 86400000);
       return `
@@ -103,6 +192,21 @@ export function renderDataSources({ summary, dataSources }) {
   }
   const connected = summary?.sources_connected || [];
   const missing = summary?.sources_missing || [];
+  if (!connected.length && !missing.length) {
+    return `
+      <section class="card dt-section">
+        <header class="dt-section-h"><h3>Data sources</h3>
+          <span class="dt-section-sub">What this twin currently knows about</span>
+        </header>
+        ${_renderSectionState({
+          title: 'Source inventory pending.',
+          body: 'No source availability summary is available for this patient yet.',
+          status: summary?.status,
+          reason: summary?.reason,
+        })}
+      </section>
+    `;
+  }
   const cells = connected.map(s => `
     <div class="dt-src dt-src-on">
       <div class="dt-src-label">${escHtml(s.label || s.key)}</div>
@@ -127,8 +231,26 @@ export function renderDataSources({ summary, dataSources }) {
 }
 
 // 3. Signal matrix -------------------------------------------------------
-export function renderSignalMatrix({ signals }) {
-  if (!signals || !signals.length) return '';
+export function renderSignalMatrix({ signals, signalState }) {
+  const state = _sectionAvailability(signalState, Array.isArray(signals) && signals.length > 0);
+  if (state) {
+    return `
+      <section class="card dt-section">
+        <header class="dt-section-h"><h3>Patient signal matrix</h3>
+          <span class="dt-section-sub">Current value, delta vs baseline, and 12-point trend per metric.</span>
+        </header>
+        ${_renderSectionState({
+          title: state.kind === 'unavailable' ? 'Signals unavailable.' : 'No patient-linked signals yet.',
+          body: state.summary
+            || (state.kind === 'unavailable'
+              ? (_humanizeReason(state.reason) || 'Signal aggregation was withheld for this clinician session.')
+              : 'DeepTwin will populate this matrix after patient-linked metrics are ingested.'),
+          status: state.status,
+          reason: state.reason,
+        })}
+      </section>
+    `;
+  }
   const grouped = {};
   for (const s of signals) {
     grouped[s.domain] = grouped[s.domain] || [];
@@ -175,26 +297,71 @@ export function renderSignalMatrix({ signals }) {
 
 // 4. Timeline ------------------------------------------------------------
 const ALL_KINDS = ['session', 'assessment', 'qeeg', 'symptom', 'biometric'];
-export function renderTimeline({ patientId }, hostId) {
+export function renderTimeline({ patientId: _patientId, timeline, selectedKinds }, hostId) {
+  const hasEvents = Array.isArray(timeline?.events) && timeline.events.length > 0;
+  const state = _sectionAvailability(timeline, hasEvents);
+  const selected = Array.isArray(selectedKinds) && selectedKinds.length ? selectedKinds : ALL_KINDS;
+  if (state) {
+    return `
+      <section class="card dt-section">
+        <header class="dt-section-h"><h3>Timeline intelligence</h3>
+          <span class="dt-section-sub">Sessions, assessments, qEEG events, symptom reports, and biometrics aligned by date.</span>
+        </header>
+        ${_renderSectionState({
+          title: state.kind === 'unavailable' ? 'Timeline unavailable.' : 'No timeline events available yet.',
+          body: state.summary
+            || (state.kind === 'unavailable'
+              ? (_humanizeReason(state.reason) || 'Timeline aggregation was withheld for this clinician session.')
+              : 'No patient-linked timeline events are available for the selected window.'),
+          status: state.status,
+          reason: state.reason,
+        })}
+      </section>
+    `;
+  }
   return `
     <section class="card dt-section">
       <header class="dt-section-h"><h3>Timeline intelligence</h3>
         <span class="dt-section-sub">Sessions, assessments, qEEG events, symptom reports, and biometrics aligned by date.</span>
       </header>
       <div class="dt-timeline-filters">
-        ${ALL_KINDS.map(k => `<label class="dt-chk"><input type="checkbox" data-tl-kind="${k}" checked> ${k}</label>`).join('')}
+        ${ALL_KINDS.map(k => `<label class="dt-chk"><input type="checkbox" data-tl-kind="${k}" ${selected.includes(k) ? 'checked' : ''}> ${k}</label>`).join('')}
       </div>
       <div id="${hostId}" class="dt-chart-host"></div>
     </section>
   `;
 }
 export function mountTimeline(hostId, events, overlays) {
+  if (!Array.isArray(events) || !events.length) return;
   buildTimeline(hostId, events, overlays || ALL_KINDS);
 }
 
 // 5. Correlation map -----------------------------------------------------
 export function renderCorrelations({ correlations }, hostId) {
   const cardList = correlations?.cards || [];
+  const matrix = correlations?.matrix || [];
+  const labels = correlations?.labels || [];
+  const hypotheses = correlations?.hypotheses || [];
+  const hasContent = cardList.length > 0 || matrix.length > 0 || labels.length > 0 || hypotheses.length > 0;
+  const state = _sectionAvailability(correlations, hasContent);
+  if (state) {
+    return `
+      <section class="card dt-section">
+        <header class="dt-section-h"><h3>Correlation map</h3>
+          <span class="dt-section-sub">Top within-patient relationships (${escHtml(correlations?.method || 'pearson')}). Exploratory — not causal inference.</span>
+        </header>
+        ${_renderSectionState({
+          title: state.kind === 'unavailable' ? 'Correlations unavailable.' : 'No within-patient correlations available yet.',
+          body: state.summary
+            || (state.kind === 'unavailable'
+              ? (_humanizeReason(state.reason) || 'Exploratory correlation outputs were withheld for this clinician session.')
+              : 'DeepTwin needs repeated patient-linked measures before exploratory relationships can be shown.'),
+          status: state.status,
+          reason: state.reason,
+        })}
+      </section>
+    `;
+  }
   const minN = cardList.length ? Math.min(...cardList.map(c => Number(c.n_observations) || 0)) : 0;
   const smallSample = minN > 0 && minN < 20;
   const smallBanner = smallSample
@@ -225,12 +392,33 @@ export function renderCorrelations({ correlations }, hostId) {
   `;
 }
 export function mountCorrelations(hostId, correlations) {
+  if (!Array.isArray(correlations?.matrix) || !correlations.matrix.length || !Array.isArray(correlations?.labels) || !correlations.labels.length) return;
   buildCorrelationHeatmap(hostId, correlations?.matrix || [], correlations?.labels || []);
 }
 
 // 6. Causal hypothesis panel --------------------------------------------
 export function renderCausal({ correlations }) {
-  const items = (correlations?.hypotheses || []).map(h => {
+  const hypotheses = correlations?.hypotheses || [];
+  const state = _sectionAvailability(correlations, hypotheses.length > 0);
+  if (state) {
+    return `
+      <section class="card dt-section">
+        <header class="dt-section-h"><h3>Causal hypotheses (exploratory)</h3>
+          <span class="dt-section-sub">Hypothesis candidates from observational signals — not proof of causation. Requires clinician/statistical review.</span>
+        </header>
+        ${_renderSectionState({
+          title: state.kind === 'unavailable' ? 'Causal hypotheses unavailable.' : 'No causal hypotheses available yet.',
+          body: state.summary
+            || (state.kind === 'unavailable'
+              ? (_humanizeReason(state.reason) || 'Exploratory causal outputs were withheld for this clinician session.')
+              : 'DeepTwin has not generated clinician-reviewable hypothesis candidates for this patient yet.'),
+          status: state.status,
+          reason: state.reason,
+        })}
+      </section>
+    `;
+  }
+  const items = hypotheses.map(h => {
     const ef = (h.evidence_for || []).map(s => `<li>${escHtml(s)}</li>`).join('');
     const ea = (h.evidence_against || []).map(s => `<li>${escHtml(s)}</li>`).join('');
     const md = (h.missing_data || []).map(s => `<li>${escHtml(s)}</li>`).join('');
@@ -268,6 +456,8 @@ export function renderPrediction({ prediction }, hostId) {
   const buttons = ['2w', '6w', '12w'].map(h => `
     <button class="dt-tab ${h === horizon ? 'active' : ''}" data-horizon="${h}">${h}</button>
   `).join('');
+  const traces = prediction?.traces || [];
+  const state = _sectionAvailability(prediction, Array.isArray(traces) && traces.length > 0);
   const assumptions = (prediction?.assumptions || []).map(a => `<li>${escHtml(a)}</li>`).join('');
   const tierChip = prediction?.confidence_tier ? confidenceTierChip(prediction.confidence_tier) : '';
   const evChip = evidenceStatusChip(prediction?.evidence_status || 'pending');
@@ -278,24 +468,41 @@ export function renderPrediction({ prediction }, hostId) {
   const calibrationNote = prediction?.calibration?.note
     ? `<div class="dt-muted" style="font-size:11px;margin-top:4px">Calibration: ${escHtml(prediction.calibration.status || 'uncalibrated')} — ${escHtml(prediction.calibration.note)}</div>`
     : '';
-  return `
-    <section class="card dt-section">
-      <header class="dt-section-h"><h3>Prediction analytics</h3>
-        <span class="dt-section-sub">Model-estimated trajectories with uncertainty bands — not prognostic facts. ${modelEstimatedStamp()} ${approvalRequiredBadge()} ${tierChip} ${evChip}</span>
-      </header>
-      <div class="dt-tabs">${buttons}</div>
-      <div id="${hostId}" class="dt-chart-host"></div>
-      ${rationale}
+  const body = state
+    ? _renderSectionState({
+        title: state.kind === 'unavailable' ? 'Prediction output withheld.' : 'No prediction output available yet.',
+        body: state.summary
+          || (state.kind === 'unavailable'
+            ? (_humanizeReason(state.reason) || 'Prediction output is intentionally withheld until a validated DeepTwin model is available.')
+            : 'DeepTwin has not produced a patient-linked prediction for this horizon yet.'),
+        status: state.status,
+        reason: state.reason,
+      })
+    : `<div id="${hostId}" class="dt-chart-host"></div>`;
+  const foot = state
+    ? ''
+    : `
       <div class="dt-pred-foot">
         <div><div class="dt-k">Assumptions</div><ul>${assumptions}</ul></div>
         <div><div class="dt-k">Top drivers</div>${drivers}</div>
         <div>${evidenceGradeBadge(prediction?.evidence_grade)}${calibrationNote}</div>
       </div>
+    `;
+  return `
+    <section class="card dt-section" id="dt-prediction-section">
+      <header class="dt-section-h"><h3>Prediction analytics</h3>
+        <span class="dt-section-sub">Model-estimated trajectories with uncertainty bands — not prognostic facts. ${modelEstimatedStamp()} ${approvalRequiredBadge()} ${tierChip} ${evChip}</span>
+      </header>
+      <div class="dt-tabs">${buttons}</div>
+      ${body}
+      ${rationale}
+      ${foot}
       <div class="dt-notice dt-notice-amber">${escHtml(prediction?.disclaimer || 'Predictions are model-estimated and uncalibrated. Clinician must review.')}</div>
     </section>
   `;
 }
 export function mountPrediction(hostId, prediction) {
+  if (!Array.isArray(prediction?.traces) || !prediction.traces.length) return;
   buildPrediction(hostId, prediction?.traces || []);
 }
 

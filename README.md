@@ -68,6 +68,9 @@ VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
 ## Local development
+
+For the web app (`apps/web`), use **Node 20.20.2+ or Node 22.x** (see `.nvmrc` and [`apps/web/README.md`](apps/web/README.md)) — Vite 7 requires Node >=20.19.
+
 Install frontend dependencies:
 
 ```bash

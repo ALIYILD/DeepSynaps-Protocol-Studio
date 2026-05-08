@@ -21,21 +21,26 @@ fly secrets set DEEPSYNAPS_CORS_ORIGINS=https://deepsynaps-studio-preview.netlif
 fly secrets set APP_URL=https://deepsynaps-studio.fly.dev --app deepsynaps-studio
 fly secrets set MEDIA_STORAGE_ROOT=/data/media_uploads --app deepsynaps-studio
 
-# 4. Set optional secrets (fill in real values before running)
+# 4. Set runtime secrets required for async qEEG / workers
+fly secrets set CELERY_BROKER_URL=redis://... --app deepsynaps-studio
+# Optional explicit result backend; if omitted Celery falls back to the broker URL.
+# fly secrets set CELERY_RESULT_BACKEND=redis://... --app deepsynaps-studio
+
+# 5. Set optional secrets (fill in real values before running)
 # fly secrets set STRIPE_SECRET_KEY=sk_live_... --app deepsynaps-studio
 # fly secrets set STRIPE_WEBHOOK_SECRET=whsec_... --app deepsynaps-studio
 # fly secrets set SENTRY_DSN=https://...@sentry.io/... --app deepsynaps-studio
 # fly secrets set ANTHROPIC_API_KEY=sk-ant-... --app deepsynaps-studio
 # fly secrets set WEARABLE_TOKEN_ENC_KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())") --app deepsynaps-studio
 
-# 5. Deploy (Dockerfile is at apps/api/Dockerfile, but build context is repo root)
-fly deploy --config apps/api/fly.toml --dockerfile apps/api/Dockerfile
+# 6. Deploy (Dockerfile is at apps/api/Dockerfile, config is repo-root fly.toml)
+fly deploy --config fly.toml --dockerfile apps/api/Dockerfile
 ```
 
 ## Subsequent deploys
 
 ```bash
-fly deploy --config apps/api/fly.toml --dockerfile apps/api/Dockerfile
+fly deploy --config fly.toml --dockerfile apps/api/Dockerfile
 ```
 
 ## Check health
@@ -44,6 +49,23 @@ fly deploy --config apps/api/fly.toml --dockerfile apps/api/Dockerfile
 fly status --app deepsynaps-studio
 curl https://deepsynaps-studio.fly.dev/health
 ```
+
+## qEEG post-deploy smoke
+
+Mint or reuse a clinician bearer token, then run:
+
+```bash
+uv run python scripts/qeeg_deploy_smoke.py \
+  --base-url https://deepsynaps-studio.fly.dev \
+  --token "$CLINICIAN_BEARER_TOKEN" \
+  --require-pdf
+```
+
+Expected release result:
+- `execution_mode` is `celery`
+- `analysis_status` is `completed`
+- `report_html_generated` is `true`
+- `report_pdf_generated` is `true`
 
 ## View logs
 

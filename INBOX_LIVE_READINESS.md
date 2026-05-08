@@ -38,8 +38,8 @@ Relevant exports / `api` methods:
 
 ## Demo behaviour
 
-1. **`apiFetch` demo shim** (`_isDemoSession()`): For Netlify preview + demo token, inbox GETs can be satisfied **without a network call** via `_demoSyntheticResponse` — labelled `is_demo_view: true`.
-2. **`pages-inbox.js` fallback**: If demo session **and** list/summary fail or are unusable, **labelled sample rows** from `_buildDemoInboxResponse()` are shown. **Real clinician JWT sessions never use this path** — they get error + Retry instead.
+1. **`apiFetch` demo shim** (`_isDemoSession()`): For Netlify preview + demo token, inbox GETs are satisfied **without a network call** via `_demoSyntheticResponse` — labelled `is_demo_view: true` and the page shows the DEMO banner. This is an **offline demo mode** (truthfully not hitting the API), never mixed with real clinician JWT sessions.
+2. **No silent UI fabrication**: `pages-inbox.js` does not auto-invent demo rows on fetch failure. Real clinician JWT sessions see error + Retry and/or a stale banner if a refresh fails after initial load.
 
 ## Production build requirement
 

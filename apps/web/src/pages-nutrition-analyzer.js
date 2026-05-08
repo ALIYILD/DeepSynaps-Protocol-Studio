@@ -1,12 +1,19 @@
 import { api } from './api.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML, labsPatientProfileFor } from './demo-fixtures-analyzers.js';
+import { getEvidenceUiStats } from './evidence-ui-live.js';
+import {
+  EvidenceChip, createEvidenceQueryForTarget,
+  initEvidenceDrawer, openEvidenceDrawer, wireEvidenceChips,
+} from './evidence-intelligence.js';
 import {
   normalizeNutritionProfile,
   normalizeNutritionAudit,
   summarizeNutritionForClinic,
   extractNutritionRelevantLabRows,
 } from './nutrition-analyzer-view-model.js';
+
+const CLINICAL_NUTRITION_ANALYZER_ROLES = new Set(['clinician', 'admin', 'clinic-admin', 'supervisor', 'reviewer', 'technician']);
 
 /** Extra navigation targets not always present in biomarker_links */
 const _NUTRITION_EXTRA_HANDOFFS = [
@@ -28,6 +35,19 @@ function esc(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+export function nutritionAnalyzerAllowsRole(role) {
+  return CLINICAL_NUTRITION_ANALYZER_ROLES.has(String(role || '').trim().toLowerCase());
+}
+
+function _renderNutritionAnalyzerRestrictedCard() {
+  return `<div role="region" aria-label="Nutrition analyzer access restricted" style="max-width:560px;margin:48px auto;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);text-align:center">
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px">Clinician workspace</div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
+      Nutrition review is restricted to clinician-facing accounts because it links intake, labs, supplements, and patient-specific annotations that require governed review.
+    </div>
+  </div>`;
 }
 
 function _statusKey(s) {
@@ -503,15 +523,27 @@ function _renderAiBlocks(profile) {
 
 function _renderEvidenceSnippet(profile) {
   const pack = profile?._evidence_pack;
-  if (!pack || typeof pack !== 'object') return '';
-  const items = Array.isArray(pack.items) ? pack.items.slice(0, 3) : [];
-  if (!items.length) return '';
-  const rows = items.map((it) => `<li style="font-size:11px;color:var(--text-secondary);margin-bottom:6px">${esc(it.title || it.snippet?.slice(0, 120) || 'Reference')}</li>`).join('');
-  const note = pack.corpus_note ? `<div style="font-size:10px;color:var(--text-tertiary);margin-bottom:8px">${esc(pack.corpus_note)}</div>` : '';
+  const items = pack && Array.isArray(pack.items) ? pack.items : [];
+  const rows = items.slice(0, 3).map((it) => `<li style="font-size:11px;color:var(--text-secondary);margin-bottom:6px">${esc(it.title || it.snippet?.slice(0, 120) || 'Reference')}</li>`).join('');
+  const note = pack?.corpus_note ? `<div style="font-size:10px;color:var(--text-tertiary);margin-bottom:8px">${esc(pack.corpus_note)}</div>` : '';
+  const chip = EvidenceChip({
+    count: items.length,
+    evidenceLevel: 'moderate',
+    label: 'Nutrition evidence',
+    compact: true,
+    query: createEvidenceQueryForTarget({
+      patientId: profile?.patient_id || 'nutrition-context',
+      targetName: 'nutrition_diet_supplements',
+      contextType: 'biomarker',
+    }),
+  });
   return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px">
-    <div style="font-weight:600;font-size:13px;margin-bottom:8px">Evidence corpus (context only)</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
+      <div style="font-weight:600;font-size:13px">Evidence corpus (context only)</div>
+      ${chip}
+    </div>
     ${note}
-    <ul style="margin:0;padding-left:18px">${rows}</ul>
+    ${rows ? `<ul style="margin:0;padding-left:18px">${rows}</ul>` : '<div style="font-size:11px;color:var(--text-tertiary)">No evidence items in pack. Use the drawer to search the corpus.</div>'}
     <button type="button" class="btn btn-ghost btn-sm" data-action="open-evidence-corpus" style="margin-top:10px;min-height:40px">Open research evidence</button>
   </div>`;
 }
@@ -743,7 +775,7 @@ function _renderAuditPanel(audit) {
   </div>`;
 }
 
-function _renderPatientDetail(profile, audit, expandedKey, usingFixtures, labsContext) {
+function _renderPatientDetail(profile, audit, expandedKey, usingFixtures, labsContext, evidenceStats) {
   const captured = profile?.captured_at ? new Date(profile.captured_at).toLocaleString() : '—';
   const isApi = profile?._data_source === 'api';
   const macros = _renderMacrosPanel(profile?.macros, { showPctAgainstTarget: !isApi });
@@ -752,6 +784,21 @@ function _renderPatientDetail(profile, audit, expandedKey, usingFixtures, labsCo
   const interactions = _renderInteractionsPanel(profile?.interactions);
   const pid = profile?.patient_id || '';
   const labsPanel = _renderNutritionLinkedLabs(labsContext);
+  const stats = evidenceStats || {};
+  const statsStrip = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+    <div style="flex:1 1 140px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:10px 12px;text-align:center">
+      <div style="font-size:18px;font-weight:700;color:var(--text-primary)">${(stats.totalStudies ?? 0).toLocaleString()}</div>
+      <div style="font-size:10px;color:var(--text-tertiary);margin-top:2px">Studies indexed</div>
+    </div>
+    <div style="flex:1 1 140px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:10px 12px;text-align:center">
+      <div style="font-size:18px;font-weight:700;color:var(--text-primary)">${(stats.totalMetaAnalyses ?? 0).toLocaleString()}</div>
+      <div style="font-size:10px;color:var(--text-tertiary);margin-top:2px">Meta-analyses</div>
+    </div>
+    <div style="flex:1 1 140px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:10px 12px;text-align:center">
+      <div style="font-size:18px;font-weight:700;color:var(--text-primary)">${(stats.conditionCount ?? 0).toLocaleString()}</div>
+      <div style="font-size:10px;color:var(--text-tertiary);margin-top:2px">Conditions covered</div>
+    </div>
+  </div>`;
   return `${_renderSafetyStrip()}
     ${_renderPatientContextCard(profile)}
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:14px 0;flex-wrap:wrap">
@@ -761,6 +808,7 @@ function _renderPatientDetail(profile, audit, expandedKey, usingFixtures, labsCo
         <button type="button" class="btn btn-ghost btn-sm" data-action="recompute" style="min-height:44px">Refresh / recompute</button>
       </div>
     </div>
+    ${statsStrip}
     ${_renderAuditSummaryStrip(profile)}
     <div style="display:grid;grid-template-columns:1fr;gap:14px">
       ${_renderDataAvailability(profile)}
@@ -841,6 +889,21 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
   const el = document.getElementById('content');
   if (!el) return;
 
+  const demoMode = isDemoSession();
+  if (!demoMode) {
+    let actorRole = null;
+    try {
+      const me = await api.me();
+      actorRole = me?.role || me?.user?.role || null;
+    } catch {
+      actorRole = null;
+    }
+    if (!nutritionAnalyzerAllowsRole(actorRole)) {
+      el.innerHTML = _renderNutritionAnalyzerRestrictedCard();
+      return;
+    }
+  }
+
   let view = 'clinic';
   let summaryCache = null;
   let activePatientId = null;
@@ -852,6 +915,7 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
   let sortDir = 'desc';
   let usingFixtures = false;
   let expandedKey = '';
+  let evidenceStatsCache = { totalStudies: 0, totalMetaAnalyses: 0, conditionCount: 0 };
 
   async function buildLabsContext(patientId, usingDemoFixtureProfile) {
     const pid = patientId || activePatientId;
@@ -1068,20 +1132,22 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
       }
     }
     _syncDemoBanner();
-    body.innerHTML = _renderPatientDetail(profileCache, auditCache, expandedKey, usingFixtures, labsCache);
+    body.innerHTML = _renderPatientDetail(profileCache, auditCache, expandedKey, usingFixtures, labsCache, evidenceStatsCache);
     wirePatientDetail();
   }
 
   function _rerenderPatient() {
     const body = $('nu-body');
     if (!body) return;
-    body.innerHTML = _renderPatientDetail(profileCache, auditCache, expandedKey, usingFixtures, labsCache);
+    body.innerHTML = _renderPatientDetail(profileCache, auditCache, expandedKey, usingFixtures, labsCache, evidenceStatsCache);
     wirePatientDetail();
   }
 
   function wirePatientDetail() {
     const body = $('nu-body');
     if (!body) return;
+
+    wireEvidenceChips(body, { onOpen: (query) => openEvidenceDrawer(query) });
 
     body.querySelectorAll('[data-micro-toggle]').forEach((row) => {
       const k = row.getAttribute('data-micro-toggle');
@@ -1110,6 +1176,7 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
       const pid = ev.currentTarget?.getAttribute?.('data-patient-id') || activePatientId;
       if (!pid) return;
       try { window._selectedPatientId = pid; } catch {}
+      try { window._profilePatientId = pid; } catch {}
       try { navigate?.('patient-profile'); } catch {}
     });
 
@@ -1131,6 +1198,7 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
         const pid = btn.getAttribute('data-patient-id') || activePatientId;
         if (!page) return;
         try { window._selectedPatientId = pid; } catch {}
+        try { window._profilePatientId = pid; } catch {}
         if (page === 'patient-analytics') {
           try { window._paPatientId = pid; } catch {}
         }
@@ -1267,6 +1335,39 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
       }
     });
   }
+
+  async function _fetchEvidenceStats() {
+    try {
+      evidenceStatsCache = await getEvidenceUiStats({
+        fallbackSummary: {},
+        fallbackConditionCount: 0,
+        fallbackMetaAnalyses: 0,
+      });
+    } catch {
+      evidenceStatsCache = { totalStudies: 0, totalMetaAnalyses: 0, conditionCount: 0 };
+    }
+  }
+
+  initEvidenceDrawer({
+    patientId: activePatientId || 'nutrition-context',
+    getReportContext: () => ({
+      page: 'nutrition-analyzer',
+      patientId: activePatientId || 'nutrition-context',
+      section: 'nutrition_diet_supplements',
+    }),
+    onAddToReport: async (payload) => {
+      try {
+        if (activePatientId && payload?.savedCitations?.length) {
+          await api.saveEvidenceToPatientReport(activePatientId, payload);
+        }
+      } catch {}
+      window._nav?.('nutrition-analyzer');
+    },
+  });
+
+  _fetchEvidenceStats().then(() => {
+    if (view !== 'clinic') _rerenderPatient();
+  });
 
   function render() {
     setBreadcrumb();

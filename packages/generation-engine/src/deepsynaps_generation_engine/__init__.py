@@ -1,6 +1,7 @@
 from .protocols import (
     build_clinician_handbook_plan,
     build_protocol_plan,
+    build_report_payload_from_handbook_document,
     build_report_payload_from_protocol,
     build_session_structure,
 )
@@ -8,6 +9,7 @@ from .protocols import (
 __all__ = [
     "build_clinician_handbook_plan",
     "build_protocol_plan",
+    "build_report_payload_from_handbook_document",
     "build_report_payload_from_protocol",
     "build_session_structure",
 ]

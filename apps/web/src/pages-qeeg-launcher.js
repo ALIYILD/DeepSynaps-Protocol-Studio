@@ -63,8 +63,11 @@ function _renderHero() {
     + '<header class="qeeg-launcher__hero ds-card" style="padding:24px;margin-bottom:18px">'
     + '<h2 style="margin:0 0 6px;font-size:22px">qEEG Brain Map</h2>'
     + '<p style="margin:0 0 4px;font-size:14px;color:var(--text-secondary);line-height:1.5">'
-    + 'Upload a resting-state EEG and DeepSynaps will produce a brain map with normative percentiles, '
-    + 'a 68-region drill-down, and an AI-generated narrative grounded in the evidence database.'
+    + 'Upload a resting-state EEG and DeepSynaps will produce a deployment-specific brain map summary, '
+    + 'a 68-region drill-down, and an AI-assisted narrative for clinician review.'
+    + '</p>'
+    + '<p style="margin:0 0 4px;font-size:12px;color:var(--text-secondary)">'
+    + 'Normative comparisons depend on the configured dataset. Preview or toy datasets are non-clinical and must not be treated as clinical reference values.'
     + '</p>'
     + '<p style="margin:0;font-size:12px;color:var(--text-secondary)">'
     + 'Supported formats: ' + esc(_supportedFormatsLine()) + '.'
@@ -79,9 +82,9 @@ function _renderChoiceGrid() {
     + _renderActionCard({
         id: 'auto',
         title: 'Auto-analyze with AI',
-        lead: 'Upload a recording and DeepSynaps runs the full MNE pipeline (artifact rejection, ICA, source localization, normative scoring) without manual intervention.',
+        lead: 'Upload a recording and DeepSynaps runs the full MNE pipeline (artifact rejection, ICA, source localization, normative scoring) with clinician review at the end of the workflow.',
         body: [
-          'Best when: your recording is clean and you want a quick read.',
+          'Best when: your recording is clean and you want a quick decision-support read.',
           'Time: typically 2–5 minutes per recording.',
           'You can still review and amend the AI narrative before signing.',
         ],
@@ -107,7 +110,8 @@ function _renderFooter() {
     + '<section class="qeeg-launcher__footer ds-card" style="padding:16px;display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center">'
     + '<div style="font-size:13px;color:var(--text-secondary);line-height:1.5">'
     + 'No recording on file? Both paths begin with patient + file selection on the next screen. '
-    + 'You can also try a synthetic demo recording on the raw workbench page to explore the workflow.'
+    + 'You can also try a synthetic demo recording on the raw workbench page to explore the workflow. '
+    + 'Demo and toy datasets are informational only.'
     + '</div>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
     + '<button type="button" class="btn btn--ghost btn--small" data-launcher-action="demo">Try with demo data</button>'
@@ -120,7 +124,7 @@ function _renderDisclaimer() {
   return ''
     + '<footer class="qeeg-launcher__disclaimer ds-print" '
     + 'style="margin-top:18px;padding:12px;background:#f8fafc;border-radius:8px;font-size:11.5px;color:var(--text-secondary);line-height:1.5">'
-    + 'Research and wellness use only. The brain map is informational and is not a medical diagnosis or '
+    + 'Decision-support only. The brain map is informational and is not a medical diagnosis or '
     + 'treatment recommendation. Findings should be reviewed by a qualified clinician before any care '
     + 'decisions are made.'
     + '</footer>';

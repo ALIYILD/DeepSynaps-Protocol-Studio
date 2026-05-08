@@ -36,7 +36,7 @@ test('renderQEEGLauncher advertises supported file formats', function () {
 
 test('renderQEEGLauncher carries the regulatory disclaimer', function () {
   const html = launcher.renderQEEGLauncher();
-  assert.match(html, /research and wellness/i);
+  assert.match(html, /decision-support only/i);
   assert.match(html, /not a medical diagnosis/i);
 });
 

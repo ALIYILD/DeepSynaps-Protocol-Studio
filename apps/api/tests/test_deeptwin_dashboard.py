@@ -8,13 +8,14 @@ Coverage matrix (per the brief):
 4. Payload includes all 22 domains
 5. Missing domains are not faked (status in {missing, unavailable})
 6. Safety flags included when present
-7. prediction_confidence is honest when model is placeholder
+7. prediction_confidence fails closed until a validated model exists
 8. Audit event written (deeptwin.dashboard.opened)
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -23,7 +24,12 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.persistence.models import (
     AdverseEvent,
+    AssessmentRecord,
     AuditEventRecord,
+    DeepTwinAnalysisRun,
+    DeepTwinClinicianNote,
+    DeepTwinSimulationRun,
+    OutcomeEvent,
     Patient,
     User,
     WearableAlertFlag,
@@ -222,17 +228,168 @@ def test_safety_flags_included_when_present(client: TestClient, db: Session):
     assert by_key["safety_flags"]["record_count"] == 2
 
 
-def test_prediction_confidence_is_honest_placeholder(client: TestClient, db: Session):
-    """7. `prediction_confidence` reports placeholder honesty until a validated model lands."""
+def test_prediction_confidence_is_fail_closed_without_validated_model(
+    client: TestClient, db: Session,
+):
+    """7. `prediction_confidence` is withheld until a validated model lands."""
     _, _, token = _seed_clin_and_patient(db, user_id="user-clin-pc", patient_id="pat-360-5")
     r = client.get("/api/v1/deeptwin/patients/pat-360-5/dashboard", headers=_hdr(token))
-    pc = r.json()["prediction_confidence"]
-    assert pc["status"] == "placeholder"
+    body = r.json()
+    pc = body["prediction_confidence"]
+    by_key = {d["key"]: d for d in body["domains"]}
+    assert by_key["twin_predictions"]["status"] == "unavailable"
+    assert pc["available"] is False
+    assert pc["status"] == "not_implemented"
     assert pc["real_ai"] is False
     assert pc["confidence"] is None
-    assert pc["confidence_label"].lower().startswith("not")
-    assert "decision-support" in pc["summary"].lower()
+    assert pc["confidence_label"].lower().startswith("with")
+    assert pc["reason"] == "no_validated_prediction_model"
+    assert "withheld" in pc["summary"].lower()
     assert pc["limitations"]
+
+
+def test_dashboard_uses_persisted_timeline_correlations_notes_and_review(
+    client: TestClient, db: Session,
+):
+    """Dashboard panels should expose persisted DeepTwin state, not placeholders."""
+    user, _, token = _seed_clin_and_patient(
+        db,
+        user_id="user-clin-real",
+        patient_id="pat-360-real",
+    )
+    now = datetime.now(timezone.utc)
+    analysis_run = DeepTwinAnalysisRun(
+        patient_id="pat-360-real",
+        clinician_id=user.id,
+        analysis_type="correlation",
+        output_summary_json=json.dumps({
+            "priority_pairs": [
+                {
+                    "left": "sleep_total_min",
+                    "right": "phq9_total",
+                    "score": -0.62,
+                    "confidence": "moderate",
+                    "clinical_readout": "Sleep loss tracks higher PHQ-9 burden in this patient.",
+                },
+            ],
+        }),
+        confidence=0.72,
+        model_name="tribe-v1",
+        created_at=now - timedelta(hours=3),
+        reviewed_at=now - timedelta(hours=2),
+        reviewed_by=user.id,
+    )
+    db.add(analysis_run)
+    db.flush()
+    db.add(AssessmentRecord(
+        patient_id="pat-360-real",
+        clinician_id=user.id,
+        template_id="phq9",
+        template_title="PHQ-9",
+        data_json="{}",
+        created_at=now - timedelta(days=2),
+    ))
+    db.add(OutcomeEvent(
+        patient_id="pat-360-real",
+        clinician_id=user.id,
+        event_type="improvement",
+        title="PHQ-9 improvement noted",
+        summary="Four-point reduction after protocol block one.",
+        severity="info",
+        payload_json="{}",
+        recorded_at=now - timedelta(days=1),
+    ))
+    db.add(DeepTwinClinicianNote(
+        patient_id="pat-360-real",
+        clinician_id=user.id,
+        note_text="Cross-check sleep before escalating stimulation intensity.",
+        related_analysis_id=analysis_run.id,
+        created_at=now - timedelta(hours=1),
+    ))
+    db.commit()
+
+    r = client.get("/api/v1/deeptwin/patients/pat-360-real/dashboard", headers=_hdr(token))
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    assert any(
+        event["kind"] == "note"
+        and event["label"].startswith("Clinician note added:")
+        for event in body["timeline"]
+    )
+    assert any(
+        event["kind"] == "review"
+        and event["label"] == "DeepTwin analysis reviewed: correlation"
+        for event in body["timeline"]
+    )
+    assert any(
+        event["kind"] == "assessment"
+        and event["label"] == "Assessment submitted: PHQ-9"
+        for event in body["timeline"]
+    )
+    assert any(
+        event["kind"] == "outcome"
+        and event["label"] == "Outcome event: PHQ-9 improvement noted"
+        for event in body["timeline"]
+    )
+
+    assert body["correlations"] == [
+        {
+            "left": "sleep_total_min",
+            "right": "phq9_total",
+            "strength": -0.62,
+            "confidence": "moderate",
+            "n_observations": None,
+            "evidence_grade": None,
+            "note": "Sleep loss tracks higher PHQ-9 burden in this patient.",
+            "source_run_id": analysis_run.id,
+            "source_model_name": "tribe-v1",
+            "observed_at": analysis_run.created_at.replace(tzinfo=timezone.utc).isoformat(),
+        },
+    ]
+    assert len(body["clinician_notes"]) == 1
+    note = body["clinician_notes"][0]
+    assert note["author"] == user.id
+    assert note["text"] == "Cross-check sleep before escalating stimulation intensity."
+    assert note["related_analysis_id"] == analysis_run.id
+    assert note["related_simulation_id"] is None
+    assert body["review"]["reviewed"] is True
+    assert body["review"]["reviewed_by"] == user.id
+    assert body["review"]["pending_items"] == 0
+
+
+def test_dashboard_review_reflects_latest_pending_deeptwin_run(client: TestClient, db: Session):
+    """Older reviewed output must not hide a newer unreviewed DeepTwin item."""
+    user, _, token = _seed_clin_and_patient(
+        db,
+        user_id="user-clin-review",
+        patient_id="pat-360-review",
+    )
+    now = datetime.now(timezone.utc)
+    db.add(DeepTwinAnalysisRun(
+        patient_id="pat-360-review",
+        clinician_id=user.id,
+        analysis_type="correlation",
+        created_at=now - timedelta(days=2),
+        reviewed_at=now - timedelta(days=1, hours=20),
+        reviewed_by=user.id,
+    ))
+    db.add(DeepTwinSimulationRun(
+        patient_id="pat-360-review",
+        clinician_id=user.id,
+        limitations="Awaiting clinician sign-off.",
+        created_at=now - timedelta(hours=6),
+    ))
+    db.commit()
+
+    r = client.get("/api/v1/deeptwin/patients/pat-360-review/dashboard", headers=_hdr(token))
+    assert r.status_code == 200, r.text
+    review = r.json()["review"]
+    assert review["reviewed"] is False
+    assert review["reviewed_by"] is None
+    assert review["reviewed_at"] is None
+    assert review["pending_items"] == 1
+    assert review["source_kind"] == "simulation"
 
 
 def test_audit_event_written(client: TestClient, db: Session):

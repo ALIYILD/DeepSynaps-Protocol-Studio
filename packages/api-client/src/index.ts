@@ -24,3 +24,17 @@ export {
 } from './client';
 
 export type { paths, components, operations } from './openapi-types';
+
+export {
+  deeptwinNeuroAiLabStatus,
+  deeptwinNeuroAiLabTimelinePreview,
+  deeptwinNeuroAiLabFeaturesPreview,
+  deeptwinNeuroAiLabSimulationPreview,
+  type NeuroAiStatusResponse,
+  type TimelinePreviewRequest,
+  type TimelinePreviewResponse,
+  type FeaturesPreviewRequest,
+  type FeaturesPreviewResponse,
+  type SimulationPreviewRequest,
+  type SimulationPreviewResponse,
+} from './deeptwinNeuroAiLab';

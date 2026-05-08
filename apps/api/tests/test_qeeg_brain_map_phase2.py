@@ -87,7 +87,7 @@ def _fixture_payload() -> dict:
             "norm_db_version": "lemip+hbn-v1", "file_hash": "a" * 64,
             "generated_at": "2026-04-30T09:00:00Z",
         },
-        "disclaimer": "Research and wellness use only. This brain map summary is informational and is not a medical diagnosis or treatment recommendation. Discuss any findings with a qualified clinician.",
+        "disclaimer": "Decision-support only. This brain map summary is informational and is not a medical diagnosis or treatment recommendation. Discuss any findings with a qualified clinician.",
     }
 
 
@@ -144,15 +144,15 @@ def test_render_qeeg_html_renders_all_sections() -> None:
     html = render_qeeg_html(_fixture_payload())
     assert "<!DOCTYPE html>" in html or "<!doctype" in html.lower()
     assert "Demo Patient" in html
-    assert "Frontal Lobe Development" in html
-    assert "Information Processing Speed" in html
+    assert "Frontal Theta-Beta Ratio" in html
+    assert "Occipital Peak Alpha Frequency" in html
     assert "Brain Activity by Hemisphere" in html
     assert "Standardized Brain Function Score" in html
     # Lobe drill-downs should appear
     assert "Frontal Lobe" in html
     assert "Occipital Lobe" in html
     # Disclaimer
-    assert "research and wellness" in html.lower()
+    assert "decision-support" in html.lower()
     assert "not a medical diagnosis" in html.lower()
 
 

@@ -73,20 +73,57 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _audit_memory() -> dict[str, list[LabReviewAuditEvent]]:
-    """Process-local audit trail for MVP (replaced by DB persistence later)."""
-    if not hasattr(_audit_memory, "_store"):
-        setattr(_audit_memory, "_store", {})
-    return getattr(_audit_memory, "_store")
+def append_audit_event(
+    patient_id: str, event: LabReviewAuditEvent, db: Session
+) -> None:
+    """Persist audit event to DB. Falls back to no-op if DB is unavailable."""
+    try:
+        from app.repositories.labs import insert_lab_audit_event
+        insert_lab_audit_event(
+            db,
+            patient_id=patient_id,
+            event_type=event.event_type,
+            actor_id=event.actor_user_id,
+            message=(
+                event.payload.get("message")
+                or event.payload.get("note")
+                or event.payload.get("text")
+                or event.payload.get("source")
+                or ""
+            ),
+            payload=event.payload,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _LOG.debug("labs audit persist skipped: %s", exc)
 
 
-def append_audit_event(patient_id: str, event: LabReviewAuditEvent) -> None:
-    store = _audit_memory()
-    store.setdefault(patient_id, []).append(event)
-
-
-def get_audit_trail(patient_id: str) -> list[LabReviewAuditEvent]:
-    return list(_audit_memory().get(patient_id, []))
+def get_audit_trail(patient_id: str, db: Session) -> list[LabReviewAuditEvent]:
+    """Load audit events from DB, newest first."""
+    try:
+        from app.repositories.labs import list_lab_audit_events
+        rows = list_lab_audit_events(db, patient_id)
+    except Exception as exc:  # noqa: BLE001
+        _LOG.debug("labs audit query skipped: %s", exc)
+        return []
+    out: list[LabReviewAuditEvent] = []
+    for row in rows:
+        payload = {}
+        if row.payload_json:
+            import json
+            try:
+                payload = json.loads(row.payload_json)
+            except json.JSONDecodeError:
+                payload = {"raw": row.payload_json}
+        out.append(
+            LabReviewAuditEvent(
+                event_id=row.id,
+                event_type=row.event_type,
+                actor_user_id=row.actor_id,
+                timestamp=row.created_at.isoformat().replace("+00:00", "Z") if row.created_at else _iso_now(),
+                payload=payload,
+            )
+        )
+    return out
 
 
 def build_labs_analyzer_payload(
@@ -1274,6 +1311,7 @@ def recompute_and_payload(
                 timestamp=_iso_now(),
                 payload={"reason": "manual"},
             ),
+            db,
         )
     return build_labs_analyzer_payload(
         patient_id,

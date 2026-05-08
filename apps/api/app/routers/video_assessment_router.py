@@ -18,11 +18,12 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path as FsPath
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, File, Path as PathParam, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Path as PathParam, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -31,7 +32,11 @@ from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimu
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.repositories.video_assessments import Patient, User, VideoAssessmentSession
-from app.repositories.audit import create_audit_event
+from app.repositories.audit import (
+    create_audit_event,
+    latest_video_assessment_historical_summary_audit,
+    video_assessment_historical_summary_audit_by_event_id,
+)
 from app.repositories.patients import resolve_patient_clinic_id
 from app.services import media_storage
 from app.services.video_assessment_seed import (
@@ -52,6 +57,9 @@ _DEMO_ALLOWED_ENVS = frozenset({"development", "test"})
 
 _MAX_TASK_VIDEO_BYTES = 120 * 1024 * 1024  # 120 MB per task clip
 _ALLOWED_VIDEO_MIME = frozenset({"video/webm", "video/mp4", "video/quicktime"})
+_HISTORICAL_SUMMARY_LOGIC_VERSION = "video_assessment_historical_summary_v2"
+_ALLOWED_HISTORICAL_FEEDBACK_STATUS = frozenset({"accepted", "partially_accepted", "disagreed", "not_useful"})
+_MAX_HISTORICAL_FEEDBACK_NOTE_CHARS = 300
 
 
 def _audit_va(
@@ -154,6 +162,43 @@ def _load_session_body(row: VideoAssessmentSession) -> dict[str, Any]:
         return json.loads(row.session_json or "{}")
     except Exception:
         return {}
+
+
+def _session_revision_token(row: VideoAssessmentSession) -> str:
+    stamp = row.updated_at or row.created_at or datetime.now(timezone.utc)
+    return stamp.isoformat()
+
+
+def _session_response_body(row: VideoAssessmentSession) -> dict[str, Any]:
+    body = _load_session_body(row)
+    body["created_at"] = row.created_at.isoformat() if row.created_at else body.get("created_at")
+    body["updated_at"] = row.updated_at.isoformat() if row.updated_at else body.get("updated_at")
+    body["revision_token"] = _session_revision_token(row)
+    return body
+
+
+def _session_conflict_details(row: VideoAssessmentSession) -> dict[str, Any]:
+    return {
+        "session_id": row.id,
+        "current_revision": _session_revision_token(row),
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "finalized": row.overall_status == "finalized",
+        "overall_status": row.overall_status,
+    }
+
+
+def _require_expected_revision(row: VideoAssessmentSession, expected_revision: str) -> None:
+    # Conflict metadata reflects lineage/state drift only. It must not imply
+    # any clinical meaning beyond "the persisted session changed underneath you."
+    current_revision = _session_revision_token(row)
+    if expected_revision == current_revision:
+        return
+    raise ApiServiceError(
+        code="session_conflict",
+        message="Session changed on the server. Reload the latest persisted session before saving again.",
+        status_code=409,
+        details=_session_conflict_details(row),
+    )
 
 
 def _save_session_body(row: VideoAssessmentSession, body: dict[str, Any]) -> None:
@@ -264,6 +309,7 @@ class CreateSessionRequest(BaseModel):
 # core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
 class PatchSessionRequest(BaseModel):
     """Merge into session document. When ``tasks`` is set, merge by task_id."""
+    expected_revision: str = Field(min_length=8, max_length=64)
     mode: Optional[str] = None
     overall_status: Optional[str] = None
     completed_at: Optional[str] = None
@@ -294,6 +340,114 @@ class SessionListResponse(BaseModel):
     total: int
 
 
+# core-schema-exempt: prior-finalized-session compact summary; not reused outside this router
+class PriorFinalizedSessionSummary(BaseModel):
+    """Compact, comparison-ready summary. No task-level review JSON allowed here."""
+    key_findings: str
+    severity_level: str
+    tasks_completed: int
+    tasks_total: int
+
+
+# core-schema-exempt: prior-finalized-session envelope; not reused outside this router
+class PriorFinalizedSessionItem(BaseModel):
+    """Read-only prior-session envelope for longitudinal comparison cards/tables."""
+    session_id: str
+    occurred_at: Optional[str] = None
+    overall_status: str
+    has_clips: bool = False
+    summary: PriorFinalizedSessionSummary
+    finalized_by: str
+    finalized_at: Optional[str] = None
+
+
+# core-schema-exempt: trend point payload; not reused outside this router
+class PriorFinalizedTrendItem(BaseModel):
+    """Compact oldest-to-newest trend point. No notes, tasks, or mutable payloads."""
+    session_id: str
+    occurred_at: Optional[str] = None
+    finalized_at: Optional[str] = None
+    severity_level: Optional[str] = None
+    tasks_completed: Optional[int] = None
+    tasks_total: Optional[int] = None
+    has_clips: bool = False
+
+
+# core-schema-exempt: comparison + trend response shape; not reused outside this router
+class PriorFinalizedSessionsResponse(BaseModel):
+    """Read-only comparison + trend payload from persisted finalized sessions only.
+
+    ``sessions`` is newest-first for card/table comparison.
+    ``trend_sessions`` is oldest-first for temporal summary rows.
+    Both lists are intentionally compact and must not include task-level review
+    payloads, clinician notes, or mutable session JSON.
+    """
+    sessions: list[PriorFinalizedSessionItem]
+    trend_sessions: list[PriorFinalizedTrendItem] = Field(default_factory=list)
+
+
+# core-schema-exempt: historical summary request body; not reused outside this router
+class HistoricalSummaryRequest(BaseModel):
+    """Read-only selector for already-authorized prior finalized sessions."""
+
+    selected_session_ids: list[str] = Field(default_factory=list)
+
+
+# core-schema-exempt: historical summary data-basis section; not reused outside this router
+class HistoricalSummaryDataBasis(BaseModel):
+    """Compact provenance basis for the advisory summary."""
+
+    session_count: int
+    has_severity_data: bool
+    has_task_completion_data: bool
+    has_clip_availability_data: bool
+
+
+# core-schema-exempt: historical summary provenance section; not reused outside this router
+class HistoricalSummaryProvenance(BaseModel):
+    """Compact clinician-visible provenance reference for traceability only."""
+
+    event_id: str
+    summary_logic_version: str
+    source_session_ids: list[str] = Field(default_factory=list)
+    session_count: int
+    source_input_fingerprint: str
+
+
+# core-schema-exempt: historical summary response shape; not reused outside this router
+class HistoricalSummaryResponse(BaseModel):
+    """Advisory-only historical summary over compact comparison/trend fields."""
+
+    summary_status: str
+    summary_text: str
+    trend_observations: list[str] = Field(default_factory=list)
+    data_basis: HistoricalSummaryDataBasis
+    limitations: list[str] = Field(default_factory=list)
+    generated_at: str
+    provenance: HistoricalSummaryProvenance
+
+
+# core-schema-exempt: clinician feedback request body; not reused outside this router
+class HistoricalSummaryFeedbackRequest(BaseModel):
+    """Compact clinician response to one advisory summary instance."""
+
+    summary_event_id: str = Field(min_length=8, max_length=128)
+    feedback_status: str = Field(min_length=1, max_length=32)
+    feedback_note: Optional[str] = Field(default=None, max_length=_MAX_HISTORICAL_FEEDBACK_NOTE_CHARS)
+
+
+# core-schema-exempt: actor-scoped feedback state response; not reused outside this router
+class HistoricalSummaryFeedbackResponse(BaseModel):
+    """Actor-scoped feedback state for one advisory summary instance."""
+
+    has_feedback: bool = True
+    summary_event_id: str
+    feedback_status: str
+    feedback_note: Optional[str] = None
+    updated_at: Optional[str] = None
+    actor_role: str
+
+
 def _list_item_from_row(row: VideoAssessmentSession) -> SessionListItem:
     body = _load_session_body(row)
     summ = body.get("summary") or {}
@@ -312,6 +466,611 @@ def _list_item_from_row(row: VideoAssessmentSession) -> SessionListItem:
         updated_at=row.updated_at.isoformat() if row.updated_at else None,
         review_completion_percent=pct,
     )
+
+
+def _comparison_context_key(row: VideoAssessmentSession, doc: dict[str, Any]) -> tuple[str, str, str]:
+    clinical_context = doc.get("clinical_context") or {}
+    return (
+        str(row.protocol_name or doc.get("protocol_name") or ""),
+        str(row.protocol_version or doc.get("protocol_version") or ""),
+        str(clinical_context.get("preset_id") or ""),
+    )
+
+
+def _comparison_key_findings(doc: dict[str, Any]) -> str:
+    summary = doc.get("summary") or {}
+    for value in (
+        summary.get("clinician_impression"),
+        summary.get("recommended_followup"),
+    ):
+        text = str(value or "").strip()
+        if text:
+            return text
+    return "No clinician summary recorded."
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return default
+
+
+def _comparison_severity_level(doc: dict[str, Any]) -> str:
+    summary = doc.get("summary") or {}
+    declared = str(summary.get("severity_level") or "").strip().lower()
+    if declared in {"none", "mild", "moderate", "severe"}:
+        return declared
+    safety_flags = doc.get("safety_flags") or []
+    repeat_count = _safe_int(summary.get("tasks_needing_repeat") or 0)
+    skipped_count = _safe_int(summary.get("tasks_skipped") or 0)
+    if safety_flags:
+        return "severe"
+    if repeat_count > 0:
+        return "moderate"
+    if skipped_count > 0:
+        return "mild"
+    return "none"
+
+
+def _comparison_has_clips(doc: dict[str, Any]) -> bool:
+    for task in doc.get("tasks") or []:
+        if task.get("recording_storage_ref") or task.get("recording_asset_id"):
+            return True
+    return False
+
+
+def _comparison_finalized_by(doc: dict[str, Any]) -> str:
+    for value in (
+        doc.get("finalized_by"),
+        (doc.get("summary") or {}).get("finalized_by"),
+    ):
+        text = str(value or "").strip()
+        if text:
+            return text
+    for task in doc.get("tasks") or []:
+        if task.get("clinician_review"):
+            return "Clinician review"
+    return "Clinician"
+
+
+def _comparison_sort_fields(item: PriorFinalizedSessionItem) -> tuple[str, str]:
+    return (
+        str(item.finalized_at or item.occurred_at or ""),
+        str(item.session_id or ""),
+    )
+
+
+def _trend_sort_fields(item: PriorFinalizedTrendItem) -> tuple[str, str]:
+    return (
+        str(item.finalized_at or item.occurred_at or ""),
+        str(item.session_id or ""),
+    )
+
+
+def _prior_finalized_item_from_row(row: VideoAssessmentSession) -> PriorFinalizedSessionItem:
+    doc = _load_session_body(row)
+    summary = doc.get("summary") or {}
+    finalized_at = doc.get("completed_at") or (row.updated_at.isoformat() if row.updated_at else None)
+    tasks = doc.get("tasks") or []
+    return PriorFinalizedSessionItem(
+        session_id=row.id,
+        occurred_at=finalized_at or doc.get("started_at") or (row.created_at.isoformat() if row.created_at else None),
+        overall_status=str(doc.get("overall_status") or row.overall_status or ""),
+        has_clips=_comparison_has_clips(doc),
+        summary=PriorFinalizedSessionSummary(
+            key_findings=_comparison_key_findings(doc),
+            severity_level=_comparison_severity_level(doc),
+            tasks_completed=_safe_int(summary.get("tasks_completed") or 0),
+            tasks_total=len(tasks),
+        ),
+        finalized_by=_comparison_finalized_by(doc),
+        finalized_at=finalized_at,
+    )
+
+
+def _prior_finalized_trend_item_from_row(row: VideoAssessmentSession) -> PriorFinalizedTrendItem:
+    doc = _load_session_body(row)
+    summary = doc.get("summary") or {}
+    finalized_at = doc.get("completed_at") or (row.updated_at.isoformat() if row.updated_at else None)
+    severity_level = str(summary.get("severity_level") or "").strip().lower() or None
+    if severity_level not in {"none", "mild", "moderate", "severe"}:
+        severity_level = _comparison_severity_level(doc)
+    tasks_total = len(doc.get("tasks") or [])
+    return PriorFinalizedTrendItem(
+        session_id=row.id,
+        occurred_at=finalized_at or doc.get("started_at") or (row.created_at.isoformat() if row.created_at else None),
+        finalized_at=finalized_at,
+        severity_level=severity_level,
+        tasks_completed=_safe_int(summary.get("tasks_completed"), None),
+        tasks_total=tasks_total if tasks_total > 0 else None,
+        has_clips=_comparison_has_clips(doc),
+    )
+
+
+def _collect_prior_finalized_payload(
+    actor: AuthenticatedActor,
+    db: Session,
+    session_id: str,
+) -> tuple[VideoAssessmentSession, list[PriorFinalizedSessionItem], list[PriorFinalizedTrendItem]]:
+    row = db.query(VideoAssessmentSession).filter(VideoAssessmentSession.id == session_id).first()
+    if row is None:
+        raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
+    _gate_session_clinician(actor, row, db)
+
+    current_doc = _load_session_body(row)
+    context_key = _comparison_context_key(row, current_doc)
+    rows = (
+        _sessions_query_for_clinician(actor, db)
+        .filter(VideoAssessmentSession.patient_id == row.patient_id)
+        .filter(VideoAssessmentSession.id != row.id)
+        .filter(VideoAssessmentSession.overall_status == "finalized")
+        .order_by(VideoAssessmentSession.updated_at.desc(), VideoAssessmentSession.id.desc())
+        .all()
+    )
+
+    sessions: list[PriorFinalizedSessionItem] = []
+    trend_sessions: list[PriorFinalizedTrendItem] = []
+    for candidate in rows:
+        candidate_doc = _load_session_body(candidate)
+        if not _is_finalized(candidate_doc):
+            continue
+        if _comparison_context_key(candidate, candidate_doc) != context_key:
+            continue
+        sessions.append(_prior_finalized_item_from_row(candidate))
+        trend_sessions.append(_prior_finalized_trend_item_from_row(candidate))
+    sessions.sort(key=_comparison_sort_fields, reverse=True)
+    trend_sessions.sort(key=_trend_sort_fields)
+    return row, sessions, trend_sessions
+
+
+def _historical_summary_data_basis(trend_sessions: list[PriorFinalizedTrendItem]) -> HistoricalSummaryDataBasis:
+    return HistoricalSummaryDataBasis(
+        session_count=len(trend_sessions),
+        has_severity_data=any(item.severity_level is not None for item in trend_sessions),
+        has_task_completion_data=any(
+            item.tasks_completed is not None and item.tasks_total is not None and item.tasks_total > 0
+            for item in trend_sessions
+        ),
+        has_clip_availability_data=any(isinstance(item.has_clips, bool) for item in trend_sessions),
+    )
+
+
+def _safe_ratio(completed: Optional[int], total: Optional[int]) -> Optional[float]:
+    if completed is None or total is None or total <= 0:
+        return None
+    return completed / total
+
+
+def _classify_numeric_trend(values: list[float], *, decrease_label: str, same_label: str, increase_label: str) -> str:
+    if len(values) < 2:
+        return "insufficient data"
+    deltas = [values[idx] - values[idx - 1] for idx in range(1, len(values))]
+    if all(delta == 0 for delta in deltas):
+        return same_label
+    if all(delta <= 0 for delta in deltas) and any(delta < 0 for delta in deltas):
+        return decrease_label
+    if all(delta >= 0 for delta in deltas) and any(delta > 0 for delta in deltas):
+        return increase_label
+    return "mixed"
+
+
+def _severity_rank(level: Optional[str]) -> Optional[int]:
+    return {
+        "none": 0,
+        "mild": 1,
+        "moderate": 2,
+        "severe": 3,
+    }.get(str(level or "").strip().lower())
+
+
+def _classify_clip_trend(values: list[bool]) -> str:
+    if len(values) < 2:
+        return "insufficient data"
+    return "consistent" if all(value == values[0] for value in values) else "inconsistent"
+
+
+def _historical_summary_observations(trend_sessions: list[PriorFinalizedTrendItem]) -> tuple[list[str], list[str], HistoricalSummaryDataBasis]:
+    basis = _historical_summary_data_basis(trend_sessions)
+    limitations: list[str] = []
+    severity_values = [_severity_rank(item.severity_level) for item in trend_sessions if _severity_rank(item.severity_level) is not None]
+    completion_values = [
+        ratio
+        for ratio in (_safe_ratio(item.tasks_completed, item.tasks_total) for item in trend_sessions)
+        if ratio is not None
+    ]
+    clip_values = [item.has_clips for item in trend_sessions if isinstance(item.has_clips, bool)]
+
+    severity_trend = _classify_numeric_trend(
+        severity_values,
+        decrease_label="improved",
+        same_label="stable",
+        increase_label="worsened",
+    )
+    completion_trend = _classify_numeric_trend(
+        completion_values,
+        decrease_label="declined",
+        same_label="stable",
+        increase_label="improved",
+    )
+    clip_trend = _classify_clip_trend(clip_values)
+
+    observations: list[str] = []
+    if basis.has_severity_data:
+        observations.append(f"Severity appears {severity_trend} across available finalized sessions.")
+        if severity_trend in {"mixed", "insufficient data"}:
+            limitations.append("Severity labels are incomplete or mixed across the selected finalized sessions.")
+    else:
+        limitations.append("Severity labels are not available for the selected finalized sessions.")
+
+    if basis.has_task_completion_data:
+        observations.append(f"Task completion appears {completion_trend} across available finalized sessions.")
+        if completion_trend in {"mixed", "insufficient data"}:
+            limitations.append("Task completion data are incomplete or mixed across the selected finalized sessions.")
+    else:
+        limitations.append("Task completion counts are not available for the selected finalized sessions.")
+
+    if basis.has_clip_availability_data:
+        observations.append(f"Clip availability is {clip_trend} across the selected finalized sessions.")
+        if clip_trend in {"inconsistent", "insufficient data"}:
+            limitations.append("Clip availability varies across the selected finalized sessions.")
+    else:
+        limitations.append("Clip availability is not available for the selected finalized sessions.")
+
+    if len(trend_sessions) < 2:
+        limitations.append("Fewer than two finalized sessions are available, so temporal interpretation is limited.")
+
+    return observations, limitations, basis
+
+
+def _summarize_allowed_findings(items: list[PriorFinalizedSessionItem]) -> Optional[str]:
+    snippets: list[str] = []
+    for item in items[:2]:
+        text = str(item.summary.key_findings or "").strip()
+        if not text or text == "No clinician summary recorded.":
+            continue
+        snippets.append(text.rstrip("."))
+    if not snippets:
+        return None
+    if len(snippets) == 1:
+        return f"Selected finalized-session summaries note: {snippets[0]}."
+    return f"Selected finalized-session summaries note: {snippets[0]}; {snippets[1]}."
+
+def _historical_summary_compact_source_basis(
+    sessions: list[PriorFinalizedSessionItem],
+    trend_sessions: list[PriorFinalizedTrendItem],
+    basis: HistoricalSummaryDataBasis,
+) -> dict[str, Any]:
+    return {
+        "source_session_ids": [item.session_id for item in sessions],
+        "session_count": len(trend_sessions),
+        "has_severity_data": basis.has_severity_data,
+        "has_task_completion_data": basis.has_task_completion_data,
+        "has_clip_availability_data": basis.has_clip_availability_data,
+        "fields_used": [
+            "occurred_at",
+            "finalized_at",
+            "summary.key_findings",
+            "summary.severity_level",
+            "summary.tasks_completed",
+            "summary.tasks_total",
+            "has_clips",
+        ],
+    }
+
+
+def _historical_summary_input_fingerprint(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _normalized_selected_session_ids(items: list[PriorFinalizedSessionItem]) -> list[str]:
+    return [item.session_id for item in items]
+
+
+def _historical_summary_source_fingerprint(
+    sessions: list[PriorFinalizedSessionItem],
+    trend_sessions: list[PriorFinalizedTrendItem],
+    basis: HistoricalSummaryDataBasis,
+) -> str:
+    return _historical_summary_input_fingerprint(
+        {
+            "sessions": [item.model_dump() for item in sessions],
+            "trend_sessions": [item.model_dump() for item in trend_sessions],
+            "basis": basis.model_dump(),
+        }
+    )
+
+
+def _sanitize_historical_feedback_note(note: Optional[str]) -> Optional[str]:
+    if note is None:
+        return None
+    text = " ".join(str(note).split()).strip()
+    return text or None
+
+
+def _validate_historical_feedback_status(value: str) -> str:
+    status = str(value or "").strip().lower()
+    if status not in _ALLOWED_HISTORICAL_FEEDBACK_STATUS:
+        raise ApiServiceError(
+            code="invalid_feedback_status",
+            message="Feedback status must be accepted, partially_accepted, disagreed, or not_useful.",
+            status_code=422,
+        )
+    return status
+
+
+def _historical_feedback_response_from_payload(
+    *,
+    actor_role: str,
+    summary_event_id: str,
+    payload: Optional[dict[str, Any]],
+) -> HistoricalSummaryFeedbackResponse:
+    if not isinstance(payload, dict):
+        return HistoricalSummaryFeedbackResponse(
+            has_feedback=False,
+            summary_event_id=summary_event_id,
+            feedback_status="",
+            feedback_note=None,
+            updated_at=None,
+            actor_role=actor_role,
+        )
+    return HistoricalSummaryFeedbackResponse(
+        has_feedback=True,
+        summary_event_id=summary_event_id,
+        feedback_status=str(payload.get("feedback_status") or "").strip().lower(),
+        feedback_note=_sanitize_historical_feedback_note(payload.get("feedback_note")),
+        updated_at=str(payload.get("timestamp") or ""),
+        actor_role=actor_role,
+    )
+
+
+def _historical_summary_status(
+    *,
+    previous_payload: Optional[dict[str, Any]],
+    selected_prior_session_ids: list[str],
+    source_input_fingerprint: str,
+) -> str:
+    if not previous_payload:
+        return "fresh"
+    prev_logic_version = str(previous_payload.get("summary_logic_version") or "")
+    prev_selected_ids = [
+        str(value).strip()
+        for value in (previous_payload.get("selected_prior_session_ids") or [])
+        if str(value).strip()
+    ]
+    prev_fingerprint = str(((previous_payload.get("provenance") or {}).get("source_input_fingerprint")) or "")
+    # Regeneration status reflects compact basis/version lineage only. It must
+    # not be interpreted as a clinical meaning change in the summary text.
+    if prev_logic_version and prev_logic_version != _HISTORICAL_SUMMARY_LOGIC_VERSION:
+        return "regenerated_logic_changed"
+    if prev_selected_ids != selected_prior_session_ids:
+        return "regenerated_selection_changed"
+    if prev_fingerprint and prev_fingerprint != source_input_fingerprint:
+        return "regenerated_source_changed"
+    return "unchanged"
+
+
+"""
+Summarization-only endpoint support over already-authorized compact comparison
+fields. This must not expand into recommendation, diagnosis, or broader review
+payload generation without a separate design and safety review step.
+"""
+def _build_historical_summary_response(
+    *,
+    session_id: str,
+    selected_ids: list[str],
+    sessions: list[PriorFinalizedSessionItem],
+    trend_sessions: list[PriorFinalizedTrendItem],
+    event_id: str,
+    generated_at: str,
+    source_input_fingerprint: str,
+    summary_status: str,
+) -> HistoricalSummaryResponse:
+    selected_set = {str(value).strip() for value in selected_ids if str(value).strip()}
+    selected_sessions = [item for item in sessions if not selected_set or item.session_id in selected_set]
+    selected_trend_sessions = [item for item in trend_sessions if not selected_set or item.session_id in selected_set]
+    observations, limitations, basis = _historical_summary_observations(selected_trend_sessions)
+    selected_count = len(selected_sessions)
+    summary_parts = [f"Historical review covers {selected_count} finalized session{'s' if selected_count != 1 else ''} in the selected comparison set."]
+    findings_summary = _summarize_allowed_findings(selected_sessions)
+    if findings_summary:
+        summary_parts.append(findings_summary)
+    if observations:
+        summary_parts.append(" ".join(observations))
+    else:
+        summary_parts.append("Available finalized-session data are too sparse for a stronger descriptive pattern summary.")
+    if not limitations:
+        limitations.append("This summary uses compact finalized-session comparison fields only and does not replace full clip or chart review.")
+    else:
+        limitations.append("This summary uses compact finalized-session comparison fields only and does not replace full clip or chart review.")
+    return HistoricalSummaryResponse(
+        summary_status=summary_status,
+        summary_text=" ".join(summary_parts),
+        trend_observations=observations or ["Available finalized-session data are too sparse for a stronger descriptive pattern summary."],
+        data_basis=basis,
+        limitations=limitations,
+        generated_at=generated_at,
+        provenance=HistoricalSummaryProvenance(
+            event_id=event_id,
+            summary_logic_version=_HISTORICAL_SUMMARY_LOGIC_VERSION,
+            source_session_ids=[item.session_id for item in selected_sessions],
+            session_count=len(selected_trend_sessions),
+            source_input_fingerprint=source_input_fingerprint,
+        ),
+    )
+
+
+def _trim_feedback_note(note: Optional[str]) -> str:
+    return str(note or "").strip()
+
+
+def _validate_historical_summary_feedback(body: HistoricalSummaryFeedbackRequest) -> str:
+    note = _trim_feedback_note(body.feedback_note)
+    # Disagreement-style statuses require explicit rationale for auditability.
+    if body.feedback_status in {"disagreed", "not_useful"} and not note:
+        raise ApiServiceError(
+            code="feedback_note_required",
+            message="A rationale note is required when feedback_status is disagreed or not_useful.",
+            status_code=422,
+        )
+    return note
+
+
+def _historical_summary_event_or_404(
+    db: Session,
+    *,
+    session_id: str,
+    summary_event_id: str,
+):
+    row = video_assessment_historical_summary_audit_by_event_id(
+        db, session_id=session_id, event_id=summary_event_id
+    )
+    if row is None:
+        raise ApiServiceError(code="not_found", message="Historical summary not found.", status_code=404)
+    return row
+
+
+def _feedback_response_from_payload(payload: dict[str, Any]) -> HistoricalSummaryFeedbackResponse:
+    return HistoricalSummaryFeedbackResponse(
+        summary_event_id=str(payload.get("summary_event_id") or ""),
+        feedback_status=str(payload.get("feedback_status") or ""),
+        feedback_note=str(payload.get("feedback_note") or ""),
+        updated_at=str(payload.get("updated_at") or ""),
+        actor_role=str(payload.get("actor_role") or ""),
+    )
+
+
+def _write_historical_summary_feedback_audit(
+    db: Session,
+    *,
+    actor: AuthenticatedActor,
+    session_id: str,
+    summary_event_id: str,
+    feedback_status: str,
+    feedback_note: str,
+) -> dict[str, Any]:
+    updated_at = datetime.now(timezone.utc).isoformat()
+    payload = {
+        "event_type": "historical_ai_summary_feedback_saved",
+        "session_id": session_id,
+        "summary_event_id": summary_event_id,
+        "actor_role": actor.role,
+        "feedback_status": feedback_status,
+        "feedback_note": feedback_note,
+        "note_present": bool(feedback_note),
+        "updated_at": updated_at,
+    }
+    # Privacy note: feedback lineage must stay compact and must not store raw
+    # review notes, hidden drafts, or broader patient/session payloads.
+    create_audit_event(
+        db,
+        event_id=f"va-historical-summary-feedback-{uuid.uuid4().hex[:20]}",
+        target_id=session_id[:64],
+        target_type="video_assessment",
+        action="video_assessment.historical_ai_summary_feedback_saved",
+        role=actor.role if actor.role in {"clinician", "admin"} else "clinician",
+        actor_id=actor.actor_id,
+        note=json.dumps(payload, separators=(",", ":"), sort_keys=True),
+        created_at=updated_at,
+    )
+    return payload
+
+
+def _write_historical_summary_audit(
+    db: Session,
+    *,
+    actor: AuthenticatedActor,
+    session_id: str,
+    selected_sessions: list[PriorFinalizedSessionItem],
+    trend_sessions: list[PriorFinalizedTrendItem],
+    basis: HistoricalSummaryDataBasis,
+    generated_at: str,
+    source_input_fingerprint: str,
+    summary_status: str,
+    previous_payload: Optional[dict[str, Any]],
+) -> str:
+    compact_source_basis = _historical_summary_compact_source_basis(selected_sessions, trend_sessions, basis)
+    previous_provenance = previous_payload.get("provenance") if isinstance(previous_payload, dict) else None
+    event_id = f"va-historical-summary-{uuid.uuid4().hex[:20]}"
+    provenance_payload = {
+        "event_type": "historical_ai_summary_generated",
+        "event_id": event_id,
+        "session_id": session_id,
+        "actor_role": actor.role,
+        "generated_at": generated_at,
+        "selected_prior_session_ids": [item.session_id for item in selected_sessions],
+        "summary_logic_version": _HISTORICAL_SUMMARY_LOGIC_VERSION,
+        "summary_status": summary_status,
+        "prior_summary_ref": (
+            {
+                "event_id": previous_payload.get("event_id"),
+                "summary_logic_version": previous_payload.get("summary_logic_version"),
+                "selected_prior_session_ids": previous_payload.get("selected_prior_session_ids") or [],
+                "source_input_fingerprint": previous_provenance.get("source_input_fingerprint"),
+            }
+            if isinstance(previous_payload, dict) and isinstance(previous_provenance, dict)
+            else None
+        ),
+        "regeneration_reason": summary_status,
+        "provenance": {
+            **compact_source_basis,
+            "source_input_fingerprint": source_input_fingerprint,
+        },
+    }
+    # Privacy note: provenance must stay compact and lineage-focused.
+    # Do not store raw notes, nested review JSON, clip payloads, or hidden draft
+    # content in this audit path.
+    create_audit_event(
+        db,
+        event_id=event_id,
+        target_id=session_id[:64],
+        target_type="video_assessment",
+        action="video_assessment.historical_ai_summary_generated",
+        role=actor.role if actor.role in {"guest", "clinician", "admin"} else "clinician",
+        actor_id=actor.actor_id,
+        note=json.dumps(provenance_payload, separators=(",", ":"), sort_keys=True),
+        created_at=generated_at,
+    )
+    return event_id
+
+
+def _write_historical_summary_feedback_audit(
+    db: Session,
+    *,
+    actor: AuthenticatedActor,
+    session_id: str,
+    summary_event_id: str,
+    feedback_status: str,
+    feedback_note: Optional[str],
+) -> str:
+    created_at = datetime.now(timezone.utc).isoformat()
+    event_id = f"va-historical-summary-feedback-{uuid.uuid4().hex[:20]}"
+    # Feedback here records the clinician response to advisory output only.
+    # It is not a truth label, diagnosis, final outcome, or automatic session
+    # review update. Keep this provenance compact and privacy-conscious.
+    payload = {
+        "event_type": "historical_ai_summary_feedback_saved",
+        "session_id": session_id,
+        "summary_event_id": summary_event_id,
+        "actor_role": actor.role,
+        "feedback_status": feedback_status,
+        "feedback_note": feedback_note,
+        "note_present": bool(feedback_note),
+        "timestamp": created_at,
+    }
+    create_audit_event(
+        db,
+        event_id=event_id,
+        target_id=session_id[:64],
+        target_type="video_assessment",
+        action="video_assessment.historical_ai_summary_feedback_saved",
+        role=actor.role if actor.role in {"guest", "clinician", "admin"} else "clinician",
+        actor_id=actor.actor_id,
+        note=json.dumps(payload, separators=(",", ":"), sort_keys=True),
+        created_at=created_at,
+    )
+    return created_at
 
 
 @router.get("/sessions", response_model=SessionListResponse)
@@ -359,6 +1118,152 @@ def list_sessions(
     return SessionListResponse(items=items, total=len(items))
 
 
+@router.get("/sessions/{session_id}/prior-finalized-sessions", response_model=PriorFinalizedSessionsResponse)
+def list_prior_finalized_sessions(
+    session_id: str = PathParam(..., min_length=8),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PriorFinalizedSessionsResponse:
+    """List read-only finalized sessions for same patient + protocol/context, newest first.
+
+    The response is intentionally compact for UI comparison only and must not
+    include task-level clinician review payloads or other nested detail JSON.
+    """
+    require_minimum_role(actor, "clinician")
+    _, sessions, trend_sessions = _collect_prior_finalized_payload(actor, db, session_id)
+
+    _audit_va(
+        db,
+        actor=actor,
+        action="prior_finalized_sessions_list",
+        target_id=session_id,
+        note=f"n={len(sessions)}",
+    )
+    return PriorFinalizedSessionsResponse(sessions=sessions, trend_sessions=trend_sessions)
+
+
+@router.post("/sessions/{session_id}/historical-ai-summary", response_model=HistoricalSummaryResponse)
+def generate_historical_ai_summary(
+    body: HistoricalSummaryRequest,
+    session_id: str = PathParam(..., min_length=8),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> HistoricalSummaryResponse:
+    require_minimum_role(actor, "clinician")
+    _, sessions, trend_sessions = _collect_prior_finalized_payload(actor, db, session_id)
+    selected_set = {str(value).strip() for value in (body.selected_session_ids or []) if str(value).strip()}
+    selected_sessions = [item for item in sessions if not selected_set or item.session_id in selected_set]
+    selected_trend_sessions = [item for item in trend_sessions if not selected_set or item.session_id in selected_set]
+    _, _, basis = _historical_summary_observations(selected_trend_sessions)
+    selected_prior_session_ids = _normalized_selected_session_ids(selected_sessions)
+    source_input_fingerprint = _historical_summary_source_fingerprint(
+        selected_sessions,
+        selected_trend_sessions,
+        basis,
+    )
+    _, previous_payload = latest_video_assessment_historical_summary_audit(
+        db,
+        actor_id=actor.actor_id,
+        session_id=session_id,
+    )
+    summary_status = _historical_summary_status(
+        previous_payload=previous_payload,
+        selected_prior_session_ids=selected_prior_session_ids,
+        source_input_fingerprint=source_input_fingerprint,
+    )
+    generated_at = datetime.now(timezone.utc).isoformat()
+    event_id = _write_historical_summary_audit(
+        db,
+        actor=actor,
+        session_id=session_id,
+        selected_sessions=selected_sessions,
+        trend_sessions=selected_trend_sessions,
+        basis=basis,
+        generated_at=generated_at,
+        source_input_fingerprint=source_input_fingerprint,
+        summary_status=summary_status,
+        previous_payload=previous_payload,
+    )
+    response = _build_historical_summary_response(
+        session_id=session_id,
+        selected_ids=body.selected_session_ids or [],
+        sessions=sessions,
+        trend_sessions=trend_sessions,
+        event_id=event_id,
+        generated_at=generated_at,
+        source_input_fingerprint=source_input_fingerprint,
+        summary_status=summary_status,
+    )
+    return response
+
+
+@router.get(
+    "/sessions/{session_id}/historical-ai-summary-feedback/{summary_event_id}",
+    response_model=HistoricalSummaryFeedbackResponse,
+)
+def get_historical_ai_summary_feedback(
+    session_id: str = PathParam(..., min_length=8),
+    summary_event_id: str = PathParam(..., min_length=8, max_length=128),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> HistoricalSummaryFeedbackResponse:
+    require_minimum_role(actor, "clinician")
+    row = db.query(VideoAssessmentSession).filter(VideoAssessmentSession.id == session_id).first()
+    if row is None:
+        raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
+    _gate_session_clinician(actor, row, db)
+    if video_assessment_historical_summary_audit_by_event_id(db, session_id=session_id, event_id=summary_event_id) is None:
+        raise ApiServiceError(code="not_found", message="Historical summary not found.", status_code=404)
+    _, payload = latest_video_assessment_summary_feedback_audit(
+        db,
+        actor_id=actor.actor_id,
+        session_id=session_id,
+        summary_event_id=summary_event_id,
+    )
+    return _historical_feedback_response_from_payload(
+        actor_role=actor.role,
+        summary_event_id=summary_event_id,
+        payload=payload,
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/historical-ai-summary-feedback",
+    response_model=HistoricalSummaryFeedbackResponse,
+)
+def save_historical_ai_summary_feedback(
+    body: HistoricalSummaryFeedbackRequest,
+    session_id: str = PathParam(..., min_length=8),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> HistoricalSummaryFeedbackResponse:
+    require_minimum_role(actor, "clinician")
+    row = db.query(VideoAssessmentSession).filter(VideoAssessmentSession.id == session_id).first()
+    if row is None:
+        raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
+    _gate_session_clinician(actor, row, db)
+    if video_assessment_historical_summary_audit_by_event_id(db, session_id=session_id, event_id=body.summary_event_id) is None:
+        raise ApiServiceError(code="not_found", message="Historical summary not found.", status_code=404)
+    feedback_status = _validate_historical_feedback_status(body.feedback_status)
+    feedback_note = _sanitize_historical_feedback_note(body.feedback_note)
+    updated_at = _write_historical_summary_feedback_audit(
+        db,
+        actor=actor,
+        session_id=session_id,
+        summary_event_id=body.summary_event_id,
+        feedback_status=feedback_status,
+        feedback_note=feedback_note,
+    )
+    return HistoricalSummaryFeedbackResponse(
+        has_feedback=True,
+        summary_event_id=body.summary_event_id,
+        feedback_status=feedback_status,
+        feedback_note=feedback_note,
+        updated_at=updated_at,
+        actor_role=actor.role,
+    )
+
+
 @router.post("/sessions", status_code=201)
 def create_session(
     body: CreateSessionRequest,
@@ -394,7 +1299,7 @@ def create_session(
     db.refresh(row)
     _log.info("video_assessment session created id=%s patient=%s", sid, patient.id)
     _audit_va(db, actor=actor, action="session_created", target_id=sid, note=f"patient_id={patient.id}")
-    return _load_session_body(row)
+    return _session_response_body(row)
 
 
 @router.get("/sessions/{session_id}")
@@ -417,7 +1322,7 @@ def get_session(
         _gate_session_clinician(actor, row, db)
         _audit_va(db, actor=actor, action="session_read", target_id=session_id, note="clinician_json_fetch")
 
-    return _load_session_body(row)
+    return _session_response_body(row)
 
 
 @router.patch("/sessions/{session_id}")
@@ -439,6 +1344,7 @@ def patch_session(
     else:
         _gate_session_clinician(actor, row, db)
 
+    _require_expected_revision(row, body.expected_revision)
     doc = _load_session_body(row)
     if _is_finalized(doc):
         raise ApiServiceError(
@@ -470,7 +1376,7 @@ def patch_session(
     db.commit()
     role_note = "patient" if actor.role == "patient" else ("admin" if actor.role == "admin" else "clinician")
     _audit_va(db, actor=actor, action="session_patched", target_id=session_id, note=f"{role_note}_update")
-    return doc
+    return _session_response_body(row)
 
 
 def _va_storage_dir(patient_id: str, session_id: str) -> FsPath:
@@ -484,6 +1390,7 @@ def _va_storage_dir(patient_id: str, session_id: str) -> FsPath:
 async def upload_task_video(
     session_id: str = PathParam(..., min_length=8),
     task_id: str = PathParam(..., min_length=2),
+    expected_revision: str = Form(..., min_length=8, max_length=64),
     file: UploadFile = File(...),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
@@ -495,6 +1402,7 @@ async def upload_task_video(
         raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
     _gate_session_patient(row, patient)
 
+    _require_expected_revision(row, expected_revision)
     doc_pre = _load_session_body(row)
     if _is_finalized(doc_pre):
         raise ApiServiceError(
@@ -560,7 +1468,11 @@ async def upload_task_video(
         target_id=session_id,
         note=f"task_id={task_id} bytes={len(raw)} asset={rid}",
     )
-    return {"recording_asset_id": rid, "recording_storage_ref": rel_ref.replace("\\", "/"), "session": doc}
+    return {
+        "recording_asset_id": rid,
+        "recording_storage_ref": rel_ref.replace("\\", "/"),
+        "session": _session_response_body(row),
+    }
 
 
 @router.get("/sessions/{session_id}/tasks/{task_id}/video")
@@ -612,6 +1524,7 @@ def stream_task_video(
 # core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
 class FinalizeRequest(BaseModel):
     """Optional final impression fields stored in summary."""
+    expected_revision: str = Field(min_length=8, max_length=64)
     clinician_impression: Optional[str] = None
     recommended_followup: Optional[str] = None
 
@@ -629,6 +1542,7 @@ def finalize_session(
         raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
     _gate_session_clinician(actor, row, db)
 
+    _require_expected_revision(row, body.expected_revision)
     doc = _load_session_body(row)
     if _is_finalized(doc):
         raise ApiServiceError(
@@ -649,7 +1563,7 @@ def finalize_session(
     _save_session_body(row, doc)
     db.commit()
     _audit_va(db, actor=actor, action="session_finalized", target_id=session_id, note="review_complete")
-    return doc
+    return _session_response_body(row)
 
 
 @router.get("/sessions/{session_id}/export.json")

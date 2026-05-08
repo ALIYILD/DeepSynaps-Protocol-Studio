@@ -14,9 +14,25 @@ stable safety stamps the frontend relies on.
 
 from __future__ import annotations
 
+import json
+from datetime import datetime, timedelta, timezone
+
 from fastapi.testclient import TestClient
 
+from app.database import SessionLocal
+from app.persistence.models import (
+    AssessmentRecord,
+    ClinicalSession,
+    DeepTwinAnalysisRun,
+    DeepTwinClinicianNote,
+    DeepTwinSimulationRun,
+    OutcomeEvent,
+    Patient,
+    User,
+    WearableAlertFlag,
+)
 from app.routers import deeptwin_router
+from app.services.auth_service import create_access_token
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +76,7 @@ def test_deeptwin_analyze_returns_ranked_workspace_outputs(
     assert body["engine"]["notes"]
 
 
-def test_deeptwin_simulate_returns_forecast_biomarkers_and_monitoring_plan(
+def test_deeptwin_simulate_returns_503_when_no_validated_engine_is_connected(
     client: TestClient,
     auth_headers: dict[str, dict[str, str]],
 ) -> None:
@@ -84,19 +100,11 @@ def test_deeptwin_simulate_returns_forecast_biomarkers_and_monitoring_plan(
         },
         headers=auth_headers["clinician"],
     )
-    assert resp.status_code == 200, resp.text
+    assert resp.status_code == 503, resp.text
     body = resp.json()
-
-    assert body["engine"]["status"] in {"ok", "available", "placeholder"}
-    # Stub engine must be honest about not being real AI
-    if body["engine"]["status"] == "placeholder":
-        assert body["engine"].get("real_ai") is False
-    assert body["outputs"]["clinical_forecast"]["summary"]
-    assert body["outputs"]["clinical_forecast"]["response_probability"] > 0
-    assert body["outputs"]["biomarker_forecast"]
-    assert body["outputs"]["timecourse"]
-    assert body["outputs"]["monitoring_plan"]
-    assert body["outputs"]["assumptions"]
+    assert body["code"] == "deeptwin_simulation_not_implemented"
+    assert body["details"]["reason"] == "no_validated_simulation_engine"
+    assert body["details"]["placeholder_simulations_disabled"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +112,55 @@ def test_deeptwin_simulate_returns_forecast_biomarkers_and_monitoring_plan(
 # ---------------------------------------------------------------------------
 
 PID = "pat-demo-1"
+
+CLINIC_REAL = "clinic-real"
+
+
+def _seed_real_clinician(session, *, user_id: str, clinic_id: str = CLINIC_REAL) -> User:
+    user = User(
+        id=user_id,
+        email=f"{user_id}@example.com",
+        display_name="Real Clinician",
+        role="clinician",
+        clinic_id=clinic_id,
+        hashed_password="x",
+        package_id="clinician_pro",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    session.add(user)
+    session.commit()
+    return user
+
+
+def _seed_real_patient(session, *, patient_id: str, clinician_id: str) -> Patient:
+    patient = Patient(
+        id=patient_id,
+        clinician_id=clinician_id,
+        first_name="Taylor",
+        last_name="Rivers",
+        dob="1991-03-12",
+        email=f"{patient_id}@example.com",
+        primary_condition="ADHD",
+        secondary_conditions='["anxiety"]',
+        notes="Persistent executive dysfunction with intermittent sleep disruption.",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    session.add(patient)
+    session.commit()
+    return patient
+
+
+def _real_headers(user_id: str, clinic_id: str = CLINIC_REAL) -> dict[str, str]:
+    token = create_access_token(
+        user_id=user_id,
+        email=f"{user_id}@example.com",
+        role="clinician",
+        package_id="clinician_pro",
+        clinic_id=clinic_id,
+    )
+    return {"Authorization": f"Bearer {token}"}
 
 
 def test_summary_endpoint(client: TestClient, auth_headers: dict[str, dict[str, str]]) -> None:
@@ -161,6 +218,200 @@ def test_predictions_horizons(client: TestClient, auth_headers: dict[str, dict[s
         assert body["horizon"] == horizon
         assert body["uncertainty_widens_with_horizon"] is True
         assert body["evidence_grade"] in {"low", "moderate", "high"}
+
+
+def test_real_patient_v1_endpoints_use_persisted_data_and_withhold_predictions(
+    client: TestClient,
+) -> None:
+    patient_id = "pat-real-v1"
+    user_id = "user-real-v1"
+    now = datetime.now(timezone.utc)
+    analysis_run_id: str | None = None
+    analysis_observed_at: str | None = None
+
+    session = SessionLocal()
+    try:
+        user = _seed_real_clinician(session, user_id=user_id)
+        _seed_real_patient(session, patient_id=patient_id, clinician_id=user.id)
+        analysis_run = DeepTwinAnalysisRun(
+            patient_id=patient_id,
+            clinician_id=user.id,
+            analysis_type="correlation",
+            output_summary_json=json.dumps({
+                "priority_pairs": [
+                    {
+                        "left": "sleep_total_min",
+                        "right": "phq9_total",
+                        "score": -0.58,
+                        "confidence": "moderate",
+                        "clinical_readout": "Sleep contraction tracks higher symptom burden.",
+                    },
+                ],
+            }),
+            confidence=0.74,
+            model_name="tribe-v1",
+            created_at=now - timedelta(hours=3),
+            reviewed_at=now - timedelta(hours=2),
+            reviewed_by=user.id,
+        )
+        session.add(analysis_run)
+        session.flush()
+        analysis_run_id = analysis_run.id
+        analysis_observed_at = analysis_run.created_at.replace(tzinfo=timezone.utc).isoformat()
+        session.add(AssessmentRecord(
+            patient_id=patient_id,
+            clinician_id=user.id,
+            template_id="phq9",
+            template_title="PHQ-9",
+            data_json="{}",
+            score="14",
+            score_numeric=14.0,
+            severity="moderate",
+            completed_at=now - timedelta(days=3),
+            created_at=now - timedelta(days=3),
+        ))
+        session.add(ClinicalSession(
+            patient_id=patient_id,
+            clinician_id=user.id,
+            scheduled_at=(now - timedelta(days=2)).isoformat(),
+            modality="tdcs",
+            status="completed",
+            session_number=4,
+            completed_at=(now - timedelta(days=2)).isoformat(),
+            created_at=now - timedelta(days=2),
+        ))
+        session.add(OutcomeEvent(
+            patient_id=patient_id,
+            clinician_id=user.id,
+            event_type="improvement",
+            title="Attention improved after block one",
+            summary="Clinician documented better sustained attention.",
+            severity="info",
+            payload_json="{}",
+            recorded_at=now - timedelta(days=1),
+            created_at=now - timedelta(days=1),
+        ))
+        session.add(DeepTwinClinicianNote(
+            patient_id=patient_id,
+            clinician_id=user.id,
+            note_text="Cross-check sleep before increasing stimulation burden.",
+            related_analysis_id=analysis_run.id,
+            created_at=now - timedelta(hours=1),
+        ))
+        session.add(DeepTwinSimulationRun(
+            patient_id=patient_id,
+            clinician_id=user.id,
+            clinician_review_required=True,
+            limitations="Persisted for review only; not a validated prediction.",
+            created_at=now - timedelta(minutes=45),
+        ))
+        session.add(WearableAlertFlag(
+            patient_id=patient_id,
+            flag_type="sleep_drop",
+            severity="warning",
+            detail="Sleep duration dropped below baseline for 3 nights.",
+            triggered_at=now - timedelta(hours=4),
+        ))
+        session.commit()
+    finally:
+        session.close()
+
+    headers = _real_headers(user_id)
+
+    summary_resp = client.get(
+        f"/api/v1/deeptwin/patients/{patient_id}/summary",
+        headers=headers,
+    )
+    assert summary_resp.status_code == 200, summary_resp.text
+    summary = summary_resp.json()
+    assert summary["patient_id"] == patient_id
+    assert summary["risk_status"] == "watch"
+    assert summary["review_status"] == "awaiting_clinician_review"
+    assert any(
+        src["key"] == "assessments" and src["record_count"] == 1
+        for src in summary["sources_connected"]
+    )
+    assert any("withheld" in warning.lower() for warning in summary["warnings"])
+
+    timeline_resp = client.get(
+        f"/api/v1/deeptwin/patients/{patient_id}/timeline?days=30",
+        headers=headers,
+    )
+    assert timeline_resp.status_code == 200, timeline_resp.text
+    timeline = timeline_resp.json()
+    assert timeline["window_days"] == 30
+    assert any(
+        event["kind"] == "note" and event["label"].startswith("Clinician note added:")
+        for event in timeline["events"]
+    )
+    assert any(
+        event["kind"] == "review" and event["label"] == "DeepTwin analysis reviewed: correlation"
+        for event in timeline["events"]
+    )
+
+    signals_resp = client.get(
+        f"/api/v1/deeptwin/patients/{patient_id}/signals",
+        headers=headers,
+    )
+    assert signals_resp.status_code == 200, signals_resp.text
+    signals_body = signals_resp.json()
+    assert signals_body["warnings"] == []
+    assert any(
+        signal["name"] == "assessments_records"
+        and signal["current"] == 1
+        and signal["measurement_type"] == "observed_count"
+        for signal in signals_body["signals"]
+    )
+    assert any(
+        signal["name"] == "clinician_notes" and signal["current"] == 1
+        for signal in signals_body["signals"]
+    )
+
+    corr_resp = client.get(
+        f"/api/v1/deeptwin/patients/{patient_id}/correlations",
+        headers=headers,
+    )
+    assert corr_resp.status_code == 200, corr_resp.text
+    corr = corr_resp.json()
+    assert corr["method"] == "persisted_analysis_runs"
+    assert corr["matrix"] == []
+    assert corr["hypotheses"] == []
+    assert corr["cards"] == [
+        {
+            "left": "sleep_total_min",
+            "right": "phq9_total",
+            "strength": -0.58,
+            "confidence": "moderate",
+            "n_observations": None,
+            "evidence_grade": None,
+            "note": "Sleep contraction tracks higher symptom burden.",
+            "source_run_id": analysis_run_id,
+            "source_model_name": "tribe-v1",
+            "observed_at": analysis_observed_at,
+        },
+    ]
+    assert any("persisted" in warning.lower() for warning in corr["warnings"])
+
+    pred_resp = client.get(
+        f"/api/v1/deeptwin/patients/{patient_id}/predictions?horizon=6w",
+        headers=headers,
+    )
+    assert pred_resp.status_code == 200, pred_resp.text
+    pred = pred_resp.json()
+    assert pred["horizon"] == "6w"
+    assert pred["traces"] == []
+    assert pred["available"] is False
+    assert pred["status"] == "not_implemented"
+    assert pred["reason"] == "no_validated_prediction_model"
+    assert pred["summary"].lower().startswith("deeptwin prediction output is withheld")
+    assert pred["evidence_grade"] is None
+    assert pred["evidence_status"] == "unavailable"
+    assert pred["confidence_tier"] is None
+    assert pred["top_drivers"] == []
+    assert pred["uncertainty_widens_with_horizon"] is False
+    assert pred["calibration"]["status"] == "withheld"
+    assert pred["provenance"]["model_id"] == "deeptwin.predictions.withheld"
+    assert pred["limitations"]
 
 
 def test_simulation_endpoint_requires_approval(
@@ -405,17 +656,11 @@ def test_legacy_simulate_response_has_provenance_and_decision_support(
             },
         },
     )
-    assert r.status_code == 200, r.text
+    assert r.status_code == 503, r.text
     body = r.json()
-    assert body["schema_version"].startswith("deeptwin.simulate.")
-    assert body["provenance"]["inputs_hash"].startswith("sha256:")
-    assert body["decision_support_only"] is True
-    out = body["outputs"]
-    assert out["confidence_tier"] in {"high", "medium", "low"}
-    assert isinstance(out["top_drivers"], list) and out["top_drivers"]
-    assert out["calibration"]["status"] == "uncalibrated"
-    assert "components" in out["uncertainty"]
-    assert "delta_pred" in out["scenario_comparison"]
+    assert body["code"] == "deeptwin_simulation_not_implemented"
+    assert body["details"]["reason"] == "no_validated_simulation_engine"
+    assert body["details"]["feature"] == "deeptwin_simulation"
 
 
 def test_scenario_comparison_endpoint(

@@ -32,6 +32,13 @@ EntityLabel = Literal[
     "risk_factor",
     "allergy",
     "device",
+    # Neuromodulation-specific entities
+    "stimulation_protocol",
+    "device_parameter",
+    "electrode_placement",
+    "outcome_measure",
+    "adverse_event",
+    "neuromodulation_device",
     "other",
 ]
 
@@ -103,6 +110,18 @@ class PIIExtractResponse(BaseModel):
     pii: list[PIIEntity]
 
 
+class NeuromodulationExtractResponse(BaseModel):
+    """Result of POST /analyze-neuromodulation."""
+
+    schema_id: Literal["deepsynaps.openmed.neuro/v1"] = "deepsynaps.openmed.neuro/v1"
+    backend: Literal["openmed_http", "heuristic"]
+    entities: list[ExtractedClinicalEntity]
+    pii: list[PIIEntity]
+    summary: str = Field(default="", description="Structured neuromodulation summary; not a clinical interpretation.")
+    safety_footer: str = "decision-support, not autonomous diagnosis"
+    char_count: int
+
+
 class DeidentifyResponse(BaseModel):
     schema_id: Literal["deepsynaps.openmed.deid/v1"] = "deepsynaps.openmed.deid/v1"
     backend: Literal["openmed_http", "heuristic"]
@@ -126,6 +145,7 @@ __all__ = [
     "PIIEntity",
     "AnalyzeResponse",
     "PIIExtractResponse",
+    "NeuromodulationExtractResponse",
     "DeidentifyResponse",
     "HealthResponse",
     "SourceType",

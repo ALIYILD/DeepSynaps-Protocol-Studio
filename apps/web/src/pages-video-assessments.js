@@ -14,9 +14,15 @@ import { isDemoSession } from './demo-session.js';
 import { currentUser } from './auth.js';
 
 const SESSION_STORAGE_KEY = 'ds_video_assessment_session_v2';
+export const VIDEO_ASSESSMENT_SESSION_STORAGE_KEY = SESSION_STORAGE_KEY;
+const HISTORICAL_AI_FEEDBACK_NOTE_MAX = 300;
 
 const DISCLAIMER =
   'Video Assessments are for guided capture and clinician review only. They are not a substitute for an in-person examination, emergency care, or autonomous diagnosis.';
+
+function _canReviewPriorSessions(role = '') {
+  return role === 'clinician' || role === 'supervisor' || role === 'admin';
+}
 
 function esc(v) {
   if (v == null) return '';
@@ -49,6 +55,9 @@ function _demoTokenWorkspace() {
 }
 
 function _sessionPersistLabel() {
+  if (_sessionHasServerTruth()) {
+    return 'Persisted session attached: clinician review saves and exports use backend truth. Browser storage is only a transient mirror for this view.';
+  }
   if (!_persistAllowed()) return 'Session data is not persisted across reloads in this build.';
   if (_demoTokenWorkspace()) return 'Demo-token session: draft reviews stay in this browser only (not the clinical record).';
   return 'Draft reviews are stored in this browser session only until backend persistence is enabled—not the clinical record.';
@@ -68,6 +77,14 @@ var _vaRecordedChunks = [];
 var _vaPreviewUrl = null;
 /** @type {Record<string, string>} task_id -> object URL for last capture */
 var _vaBlobUrlByTask = {};
+/** @type {Record<string, Blob>} task_id -> last accepted local blob before persisted upload */
+var _vaBlobByTask = {};
+/** @type {Record<string, string>} task_id -> fetched persisted clip object URL */
+var _vaRemoteVideoUrlByTask = {};
+/** @type {Record<string, boolean>} task_id -> persisted clip fetch in flight */
+var _vaRemoteVideoLoadingByTask = {};
+/** @type {Record<string, string>} task_id -> persisted clip fetch error */
+var _vaRemoteVideoErrorByTask = {};
 var _vaRecordingDeadline = null;
 var _vaCountdownTimer = null;
 var _vaRecordingTimer = null;
@@ -82,6 +99,27 @@ var _vaPatientsLoadFailed = false;
 var _vaSelectedPatientId = null;
 /** @type {(id: string, params?: unknown) => void} */
 var _vaNavigate = () => {};
+var _vaPriorSessionsState = {
+  sessionId: null,
+  loading: false,
+  loaded: false,
+  error: null,
+  items: [],
+  trendItems: [],
+  selectedIds: [],
+  aiSummaryLoading: false,
+  aiSummaryError: null,
+  aiSummaryResult: null,
+  aiSummarySelectionKey: '',
+  aiSummaryStaleReason: '',
+  aiSummaryFeedbackLoading: false,
+  aiSummaryFeedbackSaving: false,
+  aiSummaryFeedbackError: null,
+  aiSummaryFeedbackResult: null,
+  aiSummaryFeedbackStatus: '',
+  aiSummaryFeedbackNote: '',
+  aiSummaryFeedbackSavedInView: false,
+};
 
 function _readStoredPatientId() {
   try {
@@ -134,6 +172,32 @@ function _setTaskBlobUrl(taskId, url) {
   else delete _vaBlobUrlByTask[taskId];
 }
 
+function _setTaskBlob(taskId, blob) {
+  if (blob) _vaBlobByTask[taskId] = blob;
+  else delete _vaBlobByTask[taskId];
+}
+
+function _setTaskRemoteVideoUrl(taskId, url) {
+  if (_vaRemoteVideoUrlByTask[taskId]) {
+    try {
+      URL.revokeObjectURL(_vaRemoteVideoUrlByTask[taskId]);
+    } catch (_) {}
+  }
+  if (url) _vaRemoteVideoUrlByTask[taskId] = url;
+  else delete _vaRemoteVideoUrlByTask[taskId];
+}
+
+function _clearLocalVideoState() {
+  Object.keys(_vaBlobUrlByTask).forEach((taskId) => _setTaskBlobUrl(taskId, null));
+  _vaBlobByTask = {};
+}
+
+function _clearRemoteVideoState() {
+  Object.keys(_vaRemoteVideoUrlByTask).forEach((taskId) => _setTaskRemoteVideoUrl(taskId, null));
+  _vaRemoteVideoLoadingByTask = {};
+  _vaRemoteVideoErrorByTask = {};
+}
+
 function _stopMedia() {
   if (_vaMediaRecorder && _vaMediaRecorder.state !== 'inactive') {
     try {
@@ -159,7 +223,14 @@ function _stopMedia() {
 function _persistSession() {
   try {
     if (_vaSession && _persistAllowed()) {
-      sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(_vaSession));
+      const payload = _sessionHasServerTruth(_vaSession)
+        ? {
+            session_id: _vaSession.id,
+            selected_patient_id: _vaSelectedPatientId || _vaSession.patient_id || null,
+            persisted_backend_session: true,
+          }
+        : _vaSession;
+      sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(payload));
     }
   } catch (_) {}
 }
@@ -167,11 +238,168 @@ function _persistSession() {
 function _loadPersistedSession() {
   try {
     const raw = sessionStorage.getItem(SESSION_STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        if (parsed.session_id && !parsed.tasks) {
+          return parsed;
+        }
+        if (parsed.id && _isPersistedSessionId(parsed.id)) {
+          return {
+            session_id: parsed.id,
+            selected_patient_id: parsed.patient_id || null,
+            persisted_backend_session: true,
+          };
+        }
+      }
+      return parsed;
+    }
     const legacy = sessionStorage.getItem('ds_video_assessment_session');
     if (legacy) return JSON.parse(legacy);
   } catch (_) {}
   return null;
+}
+
+function _sessionHasServerTruth(session = _vaSession) {
+  return _isPersistedSessionId(session?.id || '');
+}
+
+function _sessionReadOnly(session = _vaSession) {
+  return _sessionHasServerTruth(session) && String(session?.overall_status || '').trim().toLowerCase() === 'finalized';
+}
+
+function _sessionRevisionToken(session = _vaSession) {
+  return String(session?.revision_token || '').trim();
+}
+
+function _replaceSession(nextSession, { persist = true } = {}) {
+  if (!nextSession || typeof nextSession !== 'object') return;
+  _vaSession = nextSession;
+  if (_vaSelectedPatientId) _vaSession.patient_id = _vaSelectedPatientId;
+  _applySummary();
+  if (persist) _persistSession();
+}
+
+function _taskLocalBlob(taskId) {
+  return _vaBlobByTask[taskId] || null;
+}
+
+function _taskRemoteVideoUrl(taskId) {
+  return _vaRemoteVideoUrlByTask[taskId] || '';
+}
+
+async function _ensureSelectedClinicianTaskVideoLoaded() {
+  if (_vaUiMode !== 'clinician') return;
+  const session = _ensureSession();
+  if (!_sessionHasServerTruth(session)) return;
+  const task = session.tasks?.[_vaSelectedClinicianTask];
+  if (!task?.task_id || !task?.recording_storage_ref) return;
+  if (_vaBlobUrlByTask[task.task_id] || _taskRemoteVideoUrl(task.task_id) || _vaRemoteVideoLoadingByTask[task.task_id]) {
+    return;
+  }
+  _vaRemoteVideoLoadingByTask[task.task_id] = true;
+  delete _vaRemoteVideoErrorByTask[task.task_id];
+  _render();
+  try {
+    const res = await api.getVideoAssessmentTaskVideo(session.id, task.task_id);
+    if (_vaSession?.id !== session.id) return;
+    const url = URL.createObjectURL(res.blob);
+    _setTaskRemoteVideoUrl(task.task_id, url);
+  } catch (error) {
+    _vaRemoteVideoErrorByTask[task.task_id] = error?.message || 'Could not load the stored clip.';
+  } finally {
+    delete _vaRemoteVideoLoadingByTask[task.task_id];
+    _render();
+  }
+}
+
+function _downloadSessionJsonPayload(payload, filename) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(() => {
+    try {
+      URL.revokeObjectURL(a.href);
+    } catch (_) {}
+  }, 4000);
+}
+
+async function _refreshPersistedSessionTruth(sessionId, { renderAfter = true } = {}) {
+  if (!_isPersistedSessionId(sessionId)) return null;
+  const fresh = await api.getVideoAssessmentSession(sessionId);
+  if (_vaSession?.id === sessionId) {
+    _replaceSession(fresh);
+    if (renderAfter) _render();
+  }
+  return fresh;
+}
+
+async function _recoverPersistedSessionConflict(sessionId, error) {
+  try {
+    await _refreshPersistedSessionTruth(sessionId, { renderAfter: false });
+  } catch (_) {}
+  if (error?.code === 'session_conflict') {
+    showToast('Persisted session changed on the server. Latest version reloaded.', 'warning');
+    return;
+  }
+  if (error?.code === 'session_finalized' || error?.code === 'session_already_finalized') {
+    showToast('Persisted session is finalized and now read-only.', 'warning');
+    return;
+  }
+  showToast(error?.message || 'Could not save the persisted session.', 'error');
+}
+
+async function _patchPersistedSession(patch, successMessage) {
+  const session = _ensureSession();
+  const sessionId = session?.id || '';
+  if (!_isPersistedSessionId(sessionId)) return null;
+  const nextPatch = {
+    ...(patch || {}),
+    expected_revision: _sessionRevisionToken(session),
+  };
+  try {
+    const saved = await api.patchVideoAssessmentSession(sessionId, nextPatch);
+    _replaceSession(saved);
+    _render();
+    if (successMessage) showToast(successMessage);
+    return saved;
+  } catch (error) {
+    await _recoverPersistedSessionConflict(sessionId, error);
+    _render();
+    return null;
+  }
+}
+
+async function _finalizePersistedSession(successMessage) {
+  const session = _ensureSession();
+  const sessionId = session?.id || '';
+  if (!_isPersistedSessionId(sessionId)) return null;
+  try {
+    const saved = await api.finalizeVideoAssessmentSession(sessionId, {
+      expected_revision: _sessionRevisionToken(session),
+      clinician_impression: document.getElementById('va-summary-impression')?.value || '',
+      recommended_followup: document.getElementById('va-summary-followup')?.value || '',
+    });
+    _replaceSession(saved);
+    _render();
+    if (successMessage) showToast(successMessage);
+    return saved;
+  } catch (error) {
+    await _recoverPersistedSessionConflict(sessionId, error);
+    _render();
+    return null;
+  }
+}
+
+async function _patchPersistedTaskState(taskId, taskPatch, successMessage) {
+  return _patchPersistedSession(
+    {
+      tasks: [{ task_id: taskId, ...taskPatch }],
+    },
+    successMessage,
+  );
 }
 
 function _applySummary() {
@@ -212,6 +440,724 @@ function _syncSessionPatientId() {
   }
 }
 
+function _isPersistedSessionId(id) {
+  return !!(id && !String(id).startsWith('vas_'));
+}
+
+function _currentPriorComparisonSessionId() {
+  const sid = _vaSession?.id || '';
+  return _isPersistedSessionId(sid) ? sid : null;
+}
+
+function _resetPriorSessionsState() {
+  _vaPriorSessionsState = {
+    sessionId: null,
+    loading: false,
+    loaded: false,
+    error: null,
+    items: [],
+    trendItems: [],
+    selectedIds: [],
+    aiSummaryLoading: false,
+    aiSummaryError: null,
+    aiSummaryResult: null,
+    aiSummarySelectionKey: '',
+    aiSummaryStaleReason: '',
+    aiSummaryFeedbackLoading: false,
+    aiSummaryFeedbackSaving: false,
+    aiSummaryFeedbackError: null,
+    aiSummaryFeedbackResult: null,
+    aiSummaryFeedbackStatus: '',
+    aiSummaryFeedbackNote: '',
+    aiSummaryFeedbackSavedInView: false,
+  };
+}
+
+function _formatPriorSessionDate(ts) {
+  if (!ts) return 'Unknown date';
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return String(ts);
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(d);
+  } catch (_) {
+    return d.toLocaleString();
+  }
+}
+
+function _priorSessionStatusLabel(item) {
+  const status = String(item?.overall_status || '').trim().toLowerCase();
+  return status ? status.replace(/_/g, ' ') : 'unknown status';
+}
+
+function _priorSessionClipLabel(item) {
+  return item?.has_clips ? 'Clips available' : 'No stored clips';
+}
+
+function _priorSessionSeverityLabel(item) {
+  const severity = String(item?.summary?.severity_level || item?.severity_level || '').trim().toLowerCase();
+  return severity || 'not stated';
+}
+
+function _priorSessionTasksLabel(item) {
+  const completed = Number.isFinite(item?.summary?.tasks_completed)
+    ? item.summary.tasks_completed
+    : Number.isFinite(item?.tasks_completed)
+      ? item.tasks_completed
+      : 0;
+  const total = Number.isFinite(item?.summary?.tasks_total)
+    ? item.summary.tasks_total
+    : Number.isFinite(item?.tasks_total)
+      ? item.tasks_total
+      : 0;
+  return `${completed} / ${total}`;
+}
+
+function _priorSessionSummaryText(item) {
+  const text = String(item?.summary?.key_findings || '').trim();
+  return text || 'No clinician summary recorded.';
+}
+
+function _selectedPriorSessions() {
+  const byId = new Map((_vaPriorSessionsState.items || []).map((item) => [item.session_id, item]));
+  return (_vaPriorSessionsState.selectedIds || [])
+    .map((sessionId) => byId.get(sessionId))
+    .filter(Boolean);
+}
+
+function _selectedPriorSessionIds() {
+  return _selectedPriorSessions().map((item) => item.session_id);
+}
+
+function _currentAiSummarySelectionKey() {
+  return _selectedPriorSessionIds().join('|');
+}
+
+function _emptyAiSummaryFeedbackDraft() {
+  return { feedback_status: '', feedback_note: '' };
+}
+
+function _shortSessionId(sessionId) {
+  const text = String(sessionId || '').trim();
+  if (!text) return 'unknown';
+  return text.length <= 12 ? text : text.slice(-8);
+}
+
+function _aiSummaryStatusLabel(status) {
+  switch (String(status || '').trim()) {
+    case 'fresh':
+      return 'Current summary';
+    case 'unchanged':
+      return 'Unchanged from prior generation';
+    case 'regenerated_selection_changed':
+      return 'Regenerated: selected sessions changed';
+    case 'regenerated_source_changed':
+      return 'Regenerated: source data changed';
+    case 'regenerated_logic_changed':
+      return 'Regenerated: summary logic updated';
+    default:
+      return 'Summary status unavailable';
+  }
+}
+
+function _aiSummaryStaleCopy(reason) {
+  if (reason === 'selection_changed') {
+    return 'The previous AI historical summary no longer matches the current selected prior sessions and must be regenerated.';
+  }
+  return '';
+}
+
+function _historicalFeedbackStatusLabel(status) {
+  switch (String(status || '').trim()) {
+    case 'accepted':
+      return 'Accepted';
+    case 'partially_accepted':
+      return 'Partially accepted';
+    case 'disagreed':
+      return 'Disagreed';
+    case 'not_useful':
+      return 'Not useful';
+    default:
+      return 'Not recorded';
+  }
+}
+
+function _currentAiSummaryEventId() {
+  const eventId = String(_vaPriorSessionsState.aiSummaryResult?.provenance?.event_id || '').trim();
+  return eventId || null;
+}
+
+function _currentSessionContextLabel() {
+  const session = _vaSession || _ensureSession();
+  return [
+    `Session ${session?.id || 'unknown'}`,
+    `Patient ${session?.patient_id || 'not-selected'}`,
+    `Protocol ${VIDEO_ASSESSMENT_PROTOCOL.protocol_name}`,
+    `Status ${session?.overall_status || 'unknown'}`,
+  ].join(' · ');
+}
+
+function _sortPriorSessionsOldestFirst(items = []) {
+  return [...items].sort((a, b) => {
+    const aKey = String(a?.finalized_at || a?.occurred_at || '');
+    const bKey = String(b?.finalized_at || b?.occurred_at || '');
+    if (aKey === bKey) {
+      return String(a?.session_id || '').localeCompare(String(b?.session_id || ''));
+    }
+    return aKey.localeCompare(bKey);
+  });
+}
+
+function _sortPriorSessionsNewestFirst(items = []) {
+  return [...items].sort((a, b) => {
+    const aKey = String(a?.finalized_at || a?.occurred_at || '');
+    const bKey = String(b?.finalized_at || b?.occurred_at || '');
+    if (aKey === bKey) {
+      return String(b?.session_id || '').localeCompare(String(a?.session_id || ''));
+    }
+    return bKey.localeCompare(aKey);
+  });
+}
+
+function _severityRank(level) {
+  return {
+    none: 0,
+    mild: 1,
+    moderate: 2,
+    severe: 3,
+  }[String(level || '').trim().toLowerCase()] ?? null;
+}
+
+function _buildTrendDeltas(values = []) {
+  const deltas = [];
+  for (let i = 1; i < values.length; i += 1) {
+    deltas.push(values[i] - values[i - 1]);
+  }
+  return deltas;
+}
+
+function _classifyTrend(values, { decreaseLabel, sameLabel, increaseLabel } = {}) {
+  if (!Array.isArray(values) || values.length < 2) return 'insufficient data';
+  const deltas = _buildTrendDeltas(values);
+  if (deltas.length === 0) return 'insufficient data';
+  if (deltas.every((delta) => delta === 0)) return sameLabel;
+  if (deltas.every((delta) => delta <= 0) && deltas.some((delta) => delta < 0)) return decreaseLabel;
+  if (deltas.every((delta) => delta >= 0) && deltas.some((delta) => delta > 0)) return increaseLabel;
+  return 'mixed';
+}
+
+/*
+ * Longitudinal trend summary is read-only. It uses persisted finalized-session
+ * backend data only and must not evolve into inferred clinical recommendations
+ * or any write-capable workflow in this phase.
+ */
+function _computePriorTrendSummary(trendItems = []) {
+  const ordered = _sortPriorSessionsOldestFirst(trendItems);
+  if (ordered.length < 2) {
+    return {
+      ordered,
+      enoughData: false,
+      severityTrend: 'insufficient data',
+      completionTrend: 'insufficient data',
+      clipTrend: 'insufficient data',
+    };
+  }
+
+  const severityValues = ordered
+    .map((item) => _severityRank(item?.severity_level))
+    .filter((value) => value != null);
+  const completionValues = ordered
+    .map((item) => {
+      const total = Number(item?.tasks_total);
+      const completed = Number(item?.tasks_completed);
+      if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(completed)) return null;
+      return completed / total;
+    })
+    .filter((value) => value != null);
+  const clipValues = ordered
+    .map((item) => (typeof item?.has_clips === 'boolean' ? item.has_clips : null))
+    .filter((value) => value != null);
+
+  const severityTrend = _classifyTrend(severityValues, {
+    decreaseLabel: 'improved',
+    sameLabel: 'stable',
+    increaseLabel: 'worsened',
+  });
+  const completionTrend = _classifyTrend(completionValues, {
+    decreaseLabel: 'declined',
+    sameLabel: 'stable',
+    increaseLabel: 'improved',
+  });
+  let clipTrend = 'insufficient data';
+  if (clipValues.length >= 2) {
+    clipTrend = clipValues.every((value) => value === clipValues[0]) ? 'consistent' : 'inconsistent';
+  }
+
+  return {
+    ordered,
+    enoughData: severityValues.length >= 2 || completionValues.length >= 2 || clipValues.length >= 2,
+    severityTrend,
+    completionTrend,
+    clipTrend,
+  };
+}
+
+function _renderHistoricalExportTrendSummary(trend) {
+  if (!trend.enoughData) {
+    return '<p style="margin:0;color:#4b5563">Not enough finalized sessions to determine trend.</p>';
+  }
+  return `<div style="display:grid;gap:8px">
+    <div><strong>Severity trajectory:</strong> ${esc(trend.severityTrend)}.</div>
+    <div><strong>Task completion trajectory:</strong> ${esc(trend.completionTrend)}.</div>
+    <div><strong>Clip availability:</strong> ${esc(trend.clipTrend)}.</div>
+  </div>`;
+}
+
+function _renderHistoricalExportAiSummary(summary) {
+  if (!summary) return '';
+  const observations = Array.isArray(summary.trend_observations) ? summary.trend_observations : [];
+  const limitations = Array.isArray(summary.limitations) ? summary.limitations : [];
+  const basis = summary.data_basis || {};
+  const provenance = summary.provenance || {};
+  const statusLabel = _aiSummaryStatusLabel(summary.summary_status);
+  const dataBasisLine = [
+    `${basis.session_count ?? 0} finalized session(s)`,
+    `severity data ${basis.has_severity_data ? 'available' : 'limited'}`,
+    `task completion ${basis.has_task_completion_data ? 'available' : 'limited'}`,
+    `clip availability ${basis.has_clip_availability_data ? 'available' : 'limited'}`,
+  ].join(' · ');
+  const provenanceLine = [
+    `Generated ${_formatPriorSessionDate(summary.generated_at)}`,
+    `Logic ${provenance.summary_logic_version || 'unknown'}`,
+    `${provenance.session_count ?? 0} source session(s)`,
+    `Sources ${(Array.isArray(provenance.source_session_ids) ? provenance.source_session_ids : []).map(_shortSessionId).join(', ') || 'none'}`,
+  ].join(' · ');
+  return `<section class="panel">
+      <h2>AI historical summary</h2>
+      <p class="meta"><strong>Status:</strong> ${esc(statusLabel)}</p>
+      <p>${esc(summary.summary_text || 'No advisory summary text returned.')}</p>
+      <div style="margin-top:10px">
+        <strong>Trend observations</strong>
+        <ul style="margin:6px 0 0 18px;padding:0">${observations.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>
+      </div>
+      <p class="meta" style="margin-top:10px"><strong>Data basis:</strong> ${esc(dataBasisLine)}</p>
+      <p class="meta" style="margin-top:10px"><strong>Provenance / generation metadata:</strong> ${esc(provenanceLine)}</p>
+      <div style="margin-top:10px">
+        <strong>Limitations</strong>
+        <ul style="margin:6px 0 0 18px;padding:0">${limitations.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>
+      </div>
+      <p class="meta" style="margin-top:12px">Advisory summary generated from persisted finalized-session comparison data. Not a diagnosis or treatment recommendation.</p>
+    </section>`;
+}
+
+function _renderHistoricalExportAiSummaryFeedback(feedback) {
+  if (!feedback || !feedback.has_feedback) return '';
+  return `<section class="panel">
+      <h2>Clinician feedback on advisory summary</h2>
+      <p class="meta"><strong>Feedback status:</strong> ${esc(_historicalFeedbackStatusLabel(feedback.feedback_status))}</p>
+      <p class="meta"><strong>Updated:</strong> ${esc(_formatPriorSessionDate(feedback.updated_at))}</p>
+      <p class="meta"><strong>Actor role:</strong> ${esc(feedback.actor_role || 'clinician')}</p>
+      ${feedback.feedback_note ? `<p style="margin-top:10px">${esc(feedback.feedback_note)}</p>` : '<p class="meta" style="margin-top:10px">No additional note recorded.</p>'}
+      <p class="meta" style="margin-top:12px">This feedback records the clinician response to advisory summary output only. It does not alter the persisted session review automatically.</p>
+    </section>`;
+}
+
+/*
+ * Historical comparison export is a presentation layer over already-authorized,
+ * persisted backend summaries that are already visible in the UI. It must not
+ * fetch broader review payloads or expose hidden local draft state in this phase.
+ */
+function _buildHistoricalComparisonExportHtml() {
+  const session = _vaSession || _ensureSession();
+  const selected = _selectedPriorSessions();
+  const trend = _computePriorTrendSummary(_vaPriorSessionsState.trendItems || []);
+  const aiSummary = _vaPriorSessionsState.aiSummaryResult;
+  const aiSummaryFeedback = _vaPriorSessionsState.aiSummaryFeedbackSavedInView
+    ? _vaPriorSessionsState.aiSummaryFeedbackResult
+    : null;
+  const generatedAt = _formatPriorSessionDate(new Date().toISOString());
+  const selectedSummaryRows = selected.length
+    ? selected.map((item) => `<tr>
+        <td style="padding:8px;border-bottom:1px solid #d1d5db">${esc(_formatPriorSessionDate(item.occurred_at))}</td>
+        <td style="padding:8px;border-bottom:1px solid #d1d5db">${esc(_priorSessionSeverityLabel(item))}</td>
+        <td style="padding:8px;border-bottom:1px solid #d1d5db">${esc(_priorSessionTasksLabel(item))}</td>
+        <td style="padding:8px;border-bottom:1px solid #d1d5db">${esc(_priorSessionClipLabel(item))}</td>
+        <td style="padding:8px;border-bottom:1px solid #d1d5db">${esc(item.finalized_by || 'Clinician')} · ${esc(_formatPriorSessionDate(item.finalized_at))}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="5" style="padding:8px;border-bottom:1px solid #d1d5db;color:#4b5563">No prior finalized sessions selected for export.</td></tr>';
+
+  const comparisonTable = selected.length
+    ? (() => {
+        const headerCells = selected
+          .map((item) => `<th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;vertical-align:top;min-width:180px">${esc(_formatPriorSessionDate(item.occurred_at))}</th>`)
+          .join('');
+        const row = (label, mapper) => `<tr>
+          <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;vertical-align:top;width:180px">${label}</th>
+          ${selected.map((item) => `<td style="padding:8px;border-bottom:1px solid #d1d5db;vertical-align:top">${mapper(item)}</td>`).join('')}
+        </tr>`;
+        return `<table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db">Field</th>
+              ${headerCells}
+            </tr>
+          </thead>
+          <tbody>
+            ${row('Session date', (item) => esc(_formatPriorSessionDate(item.occurred_at)))}
+            ${row('Severity level', (item) => esc(_priorSessionSeverityLabel(item)))}
+            ${row('Tasks completed / total', (item) => esc(_priorSessionTasksLabel(item)))}
+            ${row('High-level summary', (item) => esc(_priorSessionSummaryText(item)))}
+            ${row('Has clips', (item) => esc(item.has_clips ? 'Yes' : 'No'))}
+            ${row('Finalized by / at', (item) => esc(`${item.finalized_by || 'Clinician'} · ${_formatPriorSessionDate(item.finalized_at)}`))}
+          </tbody>
+        </table>`;
+      })()
+    : '<p style="margin:0;color:#4b5563">No prior finalized sessions selected for side-by-side comparison.</p>';
+
+  const trendStrip = trend.ordered.length
+    ? `<table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db">Trend field</th>
+            ${trend.ordered.map((item) => `<th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;vertical-align:top">${esc(_formatPriorSessionDate(item.occurred_at))}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;vertical-align:top">Severity trajectory</th>
+            ${trend.ordered.map((item) => `<td style="padding:8px;border-bottom:1px solid #d1d5db;vertical-align:top">${esc(_priorSessionSeverityLabel(item))}</td>`).join('')}
+          </tr>
+          <tr>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;vertical-align:top">Task completion trajectory</th>
+            ${trend.ordered.map((item) => `<td style="padding:8px;border-bottom:1px solid #d1d5db;vertical-align:top">${esc(_priorSessionTasksLabel(item))}</td>`).join('')}
+          </tr>
+          <tr>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db;vertical-align:top">Clip availability</th>
+            ${trend.ordered.map((item) => `<td style="padding:8px;border-bottom:1px solid #d1d5db;vertical-align:top">${esc(_priorSessionClipLabel(item))}</td>`).join('')}
+          </tr>
+        </tbody>
+      </table>`
+    : '<p style="margin:0;color:#4b5563">Not enough finalized sessions to determine trend.</p>';
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Video assessment historical comparison</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 24px; color: #111827; line-height: 1.45; }
+      h1, h2 { margin: 0 0 12px; }
+      h2 { margin-top: 24px; font-size: 18px; }
+      p { margin: 0 0 10px; }
+      .meta { color: #4b5563; font-size: 12px; }
+      .panel { margin-top: 18px; padding: 16px; border: 1px solid #d1d5db; border-radius: 10px; }
+      table { margin-top: 8px; }
+      @media print {
+        body { margin: 12mm; }
+        .panel { break-inside: avoid; }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Video assessment historical comparison</h1>
+    <p class="meta"><strong>Current session context:</strong> ${esc(_currentSessionContextLabel())}</p>
+    <p class="meta"><strong>Generated:</strong> ${esc(generatedAt)}</p>
+    <p class="meta"><strong>Attached session:</strong> ${esc(session?.id || 'unknown')}</p>
+
+    <section class="panel">
+      <h2>Selected prior finalized sessions summary</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db">Session date</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db">Severity level</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db">Tasks completed / total</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db">Clips</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #d1d5db">Finalized by / at</th>
+          </tr>
+        </thead>
+        <tbody>${selectedSummaryRows}</tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>Side-by-side comparison</h2>
+      ${comparisonTable}
+    </section>
+
+    <section class="panel">
+      <h2>Longitudinal trend summary</h2>
+      ${trendStrip}
+      <div style="margin-top:12px">
+        ${_renderHistoricalExportTrendSummary(trend)}
+      </div>
+    </section>
+
+    ${aiSummary ? _renderHistoricalExportAiSummary(aiSummary) : ''}
+    ${aiSummaryFeedback ? _renderHistoricalExportAiSummaryFeedback(aiSummaryFeedback) : ''}
+
+    <p class="meta" style="margin-top:24px">Read-only historical comparison generated from persisted finalized-session backend data.</p>
+  </body>
+</html>`;
+}
+
+function _exportHistoricalComparisonReport() {
+  const role = currentUser?.role || '';
+  if (!_canReviewPriorSessions(role) || !_currentPriorComparisonSessionId()) return;
+  const reportWindow = window.open('', '_blank', 'noopener,noreferrer');
+  if (!reportWindow || !reportWindow.document) {
+    showToast('Could not open the historical comparison export window.');
+    return;
+  }
+  const html = _buildHistoricalComparisonExportHtml();
+  reportWindow.document.open();
+  reportWindow.document.write(html);
+  reportWindow.document.close();
+  try {
+    reportWindow.focus();
+  } catch (_) {}
+}
+
+async function _ensurePriorSessionsLoaded() {
+  const role = currentUser?.role || '';
+  const sessionId = _currentPriorComparisonSessionId();
+  if (!_canReviewPriorSessions(role) || !sessionId || _vaUiMode !== 'clinician') {
+    if (
+      _vaPriorSessionsState.sessionId ||
+      _vaPriorSessionsState.loading ||
+      _vaPriorSessionsState.loaded ||
+      _vaPriorSessionsState.error ||
+      _vaPriorSessionsState.items.length
+    ) {
+      _resetPriorSessionsState();
+    }
+    return;
+  }
+  if (_vaPriorSessionsState.loading) return;
+  if (_vaPriorSessionsState.loaded && _vaPriorSessionsState.sessionId === sessionId) return;
+
+  _vaPriorSessionsState = {
+    sessionId,
+    loading: true,
+    loaded: false,
+    error: null,
+    items: [],
+    trendItems: [],
+    selectedIds: [],
+    aiSummaryLoading: false,
+    aiSummaryError: null,
+    aiSummaryResult: null,
+    aiSummarySelectionKey: '',
+    aiSummaryStaleReason: '',
+    aiSummaryFeedbackLoading: false,
+    aiSummaryFeedbackSaving: false,
+    aiSummaryFeedbackError: null,
+    aiSummaryFeedbackResult: null,
+    aiSummaryFeedbackStatus: '',
+    aiSummaryFeedbackNote: '',
+    aiSummaryFeedbackSavedInView: false,
+  };
+  _render();
+  try {
+    const res = await api.getVideoAssessmentPriorFinalizedSessions(sessionId);
+    const items = _sortPriorSessionsNewestFirst(Array.isArray(res?.sessions) ? res.sessions : []);
+    const trendItems = _sortPriorSessionsOldestFirst(Array.isArray(res?.trend_sessions) ? res.trend_sessions : []);
+    _vaPriorSessionsState = {
+      sessionId,
+      loading: false,
+      loaded: true,
+      error: null,
+      items,
+      trendItems,
+      selectedIds: [],
+      aiSummaryLoading: false,
+      aiSummaryError: null,
+      aiSummaryResult: null,
+      aiSummarySelectionKey: '',
+      aiSummaryStaleReason: '',
+      aiSummaryFeedbackLoading: false,
+      aiSummaryFeedbackSaving: false,
+      aiSummaryFeedbackError: null,
+      aiSummaryFeedbackResult: null,
+      aiSummaryFeedbackStatus: '',
+      aiSummaryFeedbackNote: '',
+      aiSummaryFeedbackSavedInView: false,
+    };
+  } catch (e) {
+    _vaPriorSessionsState = {
+      sessionId,
+      loading: false,
+      loaded: true,
+      error: e?.message || 'Could not load prior finalized sessions from the backend.',
+      items: [],
+      trendItems: [],
+      selectedIds: [],
+      aiSummaryLoading: false,
+      aiSummaryError: null,
+      aiSummaryResult: null,
+      aiSummarySelectionKey: '',
+      aiSummaryStaleReason: '',
+      aiSummaryFeedbackLoading: false,
+      aiSummaryFeedbackSaving: false,
+      aiSummaryFeedbackError: null,
+      aiSummaryFeedbackResult: null,
+      aiSummaryFeedbackStatus: '',
+      aiSummaryFeedbackNote: '',
+      aiSummaryFeedbackSavedInView: false,
+    };
+  }
+  _render();
+}
+
+function _togglePriorSessionSelection(sessionId) {
+  const current = new Set(_vaPriorSessionsState.selectedIds || []);
+  const hadSummary = !!_vaPriorSessionsState.aiSummaryResult;
+  if (current.has(sessionId)) {
+    current.delete(sessionId);
+  } else {
+    if (current.size >= 3) {
+      showToast('Select up to 3 prior finalized sessions for comparison.');
+      return;
+    }
+    current.add(sessionId);
+  }
+  _vaPriorSessionsState = {
+    ..._vaPriorSessionsState,
+    selectedIds: Array.from(current),
+    aiSummaryLoading: false,
+    aiSummaryError: null,
+    aiSummaryResult: null,
+    aiSummarySelectionKey: '',
+    aiSummaryStaleReason: hadSummary ? 'selection_changed' : '',
+    aiSummaryFeedbackLoading: false,
+    aiSummaryFeedbackSaving: false,
+    aiSummaryFeedbackError: null,
+    aiSummaryFeedbackResult: null,
+    aiSummaryFeedbackStatus: '',
+    aiSummaryFeedbackNote: '',
+    aiSummaryFeedbackSavedInView: false,
+  };
+  _render();
+}
+
+async function _loadHistoricalAiSummaryFeedback(sessionId, summaryEventId) {
+  if (!sessionId || !summaryEventId) return;
+  _vaPriorSessionsState = {
+    ..._vaPriorSessionsState,
+    aiSummaryFeedbackLoading: true,
+    aiSummaryFeedbackError: null,
+    aiSummaryFeedbackResult: null,
+    aiSummaryFeedbackStatus: '',
+    aiSummaryFeedbackNote: '',
+    aiSummaryFeedbackSavedInView: false,
+  };
+  _render();
+  try {
+    const result = await api.getVideoAssessmentHistoricalAiSummaryFeedback(sessionId, summaryEventId);
+    if (_currentPriorComparisonSessionId() !== sessionId || _currentAiSummaryEventId() !== summaryEventId) return;
+    _vaPriorSessionsState = {
+      ..._vaPriorSessionsState,
+      aiSummaryFeedbackLoading: false,
+      aiSummaryFeedbackError: null,
+      aiSummaryFeedbackResult: result?.has_feedback ? result : null,
+      aiSummaryFeedbackStatus: result?.has_feedback ? (result.feedback_status || '') : '',
+      aiSummaryFeedbackNote: result?.has_feedback ? (result.feedback_note || '') : '',
+      aiSummaryFeedbackSavedInView: false,
+    };
+  } catch (e) {
+    if (_currentPriorComparisonSessionId() !== sessionId || _currentAiSummaryEventId() !== summaryEventId) return;
+    _vaPriorSessionsState = {
+      ..._vaPriorSessionsState,
+      aiSummaryFeedbackLoading: false,
+      aiSummaryFeedbackError: e?.message || 'Could not load clinician feedback for this advisory summary.',
+      aiSummaryFeedbackResult: null,
+      aiSummaryFeedbackStatus: '',
+      aiSummaryFeedbackNote: '',
+      aiSummaryFeedbackSavedInView: false,
+    };
+  }
+  _render();
+}
+
+async function _generateHistoricalAiSummary() {
+  const role = currentUser?.role || '';
+  const sessionId = _currentPriorComparisonSessionId();
+  if (!_canReviewPriorSessions(role) || !sessionId) return;
+  const selectedIds = _selectedPriorSessionIds();
+  const selectionKey = selectedIds.join('|');
+  if (!selectedIds.length) {
+    showToast('Select at least one prior finalized session first.');
+    return;
+  }
+  _vaPriorSessionsState = {
+    ..._vaPriorSessionsState,
+    aiSummaryLoading: true,
+    aiSummaryError: null,
+    aiSummaryResult: null,
+    aiSummarySelectionKey: selectionKey,
+    aiSummaryStaleReason: '',
+    aiSummaryFeedbackLoading: false,
+    aiSummaryFeedbackSaving: false,
+    aiSummaryFeedbackError: null,
+    aiSummaryFeedbackResult: null,
+    aiSummaryFeedbackStatus: '',
+    aiSummaryFeedbackNote: '',
+    aiSummaryFeedbackSavedInView: false,
+  };
+  _render();
+  try {
+    const result = await api.generateVideoAssessmentHistoricalAiSummary(sessionId, {
+      selected_session_ids: selectedIds,
+    });
+    if (_currentPriorComparisonSessionId() !== sessionId || _currentAiSummarySelectionKey() !== selectionKey) {
+      return;
+    }
+    _vaPriorSessionsState = {
+      ..._vaPriorSessionsState,
+      aiSummaryLoading: false,
+      aiSummaryError: null,
+      aiSummaryResult: result || null,
+      aiSummarySelectionKey: selectionKey,
+      aiSummaryStaleReason: '',
+      aiSummaryFeedbackLoading: false,
+      aiSummaryFeedbackSaving: false,
+      aiSummaryFeedbackError: null,
+      aiSummaryFeedbackResult: null,
+      aiSummaryFeedbackStatus: '',
+      aiSummaryFeedbackNote: '',
+      aiSummaryFeedbackSavedInView: false,
+    };
+    _render();
+    await _loadHistoricalAiSummaryFeedback(sessionId, String(result?.provenance?.event_id || '').trim());
+    return;
+  } catch (e) {
+    if (_currentPriorComparisonSessionId() !== sessionId || _currentAiSummarySelectionKey() !== selectionKey) {
+      return;
+    }
+    _vaPriorSessionsState = {
+      ..._vaPriorSessionsState,
+      aiSummaryLoading: false,
+      aiSummaryError: e?.message || 'Historical AI summary is temporarily unavailable.',
+      aiSummaryResult: null,
+      aiSummarySelectionKey: selectionKey,
+      aiSummaryStaleReason: '',
+      aiSummaryFeedbackLoading: false,
+      aiSummaryFeedbackSaving: false,
+      aiSummaryFeedbackError: null,
+      aiSummaryFeedbackResult: null,
+      aiSummaryFeedbackStatus: '',
+      aiSummaryFeedbackNote: '',
+      aiSummaryFeedbackSavedInView: false,
+    };
+  }
+  _render();
+}
+
 function _mimeForRecorder() {
   if (typeof MediaRecorder !== 'undefined') {
     if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) return 'video/webm;codecs=vp9';
@@ -234,12 +1180,25 @@ function _probeVideoBlob(blob) {
     const v = document.createElement('video');
     v.preload = 'metadata';
     v.muted = true;
+    let settled = false;
     const done = (payload) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
       try {
         URL.revokeObjectURL(url);
       } catch (_) {}
       resolve(payload);
     };
+    const timeoutId = setTimeout(() => {
+      done({
+        duration_seconds: null,
+        video_width: null,
+        video_height: null,
+        audio_track_present: null,
+        probe_error: 'metadata_timeout',
+      });
+    }, 250);
     v.onloadedmetadata = () => {
       try {
         const d = v.duration;
@@ -311,6 +1270,7 @@ async function _beginRecording() {
     _cleanupPreviewUrl();
     _vaPreviewUrl = URL.createObjectURL(blob);
     _setTaskBlobUrl(task.task_id, _vaPreviewUrl);
+    _setTaskBlob(task.task_id, blob);
     task.recording_asset_id = 'blob:' + task.task_id + ':' + Date.now();
     task.recording_status = 'pending_review';
     void _probeVideoBlob(blob).then((meta) => {
@@ -505,7 +1465,7 @@ function _renderVideoAvailabilityCard(session) {
   const tasks = session?.tasks || [];
   let withClip = 0;
   for (const t of tasks) {
-    if (t.recording_asset_id && _vaBlobUrlByTask[t.task_id]) withClip++;
+    if ((t.recording_asset_id && _vaBlobUrlByTask[t.task_id]) || t.recording_storage_ref) withClip++;
   }
   const ai = session?.future_ai_metrics_placeholder || {};
   const hasAiSlot = ai && typeof ai === 'object';
@@ -544,7 +1504,7 @@ function _renderQuickLinks() {
     <div class="ds-card__header"><h3 style="margin:0">Linked modules</h3><span class="va-muted" style="font-size:11px;font-weight:400">Opens existing Studio routes · context only</span></div>
     <div class="ds-card__body" style="display:flex;flex-wrap:wrap;gap:8px">
       <button type="button" class="btn btn-ghost btn-sm" id="va-link-profile" ${dis}>Patient profile</button>
-      <button type="button" class="btn btn-ghost btn-sm" id="va-link-assessments" ${dis}>Assessments hub</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="va-link-assessments" ${dis}>Assessments</button>
       <button type="button" class="btn btn-ghost btn-sm" id="va-link-documents" ${dis}>Documents</button>
       <button type="button" class="btn btn-ghost btn-sm" id="va-link-qeeg" ${dis}>qEEG launcher</button>
       <button type="button" class="btn btn-ghost btn-sm" id="va-link-mri" ${dis}>MRI analysis</button>
@@ -647,6 +1607,7 @@ function _mergeReview(existing, def) {
 function _renderClinicianForm(task) {
   const def = _taskDef(task.task_id);
   const rev = _mergeReview(task.clinician_review, def);
+  const readOnly = _sessionReadOnly();
   const opts = (name, values) =>
     values.map((v) => `<option value="${esc(v)}" ${rev[name] === v ? 'selected' : ''}>${esc(v.replace(/_/g, ' '))}</option>`).join('');
 
@@ -681,7 +1642,7 @@ function _renderClinicianForm(task) {
       ? `<div class="va-skip-note">Skipped: ${esc(task.skip_reason || 'skipped')}</div>`
       : '';
 
-  const blobSrc = task.recording_asset_id ? _vaBlobUrlByTask[task.task_id] : null;
+  const blobSrc = (task.recording_asset_id ? _vaBlobUrlByTask[task.task_id] : null) || _taskRemoteVideoUrl(task.task_id) || null;
   const meta = task.video_capture_meta;
   const metaHtml =
     meta && typeof meta === 'object'
@@ -692,20 +1653,325 @@ function _renderClinicianForm(task) {
         ${meta.probe_error ? ' · probe: ' + esc(meta.probe_error) : ''}
       </div>`
       : '';
+  const remoteLoading = !!_vaRemoteVideoLoadingByTask[task.task_id];
+  const remoteError = _vaRemoteVideoErrorByTask[task.task_id] || '';
+  const canLoadStoredClip = _sessionHasServerTruth() && !!task.recording_storage_ref;
   const videoBlock = blobSrc
     ? `${metaHtml}<video controls src="${esc(blobSrc)}" style="width:100%;border-radius:8px;background:#000"></video>`
-    : `<div class="va-video-placeholder">No recording in this browser session yet. Prior server-stored clips are not loaded in this build—record or accept a clip in Patient Capture Mode first.</div>`;
+    : remoteLoading
+      ? `<div class="va-video-placeholder">Loading stored persisted clip…</div>`
+      : canLoadStoredClip
+        ? `<div class="va-video-placeholder">Stored persisted clip is available for this task.${remoteError ? ' ' + esc(remoteError) : ''} <button type="button" class="btn btn-secondary btn-sm" id="va-load-stored-video" style="margin-left:8px">Load stored clip</button></div>`
+        : `<div class="va-video-placeholder">No recording is available for this task in the current session or persisted backend storage.</div>`;
 
   return `<div class="va-clinician-form">
     ${unsafeBadge}${skipBadge}
     <div style="margin-bottom:12px">${videoBlock}</div>
-    ${baseFields}
-    ${structured}
-    <div class="form-group"><label class="form-label">Free-text comment</label>
-      <textarea class="form-control" rows="3" data-va-field="free_text_comment">${esc(rev.free_text_comment)}</textarea></div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <button type="button" class="btn btn-secondary" id="va-save-draft">Save draft</button>
-      <button type="button" class="btn btn-primary" id="va-mark-reviewed">Mark reviewed</button>
+    ${readOnly ? '<p class="va-muted" style="font-size:12px;margin:0 0 12px;color:var(--amber)">This persisted session is finalized. Structured review fields are read-only.</p>' : ''}
+    <fieldset style="border:0;padding:0;margin:0" ${readOnly ? 'disabled' : ''}>
+      ${baseFields}
+      ${structured}
+      <div class="form-group"><label class="form-label">Free-text comment</label>
+        <textarea class="form-control" rows="3" data-va-field="free_text_comment">${esc(rev.free_text_comment)}</textarea></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button type="button" class="btn btn-secondary" id="va-save-draft">${_sessionHasServerTruth() ? 'Save to persisted session' : 'Save draft'}</button>
+        <button type="button" class="btn btn-primary" id="va-mark-reviewed">${_sessionHasServerTruth() ? 'Mark reviewed in persisted session' : 'Mark reviewed'}</button>
+      </div>
+    </fieldset>
+  </div>`;
+}
+
+/*
+ * Prior finalized-session comparison is read-only. It consumes compact,
+ * persisted backend summaries only and must never trigger patch/finalize/upload
+ * writes from this UI surface.
+ */
+function _renderPriorSessionsComparison() {
+  const role = currentUser?.role || '';
+  const attachedSessionId = _currentPriorComparisonSessionId();
+  if (!_canReviewPriorSessions(role) || !attachedSessionId) return '';
+
+  const currentStatus = _vaSession?.overall_status || 'unknown';
+  const state = _vaPriorSessionsState;
+  let body = '';
+
+  if (state.loading) {
+    body = '<p class="va-muted" style="font-size:12px;margin:0">Loading prior finalized sessions from the backend…</p>';
+  } else if (state.error) {
+    body = `<p class="va-muted" role="alert" style="font-size:12px;margin:0;color:var(--amber)">Prior finalized sessions are temporarily unavailable. Refresh to retry. ${esc(state.error)}</p>`;
+  } else if ((state.items || []).length === 0) {
+    body = '<p class="va-muted" style="font-size:12px;margin:0">No prior finalized sessions are available for this patient and assessment context.</p>';
+  } else {
+    const selectedCount = (state.selectedIds || []).length;
+    const exportDisabled = state.loading || !!state.error;
+    const aiSummaryDisabled = exportDisabled || selectedCount === 0;
+    const aiSummaryActionLabel =
+      state.aiSummaryResult || state.aiSummaryStaleReason
+        ? 'Regenerate AI historical summary'
+        : 'Generate AI historical summary';
+    const staleNotice = state.aiSummaryStaleReason
+      ? `<p class="va-muted" role="status" style="font-size:12px;margin:0 0 12px;color:var(--amber)">${esc(_aiSummaryStaleCopy(state.aiSummaryStaleReason))}</p>`
+      : '';
+    const cards = (state.items || []).map((item) => {
+      const selected = state.selectedIds.includes(item.session_id);
+      const disableNewSelection = !selected && selectedCount >= 3;
+      const summary = item.summary || {};
+      const comparePanelId = `va-prior-compare-panel-${esc(item.session_id)}`;
+      return `<div class="ds-card" style="margin:0;border:${selected ? '1px solid rgba(0,212,188,.45)' : '1px solid var(--border)'}">
+        <div class="ds-card__body" style="padding:12px;display:grid;gap:8px">
+          <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+            <div>
+              <strong style="display:block;font-size:13px">${esc(_formatPriorSessionDate(item.occurred_at))}</strong>
+              <span class="va-muted" style="font-size:11px">Status: ${esc(_priorSessionStatusLabel(item))}</span>
+            </div>
+            <button
+              type="button"
+              class="btn ${selected ? 'btn-secondary' : 'btn-primary'} btn-sm"
+              data-va-prior-select="${esc(item.session_id)}"
+              aria-pressed="${selected ? 'true' : 'false'}"
+              aria-controls="${comparePanelId}"
+              ${disableNewSelection ? 'disabled aria-disabled="true"' : ''}
+            >${selected ? 'Selected' : 'Compare'}</button>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;font-size:10px">
+            <span style="padding:2px 8px;border:1px solid rgba(255,181,71,.35);background:rgba(255,181,71,.10);border-radius:999px;color:var(--amber)">Finalized</span>
+            <span style="padding:2px 8px;border:1px solid var(--border);border-radius:999px">Severity: ${esc(_priorSessionSeverityLabel(item))}</span>
+            <span style="padding:2px 8px;border:1px solid var(--border);border-radius:999px">Tasks: ${esc(_priorSessionTasksLabel(item))}</span>
+            <span style="padding:2px 8px;border:1px solid ${item.has_clips ? 'rgba(0,212,188,.35)' : 'var(--border)'};background:${item.has_clips ? 'rgba(0,212,188,.08)' : 'transparent'};border-radius:999px;color:${item.has_clips ? 'var(--teal)' : 'var(--text-secondary)'}">${esc(_priorSessionClipLabel(item))}</span>
+          </div>
+          <p class="va-muted" style="font-size:12px;line-height:1.5;margin:0">${esc(_priorSessionSummaryText(item))}</p>
+          <div class="va-muted" style="font-size:11px">Finalized by ${esc(item.finalized_by || 'Clinician')} · ${esc(_formatPriorSessionDate(item.finalized_at))}</div>
+        </div>
+      </div>`;
+    }).join('');
+
+    const selected = _selectedPriorSessions();
+    let compareTable = '';
+    if (selected.length > 0) {
+      const headers = selected.map((item) => `<th id="va-prior-compare-panel-${esc(item.session_id)}" style="text-align:left;padding:8px;border-bottom:1px solid var(--border);min-width:220px">${esc(_formatPriorSessionDate(item.occurred_at))}</th>`).join('');
+      const row = (label, mapper) => `<tr>
+        <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);vertical-align:top">${label}</th>
+        ${selected.map((item) => `<td style="padding:8px;border-bottom:1px solid var(--border);vertical-align:top">${mapper(item)}</td>`).join('')}
+      </tr>`;
+      compareTable = `<div class="ds-card" style="margin-top:12px">
+        <div class="ds-card__header"><h3 style="margin:0">Side-by-side comparison</h3></div>
+        <div class="ds-card__body" style="overflow:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
+            <thead>
+              <tr>
+                <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">Field</th>
+                ${headers}
+              </tr>
+            </thead>
+            <tbody>
+              ${row('Session date', (item) => esc(_formatPriorSessionDate(item.occurred_at)))}
+              ${row('Severity level', (item) => esc(_priorSessionSeverityLabel(item)))}
+              ${row('Tasks completed / total', (item) => esc(_priorSessionTasksLabel(item)))}
+              ${row('High-level summary', (item) => esc(_priorSessionSummaryText(item)))}
+              ${row('Has clips', (item) => esc(item.has_clips ? 'Yes' : 'No'))}
+              ${row('Finalized by / at', (item) => esc(`${item.finalized_by || 'Clinician'} · ${_formatPriorSessionDate(item.finalized_at)}`))}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+    }
+
+    body = `
+      <p class="va-muted" style="font-size:12px;margin-top:0">Current session status: <strong>${esc(currentStatus)}</strong>. Select 1 to 3 prior finalized sessions to compare. This area is read-only and uses persisted backend data only.</p>
+      ${staleNotice}
+      <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 12px">
+        <button type="button" class="btn btn-secondary btn-sm" id="va-generate-history-ai" ${aiSummaryDisabled ? 'disabled title="Select at least one prior finalized session to summarize"' : ''}>${state.aiSummaryLoading ? 'Generating…' : aiSummaryActionLabel}</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="va-export-history" ${exportDisabled ? 'disabled' : ''}>Export historical comparison</button>
+      </div>
+      <div class="va-prior-session-grid" style="display:grid;gap:10px" role="list" aria-label="Prior finalized sessions">${cards}</div>
+      ${_renderLongitudinalTrendSummary()}
+      ${_renderHistoricalAiSummaryPanel()}
+      ${compareTable}
+    `;
+  }
+
+  return `<div class="ds-card" style="margin-top:12px">
+    <div class="ds-card__header"><h3 style="margin:0">Prior finalized sessions (read-only, backend data)</h3></div>
+    <div class="ds-card__body">${body}</div>
+  </div>`;
+}
+
+function _renderLongitudinalTrendSummary() {
+  const role = currentUser?.role || '';
+  if (!_canReviewPriorSessions(role) || !_currentPriorComparisonSessionId()) return '';
+
+  const trend = _computePriorTrendSummary(_vaPriorSessionsState.trendItems || []);
+  if (!trend.ordered.length) return '';
+
+  if (!trend.enoughData) {
+    return `<div class="ds-card" style="margin-top:12px">
+      <div class="ds-card__header"><h3 style="margin:0">Longitudinal trend summary (read-only, finalized sessions)</h3></div>
+      <div class="ds-card__body">
+        <p class="va-muted" style="font-size:12px;margin:0">Not enough finalized sessions to determine trend.</p>
+      </div>
+    </div>`;
+  }
+
+  const headerCells = trend.ordered
+    .map((item) => `<th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);min-width:140px">${esc(_formatPriorSessionDate(item.occurred_at))}</th>`)
+    .join('');
+  const valueRow = (label, values) => `<tr>
+    <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);vertical-align:top">${label}</th>
+    ${values.map((value) => `<td style="padding:8px;border-bottom:1px solid var(--border);vertical-align:top">${value}</td>`).join('')}
+  </tr>`;
+  const textualSummary = [
+    `Severity trajectory: ${trend.severityTrend}.`,
+    `Task completion trajectory: ${trend.completionTrend}.`,
+    `Clip availability: ${trend.clipTrend}.`,
+  ].join(' ');
+
+  return `<div class="ds-card" style="margin-top:12px">
+    <div class="ds-card__header"><h3 style="margin:0">Longitudinal trend summary (read-only, finalized sessions)</h3></div>
+    <div class="ds-card__body">
+      <div style="overflow:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border)">Trend field</th>
+              ${headerCells}
+            </tr>
+          </thead>
+          <tbody>
+            ${valueRow('Severity trajectory', trend.ordered.map((item) => esc(_priorSessionSeverityLabel(item))))}
+            ${valueRow('Task completion trajectory', trend.ordered.map((item) => esc(_priorSessionTasksLabel(item))))}
+            ${valueRow('Clip availability', trend.ordered.map((item) => esc(_priorSessionClipLabel(item))))}
+          </tbody>
+        </table>
+      </div>
+      <div class="va-muted" style="font-size:12px;line-height:1.6;margin-top:12px">
+        <strong style="color:var(--text-primary)">Trend summary</strong>
+        <p style="margin:6px 0 0">${esc(textualSummary)}</p>
+      </div>
+    </div>
+  </div>`;
+}
+
+function _renderHistoricalAiSummaryFeedbackSection() {
+  const role = currentUser?.role || '';
+  if (!_canReviewPriorSessions(role)) return '';
+  const state = _vaPriorSessionsState;
+  const saved = state.aiSummaryFeedbackResult;
+  const statusOptions = [
+    ['accepted', 'Accepted'],
+    ['partially_accepted', 'Partially accepted'],
+    ['disagreed', 'Disagreed'],
+    ['not_useful', 'Not useful'],
+  ].map(([value, label]) => `<option value="${value}" ${state.aiSummaryFeedbackStatus === value ? 'selected' : ''}>${label}</option>`).join('');
+  const savedLine = saved?.has_feedback && saved?.updated_at
+    ? `<p class="va-muted" role="status" style="font-size:12px;margin:8px 0 0;color:var(--teal)">Saved ${esc(_formatPriorSessionDate(saved.updated_at))} · ${esc(_historicalFeedbackStatusLabel(saved.feedback_status))}</p>`
+    : '';
+  const loadingLine = state.aiSummaryFeedbackLoading
+    ? '<p class="va-muted" style="font-size:12px;margin:0 0 8px">Loading saved clinician feedback…</p>'
+    : '';
+  const errorLine = state.aiSummaryFeedbackError
+    ? `<p class="va-muted" role="alert" style="font-size:12px;margin:8px 0 0;color:var(--amber)">${esc(state.aiSummaryFeedbackError)}</p>`
+    : '';
+  return `<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+      <strong style="display:block;margin-bottom:6px">Clinician feedback on advisory summary</strong>
+      <p class="va-muted" style="font-size:12px;line-height:1.5;margin:0 0 10px">This records the clinician's response to the advisory summary. It does not alter the persisted session review automatically.</p>
+      ${loadingLine}
+      <div class="form-group" style="margin-bottom:10px">
+        <label class="form-label" for="va-history-feedback-status">Feedback status</label>
+        <select id="va-history-feedback-status" class="form-control" ${state.aiSummaryFeedbackSaving ? 'disabled' : ''}>
+          <option value="">Select…</option>
+          ${statusOptions}
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:10px">
+        <label class="form-label" for="va-history-feedback-note">Optional note</label>
+        <textarea id="va-history-feedback-note" class="form-control" rows="2" maxlength="${HISTORICAL_AI_FEEDBACK_NOTE_MAX}" placeholder="Optional short note" ${state.aiSummaryFeedbackSaving ? 'disabled' : ''}>${esc(state.aiSummaryFeedbackNote || '')}</textarea>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button type="button" class="btn btn-secondary btn-sm" id="va-save-history-feedback" ${state.aiSummaryFeedbackSaving || state.aiSummaryFeedbackLoading ? 'disabled' : ''}>${state.aiSummaryFeedbackSaving ? 'Saving…' : 'Save feedback'}</button>
+        ${savedLine}
+      </div>
+      ${errorLine}
+    </div>`;
+}
+
+function _renderHistoricalAiSummaryPanel() {
+  const role = currentUser?.role || '';
+  if (!_canReviewPriorSessions(role) || !_currentPriorComparisonSessionId()) return '';
+  const state = _vaPriorSessionsState;
+  if (state.aiSummaryLoading) {
+    return `<div class="ds-card" style="margin-top:12px">
+      <div class="ds-card__header"><h3 style="margin:0">AI historical summary</h3></div>
+      <div class="ds-card__body">
+        <p class="va-muted" style="font-size:12px;margin:0">Generating advisory summary from persisted finalized-session comparison data…</p>
+      </div>
+    </div>`;
+  }
+  if (state.aiSummaryError) {
+    return `<div class="ds-card" style="margin-top:12px">
+      <div class="ds-card__header"><h3 style="margin:0">AI historical summary</h3></div>
+      <div class="ds-card__body">
+        <p class="va-muted" role="alert" style="font-size:12px;margin:0;color:var(--amber)">Historical AI summary is temporarily unavailable. ${esc(state.aiSummaryError)}</p>
+      </div>
+    </div>`;
+  }
+  const summary = state.aiSummaryResult;
+  if (!summary) return '';
+  const observations = Array.isArray(summary.trend_observations) ? summary.trend_observations : [];
+  const limitations = Array.isArray(summary.limitations) ? summary.limitations : [];
+  const basis = summary.data_basis || {};
+  const provenance = summary.provenance || {};
+  const statusLabel = _aiSummaryStatusLabel(summary.summary_status);
+  const feedbackDraft = state.aiSummaryFeedbackDraft || _emptyAiSummaryFeedbackDraft();
+  const feedbackStatus = String(feedbackDraft.feedback_status || '').trim();
+  const feedbackNote = String(feedbackDraft.feedback_note || '');
+  const feedbackRequired = _feedbackRequiresNote(feedbackStatus);
+  const feedbackSaved = state.aiSummaryFeedbackSaved;
+  const feedbackPreloaded = state.aiSummaryFeedbackPreloaded;
+  const dataBasisLine = [
+    `${basis.session_count ?? 0} finalized session(s)`,
+    `severity data ${basis.has_severity_data ? 'available' : 'limited'}`,
+    `task completion ${basis.has_task_completion_data ? 'available' : 'limited'}`,
+    `clip availability ${basis.has_clip_availability_data ? 'available' : 'limited'}`,
+  ].join(' · ');
+  const provenanceLine = [
+    `Generated ${_formatPriorSessionDate(summary.generated_at)}`,
+    `Logic ${provenance.summary_logic_version || 'unknown'}`,
+    `${provenance.session_count ?? 0} source session(s)`,
+    `Sources ${(Array.isArray(provenance.source_session_ids) ? provenance.source_session_ids : []).map(_shortSessionId).join(', ') || 'none'}`,
+  ].join(' · ');
+  let feedbackStateCopy = '';
+  if (feedbackSaved) {
+    feedbackStateCopy = `Saved in this view at ${_formatPriorSessionDate(feedbackSaved.updated_at)}. Export includes only this saved feedback snapshot.`;
+  } else if (feedbackPreloaded) {
+    feedbackStateCopy = 'Loaded saved feedback from backend. Re-save here to include it in export.';
+  }
+  const feedbackDirtyCopy = state.aiSummaryFeedbackDirty
+    ? 'You have unsaved feedback edits. They do not change the persisted session review and will not appear in export until you save them here.'
+    : '';
+  const feedbackLoading = state.aiSummaryFeedbackLoading
+    ? '<p class="va-muted" style="margin:8px 0 0">Loading previously saved feedback for this summary…</p>'
+    : '';
+  const feedbackError = state.aiSummaryFeedbackError
+    ? `<p class="va-muted" role="alert" style="margin:8px 0 0;color:var(--amber)">${esc(state.aiSummaryFeedbackError)}</p>`
+    : '';
+  return `<div class="ds-card" style="margin-top:12px">
+    <div class="ds-card__header"><h3 style="margin:0">AI historical summary</h3></div>
+    <div class="ds-card__body" style="font-size:12px;line-height:1.6">
+      <p class="va-muted" style="margin-top:0"><strong style="color:var(--text-primary)">Status</strong>: ${esc(statusLabel)}</p>
+      <p style="margin-top:0">${esc(summary.summary_text || 'No advisory summary text returned.')}</p>
+      <div style="margin-top:12px">
+        <strong style="display:block;margin-bottom:6px">Trend observations</strong>
+        <ul style="margin:0;padding-left:18px">${observations.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>
+      </div>
+      <p class="va-muted" style="margin:12px 0 0"><strong style="color:var(--text-primary)">Data basis</strong>: ${esc(dataBasisLine)}</p>
+      <!-- Freshness / provenance metadata indicates traceability and state alignment only, not summary correctness. -->
+      <p class="va-muted" style="margin:8px 0 0"><strong style="color:var(--text-primary)">Provenance / generation metadata</strong>: ${esc(provenanceLine)}</p>
+      <div style="margin-top:12px">
+        <strong style="display:block;margin-bottom:6px">Limitations</strong>
+        <ul style="margin:0;padding-left:18px">${limitations.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>
+      </div>
+      <p class="va-muted" style="margin:12px 0 0">Advisory summary generated from persisted finalized-session comparison data. Not a diagnosis or treatment recommendation.</p>
+      ${_renderHistoricalAiSummaryFeedbackSection()}
     </div>
   </div>`;
 }
@@ -738,8 +2004,6 @@ function _renderClinicianColumn() {
     })
     .join('');
 
-  const historyPlaceholder = `<div class="ds-card" style="margin-top:12px"><div class="ds-card__header"><h3>Prior sessions</h3></div><div class="ds-card__body"><p class="va-muted" style="font-size:12px">Side-by-side comparison with prior visits will appear here after longitudinal storage is enabled.</p></div></div>`;
-
   return `<div class="va-col va-col-clinician">
     <div class="va-clin-layout">
       <aside class="va-sidebar" aria-label="Tasks">${sidebar}</aside>
@@ -747,7 +2011,7 @@ function _renderClinicianColumn() {
         <h4 style="margin:0 0 8px">${task ? esc(task.task_name) : ''}</h4>
         <p class="va-muted" style="font-size:12px">${def ? esc(def.clinical_purpose) : ''}</p>
         ${_renderClinicianForm(task)}
-        ${historyPlaceholder}
+        ${_renderPriorSessionsComparison()}
       </div>
     </div>
     <p class="va-muted" style="font-size:11px;margin-top:10px">Tip: use ↑ / ↓ to move between tasks when the sidebar is focused.</p>
@@ -759,6 +2023,8 @@ function _renderSummaryPanel() {
   _applySummary();
   const s = session.summary;
   const flags = (session.safety_flags || []).length;
+  const persisted = _sessionHasServerTruth(session);
+  const readOnly = _sessionReadOnly(session);
   return `<div class="ds-card va-summary"><div class="ds-card__header"><h3>Summary</h3></div><div class="ds-card__body">
     <div class="va-summary-grid">
       <div><span class="va-muted">Tasks recorded</span><strong>${s.tasks_completed}</strong></div>
@@ -766,15 +2032,21 @@ function _renderSummaryPanel() {
       <div><span class="va-muted">Safety flags</span><strong>${flags}</strong></div>
       <div><span class="va-muted">Review progress</span><strong>${s.review_completion_percent}%</strong></div>
     </div>
-    <div class="form-group" style="margin-top:12px"><label class="form-label">Clinician impression (draft)</label>
-      <textarea id="va-summary-impression" class="form-control" rows="2" placeholder="Brief overall impression">${esc(session.summary.clinician_impression || '')}</textarea></div>
-    <div class="form-group"><label class="form-label">Recommended follow-up</label>
-      <textarea id="va-summary-followup" class="form-control" rows="2" placeholder="Optional">${esc(session.summary.recommended_followup || '')}</textarea></div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <button type="button" class="btn btn-secondary" id="va-export-json">Download session draft (JSON)</button>
-      <button type="button" class="btn btn-primary" id="va-save-summary">Save draft summary</button>
+    ${persisted ? `<p class="va-muted" style="font-size:11px;margin-top:12px">${readOnly ? 'This attached persisted session is finalized. Notes below are read-only server truth.' : 'This attached persisted session saves clinician summary changes to backend truth with conflict checks.'}</p>` : ''}
+    <fieldset style="border:0;padding:0;margin:0" ${readOnly ? 'disabled' : ''}>
+      <div class="form-group" style="margin-top:12px"><label class="form-label">Clinician impression ${persisted ? '' : '(draft)'}</label>
+        <textarea id="va-summary-impression" class="form-control" rows="2" placeholder="Brief overall impression">${esc(session.summary.clinician_impression || '')}</textarea></div>
+      <div class="form-group"><label class="form-label">Recommended follow-up</label>
+        <textarea id="va-summary-followup" class="form-control" rows="2" placeholder="Optional">${esc(session.summary.recommended_followup || '')}</textarea></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button type="button" class="btn btn-primary" id="va-save-summary">${persisted ? 'Save summary to persisted session' : 'Save draft summary'}</button>
+        ${persisted && !readOnly ? '<button type="button" class="btn btn-secondary" id="va-finalize-session">Finalize persisted review</button>' : ''}
+      </div>
+    </fieldset>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+      <button type="button" class="btn btn-secondary" id="va-export-json">${persisted ? 'Download persisted session JSON' : 'Download session draft (JSON)'}</button>
     </div>
-    <p class="va-muted" style="font-size:11px;margin-top:10px">JSON export is a local draft for workflow handoff—not a signed report or EHR upload.</p>
+    <p class="va-muted" style="font-size:11px;margin-top:10px">${persisted ? 'JSON export reflects the persisted backend session for workflow handoff; it is not a signed clinical report or EHR upload.' : 'JSON export is a local draft for workflow handoff—not a signed report or EHR upload.'}</p>
   </div></div>`;
 }
 
@@ -825,6 +2097,7 @@ function _render() {
 </div>`;
 
   _wire();
+  void _ensurePriorSessionsLoaded();
 }
 
 function _collectReviewFromDom(task) {
@@ -841,6 +2114,98 @@ function _collectReviewFromDom(task) {
     if (k) r.structured_scores[k] = el.value;
   });
   return r;
+}
+
+function _setAiSummaryFeedbackDraftField(field, value) {
+  _vaPriorSessionsState = {
+    ..._vaPriorSessionsState,
+    aiSummaryFeedbackDraft: {
+      ...(_vaPriorSessionsState.aiSummaryFeedbackDraft || _emptyAiSummaryFeedbackDraft()),
+      [field]: value,
+    },
+    aiSummaryFeedbackDirty: true,
+    aiSummaryFeedbackError: null,
+  };
+  _render();
+}
+
+async function _saveHistoricalAiSummaryFeedback() {
+  const role = currentUser?.role || '';
+  const sessionId = _currentPriorComparisonSessionId();
+  const summaryEventId = _vaPriorSessionsState.aiSummaryResult?.provenance?.event_id || '';
+  if (!_canReviewPriorSessions(role) || !sessionId || !summaryEventId) return;
+  const draft = _vaPriorSessionsState.aiSummaryFeedbackDraft || _emptyAiSummaryFeedbackDraft();
+  const feedbackStatus = String(draft.feedback_status || '').trim();
+  const feedbackNote = String(draft.feedback_note || '').trim();
+  if (!feedbackStatus) {
+    _vaPriorSessionsState = {
+      ..._vaPriorSessionsState,
+      aiSummaryFeedbackError: 'Select a feedback status before saving.',
+    };
+    _render();
+    return;
+  }
+  if (_feedbackRequiresNote(feedbackStatus) && !feedbackNote) {
+    _vaPriorSessionsState = {
+      ..._vaPriorSessionsState,
+      aiSummaryFeedbackError: 'Please add a short rationale when marking this advisory summary as disagreed or not useful.',
+    };
+    _render();
+    return;
+  }
+  _vaPriorSessionsState = {
+    ..._vaPriorSessionsState,
+    aiSummaryFeedbackSaving: true,
+    aiSummaryFeedbackError: null,
+  };
+  _render();
+  try {
+    const saved = await api.saveVideoAssessmentHistoricalAiSummaryFeedback(sessionId, {
+      summary_event_id: summaryEventId,
+      feedback_status: feedbackStatus,
+      feedback_note: feedbackNote,
+    });
+    if (
+      _currentPriorComparisonSessionId() !== sessionId ||
+      _vaPriorSessionsState.aiSummaryResult?.provenance?.event_id !== summaryEventId
+    ) {
+      return;
+    }
+    const normalizedSaved = {
+      ...saved,
+      feedback_status: saved?.feedback_status || feedbackStatus,
+      feedback_note: saved?.feedback_note ?? feedbackNote,
+    };
+    _vaPriorSessionsState = {
+      ..._vaPriorSessionsState,
+      aiSummaryFeedbackSaving: false,
+      aiSummaryFeedbackError: null,
+      aiSummaryFeedbackDraft: {
+        feedback_status: normalizedSaved.feedback_status,
+        feedback_note: normalizedSaved.feedback_note || '',
+      },
+      aiSummaryFeedbackPreloaded: normalizedSaved,
+      aiSummaryFeedbackSaved: normalizedSaved,
+      aiSummaryFeedbackDirty: false,
+    };
+    showToast('Advisory-summary feedback saved.');
+  } catch (e) {
+    if (
+      _currentPriorComparisonSessionId() !== sessionId ||
+      _vaPriorSessionsState.aiSummaryResult?.provenance?.event_id !== summaryEventId
+    ) {
+      return;
+    }
+    _vaPriorSessionsState = {
+      ..._vaPriorSessionsState,
+      aiSummaryFeedbackSaving: false,
+      aiSummaryFeedbackError:
+        e?.code === 'feedback_note_required'
+          ? 'Please add a short rationale when marking this advisory summary as disagreed or not useful.'
+          : (e?.message || 'Could not save historical-summary feedback.'),
+    };
+  }
+  _render();
 }
 
 function _wire() {
@@ -870,7 +2235,7 @@ function _wire() {
   };
 
   document.getElementById('va-link-profile')?.addEventListener('click', () => navWithPatient('patient-profile'));
-  document.getElementById('va-link-assessments')?.addEventListener('click', () => navWithPatient('assessments'));
+  document.getElementById('va-link-assessments')?.addEventListener('click', () => navWithPatient('assessments-v2'));
   document.getElementById('va-link-documents')?.addEventListener('click', () => navWithPatient('documents-hub'));
   document.getElementById('va-link-qeeg')?.addEventListener('click', () => navWithPatient('qeeg-launcher'));
   document.getElementById('va-link-mri')?.addEventListener('click', () => navWithPatient('mri-analysis'));
@@ -893,6 +2258,45 @@ function _wire() {
   document.getElementById('va-mode-clinician')?.addEventListener('click', () => {
     _vaUiMode = 'clinician';
     _render();
+    void _ensureSelectedClinicianTaskVideoLoaded();
+  });
+
+  document.querySelectorAll('[data-va-prior-select]').forEach((btn) => {
+    const toggleSelection = () => {
+      const sessionId = btn.getAttribute('data-va-prior-select') || '';
+      if (!sessionId) return;
+      _togglePriorSessionSelection(sessionId);
+    };
+    btn.addEventListener('click', toggleSelection);
+    btn.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      toggleSelection();
+    });
+  });
+
+  document.getElementById('va-export-history')?.addEventListener('click', () => {
+    _exportHistoricalComparisonReport();
+  });
+  document.getElementById('va-generate-history-ai')?.addEventListener('click', () => {
+    void _generateHistoricalAiSummary();
+  });
+  document.getElementById('va-history-feedback-status')?.addEventListener('change', (ev) => {
+    _vaPriorSessionsState = {
+      ..._vaPriorSessionsState,
+      aiSummaryFeedbackStatus: ev.target?.value || '',
+      aiSummaryFeedbackError: null,
+    };
+  });
+  document.getElementById('va-history-feedback-note')?.addEventListener('input', (ev) => {
+    _vaPriorSessionsState = {
+      ..._vaPriorSessionsState,
+      aiSummaryFeedbackNote: ev.target?.value || '',
+      aiSummaryFeedbackError: null,
+    };
+  });
+  document.getElementById('va-save-history-feedback')?.addEventListener('click', () => {
+    void _saveHistoricalAiSummaryFeedback();
   });
 
   document.getElementById('va-setup-continue')?.addEventListener('click', () => {
@@ -919,8 +2323,8 @@ function _wire() {
     showToast('Review the checklist, then press Start recording when you are set.');
   });
 
-  document.getElementById('va-skip-task')?.addEventListener('click', () => _skipCurrent('patient_pref'));
-  document.getElementById('va-unsafe-task')?.addEventListener('click', () => _skipCurrent('unsafe'));
+  document.getElementById('va-skip-task')?.addEventListener('click', () => void _skipCurrent('patient_pref'));
+  document.getElementById('va-unsafe-task')?.addEventListener('click', () => void _skipCurrent('unsafe'));
 
   document.getElementById('va-start-rec')?.addEventListener('click', async () => {
     try {
@@ -954,12 +2358,50 @@ function _wire() {
     _stopRecordingClip();
   });
 
-  document.getElementById('va-use-clip')?.addEventListener('click', () => {
+  document.getElementById('va-use-clip')?.addEventListener('click', async () => {
+    const session = _ensureSession();
     const task = _currentTask();
-    if (task) {
-      task.recording_status = 'accepted';
-      task.unsafe_flag = false;
+    if (!task) return;
+    const lastTask = _vaTaskIndex >= ((session.tasks?.length || 1) - 1);
+    if (_sessionHasServerTruth(session)) {
+      const blob = _taskLocalBlob(task.task_id);
+      if (!blob) {
+        showToast('Accepted clip is no longer available in browser memory. Record or upload the clip again.', 'warning');
+        return;
+      }
+      try {
+        const uploaded = await api.uploadVideoAssessmentTaskVideo(
+          session.id,
+          task.task_id,
+          blob,
+          {
+            expectedRevision: _sessionRevisionToken(session),
+            filename: `${task.task_id}.${blob.type === 'video/mp4' ? 'mp4' : blob.type === 'video/quicktime' ? 'mov' : 'webm'}`,
+          },
+        );
+        if (uploaded?.session) _replaceSession(uploaded.session);
+        _setTaskBlob(task.task_id, null);
+        showToast('Clip uploaded to persisted session.');
+        if (lastTask) {
+          const completed = await _patchPersistedSession(
+            {
+              overall_status: 'completed',
+              completed_at: new Date().toISOString(),
+            },
+            null,
+          );
+          if (!completed) return;
+        }
+      } catch (error) {
+        await _recoverPersistedSessionConflict(session.id, error);
+        _render();
+        return;
+      }
+      _advanceTask(false);
+      return;
     }
+    task.recording_status = 'accepted';
+    task.unsafe_flag = false;
     _advanceTask();
   });
 
@@ -969,39 +2411,69 @@ function _wire() {
     _render();
   });
 
-  document.getElementById('va-skip-post')?.addEventListener('click', () => _skipCurrent('patient_pref'));
+  document.getElementById('va-skip-post')?.addEventListener('click', () => void _skipCurrent('patient_pref'));
 
   document.querySelectorAll('[data-va-task-idx]').forEach((btn) => {
     btn.addEventListener('click', () => {
       _vaSelectedClinicianTask = parseInt(btn.getAttribute('data-va-task-idx'), 10);
       _render();
+      void _ensureSelectedClinicianTaskVideoLoaded();
     });
   });
 
-  document.getElementById('va-save-draft')?.addEventListener('click', () => {
+  document.getElementById('va-load-stored-video')?.addEventListener('click', () => {
+    void _ensureSelectedClinicianTaskVideoLoaded();
+  });
+
+  document.getElementById('va-save-draft')?.addEventListener('click', async () => {
     const session = _ensureSession();
     const task = session.tasks[_vaSelectedClinicianTask];
     if (!task) return;
-    task.clinician_review = {
-      ..._collectReviewFromDom(task),
-      reviewer_id: 'local',
+    const reviewBody = _collectReviewFromDom(task);
+    if (!reviewBody) return;
+    const nextReview = {
+      ...reviewBody,
+      reviewer_id: currentUser?.email || currentUser?.display_name || currentUser?.role || 'clinician',
       reviewed_at: null,
     };
+    if (_sessionHasServerTruth(session)) {
+      await _patchPersistedSession(
+        {
+          tasks: [{ task_id: task.task_id, clinician_review: nextReview }],
+        },
+        'Draft saved to persisted session.',
+      );
+      return;
+    }
+    task.clinician_review = nextReview;
     _persistSession();
     showToast('Draft saved locally');
     _applySummary();
     _render();
   });
 
-  document.getElementById('va-mark-reviewed')?.addEventListener('click', () => {
+  document.getElementById('va-mark-reviewed')?.addEventListener('click', async () => {
     const session = _ensureSession();
     const task = session.tasks[_vaSelectedClinicianTask];
     if (!task) return;
     const body = _collectReviewFromDom(task);
-    task.clinician_review = {
+    if (!body) return;
+    const nextReview = {
       ...body,
-      reviewer_id: 'local',
+      reviewer_id: currentUser?.email || currentUser?.display_name || currentUser?.role || 'clinician',
       reviewed_at: new Date().toISOString(),
+    };
+    if (_sessionHasServerTruth(session)) {
+      await _patchPersistedSession(
+        {
+          tasks: [{ task_id: task.task_id, clinician_review: nextReview }],
+        },
+        'Marked reviewed in persisted session.',
+      );
+      return;
+    }
+    task.clinician_review = {
+      ...nextReview,
     };
     _persistSession();
     showToast('Marked reviewed');
@@ -1009,17 +2481,41 @@ function _wire() {
     _render();
   });
 
-  document.getElementById('va-save-summary')?.addEventListener('click', () => {
+  document.getElementById('va-save-summary')?.addEventListener('click', async () => {
     const session = _ensureSession();
-    session.summary.clinician_impression = document.getElementById('va-summary-impression')?.value || '';
-    session.summary.recommended_followup = document.getElementById('va-summary-followup')?.value || '';
+    const clinicianImpression = document.getElementById('va-summary-impression')?.value || '';
+    const recommendedFollowup = document.getElementById('va-summary-followup')?.value || '';
+    if (_sessionHasServerTruth(session)) {
+      await _patchPersistedSession(
+        {
+          summary: {
+            clinician_impression: clinicianImpression,
+            recommended_followup: recommendedFollowup,
+          },
+        },
+        'Summary saved to persisted session.',
+      );
+      return;
+    }
+    session.summary.clinician_impression = clinicianImpression;
+    session.summary.recommended_followup = recommendedFollowup;
     _persistSession();
     showToast('Summary saved locally');
     _render();
   });
 
-  document.getElementById('va-export-json')?.addEventListener('click', () => {
+  document.getElementById('va-export-json')?.addEventListener('click', async () => {
     const session = _ensureSession();
+    if (_sessionHasServerTruth(session)) {
+      try {
+        const payload = await api.exportVideoAssessmentSessionJson(session.id);
+        _downloadSessionJsonPayload(payload, `video-assessment-session-${session.id || 'session'}.json`);
+        showToast('Persisted session JSON downloaded — review before sharing.');
+      } catch (error) {
+        showToast(error?.message || 'Could not export the persisted session JSON.', 'error');
+      }
+      return;
+    }
     session.summary.clinician_impression = document.getElementById('va-summary-impression')?.value || '';
     session.summary.recommended_followup = document.getElementById('va-summary-followup')?.value || '';
     const payload = {
@@ -1030,17 +2526,14 @@ function _wire() {
       session_json: session,
       blob_urls_not_included: true,
     };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `video-assessment-draft-${session.id || 'session'}.json`;
-    a.click();
-    setTimeout(() => {
-      try {
-        URL.revokeObjectURL(a.href);
-      } catch (_) {}
-    }, 4000);
+    _downloadSessionJsonPayload(payload, `video-assessment-draft-${session.id || 'session'}.json`);
     showToast('Draft JSON downloaded — review before sharing.');
+  });
+
+  document.getElementById('va-finalize-session')?.addEventListener('click', async () => {
+    const session = _ensureSession();
+    if (!_sessionHasServerTruth(session)) return;
+    await _finalizePersistedSession('Persisted session finalized.');
   });
 
   document.getElementById('va-upload-file')?.addEventListener('change', async (ev) => {
@@ -1057,6 +2550,7 @@ function _wire() {
       const blob = file.slice(0, file.size, file.type || 'video/mp4');
       const url = URL.createObjectURL(blob);
       _setTaskBlobUrl(task.task_id, url);
+      _setTaskBlob(task.task_id, blob);
       task.recording_asset_id = 'file:' + task.task_id + ':' + Date.now();
       task.recording_status = 'pending_review';
       const meta = await _probeVideoBlob(blob);
@@ -1080,14 +2574,45 @@ function _wire() {
 }
 
 
-function _skipCurrent(reason) {
+async function _skipCurrent(reason) {
   const task = _currentTask();
   if (!task) return;
-  task.recording_status = reason === 'unsafe' ? 'unsafe_skipped' : 'skipped';
-  task.skip_reason = reason;
-  task.unsafe_flag = reason === 'unsafe';
-  if (reason === 'unsafe') {
-    _ensureSession().safety_flags = [...new Set([...(_ensureSession().safety_flags || []), task.task_id])];
+  const session = _ensureSession();
+  const nextStatus = reason === 'unsafe' ? 'unsafe_skipped' : 'skipped';
+  const persisted = _sessionHasServerTruth(session);
+  const lastTask = _vaTaskIndex >= ((session.tasks?.length || 1) - 1);
+  if (persisted) {
+    const saved = await _patchPersistedTaskState(
+      task.task_id,
+      {
+        recording_status: nextStatus,
+        skip_reason: reason,
+        unsafe_flag: reason === 'unsafe',
+      },
+      null,
+    );
+    if (!saved) return;
+    if (lastTask) {
+      const completed = await _patchPersistedSession(
+        {
+          overall_status: 'completed',
+          completed_at: new Date().toISOString(),
+        },
+        null,
+      );
+      if (!completed) return;
+    }
+  }
+  if (!persisted) {
+    task.recording_status = nextStatus;
+    task.skip_reason = reason;
+    task.unsafe_flag = reason === 'unsafe';
+    if (reason === 'unsafe') {
+      session.safety_flags = [...new Set([...(session.safety_flags || []), task.task_id])];
+    }
+  } else {
+    _setTaskBlob(task.task_id, null);
+    _setTaskBlobUrl(task.task_id, null);
   }
   _cleanupPreviewUrl();
   _vaPatientPhase = 'task_intro';
@@ -1096,6 +2621,19 @@ function _skipCurrent(reason) {
 
 function _advanceTask(fromSkip) {
   const session = _ensureSession();
+  if (_sessionHasServerTruth(session)) {
+    if (_vaTaskIndex < session.tasks.length - 1) {
+      _vaTaskIndex++;
+      _vaPatientPhase = 'task_intro';
+    } else {
+      _vaTaskIndex = session.tasks.length;
+      _vaPatientPhase = 'setup';
+      showToast(fromSkip ? 'Last task handled—session complete.' : 'Session complete.');
+    }
+    _applySummary();
+    _render();
+    return;
+  }
   if (_vaTaskIndex < session.tasks.length - 1) {
     _vaTaskIndex++;
     _vaPatientPhase = 'task_intro';
@@ -1129,11 +2667,23 @@ export async function pgVideoAssessments(setTopbar, navigate) {
 
   const storedPid = _readStoredPatientId();
   _vaSelectedPatientId = storedPid || null;
+  _resetPriorSessionsState();
 
   _vaSession = null;
   const persisted = _loadPersistedSession();
   if (persisted) {
-    _vaSession = persisted;
+    if (persisted.session_id && !persisted.tasks) {
+      const pid =
+        persisted.selected_patient_id ||
+        _vaSelectedPatientId ||
+        (_demoTokenWorkspace() ? 'demo-workspace' : 'not-selected');
+      _vaSession = createEmptySession({
+        id: persisted.session_id,
+        patient_id: pid,
+      });
+    } else {
+      _vaSession = persisted;
+    }
     if (_vaSelectedPatientId) _vaSession.patient_id = _vaSelectedPatientId;
     else if (!_vaSession.patient_id || _vaSession.patient_id === 'demo-patient') {
       _vaSession.patient_id = _demoTokenWorkspace() ? 'demo-workspace' : 'not-selected';
@@ -1145,11 +2695,21 @@ export async function pgVideoAssessments(setTopbar, navigate) {
     _vaSession = createEmptySession({ patient_id: pid });
   }
 
+  if (_isPersistedSessionId(_vaSession?.id || '')) {
+    try {
+      await _refreshPersistedSessionTruth(_vaSession.id, { renderAfter: false });
+    } catch (e) {
+      showToast('Could not reload persisted session from backend. Using the local mirror until refresh succeeds.', 'warning');
+    }
+  }
+
   _vaUiMode = 'patient';
   _vaPatientPhase = 'setup';
   _vaTaskIndex = 0;
   _vaSetupConfirmed = false;
   _vaSelectedClinicianTask = 0;
+  _clearLocalVideoState();
+  _clearRemoteVideoState();
   _stopMedia();
   _cleanupPreviewUrl();
 

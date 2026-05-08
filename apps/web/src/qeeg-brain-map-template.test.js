@@ -81,7 +81,7 @@ function fixtureReport(overrides) {
       limitations: ['template fsaverage source model'],
     },
     provenance: { schema_version: '1.0.0', pipeline_version: '0.5.0', norm_db_version: 'lemip+hbn-v1', file_hash: 'a'.repeat(64), generated_at: '2026-04-30T09:00:00Z' },
-    disclaimer: 'Research and wellness use only. This brain map summary is informational and is not a medical diagnosis or treatment recommendation. Discuss any findings with a qualified clinician.',
+    disclaimer: 'Decision-support only. This brain map summary is informational and is not a medical diagnosis or treatment recommendation. Discuss any findings with a qualified clinician.',
   };
   return Object.assign(report, overrides || {});
 }
@@ -122,15 +122,15 @@ test('renderBrainMapHeader includes patient meta', function () {
 
 test('renderIndicatorGrid renders all 5 indicator cards', function () {
   var html = tpl.renderIndicatorGrid(fixtureReport().indicators);
-  assert.match(html, /Frontal Lobe Development/);
-  assert.match(html, /Information Processing Speed/);
+  assert.match(html, /Theta\/Beta Ratio \(TBR\)/);
+  assert.match(html, /Occipital Peak Alpha Frequency/);
   assert.match(html, /Alpha Wave Reactivity/);
   // The "Brain Balance" indicator was renamed to "Frontal Alpha Asymmetry (FAA)"
   // per the QEEG evidence-citation audit (2026-04-30). The contract field
   // `brain_balance` is unchanged; only the user-facing label moved.
   assert.match(html, /Frontal Alpha Asymmetry/);
   assert.equal(/Brain Balance/.test(html), false, 'old "Brain Balance" UI label must not appear');
-  assert.match(html, /AI Brain Development Age/);
+  assert.match(html, /Brain Age Estimate/);
 });
 
 test('renderLobeTable renders 4 lobes with L/R percentiles', function () {
@@ -159,7 +159,7 @@ test('renderCitations links PMIDs and DOIs', function () {
 test('renderDisclaimer always contains the regulatory phrase', function () {
   var html = tpl.renderDisclaimer(fixtureReport(), 'patient');
   assert.match(html, /not a medical diagnosis/i);
-  assert.match(html, /research and wellness/i);
+  assert.match(html, /decision-support only/i);
 });
 
 test('emptyState renders without errors', function () {
@@ -172,7 +172,7 @@ test('emptyState renders without errors', function () {
 test('renderPatientReport renders all sections of the contract', function () {
   var html = patient.renderPatientReport(fixtureReport());
   assert.match(html, /Brain Function Mapping/);                // header
-  assert.match(html, /Frontal Lobe Development/);              // indicators
+  assert.match(html, /Theta\/Beta Ratio \(TBR\)/);             // indicators
   assert.match(html, /Brain Source Image/);                    // source map
   assert.match(html, /Brain Activity by Hemisphere/);          // lobe table
   assert.match(html, /Standardized Brain Function Score/);     // BFS
@@ -191,7 +191,7 @@ test('renderPatientReport empty state when no report passed', function () {
 test('renderPatientReport falls back to legacy {content} shape', function () {
   var legacy = {
     content: { executive_summary: 'Legacy summary', findings: [{ description: 'old finding' }] },
-    disclaimer: 'Research and wellness use only. Not a medical diagnosis or treatment recommendation.',
+    disclaimer: 'Decision-support only. Not a medical diagnosis or treatment recommendation.',
   };
   var html = patient.renderPatientReport(legacy);
   assert.match(html, /Legacy summary/);
