@@ -69,6 +69,37 @@ router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
 
 
 # ---------------------------------------------------------------------------
+# Crisis safety — structural escalation card
+# ---------------------------------------------------------------------------
+# The patient.crisis agent has a system prompt that *instructs* the LLM to
+# escalate, but a prompt cannot be a hard guarantee. Whenever the crisis
+# agent runs we additionally attach a deterministic escalation card so the
+# frontend can render an emergency-contact banner that does NOT depend on
+# the model returning the right template. Reference: AI go-live audit
+# 2026-05-08 (#3).
+CRISIS_ESCALATION_CARD: dict[str, Any] = {
+    "title": "If you are in immediate danger, contact emergency services now.",
+    "body": (
+        "This agent is a safety-net only. It cannot provide therapy, advice, "
+        "or medication guidance. Please use one of the contacts below if you "
+        "are at risk of harming yourself or someone else, or if you are "
+        "experiencing a medical emergency."
+    ),
+    "contacts": [
+        {"label": "Suicide & Crisis Lifeline (US)", "value": "988", "kind": "phone", "href": "tel:988"},
+        {"label": "Emergency services (US)", "value": "911", "kind": "phone", "href": "tel:911"},
+        {"label": "Emergency services (UK)", "value": "999", "kind": "phone", "href": "tel:999"},
+        {"label": "Samaritans (UK)", "value": "116 123", "kind": "phone", "href": "tel:116123"},
+        {"label": "Emergency services (EU)", "value": "112", "kind": "phone", "href": "tel:112"},
+    ],
+    "footer": (
+        "Decision-support only. The clinical team has been notified that "
+        "this agent was invoked."
+    ),
+}
+
+
+# ---------------------------------------------------------------------------
 # Pydantic schemas (kept inline per project convention)
 # ---------------------------------------------------------------------------
 
@@ -153,6 +184,10 @@ class AgentRunResponse(BaseModel):
     pending_tool_call: PendingToolCallOut | None = None
     tool_call_executed: ToolCallResultOut | None = None
     error: str | None = None
+    # Structural crisis-escalation card. Set to a fixed contacts payload
+    # whenever the patient.crisis agent runs, regardless of what the LLM
+    # produced. Frontends MUST render this above the chat reply when present.
+    crisis_escalation: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -368,6 +403,10 @@ def run_agent_endpoint(
     pending_raw = result.get("pending_tool_call")
     executed_raw = result.get("tool_call_executed")
 
+    crisis_card = (
+        CRISIS_ESCALATION_CARD if agent_def.id == "patient.crisis" else None
+    )
+
     return AgentRunResponse(
         agent_id=result["agent_id"],
         reply=result.get("reply", ""),
@@ -381,6 +420,7 @@ def run_agent_endpoint(
             ToolCallResultOut(**executed_raw) if executed_raw else None
         ),
         error=result.get("error"),
+        crisis_escalation=crisis_card,
     )
 
 
