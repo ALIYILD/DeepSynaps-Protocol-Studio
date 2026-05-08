@@ -55,6 +55,19 @@ def demo_seed_enabled(app_env: str) -> bool:
     return _env_truthy("DEEPSYNAPS_DEMO_CLINIC_SEED")
 
 
+def demo_seed_env_ok() -> bool:
+    """Env-only gate for ``apps/api/scripts/seed_demo.py``.
+
+    Both ``DEEPSYNAPS_APP_ENV`` (development|test) and
+    ``DEEPSYNAPS_DEMO_CLINIC_SEED=1`` must be set. See
+    ``docs/patients-hub-live-readiness.md``.
+    """
+    env = (os.getenv("DEEPSYNAPS_APP_ENV") or "").strip().lower()
+    if env not in ("development", "test"):
+        return False
+    return os.getenv("DEEPSYNAPS_DEMO_CLINIC_SEED") == "1"
+
+
 def seed_demo_clinic_data(db: Session) -> dict[str, int]:
     """Idempotently seed a synthetic demo clinic dataset (non-PHI) for live demos.
 

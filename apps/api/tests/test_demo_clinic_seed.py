@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.repositories.sessions import check_conflicts
-from app.services.demo_clinic_seed import seed_demo_clinic
+from app.services.demo_clinic_seed import demo_seed_env_ok, seed_demo_clinic
 
 
 def test_seed_demo_clinic_creates_synthetic_schedule() -> None:
@@ -48,3 +49,21 @@ def test_seed_demo_clinic_includes_conflict_pair() -> None:
         assert len(conflicts) >= 1
     finally:
         db.close()
+
+
+def test_demo_seed_env_ok_requires_both_flags(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DEEPSYNAPS_APP_ENV", raising=False)
+    monkeypatch.delenv("DEEPSYNAPS_DEMO_CLINIC_SEED", raising=False)
+    assert demo_seed_env_ok() is False
+
+    monkeypatch.setenv("DEEPSYNAPS_APP_ENV", "production")
+    monkeypatch.setenv("DEEPSYNAPS_DEMO_CLINIC_SEED", "1")
+    assert demo_seed_env_ok() is False
+
+    monkeypatch.setenv("DEEPSYNAPS_APP_ENV", "development")
+    monkeypatch.setenv("DEEPSYNAPS_DEMO_CLINIC_SEED", "0")
+    assert demo_seed_env_ok() is False
+
+    monkeypatch.setenv("DEEPSYNAPS_APP_ENV", "test")
+    monkeypatch.setenv("DEEPSYNAPS_DEMO_CLINIC_SEED", "1")
+    assert demo_seed_env_ok() is True

@@ -35,7 +35,7 @@ import { SCALE_REGISTRY } from './registries/scale-assessment-registry.js';
 import { ASSESS_REGISTRY } from './registries/assess-instruments-registry.js';
 import { EVIDENCE_SUMMARY, EVIDENCE_TOTAL_PAPERS, CONDITION_EVIDENCE, getConditionEvidence } from './evidence-dataset.js';
 import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES, getProtocolsByCondition } from './protocols-data.js';
-import { DEMO_PATIENT_ROSTER } from './patient-dashboard-helpers.js';
+import { buildDemoPatientRosterPreview } from './patient-dashboard-helpers.js';
 import { canAccessPatientRegistry } from './patient-registry-access.js';
 import { VOICE_DECISION_SUPPORT_SHORT, voiceApiErrorToast } from './voice-decision-support.js';
 import {
@@ -297,8 +297,11 @@ export async function pgPatientHub(setTopbar, navigate) {
   }
   if (typeof window !== 'undefined' && typeof window.showImportCSV !== 'function') {
     window.showImportCSV = function showImportCSVFallback() {
-      window._dsToast?.({ title: 'Import CSV', body: 'CSV import opens in the legacy Patients page.', severity: 'info' });
-      if (typeof window._nav === 'function') window._nav('patients');
+      window._dsToast?.({
+        title: 'CSV import',
+        body: 'Bulk CSV import is not enabled in this preview build. Use Add patient for single intake, or run the governed import pipeline from ops tooling.',
+        severity: 'info',
+      });
     };
   }
 
@@ -354,16 +357,19 @@ export async function pgPatientHub(setTopbar, navigate) {
     }
 
     function outcomeCell(p) {
+      const _demoRow = !!(isDemoSeed(p) || _registryUsingDemoData);
+      const sampleLbl = _demoRow ? '<span style="font-size:9px;color:var(--text-tertiary);margin-right:4px">Sample</span>' : '';
       const scale = p.primary_scale;
       const base  = p.baseline_score;
       const cur   = p.current_score;
       if (scale && base != null && cur != null) {
         const down = cur < base;
         const color = down ? 'var(--teal)' : (cur > base ? 'var(--amber)' : 'var(--text-secondary)');
-        return '<span style="font-family:var(--font-mono);font-size:11.5px;color:' + color + '">' + esc(scale) + ' · ' + base + ' → ' + cur + '</span>';
+        return '<span title="' + (_demoRow ? 'Illustrative scores for preview — not a clinical finding.' : '') + '" style="font-family:var(--font-mono);font-size:11.5px;color:' + color + '">' +
+          sampleLbl + esc(scale) + ' · ' + base + ' → ' + cur + '</span>';
       }
-      if (p.outcome_trend === 'worsened') return '<span style="font-family:var(--font-mono);font-size:11.5px;color:var(--amber)">Trend ↓</span>';
-      if (p.outcome_trend === 'improved') return '<span style="font-family:var(--font-mono);font-size:11.5px;color:var(--teal)">Trend ↑</span>';
+      if (p.outcome_trend === 'worsened') return '<span style="font-family:var(--font-mono);font-size:11.5px;color:var(--amber)">' + sampleLbl + 'Trend ↓</span>';
+      if (p.outcome_trend === 'improved') return '<span style="font-family:var(--font-mono);font-size:11.5px;color:var(--teal)">' + sampleLbl + 'Trend ↑</span>';
       return '<span title="No assessment scores recorded yet" style="font-family:var(--font-mono);font-size:11.5px;color:var(--text-tertiary);cursor:help">Not assessed</span>';
     }
 
@@ -559,10 +565,9 @@ export async function pgPatientHub(setTopbar, navigate) {
       const _demoOk = import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
       if (!_demoOk) return [];
       return _sortQueueByTime([
-        { id:'demo-pt-aisha-rahman', time:'09:00', name:'Aisha Rahman',     modality:'TPS',           sessionId:null, demo:true },
-        { id:'demo-pt-samantha-li',  time:'10:30', name:'Samantha Li',      modality:'tDCS',          sessionId:null, demo:true },
-        { id:'demo-pt-marcus-chen',  time:'13:15', name:'Marcus Chen',      modality:'rTMS',          sessionId:null, demo:true },
-        { id:'demo-pt-james-okonkwo',time:'15:45', name:'James Okonkwo',    modality:'Neurofeedback', sessionId:null, demo:true },
+        { id:'demo-pt-samantha-li', time:'10:30', name:'Samantha Li',   modality:'tDCS', sessionId:'demo-sess-samantha-today', demo:true },
+        { id:'demo-pt-marcus-chen', time:'13:15', name:'Marcus Chen',   modality:'rTMS', sessionId:null, demo:true },
+        { id:'demo-pt-elena-vasquez', time:'15:45', name:'Elena Vasquez', modality:'TPS', sessionId:null, demo:true },
       ]);
     }
     function todaysQueueHtml() {
@@ -687,17 +692,31 @@ export async function pgPatientHub(setTopbar, navigate) {
     let _registrySummaryFailed = false;
     let _registryListFailed = false;
     let _registryUsingDemoData = false;
+    /** True when cohort-summary failed and we are not in labeled demo preview mode */
+    let _cohortSummaryUnavailable = false;
 
     function _registryDemoMode() {
-      return import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1';
+      return !!(import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1');
     }
+
+    /** Routes that exist in app.js — anything else shows an honest toast instead of a dead hash. */
+    const _REGISTRY_DRILL_ROUTES = new Set([
+      'qeeg-launcher', 'qeeg-analysis', 'mri-analysis', 'video-assessments', 'wearables',
+      'text-analyzer', 'deeptwin', 'documents-v2', 'schedule-v2', 'scheduling-hub',
+      'clinician-inbox', 'protocol-studio', 'assessments-v2', 'patient-wearables',
+      'monitor', 'documents', 'protocol-hub',
+    ]);
 
     async function fetchSummary() {
       _registrySummaryFailed = false;
+      _cohortSummaryUnavailable = false;
       try {
         _currentSummary = await api.getPatientsCohortSummary();
       } catch (err) {
         _registrySummaryFailed = true;
+        if (!_registryDemoMode()) {
+          _cohortSummaryUnavailable = true;
+        }
         // Cohort summary is additive; if it 404s on older servers, fall back
         // to zeroed counts so the layout still renders.
         _currentSummary = {
@@ -718,8 +737,9 @@ export async function pgPatientHub(setTopbar, navigate) {
       // returns empty and demo mode is on (not a substitute for real metrics).
       const _demoOk = _registryDemoMode();
       if (_demoOk && _currentSummary && (_currentSummary.total === 0 || !_currentSummary.total)) {
-        const n = DEMO_PATIENT_ROSTER.length;
-        const activeN = DEMO_PATIENT_ROSTER.filter(p => p.status === 'active').length;
+        const roster = buildDemoPatientRosterPreview();
+        const n = roster.length;
+        const activeN = roster.filter(p => p.status === 'active').length;
         _currentSummary.total = n;
         _currentSummary.status_counts = { all: n, active: activeN, intake: 0, discharging: 0, on_hold: 0, archived: 0, pending: n - activeN };
         _currentSummary.kpis = {
@@ -756,12 +776,20 @@ export async function pgPatientHub(setTopbar, navigate) {
       const _demoOk = _registryDemoMode();
       const empty = !(_currentList?.items?.length);
       if (_demoOk && empty) {
-        _currentList = { items: [...DEMO_PATIENT_ROSTER], total: DEMO_PATIENT_ROSTER.length };
+        const roster = buildDemoPatientRosterPreview();
+        _currentList = { items: roster, total: roster.length };
       }
     }
 
     function renderKpis() {
       if (!_currentSummary) return '';
+      const degradedHdr = (_cohortSummaryUnavailable && !_registryUsingDemoData)
+        ? '<div class="d2p7-kpi" style="grid-column:1/-1;border-color:rgba(245,158,11,0.45)">' +
+            '<div class="d2p7-kpi-lbl amber"><span class="dot"></span>Cohort metrics</div>' +
+            '<div style="font-size:12px;color:var(--text-secondary);line-height:1.45;margin-top:6px">' +
+            'Cohort summary did not load from the API. Values below may show zeros — they are not verified clinic totals. ' +
+            'Use your source systems for operational counts.</div></div>'
+        : '';
       const k = _currentSummary.kpis || {};
       const phqN = k.phq_delta_n || 0;
       const phqVal = phqN && k.phq_delta_avg != null ? k.phq_delta_avg.toFixed(1) : null;
@@ -774,9 +802,10 @@ export async function pgPatientHub(setTopbar, navigate) {
       const delta7 = k.active_courses_delta_7d || 0;
       const responderPct = k.responder_rate_pct;
       const demoHint = _registryUsingDemoData
-        ? '<div class="d2p7-kpi-demo-hint">Sample metrics — connect API for clinic data</div>'
+        ? '<div class="d2p7-kpi-demo-hint">Sample cohort metrics for preview — connect API for live KPIs.</div>'
         : '';
       return (
+        degradedHdr +
         '<div class="d2p7-kpi"><div class="d2p7-kpi-lbl"><span class="dot"></span>Active course</div>' +
           '<div class="d2p7-kpi-num">' + activeCount + '</div>' +
           '<div class="d2p7-kpi-delta ' + (delta7>0?'up':'') + '">' +
@@ -808,9 +837,13 @@ export async function pgPatientHub(setTopbar, navigate) {
         return;
       }
       if (_registryUsingDemoData && _registryDemoMode()) {
-        host.innerHTML = '<div class="ds-pt-alert ds-pt-alert--demo" role="status">' +
-          '<strong>Preview data</strong> — roster and KPIs may be sample values. Sign in to the API for your clinic cohort. ' +
-          'This registry is for clinician review and navigation; it does not diagnose or approve treatment.</div>';
+        host.innerHTML =
+          '<div class="ds-pt-alert ds-pt-alert--demo" role="status" data-testid="ds-patients-demo-banner">' +
+          '<strong>Preview data</strong> — synthetic non-PHI roster and sample KPIs. Sign in to the API for your clinic cohort. ' +
+          'This registry is for clinician review and navigation; it does not diagnose or approve treatment.</div>' +
+          '<div class="ds-pt-alert ds-pt-alert--demo" style="margin-top:10px;border-style:solid" role="note">' +
+          'This is a controlled preview using synthetic non-PHI data. It supports clinical workflow and decision support only. ' +
+          'It does not diagnose, prescribe, triage emergencies, approve treatment, or act autonomously.</div>';
         host.style.display = 'block';
         return;
       }
@@ -938,7 +971,8 @@ export async function pgPatientHub(setTopbar, navigate) {
             'style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 200px" ' +
             'onclick="window._phState.selectedRowIndex=' + idx + ';window._phState.selectedPatientId=\'' + esc(p.id) + '\';window._phOpenChart(\'' + esc(p.id) + '\')">' +
               '<div class="queue-pt"><div class="pt-av ' + av + '">' + esc(ini) + '</div>' +
-                '<div><div class="queue-pt-name">' + esc(name) + demoChip + (p.is_responder ? ' <span class="pl-responder-chip">Responder</span>' : '') + '</div>' +
+                '<div><div class="queue-pt-name">' + esc(name) + demoChip +
+                  (p.is_responder && !isDemoSeed(p) ? ' <span class="pl-responder-chip" title="Backend heuristic flag — requires clinician review">Responder</span>' : '') + '</div>' +
                   '<div class="queue-pt-cond">' + statusPill(p) + '</div></div></div>' +
               '<div>' + protocolChip(p) + '</div>' +
               '<div class="queue-progress"><div class="queue-progress-bar"><div style="width:' + prog + '%"></div></div>' +
@@ -1169,16 +1203,16 @@ export async function pgPatientHub(setTopbar, navigate) {
       const ta = document.getElementById('ds-pt-quicknote-text');
       const text = (ta?.value || '').trim();
       if (!text) { _phToast('Note is empty', 'warn'); return; }
-      const fn = api?.createPatientNote || api?.createClinicianNote;
+      const fn = api?.createClinicianNote;
       if (typeof fn === 'function') {
         try {
           await fn({ patient_id: pid, content: text, body: text });
-          _phToast('Note saved', 'success');
+          _phToast('Note submitted to the clinician-notes pipeline (verify in chart).', 'success');
         } catch (e) {
-          _phToast('Note save failed: ' + (e?.message || e) + ' (demo only)', 'warn');
+          _phToast('Note was not persisted: ' + (e?.message || e) + ' — patient record unchanged.', 'warn');
         }
       } else {
-        _phToast('Note saved (demo)', 'info');
+        _phToast('Quick note not wired in this build — text was not saved. Browser-only preview; patient record unchanged.', 'info');
       }
       const drawer = document.getElementById('ds-pt-quicknote');
       if (drawer) drawer.remove();
@@ -1233,6 +1267,16 @@ export async function pgPatientHub(setTopbar, navigate) {
     };
 
     window._phNavigatePatientModule = (pid, page, auditEvent) => {
+      const route = String(page || '').trim();
+      if (!_REGISTRY_DRILL_ROUTES.has(route)) {
+        window._dsToast?.({
+          title: 'Module unavailable',
+          body: 'This module is not available in this build. No clinical action has been taken. Patient record remains unchanged.',
+          severity: 'warn',
+        });
+        _phToast('This module is not available in this build.', 'warn');
+        return;
+      }
       window._selectedPatientId = pid;
       window._profilePatientId = pid;
       try { sessionStorage.setItem('ds_pat_selected_id', pid); } catch {}
@@ -1240,11 +1284,11 @@ export async function pgPatientHub(setTopbar, navigate) {
       if (typeof api?.recordPatientProfileAuditEvent === 'function') {
         api.recordPatientProfileAuditEvent(pid, {
           event: ev,
-          note: 'patients-v2 → ' + String(page || ''),
+          note: 'patients-v2 → ' + route,
           using_demo_data: patientUsesDemoContext(pid),
         }).catch(() => {});
       }
-      if (typeof window._nav === 'function') window._nav(page);
+      if (typeof window._nav === 'function') window._nav(route);
       else _phToast('Navigation unavailable', 'warn');
     };
 
@@ -2229,7 +2273,7 @@ export async function pgPatientHub(setTopbar, navigate) {
       <div class="d2p7-tab-bar">${tabBar()}</div>
       <div class="ds-tab-empty" data-testid="ds-patients-alerts-pane" style="padding:32px;background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;color:var(--text-primary);max-width:640px;margin:24px auto;text-align:left">
         <h3 style="margin:0 0 10px;font-size:16px;color:var(--text-primary)">&#128276; Alerts</h3>
-        <p style="margin:0 0 16px;font-size:13px;color:var(--text-secondary);line-height:1.5">No active alerts. Adverse events and overdue assessments will surface here.</p>
+        <p style="margin:0 0 16px;font-size:13px;color:var(--text-secondary);line-height:1.5">No dedicated alerts feed is wired here yet. Adverse events and overdue assessments remain visible on the Patients tab and must be reviewed in the chart — this view is not emergency triage.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="ds-btn-secondary btn btn-sm" data-action="view-overdue" onclick="window._phViewOverdueFromAlerts && window._phViewOverdueFromAlerts()">View overdue assessments</button>
         </div>
