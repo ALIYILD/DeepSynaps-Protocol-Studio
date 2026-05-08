@@ -56,19 +56,54 @@ def upgrade() -> None:
         log.info("042 skipped on non-Postgres dialect=%s", dialect)
         return
 
-    for extension in ("pgcrypto", "vector"):
-        try:
-            op.execute(sa.text(f"CREATE EXTENSION IF NOT EXISTS {extension}"))
-            log.info("%s extension ensured", extension)
-        except Exception as exc:  # noqa: BLE001
-            log.warning("CREATE EXTENSION %s failed: %s", extension, exc)
+    is_pg = dialect == "postgresql"
 
-        if not _extension_present(bind, extension):
-            log.critical(
-                "required extension %s is unavailable; aborting 042 without changes",
-                extension,
-            )
-            return
+    def _guarded(label: str, fn) -> None:
+        # Wrap each best-effort step in a SAVEPOINT so a failed call
+        # (e.g. CREATE EXTENSION vector on a non-superuser MPG host)
+        # doesn't poison the outer migration transaction.
+        if is_pg:
+            sp = bind.begin_nested()
+            try:
+                fn()
+                sp.commit()
+            except Exception as exc:                              # noqa: BLE001
+                sp.rollback()
+                log.warning("%s skipped: %s", label, exc)
+        else:
+            try:
+                fn()
+            except Exception as exc:                              # noqa: BLE001
+                log.warning("%s skipped: %s", label, exc)
+
+    # ── Extension dependencies ────────────────────────────────────────────
+    # pgcrypto is REQUIRED (gen_random_uuid() default for patient_events).
+    #   It is "trusted" on Postgres 13+ so a non-superuser CREATE works on
+    #   managed hosts like Fly MPG.
+    # pgvector is OPTIONAL (only the patient_vectors table needs it). On
+    #   managed Postgres without superuser, CREATE EXTENSION vector fails
+    #   with InsufficientPrivilege. We log + skip the patient_vectors
+    #   block but still create every other table.
+    _guarded(
+        "CREATE EXTENSION pgcrypto",
+        lambda: op.execute(sa.text("CREATE EXTENSION IF NOT EXISTS pgcrypto")),
+    )
+    if not _extension_present(bind, "pgcrypto"):
+        log.critical(
+            "required extension pgcrypto is unavailable; aborting 042 without changes",
+        )
+        return
+
+    _guarded(
+        "CREATE EXTENSION vector (optional — patient_vectors will be skipped if absent)",
+        lambda: op.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector")),
+    )
+    has_vector = _extension_present(bind, "vector")
+    if not has_vector:
+        log.warning(
+            "pgvector extension unavailable; patient_vectors table + HNSW "
+            "index will be skipped. All other 042 tables will still be created."
+        )
 
     op.execute(
         sa.text(
@@ -167,35 +202,38 @@ def upgrade() -> None:
         )
     )
 
-    op.execute(
-        sa.text(
-            """
-            CREATE TABLE IF NOT EXISTS patient_vectors (
-                patient_id TEXT NOT NULL,
-                day DATE NOT NULL,
-                embedding vector(768) NOT NULL,
-                components JSONB NOT NULL DEFAULT '{}'::jsonb,
-                model_version TEXT NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                PRIMARY KEY (patient_id, day)
+    if has_vector:
+        op.execute(
+            sa.text(
+                """
+                CREATE TABLE IF NOT EXISTS patient_vectors (
+                    patient_id TEXT NOT NULL,
+                    day DATE NOT NULL,
+                    embedding vector(768) NOT NULL,
+                    components JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    model_version TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    PRIMARY KEY (patient_id, day)
+                )
+                """
             )
-            """
         )
-    )
-    op.execute(
-        sa.text(
-            """
-            DO $$
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM pg_indexes WHERE indexname = 'idx_pv_hnsw'
-                ) THEN
-                    EXECUTE 'CREATE INDEX idx_pv_hnsw ON patient_vectors USING hnsw (embedding vector_cosine_ops)';
-                END IF;
-            END $$;
-            """
+        op.execute(
+            sa.text(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_indexes WHERE indexname = 'idx_pv_hnsw'
+                    ) THEN
+                        EXECUTE 'CREATE INDEX idx_pv_hnsw ON patient_vectors USING hnsw (embedding vector_cosine_ops)';
+                    END IF;
+                END $$;
+                """
+            )
         )
-    )
+    else:
+        log.warning("Skipping patient_vectors table + idx_pv_hnsw (pgvector absent)")
 
     op.execute(
         sa.text(
@@ -265,14 +303,15 @@ def upgrade() -> None:
             """
         )
     )
-    op.execute(
-        sa.text(
-            """
-            COMMENT ON TABLE patient_vectors IS
-            '768-d daily patient embeddings for similarity / case-based retrieval'
-            """
+    if has_vector:
+        op.execute(
+            sa.text(
+                """
+                COMMENT ON TABLE patient_vectors IS
+                '768-d daily patient embeddings for similarity / case-based retrieval'
+                """
+            )
         )
-    )
     op.execute(
         sa.text(
             """
@@ -306,7 +345,15 @@ def downgrade() -> None:
     op.execute(sa.text("DROP VIEW IF EXISTS patient_features_latest"))
     op.execute(sa.text("DROP TABLE IF EXISTS crisis_alerts_current"))
     op.execute(sa.text("DROP TABLE IF EXISTS agent_actions_log"))
-    op.execute(sa.text("DROP TABLE IF EXISTS patient_vectors"))
+    # Only attempt to drop patient_vectors if pgvector is present; on hosts
+    # where the extension was missing during upgrade the table was never
+    # created and the IF EXISTS guard already makes this a no-op, but we
+    # gate it explicitly so a future "vector type missing" error path is
+    # impossible.
+    if _extension_present(bind, "vector"):
+        op.execute(sa.text("DROP TABLE IF EXISTS patient_vectors"))
+    else:
+        log.info("Skipping DROP TABLE patient_vectors (pgvector absent)")
     op.execute(sa.text("DROP TABLE IF EXISTS patient_features"))
     op.execute(sa.text("DROP TRIGGER IF EXISTS pe_no_update ON patient_events"))
     op.execute(sa.text("DROP TRIGGER IF EXISTS pe_no_delete ON patient_events"))

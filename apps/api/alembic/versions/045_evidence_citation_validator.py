@@ -138,46 +138,63 @@ def upgrade() -> None:
 
     # 5. Postgres-only: native pgvector embedding column + IVFFlat index
     if is_pg:
-        try:
-            op.execute("CREATE EXTENSION IF NOT EXISTS vector")
-        except Exception as exc:
-            log.critical("Cannot enable pgvector extension: %s — continuing without native embeddings", exc)
-            return
 
-        # Verify the extension is actually available
-        row = bind.execute(
+        def _guarded(label: str, fn) -> None:
+            # Wrap each best-effort step in a SAVEPOINT so a failed call
+            # (e.g. CREATE EXTENSION vector on a non-superuser MPG host)
+            # doesn't poison the outer migration transaction.
+            sp = bind.begin_nested()
+            try:
+                fn()
+                sp.commit()
+            except Exception as exc:                              # noqa: BLE001
+                sp.rollback()
+                log.warning("%s skipped: %s", label, exc)
+
+        _guarded(
+            "CREATE EXTENSION vector (host may require superuser)",
+            lambda: op.execute("CREATE EXTENSION IF NOT EXISTS vector"),
+        )
+
+        # Verify the extension is actually available. Runs after the
+        # savepoint rollback above so the connection is in a clean txn
+        # state regardless of whether CREATE EXTENSION succeeded.
+        has_vector = bind.execute(
             sa.text("SELECT 1 FROM pg_extension WHERE extname = 'vector'")
-        ).fetchone()
-        if row is None:
-            log.critical("pgvector extension not present after CREATE EXTENSION; skipping embedding column")
-            return
+        ).fetchone() is not None
 
-        try:
-            op.execute('ALTER TABLE ds_papers ADD COLUMN IF NOT EXISTS embedding vector(1536)')
-            log.info("Added ds_papers.embedding vector(1536) column")
-        except Exception as exc:
-            log.warning("Failed to add embedding column: %s", exc)
-
-        try:
-            op.execute(
-                "CREATE INDEX IF NOT EXISTS idx_ds_papers_embedding_ivfflat "
-                "ON ds_papers USING ivfflat (embedding vector_cosine_ops) "
-                "WITH (lists = 300)"
+        if has_vector:
+            _guarded(
+                "ADD COLUMN ds_papers.embedding vector(1536)",
+                lambda: op.execute(
+                    'ALTER TABLE ds_papers ADD COLUMN IF NOT EXISTS embedding vector(1536)'
+                ),
             )
-            log.info("Created IVFFlat index on ds_papers.embedding")
-        except Exception as exc:
-            log.warning("Failed to create IVFFlat index (table may be empty — run after backfill): %s", exc)
 
-        # Full-text search index on title + abstract
-        try:
-            op.execute(
+            _guarded(
+                "IVFFlat index on ds_papers.embedding",
+                lambda: op.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_ds_papers_embedding_ivfflat "
+                    "ON ds_papers USING ivfflat (embedding vector_cosine_ops) "
+                    "WITH (lists = 300)"
+                ),
+            )
+        else:
+            log.warning(
+                "pgvector extension unavailable; skipping ds_papers.embedding "
+                "column + IVFFlat index. FTS index below will still be created."
+            )
+
+        # Full-text search index on title + abstract — does NOT require
+        # pgvector, so it runs regardless of has_vector.
+        _guarded(
+            "GIN FTS index on ds_papers (title + abstract)",
+            lambda: op.execute(
                 "CREATE INDEX IF NOT EXISTS idx_ds_papers_fts "
                 "ON ds_papers USING GIN "
                 "(to_tsvector('english', coalesce(title,'') || ' ' || coalesce(abstract,'')))"
-            )
-            log.info("Created GIN FTS index on ds_papers")
-        except Exception as exc:
-            log.warning("Failed to create FTS index: %s", exc)
+            ),
+        )
 
 
 # ── Downgrade ────────────────────────────────────────────────────────────────
