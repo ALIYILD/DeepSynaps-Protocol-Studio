@@ -35,6 +35,7 @@ from app.repositories.video_assessments import Patient, User, VideoAssessmentSes
 from app.repositories.audit import (
     create_audit_event,
     latest_video_assessment_historical_summary_audit,
+    latest_video_assessment_summary_feedback_audit,
     video_assessment_historical_summary_audit_by_event_id,
 )
 from app.repositories.patients import resolve_patient_clinic_id
