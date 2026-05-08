@@ -19,7 +19,10 @@ export const VIDEO_ASSESSMENT_SESSION_STORAGE_KEY = SESSION_STORAGE_KEY;
 const HISTORICAL_AI_FEEDBACK_NOTE_MAX = 300;
 
 const DISCLAIMER =
-  'Video Assessments are for guided capture and clinician review only. They are not a substitute for an in-person examination, emergency care, or autonomous diagnosis.';
+  'This is a controlled preview using synthetic or clinician-provided data where applicable. ' +
+  'This page supports clinical review and decision support only. ' +
+  'It does not diagnose, prescribe, triage emergencies, approve treatment, or act autonomously. ' +
+  'All outputs require clinician review.';
 
 function _canReviewPriorSessions(role = '') {
   return role === 'clinician' || role === 'supervisor' || role === 'admin';
