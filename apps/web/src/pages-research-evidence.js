@@ -308,7 +308,7 @@ const TAB_META = {
   neuro:       { label: 'Brain Targets & Biomarkers', color: 'var(--rose)'   },
   adjunct:     { label: 'Labs / Meds / Diet',         color: 'var(--cyan,var(--teal))' },
   aiml:        { label: 'AI/ML & Psychotherapies',    color: 'var(--amber)'  },
-  search:      { label: 'Evidence Search',            color: 'var(--cyan,var(--teal))' },
+  search:      { label: 'Live Indexed Evidence Search',            color: 'var(--cyan,var(--teal))' },
   review:      { label: 'Needs Review',               color: 'var(--amber)'  },
 };
 
@@ -330,7 +330,7 @@ export async function pgResearchEvidence(setTopbar, navigate) {
     ? `${fmtK(liveEvidence.totalPapers)} papers indexed`
     : 'Evidence corpus';
   const papersBadgeTitle = liveEvidence.indexedCorpusAvailable
-    ? 'Indexed evidence database connected — paper count from GET /api/v1/evidence/status. Use Evidence Search for live FTS over this ingest.'
+    ? 'Indexed evidence database connected — paper count from GET /api/v1/evidence/status. Use Live Indexed Evidence Search for live FTS over this ingest.'
     : liveEvidence.live
       ? 'Live evidence index aggregate for this session when API + ingest are connected.'
       : 'Bundled corpus metadata / fallback — not guaranteed live database totals.';
@@ -671,7 +671,7 @@ async function renderOverview(body, liveEvidence = null) {
     // merged from main: 90f0484e/bf505698 intent: live evidence-link, template, and safety panels
     yearHtml + gradeHtml + modHtml + tcHtml + liveLinksHtml + liveTemplateHtml + liveSafetyHtml +
     '</div>' +
-    '<p style="font-size:11px;color:var(--text-tertiary);margin-top:12px">Grade and year distributions use bundled registry approximations when the live API is unavailable — use <strong>Evidence Search</strong> for verified primary literature retrieval.</p>';
+    '<p style="font-size:11px;color:var(--text-tertiary);margin-top:12px">Grade and year distributions use bundled registry approximations when the live API is unavailable — use <strong>Live Indexed Evidence Search</strong> for verified primary literature retrieval.</p>';
 }
 
 
@@ -740,7 +740,7 @@ async function renderConditions(body, q, filt, sort, sInput, pills, sortBtn) {
 
   /* toolbar */
   let html = _resWorkspaceHeader(_liveEvidenceUiStats) +
-    '<p style="font-size:11px;color:var(--text-tertiary);margin:0 0 12px;line-height:1.45">Expand rows for registry context; use Evidence Search for verified primary citations.</p>' +
+    '<p style="font-size:11px;color:var(--text-tertiary);margin:0 0 12px;line-height:1.45">Expand rows for registry context; use Live Indexed Evidence Search for verified primary citations.</p>' +
     `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
     ${sInput('Search conditions...')}
     <div style="display:flex;flex-wrap:wrap;gap:4px">${pills(cats, filt)}</div>
@@ -782,7 +782,7 @@ async function renderConditions(body, q, filt, sort, sInput, pills, sortBtn) {
       const protocolNotes = Array.isArray(detail.protocol_personalization_notes) ? detail.protocol_personalization_notes.slice(0, 3) : [];
       html += `<tr><td colspan="9" style="padding:0 8px 12px 24px;background:var(--surface-1,var(--bg))">
         <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5;margin:8px 0">
-          Live registry context. Use <button type="button" class="btn btn-ghost btn-xs" onclick="window._resEvidenceTab='search';window._nav('research-evidence')">Evidence Search</button>
+          Live registry context. Use <button type="button" class="btn btn-ghost btn-xs" onclick="window._resEvidenceTab='search';window._nav('research-evidence')">Live Indexed Evidence Search</button>
           for verified primary citations — links and identifiers below render only when returned by the API.
         </div>
         <div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin:8px 0 10px">Live Condition Detail</div>
@@ -916,7 +916,7 @@ async function renderAssessments(body, q, filt, sInput, pills) {
       }
       if (a.link) html += `<div style="margin-top:6px"><a href="${esc(a.link)}" target="_blank" rel="noopener" style="font-size:11px;color:var(--teal)">Reference &rarr;</a></div>`;
       if (live.graph.length) {
-        html += `<div style="margin-top:10px"><strong>Live Evidence Graph Context:</strong></div>`;
+        html += `<div style="margin-top:10px"><strong>Live Live Evidence Graph Links:</strong></div>`;
         html += live.graph.map((row) => `<div style="margin-top:6px;font-size:11px;color:var(--text-tertiary)">${esc(_reNormalizeLabel(row.modality || 'Modality'))}${row.indication ? ' · ' + esc(_reNormalizeLabel(row.indication)) : ''}${row.target ? ' · ' + esc(row.target) : ''}${row.paper_count != null ? ' · ' + fmt(row.paper_count) + ' papers' : ''}</div>`).join('');
       }
       if (live.papers.length) {
@@ -1441,7 +1441,7 @@ async function renderAIML(body, q, sInput) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   Evidence Search — synonym expansion (transparent FTS hints; does not fabricate)
+   Live Indexed Evidence Search — synonym expansion (transparent FTS hints; does not fabricate)
    ══════════════════════════════════════════════════════════════════════════════ */
 const _EV_TOKEN_SYNONYMS = {
   depression: ['depression', 'MDD', 'depressive', '"major depressive disorder"'],
@@ -1709,7 +1709,7 @@ function _reEmptyVerifiedEvidenceHtml() {
 
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   TAB 7 — Evidence Search (migrated from Library Hub)
+   TAB 7 — Live Indexed Evidence Search (migrated from Library Hub)
    Unified indexed corpus + brokered search · promote-to-library · AI summarization · curated lib
    ══════════════════════════════════════════════════════════════════════════════ */
 async function renderEvidenceSearch(body) {
@@ -1938,7 +1938,7 @@ async function renderEvidenceSearch(body) {
         '<div style="padding:0 16px 16px">' + rankedHtml + '</div>' +
       '</div>' +
       '<div class="ch-card" style="margin-bottom:16px">' +
-        '<div class="ch-card-hd"><span class="ch-card-title">Evidence Graph Context</span></div>' +
+        '<div class="ch-card-hd"><span class="ch-card-title">Live Evidence Graph Links</span></div>' +
         '<div style="padding:0 16px 16px">' + graphHtml + '</div>' +
       '</div>' +
       '<div class="ch-card" style="margin-bottom:16px">' +
@@ -1980,6 +1980,22 @@ async function renderEvidenceSearch(body) {
   }
 
   /* ── window handlers ─────────────────────────────────────────────────── */
+  window._reShowEvidenceDetail = async (paperId) => {
+    try {
+      const detail = await api.evidencePaperDetail(paperId);
+      // Render detail panel — implementation in parent/caller
+      window._reDetailData = detail;
+      if (window._reRenderSearchPanels) {
+        window._reRenderSearchPanels();
+      }
+    } catch (e) {
+      const code = e?.status;
+      let msg = e?.message || 'Unknown error';
+      if (code === 401) msg = 'Sign in as a clinician to view paper details.';
+      if (code === 404) msg = 'Paper not found.';
+      window._dsToast?.({ title: 'Detail fetch failed', body: msg, severity: 'error' });
+    }
+  };
   window._rePromoteEvidencePaper = async (paperId) => {
     try {
       await api.promoteEvidencePaper(paperId);
@@ -2523,7 +2539,7 @@ async function renderEvidenceSearch(body) {
     '</div>' +
     /* Unified evidence search */
     '<div class="ch-card" style="margin-bottom:16px">' +
-      '<div class="ch-card-hd"><span class="ch-card-title">Evidence Search</span>' +
+      '<div class="ch-card-hd"><span class="ch-card-title">Live Indexed Evidence Search</span>' +
         '<span class="lib-badge" style="background:rgba(59,130,246,0.12);color:var(--blue);border:1px solid rgba(59,130,246,0.25)">Corpus + brokered + curated</span>' +
       '</div>' +
       '<div style="padding:14px 16px 10px;font-size:12px;color:var(--text-secondary);line-height:1.55;border-bottom:1px solid var(--border)">' +
@@ -2798,7 +2814,7 @@ async function renderNeedsReview(body) {
   const totalVerify     = rows.filter(r => r.hasVerify).length;
   const gradeABHighPri  = rows.filter(r => r.isUnreviewed && ['A','B'].includes(String(r.p.evidenceGrade || '').toUpperCase())).length;
   const pendingPapers   = _litQueue.length;
-  const _totalEvPapers  = _liveEvidenceUiStats?.totalPapers || EVIDENCE_SUMMARY?.totalPapers || 87000;
+  const _totalEvPapers  = _liveEvidenceUiStats?.totalPapers || EVIDENCE_SUMMARY?.totalPapers || 0;
   const _totalProtocols = liveRows.length || _protosAll.length;
   const reviewCaption = liveRows.length
     ? 'Live protocol coverage and safety triage from the neuromodulation evidence bundle'
