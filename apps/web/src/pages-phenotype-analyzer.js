@@ -10,6 +10,10 @@ import { api } from './api.js';
 import { currentUser } from './auth.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
+import { drHero } from './helpers.js';
+
+const PHENOTYPE_CLINICAL_QUESTION = "What clinical phenotype labels has this patient received, and how confident are they?";
+const PHENOTYPE_HOW_TO_READ = "Phenotype hypothesis labels document clinician stratification thinking for team alignment. They are not diagnoses, eligibility decisions, protocol-selection picks, or autonomous treatment recommendations.";
 
 const CLINICAL_PHENOTYPE_ANALYZER_ROLES = new Set(['clinician', 'admin']);
 
@@ -627,7 +631,7 @@ function _renderPatientSelectOptions(patients, activeId) {
 }
 
 export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
-  try { setTopbar('Phenotype Analyzer', 'Clinician-reviewed hypothesis labels · multimodal context'); } catch {}
+  try { setTopbar('Phenotype Analyzer', PHENOTYPE_CLINICAL_QUESTION); } catch {}
 
   const el = document.getElementById('content');
   if (!el) return;
@@ -655,6 +659,7 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
   el.innerHTML = `
     <div class="ds-phenotype-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
       <div id="ph-demo-banner"></div>
+      ${drHero({ question: PHENOTYPE_CLINICAL_QUESTION, howToRead: PHENOTYPE_HOW_TO_READ, flagCount: 0 })}
       <div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(155,127,255,0.28);background:rgba(155,127,255,0.06);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
         <strong style="color:var(--text-primary)">Clinical decision-support — requires clinician review.</strong>
         Phenotype <em>hypothesis</em> labels document stratification thinking for team alignment. They are not diagnoses, eligibility decisions, protocol-selection picks, or autonomous treatment recommendations. Missing data does not imply clinical clearance.

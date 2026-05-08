@@ -5,6 +5,10 @@ import {
   ANALYZER_DEMO_VIEWS,
   DEMO_MODE_BANNER_HTML,
 } from './demo-fixtures-analyzers.js';
+import { drHero } from './helpers.js';
+
+const DP_CLINICAL_QUESTION = "What do this patient's daily-life signals (sleep, mobility, social, voice diary) suggest about their trajectory?";
+const DP_HOW_TO_READ = "Digital cues are exploratory — they reflect passive signals over a window of days/weeks and may be missing or stale. Combine with interview, assessments, and biometrics. Cues alone are not diagnostic.";
 
 function esc(s) {
   return String(s ?? '')
@@ -631,7 +635,7 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
   try {
     setTopbar({
       title: 'Digital Phenotyping Analyzer',
-      subtitle: 'Exploratory digital phenotype cues — clinician review required',
+      subtitle: DP_CLINICAL_QUESTION,
     });
   } catch {
     try { setTopbar('Digital Phenotyping Analyzer', 'Exploratory cues — clinician review'); } catch {}
@@ -676,6 +680,7 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
   el.innerHTML = `
     <div class="ds-dp-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
       <div id="dp-demo-banner"></div>
+      ${drHero({ question: DP_CLINICAL_QUESTION, howToRead: DP_HOW_TO_READ, flagCount: 0 })}
       <div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(155,127,255,0.28);background:rgba(155,127,255,0.06);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
         <strong style="color:var(--text-primary)">Exploratory decision-support.</strong>
         ${esc(GOVERNANCE_REQUIRED_COPY)}

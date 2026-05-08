@@ -16,6 +16,10 @@ import { api } from './api.js';
 import { isDemoSession } from './demo-session.js';
 import { currentUser } from './auth.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
+import { drHero } from './helpers.js';
+
+const RISK_CLINICAL_QUESTION = "What's this patient's risk profile right now — anything that needs action?";
+const RISK_HOW_TO_READ = "Risks are stratified into Low / Moderate / Elevated / High bands across safety, deterioration, adherence, and engagement. Bands reflect rule-based / model-assisted indices over chart data — clinician review is required before operational decisions.";
 
 const CLINICAL_RISK_ANALYZER_ROLES = new Set(['clinician', 'admin']);
 
@@ -507,7 +511,7 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
   try {
     setTopbar({
       title: 'Risk Analyzer',
-      subtitle: 'Clinician risk review • decision-support only',
+      subtitle: RISK_CLINICAL_QUESTION,
     });
   } catch {
     try { setTopbar('Risk Analyzer', 'Risk stratification'); } catch {}
@@ -550,6 +554,7 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
   el.innerHTML = `
     <div class="ds-risk-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
       <div id="ra-demo-banner"></div>
+      ${drHero({ question: RISK_CLINICAL_QUESTION, howToRead: RISK_HOW_TO_READ, flagCount: 0 })}
       <div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(155,127,255,0.28);background:rgba(155,127,255,0.06);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
         <strong style="color:var(--text-primary)">Clinical decision-support.</strong>
         Outputs are rule-based / model-assisted indices linked to chart data where available. They are not diagnoses, emergency determinations, prescriptions, or autonomous safeguarding actions. Clinician review is required before operational decisions.
