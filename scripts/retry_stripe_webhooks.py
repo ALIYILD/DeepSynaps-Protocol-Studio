@@ -34,6 +34,40 @@ logger = logging.getLogger("retry_stripe_webhooks")
 # ── env defaults for standalone execution ────────────────────────────────────
 os.environ.setdefault("DEEPSYNAPS_APP_ENV", "production")
 
+
+def _database_is_shareable_across_processes(url: str) -> bool:
+    """Mirror of `app.jobs._database_is_shareable_across_processes`.
+
+    On Fly, only the `app` process group has the `deepsynaps_data` volume
+    mounted at /data. The `stripe_worker` process group does NOT — its /data
+    is the empty Docker layer. When `DEEPSYNAPS_DATABASE_URL` is a SQLite path
+    under /data, this script opens a fresh empty DB on the worker and every
+    StripeWebhookLog query fails with `no such table: stripe_webhook_logs`.
+
+    This helper lets the script detect that scenario and exit cleanly with a
+    clear log message instead of crash-looping every 5 minutes (the parent
+    `while true; do … sleep 300; done` shell loop in fly.toml's
+    stripe_worker process makes the failure noisy without ever progressing).
+    """
+    if not url:
+        return False
+    return not url.lower().strip().startswith("sqlite")
+
+
+# ── SQLite-on-non-volume gate (sister fix to PR #574 for qeeg_worker) ────────
+_DB_URL = os.environ.get("DEEPSYNAPS_DATABASE_URL", "").strip()
+if not _database_is_shareable_across_processes(_DB_URL):
+    logger.warning(
+        "DEEPSYNAPS_DATABASE_URL is %r which is a SQLite path; the "
+        "stripe_worker process group does not have the production volume "
+        "mounted, so this script would query an empty database. Skipping "
+        "this retry tick. Point DEEPSYNAPS_DATABASE_URL at a network-"
+        "reachable database (e.g. Postgres) to enable cross-process "
+        "stripe webhook retries.",
+        _DB_URL or "<unset>",
+    )
+    sys.exit(0)
+
 from app.database import SessionLocal  # noqa: E402
 from app.persistence.models import StripeWebhookLog  # noqa: E402
 from app.routers.payments_router import _process_webhook_event, _compute_next_retry_at  # noqa: E402
