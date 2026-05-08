@@ -41,8 +41,13 @@ function _patientNav() {
     { id: 'pt-outcomes',         label: 'Progress',             icon: '📈', tone: 'green',  group: 'main' },
     { id: 'pt-digest',           label: 'My Digest',            icon: '📰', tone: 'teal',   group: 'main' },
     { id: 'patient-assessments', label: 'Assessments',          icon: '📋', tone: 'rose',   group: 'main' },
-    { id: 'patient-reports',     label: 'My Reports',           icon: '📄', tone: 'blue',   group: 'main' },
+    // patient-reports remains routable (legacy URL still works) but is
+    // hidden from the rendered nav so patients only see the new Health
+    // Reports surface. The legacy page renders an info banner pointing
+    // to the new route — see commit 6.
+    { id: 'patient-reports',     label: 'My Reports',           icon: '📄', tone: 'blue',   group: 'legacy' },
     { id: 'patient-brainmap',    label: 'My Brain Map',         icon: '🧠', tone: 'violet', group: 'main' },
+    { id: 'patient-health-reports', label: 'Health Reports',    icon: '🩺', tone: 'teal',   group: 'main' },
 
     // ── CONNECT ───────────────────────────────────────────────────────────────
     { section: 'Connect', sectionId: 'pt-connect', collapsed: false },
@@ -117,6 +122,12 @@ export function renderPatientNav(currentPage) {
       if (n.section) {
         currentSection = { entry: n, items: [] };
         sections.push(currentSection);
+      } else if (n.group === 'legacy') {
+        // legacy nav entries are routable but never appear in the rendered
+        // sidebar — added so that direct URLs to the legacy page keep
+        // working without surfacing the page to patients. See
+        // health-reports.js for the v2 surface that supersedes them.
+        return;
       } else if (n.group === 'optional') {
         optionalItems.push(n);
       } else if (n.group === 'bottom') {
