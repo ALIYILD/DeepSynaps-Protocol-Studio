@@ -6229,6 +6229,24 @@ export const api = {
         body: JSON.stringify(data || {}),
       },
     ),
+
+  // ── Clinical Agent Brain ──────────────────────────────────────────────────
+  // Scout-inspired context layer. AI surfaces use these calls to introspect
+  // which providers are wired and to fetch grounded, role-gated, auditable
+  // context BEFORE producing any clinical recommendation. See
+  // docs/architecture/deepsynaps-clinical-agent-brain.md.
+  getAgentBrainStatus: () => apiFetch('/api/v1/agent-brain/status'),
+  getAgentBrainProviders: () => apiFetch('/api/v1/agent-brain/providers'),
+  queryAgentBrain: (body) =>
+    apiFetch('/api/v1/agent-brain/query', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  writeAgentBrainMemory: (body) =>
+    apiFetch('/api/v1/agent-brain/memory', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).
