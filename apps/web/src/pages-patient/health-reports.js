@@ -100,19 +100,22 @@ function _ctxFor(docs, opts = {}) {
   };
 }
 
+/** Standard "paused while consent is withdrawn" banner. */
+function _consentPausedBanner() {
+  return `
+    <div class="pt-consent-banner" role="status" aria-live="polite"
+         style="padding:10px 14px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:12.5px;color:#991b1b">
+      <strong>Read-only:</strong> Paused while consent is withdrawn.
+    </div>`;
+}
+
 /**
  * Render the Outcomes & Assessments tab body. Filter: outcome /
  * assessment / session-summary docs whose origin is `ai` or `clinic`
  * (per the eng-review filter spec).
  */
 function _outcomesPanel(docs, ctx, consentActive) {
-  if (!consentActive) {
-    return `
-      <div class="pt-consent-banner" role="status" aria-live="polite"
-           style="padding:10px 14px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:12.5px;color:#991b1b">
-        <strong>Read-only:</strong> Paused while consent is withdrawn.
-      </div>`;
-  }
+  if (!consentActive) return _consentPausedBanner();
   const items = (docs || []).filter(d =>
     (d.category === 'outcome' || d.category === 'assessment' || d.category === 'session-summary')
     && (d.origin === 'ai' || d.origin === 'clinic')
@@ -121,6 +124,79 @@ function _outcomesPanel(docs, ctx, consentActive) {
     return _emptyTile(t('patient.reports.empty.body'));
   }
   return `<div class="pt-hr-tab-body">${items.map(d => docCardHTML(d, ctx)).join('')}</div>`;
+}
+
+/**
+ * Render the Documents tab body. Filter: category in
+ * {consent, care, guide, letter, adverse} per the eng-review spec.
+ */
+function _documentsPanel(docs, ctx) {
+  const items = (docs || []).filter(d =>
+    d.category === 'consent' || d.category === 'care' || d.category === 'guide'
+    || d.category === 'letter' || d.category === 'adverse'
+  );
+  if (!items.length) {
+    return _emptyTile(t('patient.health_reports.empty.documents'));
+  }
+  return `<div class="pt-hr-tab-body">${items.map(d => docCardHTML(d, ctx)).join('')}</div>`;
+}
+
+/**
+ * Render the wearable summary card from the bundle's wearableSummary
+ * (already returned by `api.patientPortalWearableSummary(30)`). Aggregates
+ * 30 daily rows into a single readable summary; the per-week snapshots
+ * are surfaced as Biometrics doc cards just below.
+ */
+function _wearableSummaryCard(rows) {
+  if (!Array.isArray(rows) || !rows.length) return '';
+  const fmt = (n, d = 0) => (n == null || !Number.isFinite(Number(n))) ? null : Number(n).toFixed(d);
+  const avg = (vals) => {
+    const xs = vals.filter(v => v != null && Number.isFinite(Number(v))).map(Number);
+    return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+  };
+  const avgSleep   = avg(rows.map(r => r.sleep_duration_h));
+  const avgRHR     = avg(rows.map(r => r.rhr_bpm));
+  const avgHRV     = avg(rows.map(r => r.hrv_ms));
+  const totalSteps = rows.reduce((acc, r) => acc + (Number(r.steps) || 0), 0);
+  const stats = [];
+  if (avgSleep != null) stats.push({ label: 'Sleep avg',   value: `${fmt(avgSleep, 1)} h` });
+  if (avgRHR   != null) stats.push({ label: 'Resting HR',  value: `${fmt(avgRHR, 0)} bpm` });
+  if (avgHRV   != null) stats.push({ label: 'HRV',         value: `${fmt(avgHRV, 0)} ms` });
+  if (totalSteps > 0)   stats.push({ label: 'Total steps', value: totalSteps.toLocaleString() });
+  if (!stats.length) return '';
+  return `
+    <div class="pt-hr-bio-summary"
+         style="padding:14px 16px;border-radius:12px;border:1px solid rgba(244,114,182,0.2);background:rgba(244,114,182,0.06);margin-bottom:12px">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#f472b6;margin-bottom:6px">
+        Last 30 days · wearables
+      </div>
+      <div style="display:flex;gap:18px;flex-wrap:wrap">
+        ${stats.map(s => `
+          <div>
+            <div style="font-size:11px;color:var(--text-tertiary,#94a3b8);text-transform:uppercase;letter-spacing:.06em">${esc(s.label)}</div>
+            <div style="font-size:18px;font-weight:600;color:var(--text-primary)">${esc(s.value)}</div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+}
+
+/**
+ * Render the Biometrics & Wearables tab body. Wearable summary card on
+ * top; weekly biometric snapshot doc cards just below (these are the
+ * `category === 'biometrics'` docs synthesised by `_normalizeDocs`).
+ */
+function _biometricsPanel(docs, ctx, wearableSummary, consentActive) {
+  if (!consentActive) return _consentPausedBanner();
+  const summaryCard = _wearableSummaryCard(wearableSummary);
+  const items = (docs || []).filter(d => d.category === 'biometrics');
+  if (!summaryCard && !items.length) {
+    return _emptyTile('Connect Apple Health, Oura, Fitbit, or Garmin in Settings → Integrations to see weekly biometric snapshots here.');
+  }
+  return `
+    <div class="pt-hr-tab-body">
+      ${summaryCard}
+      ${items.map(d => docCardHTML(d, ctx)).join('')}
+    </div>`;
 }
 
 /**
@@ -186,8 +262,8 @@ export async function pgPatientHealthReports() {
   const panels = [
     _panel('outcomes',   _outcomesPanel(docs, ctx, _consentActive), true),
     _panel('analyzers',  _emptyTile(t('patient.health_reports.empty.analyzers'))),
-    _panel('biometrics', _emptyTile(t('patient.health_reports.tab.biometrics') + ' — ' + t('patient.health_reports.coming_soon'))),
-    _panel('documents',  _emptyTile(t('patient.health_reports.empty.documents'))),
+    _panel('biometrics', _biometricsPanel(docs, ctx, bundle.wearableSummary, _consentActive)),
+    _panel('documents',  _documentsPanel(docs, ctx)),
   ].join('');
 
   el.innerHTML = `
