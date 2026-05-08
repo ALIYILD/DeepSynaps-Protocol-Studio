@@ -68,7 +68,7 @@ function reportOnboardingEvent(step, payload) {
   try {
     const _fetch = (typeof fetch !== 'undefined') ? fetch : (globalThis && globalThis.fetch);
     if (typeof _fetch !== 'function') return Promise.resolve();
-    return _fetch(`${_agentOnbApiBase()}/api/v1/onboarding/events`, {
+    return _fetch(`${API_BASE}/api/v1/onboarding/events`, {
       method: 'POST',
       headers: _agentOnbHeaders(),
       credentials: 'include',
@@ -85,7 +85,7 @@ async function _agentOnbFetchCatalog() {
   _agentOnb.agentsLoading = true;
   _agentOnb.agentsError = null;
   try {
-    const res = await fetch(`${_agentOnbApiBase()}/api/v1/agents/`, {
+    const res = await fetch(`${API_BASE}/api/v1/agents/`, {
       method: 'GET',
       headers: _agentOnbHeaders(),
       credentials: 'include',
@@ -131,7 +131,7 @@ async function _agentOnbStartCheckout() {
     cancel_url: cancelUrl,
   };
   try {
-    const res = await fetch(`${_agentOnbApiBase()}/api/v1/agent-billing/checkout/${encodeURIComponent(target.id)}`, {
+    const res = await fetch(`${API_BASE}/api/v1/agent-billing/checkout/${encodeURIComponent(target.id)}`, {
       method: 'POST',
       headers: _agentOnbHeaders(),
       credentials: 'include',
@@ -165,7 +165,7 @@ async function _agentOnbSendInvites() {
   let okCount = 0, failCount = 0, fellBack = false;
   for (const email of emails) {
     try {
-      const res = await fetch(`${_agentOnbApiBase()}/api/v1/team/invite`, {
+      const res = await fetch(`${API_BASE}/api/v1/team/invite`, {
         method: 'POST',
         headers: _agentOnbHeaders(),
         credentials: 'include',
