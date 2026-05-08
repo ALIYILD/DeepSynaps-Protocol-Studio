@@ -7,18 +7,28 @@ CI instead of in a clinician's browser.
 from __future__ import annotations
 
 import importlib.util
-import os
 import sys
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
-
-# Demo DB seed is gated — tests opt in explicitly (matches ops preview docs).
-os.environ.setdefault("DEEPSYNAPS_APP_ENV", "test")
-os.environ.setdefault("DEEPSYNAPS_DEMO_CLINIC_SEED", "1")
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
+
+
+@pytest.fixture(autouse=True)
+def _enable_demo_seed_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Demo DB seed is gated by env vars — opt in for this file only.
+
+    Setting these via ``monkeypatch`` instead of mutating ``os.environ`` at
+    module-import time prevents the gate flag from leaking into the rest of
+    the pytest session, which would cause the FastAPI lifespan in unrelated
+    tests to seed demo patients/courses and pollute "clean DB" assertions.
+    See ``apps/api/app/main.py`` lifespan + ``demo_seed_enabled()``.
+    """
+    monkeypatch.setenv("DEEPSYNAPS_APP_ENV", "test")
+    monkeypatch.setenv("DEEPSYNAPS_DEMO_CLINIC_SEED", "1")
 
 
 def _load_seed_module():
