@@ -42,7 +42,6 @@ from app.errors import ApiServiceError
 from app.persistence.models import AgentSkill
 from app.services.curated_clinical_skills_layer import (
     CuratedLayerUseCase,
-    get_curated_clinical_layer_use_case,
     list_curated_clinical_layer_use_cases,
 )
 

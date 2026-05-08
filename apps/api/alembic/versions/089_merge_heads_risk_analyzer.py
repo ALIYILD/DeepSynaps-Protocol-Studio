@@ -6,8 +6,6 @@ Create Date: 2026-05-02 18:30:00.000000
 
 """
 from typing import Sequence, Union
-from alembic import op
-import sqlalchemy as sa
 
 
 revision: str = "089_merge_heads_risk_analyzer"

@@ -89,7 +89,6 @@ import csv
 import io
 import json
 import logging
-import re
 import uuid
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone

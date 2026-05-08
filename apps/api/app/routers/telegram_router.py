@@ -5,8 +5,12 @@ from __future__ import annotations
 
 import hmac
 import logging
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+
+if TYPE_CHECKING:
+    from collections import OrderedDict
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 

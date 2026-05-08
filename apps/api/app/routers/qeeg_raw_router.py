@@ -19,7 +19,6 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from datetime import datetime, timezone
 
 from app.auth import (
     AuthenticatedActor,

@@ -10,7 +10,6 @@ Covers the five contract points from the task brief:
 """
 from __future__ import annotations
 
-import sys
 from typing import Any
 
 import pytest

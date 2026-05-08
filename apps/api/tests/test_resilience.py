@@ -1,6 +1,5 @@
 """Tests for the resilience retry helper."""
 
-import asyncio
 from unittest.mock import MagicMock
 
 import pytest

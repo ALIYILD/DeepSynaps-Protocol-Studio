@@ -445,7 +445,7 @@ def build_treatment_sessions_analyzer_payload(
             "confidence": 0.6 if mri_rows else 0.25,
             "data_quality": "good" if mri_rows else "missing",
             "linked_artifact_ids": linked["mri"][:3],
-            "linked_analyzer_route": f"/?page=mri-analysis",
+            "linked_analyzer_route": "/?page=mri-analysis",
             "impacted_predictions": ["response_probability", "target_hypothesis"],
             "caveats": ["Acquisition and test-retest reliability vary by metric."],
         },

@@ -11,7 +11,6 @@ Tests cover the specific issues fixed in the audit remediation PR:
 """
 from __future__ import annotations
 
-import importlib
 import os
 import sys
 from pathlib import Path

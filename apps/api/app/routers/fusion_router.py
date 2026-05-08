@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
@@ -22,7 +21,7 @@ from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimu
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.limiter import limiter
-from app.persistence.models import FusionCase, FusionCaseAudit, FusionCaseFinding
+from app.persistence.models import FusionCase, FusionCaseAudit
 from app.repositories.patients import resolve_patient_clinic_id
 from app.services.fusion_service import build_fusion_recommendation
 from app.services.fusion_workbench_service import (

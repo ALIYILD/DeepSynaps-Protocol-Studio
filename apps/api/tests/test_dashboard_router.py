@@ -112,7 +112,6 @@ def test_dashboard_search_returns_route_compatible_url_paths(client, auth_header
     assert any("patient-profile" in (p.get("url_path") or "") for p in pats)
 
 """Tests for the dashboard router."""
-import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 

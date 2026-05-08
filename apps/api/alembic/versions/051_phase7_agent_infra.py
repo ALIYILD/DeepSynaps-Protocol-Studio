@@ -38,7 +38,6 @@ Create Date: 2026-04-28
 """
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timezone
 
 import sqlalchemy as sa

@@ -55,7 +55,7 @@ from app.auth import (
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import AuditEventRecord
-from app.registries.audit import AUDIT_DISCLAIMERS, AUDIT_EVENTS
+from app.registries.audit import AUDIT_EVENTS
 from app.repositories.audit import seed_audit_events
 
 

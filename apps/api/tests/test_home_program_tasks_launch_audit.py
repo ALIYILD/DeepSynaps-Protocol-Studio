@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import json
 import uuid as _uuid
-from datetime import date as _date, datetime as _dt, timedelta as _td, timezone as _tz
+from datetime import datetime as _dt, timedelta as _td, timezone as _tz
 
 import pytest
 from fastapi.testclient import TestClient

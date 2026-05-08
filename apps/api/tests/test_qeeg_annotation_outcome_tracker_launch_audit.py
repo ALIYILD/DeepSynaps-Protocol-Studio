@@ -47,10 +47,6 @@ from app.persistence.models import (
     User,
 )
 from app.services.qeeg_annotation_outcome_pairing import (
-    OUTCOME_RESOLVED_LATE,
-    OUTCOME_RESOLVED_WITHIN_SLA,
-    OUTCOME_STILL_OPEN_GRACE,
-    OUTCOME_STILL_OPEN_OVERDUE,
     SURFACE,
 )
 

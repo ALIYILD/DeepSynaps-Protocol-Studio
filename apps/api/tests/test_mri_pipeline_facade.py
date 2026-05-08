@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import importlib
 
-import pytest
 
 
 def test_facade_importable_without_pipeline() -> None:

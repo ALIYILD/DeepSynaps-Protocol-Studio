@@ -47,11 +47,7 @@ from app.workers.caregiver_delivery_concern_aggregator_worker import (
     FLAG_ACTION,
     PORTAL_SURFACE,
     WORKER_SURFACE,
-    env_cooldown_hours,
     env_enabled,
-    env_interval_sec,
-    env_threshold,
-    env_window_hours,
     get_worker,
 )
 

@@ -56,7 +56,6 @@ from app.services.irb_amendment_reviewer_workload import (
 from app.workers.irb_reviewer_sla_worker import (
     BREACH_TARGET_TYPE,
     WORKER_SURFACE,
-    env_enabled,
     get_worker,
 )
 

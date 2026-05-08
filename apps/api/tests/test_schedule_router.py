@@ -1,5 +1,4 @@
 """Tests for the schedule router (rooms, devices, conflicts)."""
-import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 

@@ -21,7 +21,7 @@ import uuid
 import hashlib
 from datetime import datetime, timezone
 from pathlib import Path as FsPath
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, Form, Path as PathParam, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
