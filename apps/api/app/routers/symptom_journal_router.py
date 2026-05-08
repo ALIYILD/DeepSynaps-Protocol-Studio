@@ -67,7 +67,6 @@ from sqlalchemy.orm import Session
 from app.auth import (
     AuthenticatedActor,
     get_authenticated_actor,
-    require_minimum_role,
 )
 from app.database import get_db_session
 from app.errors import ApiServiceError

@@ -57,6 +57,111 @@ export function registrySelect(id, label, options, selected = '') {
   </div>`;
 }
 
+// ── Doctor-friendly UX primitives ─────────────────────────────────────────────
+//
+// These helpers turn analyzer pages from input-first ("upload audio, here are
+// some 0..1 numbers") into clinical-question-first ("here is what this patient
+// looks like, ranked by severity"). They follow three rules:
+//
+//   1. The page hero leads with the question a clinician is actually asking.
+//   2. Numeric model outputs are wrapped with a severity band ONLY when the
+//      banding is calibration-aware (percentile vs reference distribution) or
+//      explicitly provided by the caller — never auto-classified from a raw
+//      score, because model-specific thresholds are a clinical-safety
+//      concern.
+//   3. Every band carries a tooltip explaining what it means.
+//
+// Designed for analyzer pages (Voice, Risk, Phenotype, etc.) and additive —
+// safe to drop alongside existing rendering without removing the raw values
+// underneath.
+
+/**
+ * Render a numeric clinical score as a coloured severity-band pill with a
+ * monospace numeric chip beside it.
+ *
+ *   clinicalBand(78, { kind: 'percentile', helpText: 'Cognitive speech score …' })
+ *   clinicalBand(0.74, { kind: 'score', band: 'elevated', scaleLabel: '0–1', confidence: 0.82 })
+ *
+ * - When `kind === 'percentile'` and no explicit band is passed, the band is
+ *   auto-classified using the standard low / moderate / elevated / high
+ *   percentile cutoffs (50 / 80 / 95). Percentiles are calibration-aware by
+ *   definition, so this is safe.
+ * - When `kind === 'score'`, the caller MUST pass `band` for the pill to
+ *   show severity colours; otherwise a neutral numeric chip is rendered with
+ *   the optional scale label. This avoids inventing thresholds on raw model
+ *   output where the cutoff depends on the specific model.
+ * - `confidence`, when supplied, is appended to the tooltip.
+ */
+export function clinicalBand(value, opts = {}) {
+  const { kind = 'score', band = null, scaleLabel = '', confidence = null, helpText = '' } = opts;
+  if (value == null || Number.isNaN(Number(value))) {
+    return `<span style="font-size:11px;color:var(--text-tertiary)">—</span>`;
+  }
+
+  let resolvedBand = band;
+  if (!resolvedBand && kind === 'percentile') {
+    const p = Number(value);
+    if (p >= 95) resolvedBand = 'high';
+    else if (p >= 80) resolvedBand = 'elevated';
+    else if (p >= 50) resolvedBand = 'moderate';
+    else resolvedBand = 'low';
+  }
+
+  const palette = {
+    low:      { bg: 'rgba(74,222,128,0.10)',  color: 'var(--green)', label: 'Low',      tipText: 'Within typical range' },
+    moderate: { bg: 'rgba(74,158,255,0.10)',  color: 'var(--blue)',  label: 'Moderate', tipText: 'Within range to watch — re-check if a trend appears' },
+    elevated: { bg: 'rgba(255,181,71,0.10)',  color: 'var(--amber)', label: 'Elevated', tipText: 'Above typical range — clinical correlation suggested' },
+    high:     { bg: 'rgba(255,107,107,0.12)', color: 'var(--red)',   label: 'High',     tipText: 'Notably above range — review against examination' },
+  };
+  const s = resolvedBand ? palette[resolvedBand] : null;
+  const numStr = typeof value === 'number' ? Number(value).toFixed(2) : String(value);
+  const tip = (helpText || (s ? s.tipText : 'Numeric score'))
+    + (kind === 'percentile' ? ' (percentile vs reference distribution)' : '')
+    + (confidence != null ? ` · model confidence ${Number(confidence).toFixed(2)}` : '');
+
+  if (s) {
+    return `<span title="${tip}" style="cursor:help;display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:6px;background:${s.bg};color:${s.color};border:1px solid ${s.color}33">
+      <span>${s.label}</span>
+      <span style="opacity:.7;font-family:var(--font-mono)">${numStr}${kind === 'percentile' ? 'p' : ''}</span>
+    </span>`;
+  }
+  return `<span title="${tip}" style="cursor:help;display:inline-block;font-size:11px;font-weight:600;padding:3px 9px;border-radius:6px;background:rgba(255,255,255,0.06);color:var(--text-secondary);border:1px solid rgba(255,255,255,0.1);font-family:var(--font-mono)">
+    ${scaleLabel ? `<span style="font-weight:500;margin-right:4px;color:var(--text-tertiary)">${scaleLabel}</span>` : ''}${numStr}
+  </span>`;
+}
+
+/**
+ * Doctor-facing page hero that leads with the clinical question the page
+ * answers, plus an alert chip that surfaces flagged signals at the very
+ * top — before any input UI. When `flagCount === 0` the hero shows a calm
+ * "no active flags" state, so the page never silently looks empty.
+ *
+ *   drHero({
+ *     question: "Has this patient's voice changed in ways that suggest mood, cognition, or motor concerns?",
+ *     howToRead: "Findings render as Low / Moderate / Elevated / High …",
+ *     flagCount: 2,
+ *     flagSummary: 'PD voice screening elevated · cognitive speech moderate'
+ *   })
+ */
+export function drHero(opts = {}) {
+  const { question = '', howToRead = '', flagCount = 0, flagSummary = '' } = opts;
+  const hasFlags = Number(flagCount) > 0;
+  const chip = hasFlags
+    ? `<div role="status" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;padding:4px 10px;border-radius:999px;background:rgba(255,107,107,.10);color:var(--red);border:1px solid rgba(255,107,107,.28);margin-bottom:10px">
+        <span>⚠ ${flagCount} flag${flagCount > 1 ? 's' : ''} for review</span>
+        ${flagSummary ? `<span style="opacity:.85;font-weight:500">· ${flagSummary}</span>` : ''}
+      </div>`
+    : `<div role="status" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:500;padding:4px 10px;border-radius:999px;background:rgba(74,222,128,.08);color:var(--green);border:1px solid rgba(74,222,128,.22);margin-bottom:10px">
+        <span>✓ No active flags for this patient</span>
+      </div>`;
+
+  return `<section class="dr-hero" style="margin-bottom:18px;padding:16px 20px;border-radius:14px;border:1px solid var(--border);background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,0))" aria-labelledby="dr-hero-q">
+    ${chip}
+    ${question ? `<h2 id="dr-hero-q" style="margin:0 0 6px;font-size:15px;font-weight:600;line-height:1.4">${question}</h2>` : ''}
+    ${howToRead ? `<p style="margin:0;font-size:12px;color:var(--text-secondary);line-height:1.5">${howToRead}</p>` : ''}
+  </section>`;
+}
+
 // Governance flag row
 export function govFlag(text, severity = 'warn') {
   const col = severity === 'error' ? 'var(--red)' : 'var(--amber)';

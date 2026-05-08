@@ -55,7 +55,6 @@ from app.services.resolution_outcome_pairing import (
     OUTCOME_PENDING,
     OUTCOME_REFLAGGED,
     OUTCOME_STAYED,
-    OutcomeRecord,
     compute_resolver_calibration,
     median_days_to_re_flag,
     pair_resolutions_with_outcomes,

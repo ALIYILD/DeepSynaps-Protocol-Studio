@@ -55,7 +55,6 @@ from app.persistence.models import (
     AuditEventRecord,
     IRBProtocol,
     IRBProtocolAmendment,
-    User,
 )
 from app.services.irb_amendment_diff import (
     TRACKED_FIELDS,
@@ -63,7 +62,6 @@ from app.services.irb_amendment_diff import (
 )
 from app.services.irb_amendment_workflow import (
     ALL_STATUSES,
-    DECISIONS,
     STATUS_DRAFT,
     SURFACE,
     assign_reviewer as _svc_assign,
@@ -74,7 +72,6 @@ from app.services.irb_amendment_workflow import (
     submit_amendment as _svc_submit,
     _emit_audit,
     _load_amendment,
-    _now,
 )
 from app.services.irb_reg_binder_export import (
     build_reg_binder,

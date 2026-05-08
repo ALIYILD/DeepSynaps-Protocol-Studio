@@ -1,0 +1,51 @@
+source_type,source_id,arm_label,modality,target_anatomy,frequency_hz,frequency_hz_max,pulse_width_us,amplitude_mA,amplitude_V,motor_threshold_pct,pulses_per_session,session_duration_min,sessions_per_week,total_sessions,total_pulses,confidence
+ctgov,NCT00396552,refractory transcranial magnetic stimulation (rTMS),rTMS,,20.0,,,,,,,25.0,,,,medium
+ctgov,NCT00625300,Repetitive transcranial stimulation,rTMS,,,,,,,,,20.0,,3,,medium
+ctgov,NCT00814697,Repetitive Transcranial Magnetic Coil Stimulation (rTMS),rTMS,,10.0,,,,,,1000,,,,,medium
+ctgov,NCT00876720,rTMS - Intervention 2,rTMS,DLPFC,1.0,,,,,110.0,,,,,,medium
+ctgov,NCT00876720,rTMS - Intervention 1,rTMS,DLPFC,20.0,,,,,110.0,,,,,,medium
+ctgov,NCT01261949,Temporal low frequency rTMS,rTMS,,1.0,,,,,110.0,,,,,,medium
+ctgov,NCT01261949,Combined frontal and temporal rTMS,rTMS,DLPFC,1.0,,,,,110.0,,,,,,medium
+ctgov,NCT01367782,repetitive transcranial stimulation (r-TMS),dTMS,,1.0,,,,,,,15.0,,,,medium
+ctgov,NCT01500564,anodal tDCS (device) Eldith DC-Stimulator,tDCS,,,,,1.0,,,,20.0,,10,,medium
+ctgov,NCT01575002,Transcranial Direct Current Stimulation (tDCS),tDCS,,,,,,,,,20.0,,2,,medium
+ctgov,NCT01583023,Active Repetitive Transcranial Magnetic Stimulation,rTMS,DLPFC,10.0,,,,,110.0,,,,,,medium
+ctgov,NCT01663324,rTMS intervention 2,rTMS,DLPFC,20.0,,,,,110.0,,,,,,medium
+ctgov,NCT01757821,real 1-Hz rTMS only,rTMS,,1.0,,,,,,,20.0,,,,medium
+ctgov,NCT01757821,Sham 6-Hz Primed low-frequency rTMS,rTMS,,1.0,,,,,,,10.0,,,,medium
+ctgov,NCT01757821,real 6-Hz primed low-frequency rTMS,rTMS,,6.0,,,,,,,10.0,,,,medium
+ctgov,NCT01778790,Deep Brain Stimulation with Activa PC Multi-program Neurostimulator,DBS,,130.0,,90.0,,4.0,,,,,,,medium
+ctgov,NCT01795079,Transcranial direct current stimulation (tDCS),tDCS,,,,,,,,,20.0,,15,,medium
+ctgov,NCT01907022,Left DLPFC Butterfly Coil,rTMS,DLPFC,20.0,,,,,110.0,,,,,,medium
+ctgov,NCT01980433,Repetitive Transcranial Magnetic Stimulation (rTMS),rTMS,,1.0,,,,,,,20.0,,,,medium
+ctgov,NCT01994395,The Stride Management Assist (SMA) System,,,,,,,,,,30.0,,18,,medium
+ctgov,NCT02062619,Sham tDCS,tDCS,,,,,,,,,20.0,,3,,medium
+ctgov,NCT02078479,"20 Hz, 10 s, 10 trains with inter-train interval 30 s 2000 pulses , intensity 80% over hand area daily for 10 consecutive days (5 days/week).",,,20.0,,,,,,2000,,,,,medium
+ctgov,NCT02125799,Accelerated HF-rTMS (Magstim Rapid 2 stimulator),rTMS,,10.0,,,,,,6000,,,,,medium
+ctgov,NCT02131129,Sham Comparator,,DLPFC,20.0,,,,,,20,,,,,medium
+ctgov,NCT02131129,rTMS,rTMS,DLPFC,20.0,,,,,,20,,,,,medium
+ctgov,NCT02552524,rTMS placebo then rTMS active,rTMS,,10.0,,,,,,,20.0,,,,medium
+ctgov,NCT02552524,rTMS active then rTMS placebo,rTMS,,10.0,,,,,,,20.0,,,,medium
+ctgov,NCT02562703,Transcutaneous Vagus Nerve Stimulation,,Vagus Nerve,120.0,,250.0,,,,,,,,,medium
+ctgov,NCT02935413,tDCS,tDCS,,,,,2.0,,,,20.0,,10,,medium
+ctgov,NCT02986438,Repetitive Transcranial Magnetic Stimulation,rTMS,,5.0,,,,,,,,,2,,medium
+ctgov,NCT03121066,Active Transcranial Magnetic Stimulation,rTMS,,,,,,,,600,3.0,,,,medium
+ctgov,NCT03154307,Low frequency repeated TMS (LF-rTMS),rTMS,,1.0,,,,,,,14.0,,,,medium
+ctgov,NCT03159351,active rTMS treatment,rTMS,DLPFC,10.0,,,,,110.0,,,,,,medium
+ctgov,NCT03185234,sham tDCS,tDCS,,,,,,,,,10.0,,5,,medium
+ctgov,NCT03185234,anodal tDCS,tDCS,,,,,2.0,,,,10.0,,5,,medium
+ctgov,NCT03189810,Sham Repetitive Transcranial Magnetic Stimulation (rTMS),rTMS,,20.0,,,,,,30,,,,,medium
+ctgov,NCT03189810,Repetitive Transcranial Magnetic Stimulation (rTMS),rTMS,,20.0,,,,,,30,,,,,medium
+ctgov,NCT03256305,Traditional rTMS +drug treatment,rTMS,DLPFC,10.0,,,,,90.0,,,,,,medium
+ctgov,NCT03256305,"""personalized"" rTMS+drug treatment",rTMS,,10.0,,,,,90.0,,,,,,medium
+ctgov,NCT03257397,theta-burst stimulation (TBS) using a MagPro X1000,rTMS,dorsolateral prefrontal,50.0,,,,,,,60.0,,,,medium
+ctgov,NCT03347084,Inhibition,DBS,,10.0,,,,,,,20.0,,,,medium
+ctgov,NCT03347084,Excitation,DBS,,10.0,,,,,,,20.0,,,,medium
+ctgov,NCT03404609,MagPro X100 by MagVenture,,,30.0,,,,,,1800,,,,,medium
+ctgov,NCT03425045,Repetitive Transcranial Magnetic Stimulation,rTMS,dorsolateral prefrontal,25.0,,,,,,300,,,,,medium
+ctgov,NCT03441334,High Frequency rTMS,rTMS,,,,,,,,,45.0,,24,,medium
+ctgov,NCT03472638,Dorsomedial prefrontal rTMS,rTMS,,20.0,,,,,,1500,,,,,medium
+ctgov,NCT03653169,Transcranial Magnetic Stimulation,rTMS,,10.0,,,,,,,,,10,,medium
+ctgov,NCT03768947,Heat therapy via hot water immersion,,,,,,,,,,45.0,,15,,medium
+ctgov,NCT03769675,High Frequency Spinal Cord Stimulator,SCS,,10000.0,,30.0,,,,,,,,,medium
+ctgov,NCT03892746,Sham tDCS + task oriented practice,tDCS,,,,,0.0,,,,30.0,,15,,medium

@@ -35,7 +35,6 @@ from app.schemas.protocol_studio import (
     EvidenceSearchResponse,
     EvidenceSearchResult,
     FallbackMode,
-    GenerateMode,
     PatientContextResponse,
     ProtocolCatalogItem,
     ProtocolCatalogResponse,

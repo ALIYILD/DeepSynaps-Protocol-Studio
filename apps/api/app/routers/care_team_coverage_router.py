@@ -82,7 +82,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Path, Query
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import or_, select
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.auth import (

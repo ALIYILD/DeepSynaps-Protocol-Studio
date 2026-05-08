@@ -13,7 +13,6 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-import pytest
 
 from app.persistence.models import AdverseEvent, QEEGAnalysis
 from app.services.qeeg_safety_engine import (

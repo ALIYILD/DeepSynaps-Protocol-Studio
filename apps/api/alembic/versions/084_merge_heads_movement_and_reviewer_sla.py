@@ -6,8 +6,6 @@ Create Date: 2026-05-02 14:35:00.000000
 
 """
 from typing import Sequence, Union
-from alembic import op
-import sqlalchemy as sa
 
 
 revision: str = "084_merge_heads_movement_and_reviewer_sla"

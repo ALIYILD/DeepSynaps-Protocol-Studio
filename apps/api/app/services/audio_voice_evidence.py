@@ -9,7 +9,7 @@ This is not medical advice or a substitute for clinical judgment.
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy.orm import Session
 

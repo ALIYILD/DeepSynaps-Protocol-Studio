@@ -17,7 +17,6 @@ from ..persistence.models import (
     PasswordResetToken,
     Patient,
     PatientInvite,
-    User,
     User2FASecret,
     UserSession,
 )

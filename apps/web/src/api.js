@@ -4235,6 +4235,8 @@ export const api = {
     apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/ica-components`),
   getQEEGICATimecourse: (analysisId, idx) =>
     apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/ica-timecourse/${idx}`),
+  getQEEGCopilotAssistBundle: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/copilot_assist_bundle`),
   saveQEEGCleaningConfig: (analysisId, config) =>
     apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/cleaning-config`, { method: 'POST', body: JSON.stringify(config) }),
   getQEEGCleaningConfig: (analysisId) =>

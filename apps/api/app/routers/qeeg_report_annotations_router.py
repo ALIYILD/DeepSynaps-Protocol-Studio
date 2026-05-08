@@ -56,12 +56,8 @@ from app.auth import (
     require_minimum_role,
 )
 from app.database import get_db_session
-from app.errors import ApiServiceError
 from app.services.qeeg_report_annotations import (
-    ANNOTATION_KINDS,
     BODY_MAX_LEN,
-    BODY_MIN_LEN,
-    FLAG_TYPES,
     REPORT_ID_MAX_LEN,
     SECTION_PATH_MAX_LEN,
     SURFACE,

@@ -49,8 +49,8 @@ import logging
 import statistics
 import uuid
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
-from typing import Iterable, Optional
+from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, Field

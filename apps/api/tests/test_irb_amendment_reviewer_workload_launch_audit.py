@@ -32,7 +32,6 @@ Tests cover:
 """
 from __future__ import annotations
 
-import os
 import uuid as _uuid
 from datetime import datetime as _dt, timedelta as _td, timezone as _tz
 from typing import Optional
@@ -53,7 +52,6 @@ from app.workers.irb_reviewer_sla_worker import (
     WORKER_SURFACE,
     _reset_for_tests,
     env_enabled,
-    get_worker,
 )
 
 

@@ -1,13 +1,11 @@
 """Tests for Stripe webhook outbox + retry queue (audit gap §6.A)."""
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
 
 from app.database import get_db_session
 from app.main import app

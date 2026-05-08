@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 
-import pytest
 
 
 def _rebuild(monkeypatch, *, redis_uri: str = "", app_env: str = "test"):

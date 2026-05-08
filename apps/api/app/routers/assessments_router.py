@@ -22,7 +22,6 @@ from deepsynaps_core_schema import (
     AssessmentUpdate,
     BulkAssignRequest,
     BulkAssignResponse,
-    BulkAssignmentItem,
     CsvExportResponseV2,
     LicensingInfo,
     ScaleCatalogEntry,

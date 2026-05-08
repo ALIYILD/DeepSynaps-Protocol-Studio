@@ -322,7 +322,7 @@ def test_compute_protocol_fit_returns_structured_result():
 
 def test_build_timeline_returns_sorted_events():
     from app.services.qeeg_timeline import build_timeline
-    from app.persistence.models import QEEGAnalysis, OutcomeSeries, OutcomeEvent, WearableDailySummary
+    from app.persistence.models import QEEGAnalysis
 
     analyses = [
         FakeAnalysis(

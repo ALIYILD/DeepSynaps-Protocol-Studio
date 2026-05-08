@@ -31,11 +31,8 @@ from __future__ import annotations
 
 import os
 import uuid as _uuid
-from datetime import datetime as _dt, timedelta as _td, timezone as _tz
-from typing import Any
-from unittest import mock
+from datetime import datetime as _dt, timezone as _tz
 
-import httpx
 import pytest
 from fastapi.testclient import TestClient
 

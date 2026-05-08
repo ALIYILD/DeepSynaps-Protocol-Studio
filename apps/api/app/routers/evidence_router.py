@@ -78,7 +78,6 @@ from app.services.evidence_intelligence import (
     PatientEvidenceOverview,
     ReportPayloadRequest,
     SaveCitationRequest,
-    build_default_query,
     build_patient_overview,
     build_report_payload,
     get_paper_detail as get_intelligence_paper_detail,

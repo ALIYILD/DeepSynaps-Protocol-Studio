@@ -10,6 +10,10 @@ import { api } from './api.js';
 import { currentUser } from './auth.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
+import { drHero } from './helpers.js';
+
+const TEXT_CLINICAL_QUESTION = "What does this patient's writing or transcript reveal about mood, cognitive function, or symptom change?";
+const TEXT_HOW_TO_READ = "Extracted entities and indicators are decision-support drafts. Clinical correlation with examination, history, and assessments is required — text alone does not diagnose.";
 
 const CLINICAL_TEXT_ANALYZER_ROLES = new Set(['clinician', 'admin']);
 
@@ -371,7 +375,7 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
   try {
     setTopbar({
       title: 'Text Analyzer',
-      subtitle: 'Clinical text · extraction · de-identification · decision support',
+      subtitle: TEXT_CLINICAL_QUESTION,
     });
   } catch {
     try { setTopbar('Text Analyzer', 'Clinical text · decision support'); } catch {}
@@ -389,6 +393,7 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
   el.innerHTML = `
     <div class="ds-text-analyzer-shell" style="max-width:980px;margin:0 auto;padding:16px 20px 48px">
       ${_demoBuildBanner()}
+      ${drHero({ question: TEXT_CLINICAL_QUESTION, howToRead: TEXT_HOW_TO_READ, flagCount: 0 })}
       <div style="padding:14px 16px;border-radius:12px;border:1px solid rgba(246,178,60,.35);background:rgba(246,178,60,.09);margin-bottom:18px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
         <strong style="color:var(--text-primary)">Clinical decision-support.</strong> ${esc(DISCLAIMER)}
       </div>

@@ -18,7 +18,6 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -29,7 +28,7 @@ from app.auth import (
 )
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import Patient, SessionRecording, User
+from app.persistence.models import SessionRecording, User
 from app.repositories.patients import resolve_patient_clinic_id
 from app.services import media_storage
 from app.settings import get_settings

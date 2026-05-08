@@ -8,13 +8,11 @@ from __future__ import annotations
 import io
 import json
 import zipfile
-from datetime import datetime, timezone
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
-from app.persistence.models import MriAnalysis, MriReportAudit, Patient
+from app.persistence.models import MriAnalysis, Patient
 
 
 def _seed_analysis(

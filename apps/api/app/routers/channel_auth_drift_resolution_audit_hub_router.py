@@ -65,7 +65,6 @@ from app.auth import (
 from app.database import get_db_session
 from app.persistence.models import AuditEventRecord, User
 from app.services.auth_drift_resolution_pairing import (
-    ALLOWED_ROTATION_METHODS,
     DEFAULT_WINDOW_DAYS,
     MAX_WINDOW_DAYS,
     MIN_WINDOW_DAYS,

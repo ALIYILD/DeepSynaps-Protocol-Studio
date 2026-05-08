@@ -40,7 +40,6 @@ from app.persistence.models import (
     CaregiverConsentGrant,
     CaregiverConsentRevision,
     Patient,
-    User,
 )
 
 

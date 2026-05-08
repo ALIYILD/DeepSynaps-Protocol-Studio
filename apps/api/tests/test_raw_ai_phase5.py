@@ -353,6 +353,39 @@ def test_quality_score_writes_audit_row(
         db.close()
 
 
+def test_copilot_bundle_includes_sections_and_compare_snapshot(
+    client: TestClient, phase5_fixture: dict[str, Any], monkeypatch
+) -> None:
+    aid = phase5_fixture["analysis_id"]
+    headers = {"Authorization": f"Bearer {phase5_fixture['token']}"}
+
+    _patch_features(monkeypatch)
+    _stub_llm_ok(monkeypatch, text="copilot bundle narrative")
+
+    r = client.post(
+        f"/api/v1/qeeg-ai/{aid}/copilot_assist_bundle",
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["result"]["assistant_sections"], data
+    assert len(data["result"]["assistant_sections"]) >= 3
+    assert "compare_summary" in data["result"]
+    assert "review first" in data["result"]["assistant_sections"][0]["title"].lower() or "triage" in data["result"]["assistant_sections"][0]["title"].lower()
+
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(CleaningDecision)
+            .filter_by(analysis_id=aid, action="propose_copilot_assist_bundle")
+            .all()
+        )
+        assert len(rows) == 1
+        assert rows[0].actor == "ai"
+    finally:
+        db.close()
+
+
 # ── 5. Auth: clinician role required on all 9 endpoints ────────────────────
 
 

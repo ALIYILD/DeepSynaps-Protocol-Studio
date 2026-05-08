@@ -9,15 +9,12 @@ GET    /api/v1/digital-phenotyping/analyzer/patient/{patient_id}/audit
 
 from __future__ import annotations
 
-import csv
-import io
 import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -39,7 +36,6 @@ from app.repositories.digital_phenotyping import (
     list_recent_observations as _repo_list_recent_observations,
     load_or_create_state as _repo_load_or_create_state,
     observation_to_dict as _repo_observation_to_dict,
-    update_state as _repo_update_state,
 )
 from app.repositories.patients import resolve_patient_clinic_id
 from app.services.digital_phenotyping import (
