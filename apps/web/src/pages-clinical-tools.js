@@ -5059,23 +5059,55 @@ export async function pgClinicDay(setTopbar) {
   function _save(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
 
   // ── Queue seed ───────────────────────────────────────────────────────────────
-  if (!localStorage.getItem('ds_today_queue')) {
+  // Demo seed only in VITE_ENABLE_DEMO builds (Netlify preview). Production
+  // skips the seed so a real clinician's first login sees an honest empty
+  // state, not fictional patient names. The live queue is fetched from
+  // /api/v1/clinic/day-queue below; this seed is a pre-API placeholder so
+  // the demo viewer has something to look at. Mirrors pgPatientQueue.
+  // Reference: AI go-live audit 2026-05-08 (#11).
+  const _CD_DEMO = (function () {
+    try { return Boolean(import.meta.env?.VITE_ENABLE_DEMO); } catch { return false; }
+  })();
+  if (_CD_DEMO && !localStorage.getItem('ds_today_queue')) {
     _save('ds_today_queue', [
-      { id:'pq001', time:'08:30', patientId:'pt001', courseId:'crs001', patientName:'Alexis Morgan',  condition:'Depression', sessionNum:8,  sessionTotal:20, protocol:'TMS 10Hz L-DLPFC',       status:'done',       alerts:[],             notes:'Tolerated well, reported mood lift.' },
-      { id:'pq002', time:'09:15', patientId:'pt002', courseId:'crs002', patientName:'Jordan Blake',   condition:'Anxiety',    sessionNum:15, sessionTotal:20, protocol:'Alpha/Beta NFB',          status:'done',       alerts:['homework'],   notes:'Missed home EEG exercises x2.' },
-      { id:'pq003', time:'10:00', patientId:'pt003', courseId:'crs003', patientName:'Sam Rivera',     condition:'PTSD',       sessionNum:3,  sessionTotal:30, protocol:'Alpha/Theta NFB',         status:'in-session', alerts:['wearable'],   notes:'HRV anomaly detected during last session.' },
-      { id:'pq004', time:'11:00', patientId:'pt004', courseId:'crs004', patientName:'Casey Kim',      condition:'ADHD',       sessionNum:12, sessionTotal:20, protocol:'Theta Suppression NFB',   status:'waiting',    alerts:[],             notes:'' },
-      { id:'pq005', time:'13:30', patientId:'pt005', courseId:'crs005', patientName:'Morgan Ellis',   condition:'Insomnia',   sessionNum:5,  sessionTotal:15, protocol:'SMR Enhancement NFB',     status:'waiting',    alerts:['assessment'], notes:'PHQ-9 overdue by 9 days.' },
-      { id:'pq006', time:'14:15', patientId:'pt006', courseId:'crs006', patientName:'Taylor Nguyen',  condition:'OCD',        sessionNum:6,  sessionTotal:20, protocol:'Deep TMS H7 Coil',        status:'no-show',    alerts:['deviation'],  notes:'Called \u2014 no answer. Left voicemail.' },
+      { id:'pq001', time:'08:30', patientId:'pt001', courseId:'crs001', patientName:'Alexis Morgan (demo)',  condition:'Depression', sessionNum:8,  sessionTotal:20, protocol:'TMS 10Hz L-DLPFC',       status:'done',       alerts:[],             notes:'Tolerated well, reported mood lift.' },
+      { id:'pq002', time:'09:15', patientId:'pt002', courseId:'crs002', patientName:'Jordan Blake (demo)',   condition:'Anxiety',    sessionNum:15, sessionTotal:20, protocol:'Alpha/Beta NFB',          status:'done',       alerts:['homework'],   notes:'Missed home EEG exercises x2.' },
+      { id:'pq003', time:'10:00', patientId:'pt003', courseId:'crs003', patientName:'Sam Rivera (demo)',     condition:'PTSD',       sessionNum:3,  sessionTotal:30, protocol:'Alpha/Theta NFB',         status:'in-session', alerts:['wearable'],   notes:'HRV anomaly detected during last session.' },
+      { id:'pq004', time:'11:00', patientId:'pt004', courseId:'crs004', patientName:'Casey Kim (demo)',      condition:'ADHD',       sessionNum:12, sessionTotal:20, protocol:'Theta Suppression NFB',   status:'waiting',    alerts:[],             notes:'' },
+      { id:'pq005', time:'13:30', patientId:'pt005', courseId:'crs005', patientName:'Morgan Ellis (demo)',   condition:'Insomnia',   sessionNum:5,  sessionTotal:15, protocol:'SMR Enhancement NFB',     status:'waiting',    alerts:['assessment'], notes:'PHQ-9 overdue by 9 days.' },
+      { id:'pq006', time:'14:15', patientId:'pt006', courseId:'crs006', patientName:'Taylor Nguyen (demo)',  condition:'OCD',        sessionNum:6,  sessionTotal:20, protocol:'Deep TMS H7 Coil',        status:'no-show',    alerts:['deviation'],  notes:'Called \u2014 no answer. Left voicemail.' },
     ]);
   }
-  if (!localStorage.getItem('ds_pq_adherence_alerts')) {
+  if (_CD_DEMO && !localStorage.getItem('ds_pq_adherence_alerts')) {
     _save('ds_pq_adherence_alerts', [
-      { id:'pal001', patientId:'pt006', patientName:'Taylor Nguyen', type:'overdue-session',  detail:'No session recorded in 11 days (last: 2026-03-31)', daysSince:11, status:'active' },
-      { id:'pal002', patientId:'pt003', patientName:'Sam Rivera',    type:'parameter-drift',  detail:'Pulse width increased from 230\u03bcs to 290\u03bcs across last 3 sessions \u2014 outside protocol spec', daysSince:5, status:'active' },
-      { id:'pal003', patientId:'pt002', patientName:'Jordan Blake',  type:'unreviewed-ae',    detail:'Adverse event (mild headache) logged after Session 13 \u2014 not yet reviewed', daysSince:7, status:'active' },
+      { id:'pal001', patientId:'pt006', patientName:'Taylor Nguyen (demo)', type:'overdue-session',  detail:'No session recorded in 11 days (last: 2026-03-31)', daysSince:11, status:'active' },
+      { id:'pal002', patientId:'pt003', patientName:'Sam Rivera (demo)',    type:'parameter-drift',  detail:'Pulse width increased from 230\u03bcs to 290\u03bcs across last 3 sessions \u2014 outside protocol spec', daysSince:5, status:'active' },
+      { id:'pal003', patientId:'pt002', patientName:'Jordan Blake (demo)',  type:'unreviewed-ae',    detail:'Adverse event (mild headache) logged after Session 13 \u2014 not yet reviewed', daysSince:7, status:'active' },
     ]);
   }
+  if (!_CD_DEMO) {
+    // Production: clear any stale demo seed so we never render fictional
+    // patients on a real clinic. The fetch below populates the real queue.
+    if (localStorage.getItem('ds_today_queue')) localStorage.removeItem('ds_today_queue');
+    if (localStorage.getItem('ds_pq_adherence_alerts')) localStorage.removeItem('ds_pq_adherence_alerts');
+  }
+
+  // Fire-and-forget fetch from the real backend. On success we overwrite
+  // localStorage and re-render. On failure we keep whatever is in
+  // localStorage (demo seed in preview, nothing in production) and the
+  // current render stays. Mirrors pgPatientQueue's pattern.
+  (async function () {
+    try {
+      const r = await api.getClinicDayQueue(todayISO);
+      if (r && Array.isArray(r.entries)) {
+        _save('ds_today_queue', r.entries);
+        if (typeof render === 'function') render();
+      }
+    } catch (e) {
+      // Backend unreachable / 401 — leave localStorage alone, log only.
+      try { console.warn('day-queue fetch failed:', e?.message || e); } catch {}
+    }
+  })();
 
   const QUEUE_KEY    = 'ds_today_queue';
   const ALERT_KEY    = 'ds_pq_adherence_alerts';
