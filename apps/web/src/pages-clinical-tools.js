@@ -2744,9 +2744,33 @@ export async function pgClinicianDraftReview(setTopbar) {
     }
   };
 
-  window._draftDiscard = function() {
+  window._draftDiscard = async function() {
     if (!confirm('Discard this draft? Unsaved note content will be lost.')) return;
-    window._nav('media-queue');
+    const errEl = document.getElementById('draft-error');
+    const noteKind = (draftData && (draftData.note_kind || (draftData.note && draftData.note.note_kind))) || '';
+    let rationale = null;
+    if (String(noteKind).toLowerCase() === 'adverse_event') {
+      // Adverse-event drafts require an audit-trail rationale per the
+      // clinician-tools UX safety contract.
+      rationale = window.prompt('This is an adverse-event draft. Briefly explain why you are rejecting this AI output (required for the audit trail):', '');
+      if (rationale == null) return; // user cancelled
+      if (!rationale.trim()) {
+        if (errEl) { errEl.textContent = 'A rationale is required to reject an adverse-event draft.'; errEl.style.display = 'block'; }
+        return;
+      }
+    } else {
+      // Non-AE drafts: rationale optional. Empty string → null.
+      rationale = window.prompt('Optional: brief reason for discarding this draft (leave blank to skip).', '') || null;
+    }
+    try {
+      await api.rejectClinicianDraft(draftId, rationale);
+      window._nav('media-queue');
+    } catch (e) {
+      if (errEl) {
+        errEl.textContent = 'Could not discard draft: ' + (e?.message || 'request failed');
+        errEl.style.display = 'block';
+      }
+    }
   };
 }
 
