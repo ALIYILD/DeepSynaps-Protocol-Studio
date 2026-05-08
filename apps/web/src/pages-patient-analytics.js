@@ -19,6 +19,7 @@ import { emptyPatientEvidenceContext, loadPatientEvidenceContext } from './patie
 import { EVIDENCE_TOTAL_PAPERS } from './evidence-dataset.js';
 import { VOICE_DECISION_SUPPORT_SHORT } from './voice-decision-support.js';
 import { buildReport, reportToJSONString, downloadBlob } from './deeptwin/reports.js';
+import { mountMedicalImageCard } from './medical-image-card.js';
 
 function emptyAnalyticsEvidenceContext(patientId = '') {
   return emptyPatientEvidenceContext(patientId);
@@ -937,6 +938,7 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
         <span class="pa-grid-count">${WIDGETS.length} panels · click any to drill in</span>
       </div>
       <div class="pa-grid">${grid}</div>
+      <div id="ds-medical-image-card-patient-analytics" style="margin-top:16px"></div>
     </div>
     <div class="pa-body" style="${activeTab === 'evidence' ? '' : 'display:none'}">
       ${evidenceTab}
@@ -959,6 +961,11 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
   wireEvidenceChips(el, {
     onOpen: (query) => openEvidenceDrawer(query),
   });
+
+  try {
+    var _miHost = document.getElementById('ds-medical-image-card-patient-analytics');
+    if (_miHost) mountMedicalImageCard(_miHost, { patientId: id, audience: 'clinician' });
+  } catch (_miErr) { /* non-fatal: medical-image card is optional */ }
 
   // Actions
   el.querySelectorAll('[data-pa-action="open-deeptwin"]').forEach(b =>

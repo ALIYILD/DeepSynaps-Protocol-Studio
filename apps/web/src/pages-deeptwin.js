@@ -47,6 +47,7 @@ import {
   wireDashboard360Actions, loadDashboard360,
 } from './deeptwin/dashboard360.js';
 import { renderNeuroAiLabSection, wireNeuroAiLab } from './deeptwin/neuroai-lab.js';
+import { mountMedicalImageCard } from './medical-image-card.js';
 
 const HOST_TIMELINE = 'dt-timeline-host';
 const HOST_CORR     = 'dt-corr-host';
@@ -178,6 +179,7 @@ function _renderAll() {
       ${_voiceDomainHintBanner()}
       ${renderHeader({ patientLabel, condition, summary: STATE.summary, dataSources: STATE.dataSources })}
       ${renderDataSources({ summary: STATE.summary, dataSources: STATE.dataSources })}
+      <div id="ds-medical-image-card-deeptwin" style="margin-top:16px"></div>
       ${renderSignalMatrix({ signals: STATE.signals, signalState: STATE.signalsPayload })}
       ${renderTimeline({ patientId: STATE.patientId, timeline: STATE.timelinePayload, selectedKinds: STATE.timelineFilters }, HOST_TIMELINE)}
       ${renderCorrelations({ correlations: STATE.correlations }, HOST_CORR)}
@@ -213,6 +215,10 @@ function _renderAll() {
   mountCorrelations(HOST_CORR, STATE.correlations);
   mountPrediction(HOST_PRED, STATE.prediction);
   mountSimulation(HOST_SIM, STATE.scenarios);
+  try {
+    var _miHost = document.getElementById('ds-medical-image-card-deeptwin');
+    if (_miHost) mountMedicalImageCard(_miHost, { patientId: STATE.patientId, audience: 'clinician' });
+  } catch (_miErr) { /* non-fatal: medical-image card is optional */ }
   // Wire interactions
   _wireTimelineFilters();
   _wirePredictionTabs();
