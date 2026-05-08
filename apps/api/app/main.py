@@ -278,7 +278,11 @@ from app.qeeg.workers.qeeg_analysis_worker import (
 )
 from app.services.agent_skills_seed import seed_default_agent_skills
 from app.services.clinical_data import HandbookGenerateAPIResponse, seed_clinical_dataset
-from app.services.demo_clinic_seed import demo_seed_enabled, seed_demo_clinic_data
+from app.services.demo_clinic_seed import (
+    demo_seed_enabled,
+    seed_demo_clinic,
+    seed_demo_clinic_data,
+)
 from app.services.devices import list_devices
 from app.services.evidence import list_evidence
 from app.services.generation import generate_handbook, generate_protocol_draft
@@ -383,6 +387,11 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
         # Gated by app_env allowlist + DEEPSYNAPS_DEMO_CLINIC_SEED=1.
         if demo_seed_enabled(settings.app_env):
             seed_demo_clinic_data(session)
+            # Also seed scheduling-focused synthetic data (rooms/devices/
+            # appointments) so the Scheduling Hub demo has real backing rows.
+            # Same gate; idempotent on its own (skips if any demo schedule
+            # sessions already exist for the demo clinicians this week).
+            seed_demo_clinic(session)
         app_instance.state.clinical_snapshot_id = snapshot.snapshot_id
         logger.info(
             "application startup complete",
