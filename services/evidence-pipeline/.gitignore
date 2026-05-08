@@ -2,6 +2,10 @@
 evidence.db
 evidence.db-wal
 evidence.db-shm
+evidence.db.bak-*
+neuromodulation_evidence_*.db
+neuromodulation_evidence_*.db-wal
+neuromodulation_evidence_*.db-shm
 ingest.log
 
 # Local env overrides
