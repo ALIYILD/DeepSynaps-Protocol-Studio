@@ -99,16 +99,32 @@ def upgrade() -> None:
     dialect = bind.dialect.name
     log.info("040 running on dialect=%s", dialect)
 
+    is_pg = dialect == "postgresql"
+
+    def _guarded(label: str, fn) -> None:
+        # On Postgres, an unhandled error inside the migration transaction
+        # poisons it (InFailedSqlTransaction). Wrap each best-effort step
+        # in a SAVEPOINT so its failure can be rolled back independently.
+        if is_pg:
+            sp = bind.begin_nested()
+            try:
+                fn()
+                sp.commit()
+            except Exception as exc:                              # noqa: BLE001
+                sp.rollback()
+                log.warning("%s skipped: %s", label, exc)
+        else:
+            try:
+                fn()
+            except Exception as exc:                              # noqa: BLE001
+                log.warning("%s skipped: %s", label, exc)
+
     # ── Step 1: pgvector extension ────────────────────────────────────────
-    if dialect == "postgresql":
-        try:
-            op.execute("CREATE EXTENSION IF NOT EXISTS vector")
-            log.info("pgvector extension enabled")
-        except Exception as exc:                                  # noqa: BLE001
-            log.warning(
-                "CREATE EXTENSION vector failed (host may require superuser): %s",
-                exc,
-            )
+    if is_pg:
+        _guarded(
+            "CREATE EXTENSION vector (host may require superuser)",
+            lambda: op.execute("CREATE EXTENSION IF NOT EXISTS vector"),
+        )
     else:
         log.info("dialect=%s — pgvector step skipped", dialect)
 
@@ -120,36 +136,35 @@ def upgrade() -> None:
         ("code",           sa.String(64)),
         ("label",          sa.Text()),
     ):
-        try:
-            op.add_column("kg_entities", sa.Column(col_name, col_type, nullable=True))
-            log.info("added kg_entities.%s", col_name)
-        except Exception as exc:                                  # noqa: BLE001
-            # Column may already exist on a re-run, or the table may be
-            # missing if 038 didn't land (shouldn't happen in-chain).
-            log.warning("add_column kg_entities.%s skipped: %s", col_name, exc)
+        _guarded(
+            f"add_column kg_entities.{col_name}",
+            lambda c=col_name, t=col_type: op.add_column(
+                "kg_entities", sa.Column(c, t, nullable=True)
+            ),
+        )
 
     # Unique (type, canonical_name) — Postgres only; SQLite rebuilds
     # tables on ALTER and we don't need this for the in-process test path.
-    if dialect == "postgresql":
-        try:
-            op.create_index(
+    if is_pg:
+        _guarded(
+            "unique index on (type, canonical_name)",
+            lambda: op.create_index(
                 "ux_kg_entities_type_canonical",
                 "kg_entities",
                 ["type", "canonical_name"],
                 unique=True,
                 postgresql_where=sa.text("canonical_name IS NOT NULL"),
-            )
-            log.info("unique index on (type, canonical_name) created")
-        except Exception as exc:                                  # noqa: BLE001
-            log.warning("unique index creation skipped: %s", exc)
+            ),
+        )
 
     # ── Step 3: seed the MRI KG entities ─────────────────────────────────
     # Use a manual INSERT ... WHERE NOT EXISTS to stay portable. Postgres
     # could use ON CONFLICT DO NOTHING, but the conditional form also works
     # in SQLite and produces the same idempotent result.
     for etype, name, code, label in ALL_ENTITIES:
-        try:
-            bind.execute(
+        _guarded(
+            f"seed insert {etype}/{name}",
+            lambda et=etype, n=name, c=code, l=label: bind.execute(
                 sa.text(
                     """
                     INSERT INTO kg_entities (type, name, canonical_name, code, label)
@@ -163,15 +178,14 @@ def upgrade() -> None:
                     """
                 ),
                 {
-                    "etype": etype,
-                    "name": name,
-                    "canonical_name": name,
-                    "code": code,
-                    "label": label,
+                    "etype": et,
+                    "name": n,
+                    "canonical_name": n,
+                    "code": c,
+                    "label": l,
                 },
-            )
-        except Exception as exc:                                  # noqa: BLE001
-            log.warning("seed insert failed for %s/%s: %s", etype, name, exc)
+            ),
+        )
 
     log.info("seeded %d MRI KG entities (idempotent)", len(ALL_ENTITIES))
 

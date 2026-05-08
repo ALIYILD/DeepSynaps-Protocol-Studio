@@ -138,6 +138,27 @@ def upgrade() -> None:
         log.info("041 skipped (SQLite)")
         return
 
+    is_pg = dialect == "postgresql"
+
+    def _guarded(label: str, fn) -> None:
+        # On Postgres, an unhandled error inside the migration transaction
+        # poisons it (InFailedSqlTransaction). Wrap each best-effort step
+        # in a SAVEPOINT so its failure can be rolled back independently
+        # and the outer transaction stays usable for the next probe / DDL.
+        if is_pg:
+            sp = bind.begin_nested()
+            try:
+                fn()
+                sp.commit()
+            except Exception as exc:                              # noqa: BLE001
+                sp.rollback()
+                log.warning("%s skipped: %s", label, exc)
+        else:
+            try:
+                fn()
+            except Exception as exc:                              # noqa: BLE001
+                log.warning("%s skipped: %s", label, exc)
+
     # ── Safety-net: extension creation ────────────────────────────────────
     # 040 already attempts this. Re-run here because:
     # (a) 040 may have failed on a non-superuser host and the operator
@@ -145,18 +166,20 @@ def upgrade() -> None:
     #     no-op thanks to IF NOT EXISTS.
     # (b) A fresh DB bootstrapped against this chain needs the extension
     #     either way.
-    try:
-        op.execute("CREATE EXTENSION IF NOT EXISTS vector")
-        log.info("pgvector extension ensured")
-    except Exception as exc:  # noqa: BLE001
-        log.warning(
-            "CREATE EXTENSION vector failed — will verify presence next: %s",
-            exc,
-        )
+    # On managed Postgres (e.g. Fly MPG) the schema_admin role may lack
+    # superuser privileges — CREATE EXTENSION will fail with
+    # InsufficientPrivilege. The savepoint rollback ensures the outer
+    # transaction stays clean so the pg_extension probe below works.
+    _guarded(
+        "CREATE EXTENSION vector (host may require superuser)",
+        lambda: op.execute("CREATE EXTENSION IF NOT EXISTS vector"),
+    )
 
     # ── Verify the extension is actually loaded ───────────────────────────
     # If it isn't, we cannot CREATE the ``vector`` column type. Log
     # CRITICAL and bail so the app still boots against TEXT columns.
+    # Runs after the savepoint rollback above, so the connection is in a
+    # clean txn state regardless of whether CREATE EXTENSION succeeded.
     try:
         result = bind.execute(
             sa.text("SELECT 1 FROM pg_extension WHERE extname = 'vector'")
@@ -178,6 +201,8 @@ def upgrade() -> None:
         return
 
     # ── Per-table: add column, backfill, add HNSW index ───────────────────
+    # Each step is wrapped in its own SAVEPOINT so a single bad table
+    # doesn't poison the rest of the migration.
     for table, src_col, vec_col, idx_name, optional in _TARGETS:
         if optional and not _has_table(bind, table):
             log.info("table %s not present — skipping", table)
@@ -191,54 +216,60 @@ def upgrade() -> None:
                 "%s.%s already present — skipping ADD COLUMN",
                 table, vec_col,
             )
+            column_added = True
         else:
-            try:
+            # Track whether the ADD COLUMN succeeded so we can skip
+            # backfill + index if it didn't. The savepoint rollback
+            # itself only protects txn state — we still need to know
+            # whether to proceed.
+            added: list[bool] = []
+
+            def _do_add(t=table, v=vec_col, holder=added) -> None:
                 op.execute(
                     sa.text(
-                        f'ALTER TABLE "{table}" '
-                        f'ADD COLUMN "{vec_col}" vector(200) NULL'
+                        f'ALTER TABLE "{t}" '
+                        f'ADD COLUMN "{v}" vector(200) NULL'
                     )
                 )
+                holder.append(True)
+
+            _guarded(f"ADD COLUMN {table}.{vec_col} vector(200)", _do_add)
+            column_added = bool(added)
+            if column_added:
                 log.info("added %s.%s vector(200)", table, vec_col)
-            except Exception as exc:  # noqa: BLE001
+            else:
                 log.warning(
-                    "ADD COLUMN %s.%s failed — skipping backfill + index: %s",
-                    table, vec_col, exc,
+                    "ADD COLUMN %s.%s did not complete — skipping backfill + index",
+                    table, vec_col,
                 )
                 continue
 
         # 2. Backfill from embedding_json. embedding_json is a JSON list
         # of floats; cast via jsonb -> text -> vector. Rows with
         # malformed JSON will throw — we tolerate that per-table.
-        try:
-            bind.execute(
+        _guarded(
+            f"backfill {table}.{vec_col} from {src_col}",
+            lambda t=table, v=vec_col, s=src_col: bind.execute(
                 sa.text(
-                    f'UPDATE "{table}" '
-                    f'SET "{vec_col}" = ("{src_col}"::jsonb)::text::vector '
-                    f'WHERE "{src_col}" IS NOT NULL '
-                    f'  AND "{vec_col}" IS NULL'
+                    f'UPDATE "{t}" '
+                    f'SET "{v}" = ("{s}"::jsonb)::text::vector '
+                    f'WHERE "{s}" IS NOT NULL '
+                    f'  AND "{v}" IS NULL'
                 )
-            )
-            log.info("backfilled %s.%s from %s", table, vec_col, src_col)
-        except Exception as exc:  # noqa: BLE001
-            log.warning(
-                "backfill %s.%s from %s skipped (some rows may carry "
-                "malformed JSON): %s",
-                table, vec_col, src_col, exc,
-            )
+            ),
+        )
 
         # 3. HNSW cosine index — idempotent via IF NOT EXISTS.
-        try:
-            op.execute(
+        _guarded(
+            f"HNSW index {idx_name}",
+            lambda t=table, v=vec_col, i=idx_name: op.execute(
                 sa.text(
-                    f'CREATE INDEX IF NOT EXISTS "{idx_name}" '
-                    f'ON "{table}" USING hnsw '
-                    f'("{vec_col}" vector_cosine_ops)'
+                    f'CREATE INDEX IF NOT EXISTS "{i}" '
+                    f'ON "{t}" USING hnsw '
+                    f'("{v}" vector_cosine_ops)'
                 )
-            )
-            log.info("HNSW index %s ensured", idx_name)
-        except Exception as exc:  # noqa: BLE001
-            log.warning("HNSW index %s creation skipped: %s", idx_name, exc)
+            ),
+        )
 
     log.info("041 complete")
 
