@@ -172,21 +172,58 @@ def _parse_block(text: str, modality: str | None) -> dict | None:
 # Heuristic modality inference from intervention text. Used only when a trial
 # has no entry in trial_indications (current state on the canonical DB; the
 # curated linkage is a follow-up ingest step).
+#
+# Order matters — more specific patterns should appear before generic ones
+# (e.g. taVNS before VNS, HD-tDCS before tDCS, dTMS before rTMS).
 _MODALITY_HEURISTICS = (
-    ("dTMS",   re.compile(r"\b(?:deep\s*tms|dtms|h[-\s]?coil|brainsway)\b", re.IGNORECASE)),
-    ("rTMS",   re.compile(r"\b(?:r[-\s]?tms|repetitive\s+transcranial|tbs|theta\s*burst|itbs|ctbs|spaced\s*tms)\b", re.IGNORECASE)),
-    ("tDCS",   re.compile(r"\b(?:t[-\s]?dcs|transcranial\s+direct\s+current)\b", re.IGNORECASE)),
-    ("tACS",   re.compile(r"\b(?:t[-\s]?acs|transcranial\s+alternating\s+current)\b", re.IGNORECASE)),
-    ("DBS",    re.compile(r"\b(?:dbs|deep\s+brain\s+stimulation)\b", re.IGNORECASE)),
-    ("VNS",    re.compile(r"\b(?:vns|vagus\s+nerve\s+stim|tavns|auricular)\b", re.IGNORECASE)),
-    ("SCS",    re.compile(r"\b(?:scs|spinal\s+cord\s+stim|burst[-\s]?dr|hf10)\b", re.IGNORECASE)),
-    ("DRG",    re.compile(r"\bdorsal\s+root\s+ganglion\b", re.IGNORECASE)),
-    ("RNS",    re.compile(r"\b(?:rns|responsive\s+neurostim)\b", re.IGNORECASE)),
-    ("HNS",    re.compile(r"\b(?:hns|hypoglossal\s+nerve|inspire)\b", re.IGNORECASE)),
-    ("SNM",    re.compile(r"\b(?:snm|sacral\s+(?:nerve|neuro))\b", re.IGNORECASE)),
-    ("MRgFUS", re.compile(r"\b(?:mrgfus|focused\s+ultrasound|exablate)\b", re.IGNORECASE)),
-    ("PBM",    re.compile(r"\b(?:pbm|photobiomodulation|low[-\s]?level\s+laser|near[-\s]?infrared)\b", re.IGNORECASE)),
-    ("NFB",    re.compile(r"\b(?:neurofeedback|nfb|eeg\s+biofeedback)\b", re.IGNORECASE)),
+    # --- TMS family (specific → generic) ---
+    ("dTMS",    re.compile(r"\b(?:deep\s*tms|dtms|h[-\s]?coil|brainsway)\b", re.IGNORECASE)),
+    ("rTMS",    re.compile(
+        r"\b(?:r[-\s]?tms|repetitive\s+transcranial(?:\s+magnetic)?(?:\s+stim\w*)?|"
+        r"transcranial\s+magnetic\s+stim\w*|magnetic\s+stimulator|"
+        r"tbs|theta\s*burst|itbs|ctbs|spaced\s*tms|saint\s+protocol|"
+        r"\btms\b)\b", re.IGNORECASE)),
+    # --- tDCS family (HD-tDCS first; HD-tACS handled under tACS) ---
+    ("HD-tDCS", re.compile(r"\b(?:hd[-\s]?t[-\s]?dcs|high[-\s]?definition\s+transcranial\s+direct)\b", re.IGNORECASE)),
+    ("tDCS",    re.compile(r"\b(?:t[-\s]?dcs|transcranial\s+direct\s+current)\b", re.IGNORECASE)),
+    ("tACS",    re.compile(r"\b(?:hd[-\s]?t[-\s]?acs|t[-\s]?acs|transcranial\s+alternating\s+current)\b", re.IGNORECASE)),
+    ("tRNS",    re.compile(r"\b(?:t[-\s]?rns|transcranial\s+random\s+noise)\b", re.IGNORECASE)),
+    # --- Temporal Interference (newer non-invasive deep-brain method) ---
+    ("tI",      re.compile(r"\b(?:temporal\s+interference(?:\s+stim\w*)?|ti[-\s]?dbs)\b", re.IGNORECASE)),
+    # --- Implantable + invasive ---
+    ("DBS",     re.compile(r"\b(?:dbs|deep\s+brain\s+stimulation)\b", re.IGNORECASE)),
+    # --- VNS family (specific → generic) ---
+    ("taVNS",   re.compile(
+        r"\b(?:tavns|tvns|t[-\s]?vns|"
+        r"transcutaneous\s+(?:auricular\s+)?vagus|"
+        r"auricular\s+vagus|"
+        r"gammacore|cymba\s+conchae|vagustim)\b", re.IGNORECASE)),
+    ("VNS",     re.compile(r"\b(?:vns|vagus\s+nerve\s+stim\w*)\b", re.IGNORECASE)),
+    # --- SCS family ---
+    ("tSCS",    re.compile(r"\b(?:tscs|transcutaneous\s+spinal\s+cord\s+stim\w*)\b", re.IGNORECASE)),
+    ("SCS",     re.compile(r"\b(?:scs|spinal\s+cord\s+stim\w*|burst[-\s]?dr|hf10|nevro)\b", re.IGNORECASE)),
+    # --- Peripheral / autonomic ---
+    ("DRG",     re.compile(r"\b(?:drg(?:\s+stim\w*)?|dorsal\s+root\s+ganglion)\b", re.IGNORECASE)),
+    ("PTNS",    re.compile(r"\b(?:ptns|ptnm|percutaneous\s+tibial\s+nerve\s+stim\w*)\b", re.IGNORECASE)),
+    ("RNS",     re.compile(r"\b(?:rns|responsive\s+neurostim\w*)\b", re.IGNORECASE)),
+    ("HNS",     re.compile(r"\b(?:hns|hypoglossal\s+nerve|inspire(?:\s+upper\s+airway)?)\b", re.IGNORECASE)),
+    ("SNM",     re.compile(r"\b(?:snm|sacral\s+(?:nerve|neuro)\w*|interstim)\b", re.IGNORECASE)),
+    # --- Focused ultrasound (MR-guided ablation + low-intensity neuromod) ---
+    ("MRgFUS",  re.compile(r"\b(?:mrgfus|exablate)\b", re.IGNORECASE)),
+    ("tFUS",    re.compile(r"\b(?:tfus|transcranial\s+focused\s+ultrasound|low[-\s]?intensity\s+focused\s+ultrasound|lifu(?:p)?)\b", re.IGNORECASE)),
+    # FUS without "transcranial" qualifier — generic, lower priority
+    ("FUS",     re.compile(r"\bfocused\s+ultrasound\b", re.IGNORECASE)),
+    # --- Energy + light ---
+    ("PBM",     re.compile(r"\b(?:pbm|photobiomodulation|low[-\s]?level\s+laser|near[-\s]?infrared(?:\s+light)?|llt)\b", re.IGNORECASE)),
+    # --- Surface stim ---
+    ("CES",     re.compile(r"\b(?:ces|cranial\s+electrotherapy\s+stim\w*|alpha-stim)\b", re.IGNORECASE)),
+    ("TENS",    re.compile(r"\b(?:tens|transcutaneous\s+electrical\s+nerve\s+stim\w*)\b", re.IGNORECASE)),
+    ("FES",     re.compile(r"\b(?:fes|functional\s+electrical\s+stim\w*)\b", re.IGNORECASE)),
+    ("GVS",     re.compile(r"\b(?:gvs|galvanic\s+vestibular\s+stim\w*)\b", re.IGNORECASE)),
+    # --- Behavioural/EEG ---
+    ("NFB",     re.compile(r"\b(?:neurofeedback|nfb|eeg\s+biofeedback)\b", re.IGNORECASE)),
+    # --- Acupuncture-adjacent (neuromod-relevant when paired with electrical current) ---
+    ("EA",      re.compile(r"\belectroacupuncture\b", re.IGNORECASE)),
 )
 
 
