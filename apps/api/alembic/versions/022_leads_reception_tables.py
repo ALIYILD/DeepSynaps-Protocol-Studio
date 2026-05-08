@@ -58,7 +58,7 @@ def upgrade() -> None:
         sa.Column("clinician_id", sa.String(100), nullable=False, index=True),
         sa.Column("text", sa.String(500), nullable=False),
         sa.Column("due", sa.String(20), nullable=True),
-        sa.Column("done", sa.Boolean(), nullable=False, server_default="0"),
+        sa.Column("done", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("priority", sa.String(20), nullable=False, server_default="medium"),
         sa.Column("created_at", sa.String(50), nullable=False),
     )

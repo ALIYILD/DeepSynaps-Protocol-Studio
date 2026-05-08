@@ -31,7 +31,7 @@ def upgrade() -> None:
         sa.Column('id', sa.String(36), primary_key=True),
         sa.Column('patient_id', sa.String(36), nullable=False),
         sa.Column('consent_type', sa.String(40), nullable=False),       # "upload_voice"|"upload_video"|"upload_text"|"ai_analysis"
-        sa.Column('granted', sa.Boolean(), nullable=False, server_default='0'),
+        sa.Column('granted', sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column('granted_at', sa.DateTime(), nullable=True),
         sa.Column('revoked_at', sa.DateTime(), nullable=True),
         sa.Column('retention_days', sa.Integer(), nullable=False, server_default='365'),
@@ -130,7 +130,7 @@ def upgrade() -> None:
         sa.Column('follow_up_questions', sa.Text(), nullable=True),     # JSON array
         sa.Column('chart_note_draft', sa.Text(), nullable=True),
         sa.Column('comparison_notes', sa.Text(), nullable=True),        # JSON trend notes
-        sa.Column('approved_for_clinical_use', sa.Boolean(), nullable=False, server_default='0'),
+        sa.Column('approved_for_clinical_use', sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column('clinician_reviewed_at', sa.DateTime(), nullable=True),
         sa.Column('clinician_reviewer_id', sa.String(36), nullable=True),
         sa.Column('clinician_amendments', sa.Text(), nullable=True),
@@ -166,10 +166,10 @@ def upgrade() -> None:
         sa.Column('flag_type', sa.String(60), nullable=False),          # "safety_concern"|"adverse_event_signal"|"urgent_symptom"|"medication_issue"
         sa.Column('extracted_text', sa.Text(), nullable=False),
         sa.Column('severity', sa.String(20), nullable=False, server_default='medium'),  # "low"|"medium"|"high"|"critical"
-        sa.Column('ai_generated', sa.Boolean(), nullable=False, server_default='1'),
+        sa.Column('ai_generated', sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column('reviewed_at', sa.DateTime(), nullable=True),
         sa.Column('reviewed_by', sa.String(36), nullable=True),
-        sa.Column('dismissed', sa.Boolean(), nullable=False, server_default='0'),
+        sa.Column('dismissed', sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column('created_at', sa.DateTime(), nullable=False),
         sa.ForeignKeyConstraint(['upload_id'], ['patient_media_uploads.id'], name='fk_media_red_flags_upload_id'),
         sa.ForeignKeyConstraint(['clinician_note_id'], ['clinician_media_notes.id'], name='fk_media_red_flags_clinician_note_id'),

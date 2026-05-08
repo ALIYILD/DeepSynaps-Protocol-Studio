@@ -46,7 +46,7 @@ def upgrade() -> None:
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("dose", sa.String(120), nullable=True),
         sa.Column("frequency", sa.String(120), nullable=True),
-        sa.Column("active", sa.Boolean(), nullable=False, server_default="1"),
+        sa.Column("active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("notes", sa.Text(), nullable=True),
         sa.Column("started_at", sa.String(20), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),

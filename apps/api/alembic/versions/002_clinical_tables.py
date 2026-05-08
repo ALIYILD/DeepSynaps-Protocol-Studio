@@ -30,7 +30,7 @@ def upgrade() -> None:
         sa.Column('referring_clinician', sa.String(255), nullable=True),
         sa.Column('insurance_provider', sa.String(120), nullable=True),
         sa.Column('insurance_number', sa.String(60), nullable=True),
-        sa.Column('consent_signed', sa.Boolean(), nullable=False, server_default='0'),
+        sa.Column('consent_signed', sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column('consent_date', sa.String(20), nullable=True),
         sa.Column('status', sa.String(30), nullable=False, server_default='active'),
         sa.Column('notes', sa.Text(), nullable=True),
