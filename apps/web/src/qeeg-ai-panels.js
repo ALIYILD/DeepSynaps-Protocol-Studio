@@ -23,6 +23,10 @@
 //     clinician for care decisions".
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Shared evidence-grade chip renderer (canonical mapping for backend grade
+// strings → coloured pill). See evidence-grade-chip.js for the catalogue.
+import { renderEvidenceGradeChip } from './evidence-grade-chip.js';
+
 // ── XSS escape (match pages-qeeg-analysis.js style) ─────────────────────────
 function esc(v) {
   if (v == null) return '';
@@ -532,12 +536,19 @@ function _renderProtocolBlock(pr, isPrimary) {
     ? '<span class="qeeg-ai-chip" style="--chip-color:' + confColor + '">confidence: '
       + esc(pr.confidence) + '</span>'
     : '';
+  // Evidence-grade chip surfaces the EV-A/B/C tier next to the confidence
+  // chip so clinicians can see at a glance whether the suggestion has FDA
+  // clearance, open-label support, or is purely investigational. Reference:
+  // AI go-live audit 2026-05-08 (#5).
+  var evidenceChip = pr.evidence_grade
+    ? '<span style="margin-left:6px">' + renderEvidenceGradeChip(pr.evidence_grade) + '</span>'
+    : '';
 
   return '<div class="qeeg-ai-protocol-card' + (isPrimary ? ' qeeg-ai-protocol-card--primary' : '') + '">'
     + '<div class="qeeg-ai-protocol-card__head">'
     + '<div class="qeeg-ai-protocol-card__title">'
     + esc(pr.primary_modality || 'Protocol') + ' — ' + esc(pr.target_region || '')
-    + '</div>' + headerBadge + '</div>'
+    + '</div>' + headerBadge + evidenceChip + '</div>'
     + rationale
     + doseRow
     + phaseTabs
