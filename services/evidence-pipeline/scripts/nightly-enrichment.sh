@@ -95,13 +95,18 @@ echo "[$(ts)] step 4/6 enrich_abstracts.py --retry-with-openalex"
 python3 enrich_abstracts.py --retry-with-openalex --limit "$ENRICH_BATCH"
 
 # 5. re-route paper_indications (clears existing rows for each slug + reroutes)
-echo "[$(ts)] step 5/6 route_indications.py --clear --top $ROUTE_TOP"
+echo "[$(ts)] step 5/7 route_indications.py --clear --top $ROUTE_TOP"
 python3 route_indications.py --clear --top "$ROUTE_TOP"
 
 # 6. re-extract paper-derived protocols. Trial extraction is a no-op
 #    here — interventions_json doesn't change between runs.
-echo "[$(ts)] step 6/6 extract_protocols.py --source papers"
+echo "[$(ts)] step 6/7 extract_protocols.py --source papers"
 python3 extract_protocols.py --source papers
+
+# 7. scan paper abstracts for NCT IDs and bridge papers ↔ trials.
+#    Idempotent (PRIMARY KEY on paper_id, nct_id) so re-runs are cheap.
+echo "[$(ts)] step 7/7 link_papers_to_trials.py"
+python3 link_papers_to_trials.py
 
 # Health summary
 echo "[$(ts)] HEALTH"
@@ -113,6 +118,8 @@ SELECT
   (SELECT COUNT(*) FROM papers WHERE abstract IS NOT NULL AND length(abstract) > 0) AS papers_w_abstract,
   (SELECT COUNT(*) FROM paper_indications)                                     AS paper_indications,
   (SELECT COUNT(*) FROM trial_indications)                                     AS trial_indications,
+  (SELECT COUNT(*) FROM paper_trial_links)                                     AS paper_trial_links,
+  (SELECT COUNT(*) FROM paper_trial_links WHERE trial_id IS NOT NULL)          AS pt_links_resolved,
   (SELECT COUNT(*) FROM protocols)                                             AS protocols_total,
   (SELECT COUNT(*) FROM protocols WHERE source_type='paper')                   AS protocols_from_papers,
   (SELECT COUNT(*) FROM protocols WHERE confidence='high')                     AS protocols_high_conf;
