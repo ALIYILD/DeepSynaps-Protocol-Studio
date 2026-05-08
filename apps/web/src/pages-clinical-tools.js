@@ -2,7 +2,7 @@
 // pages-clinical-tools.js — Secondary clinical tool pages (code-split)
 // Advanced Search · Benchmarks · Consent · Media · Dictation · Forms · etc.
 // ─────────────────────────────────────────────────────────────────────────────
-import { api, downloadBlob } from './api.js';
+import { api, downloadBlob, API_BASE } from './api.js';
 import { tag, spinner, emptyState, spark } from './helpers.js';
 import { FALLBACK_CONDITIONS } from './constants.js';
 import { loadResearchBundleOverview } from './research-bundle-overview.js';
@@ -1741,7 +1741,6 @@ export async function pgMediaReviewQueue(setTopbar) {
   const el = document.getElementById('content');
   if (!el) return;
 
-  const BASE  = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
   let _activeFilter = 'all';
   let _cachedItems  = [];
 
@@ -1751,7 +1750,7 @@ export async function pgMediaReviewQueue(setTopbar) {
     let loadErr = null;
     try {
       const token = api.getToken();
-      const r = await fetch(`${BASE}/api/v1/media/review-queue`, {
+      const r = await fetch(`${API_BASE}/api/v1/media/review-queue`, {
         headers: { Authorization: 'Bearer ' + token },
       });
       if (r.ok) {
@@ -1946,7 +1945,7 @@ export async function pgMediaReviewQueue(setTopbar) {
     try {
       const body = { action };
       if (reason) body.reason = reason;
-      const r = await fetch(`${BASE}/api/v1/media/review/${uploadId}/action`, {
+      const r = await fetch(`${API_BASE}/api/v1/media/review/${uploadId}/action`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + api.getToken() },
         body: JSON.stringify(body),
@@ -1964,7 +1963,7 @@ export async function pgMediaReviewQueue(setTopbar) {
     const src = window.event ? window.event.currentTarget || window.event.target : null;
     if (src) { src.disabled = true; src.textContent = 'Running\u2026'; }
     try {
-      const r = await fetch(`${BASE}/api/v1/media/review/${uploadId}/analyze`, {
+      const r = await fetch(`${API_BASE}/api/v1/media/review/${uploadId}/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + api.getToken() },
       });
@@ -2002,7 +2001,6 @@ export async function pgMediaDetail(setTopbar) {
   if (!el) return;
   el.innerHTML = spinner();
 
-  const BASE  = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
   const token = api.getToken();
   const esc   = s => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -2011,8 +2009,8 @@ export async function pgMediaDetail(setTopbar) {
 
   try {
     const [ur, ar] = await Promise.all([
-      fetch(`${BASE}/api/v1/media/patient/uploads/${uploadId}`, { headers: { Authorization: 'Bearer ' + token } }),
-      fetch(`${BASE}/api/v1/media/analysis/${uploadId}`,        { headers: { Authorization: 'Bearer ' + token } }),
+      fetch(`${API_BASE}/api/v1/media/patient/uploads/${uploadId}`, { headers: { Authorization: 'Bearer ' + token } }),
+      fetch(`${API_BASE}/api/v1/media/analysis/${uploadId}`,        { headers: { Authorization: 'Bearer ' + token } }),
     ]);
     if (ur.ok) upload = await ur.json();
     if (ar.ok) analysis = await ar.json(); // 404 handled gracefully
@@ -2244,7 +2242,7 @@ export async function pgMediaDetail(setTopbar) {
     try {
       const body = { action };
       if (reason) body.reason = reason;
-      const r = await fetch(`${BASE}/api/v1/media/review/${uploadId}/action`, {
+      const r = await fetch(`${API_BASE}/api/v1/media/review/${uploadId}/action`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify(body),
@@ -2261,7 +2259,7 @@ export async function pgMediaDetail(setTopbar) {
     const btn = document.getElementById('md-run-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Running\u2026'; }
     try {
-      const r = await fetch(`${BASE}/api/v1/media/review/${uploadId}/analyze`, {
+      const r = await fetch(`${API_BASE}/api/v1/media/review/${uploadId}/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
       });
@@ -2282,7 +2280,7 @@ export async function pgMediaDetail(setTopbar) {
     const approveBtn = document.querySelector('#md-analysis-panel button[onclick="_mdApproveDraft()"], #md-analysis-panel button[onclick="window._mdApproveDraft()"]');
     if (approveBtn) { approveBtn.disabled = true; approveBtn.textContent = 'Saving\u2026'; }
     try {
-      const r = await fetch(`${BASE}/api/v1/media/analysis/${uploadId}/approve`, {
+      const r = await fetch(`${API_BASE}/api/v1/media/analysis/${uploadId}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify({ chart_note_draft: soapDraft, clinician_amendments: amendments }),
@@ -2307,7 +2305,7 @@ export async function pgMediaDetail(setTopbar) {
     const saveBtn = document.getElementById('md-save-amend-btn');
     if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving\u2026'; }
     try {
-      const r = await fetch(`${BASE}/api/v1/media/analysis/${uploadId}/amend`, {
+      const r = await fetch(`${API_BASE}/api/v1/media/analysis/${uploadId}/amend`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify({ clinician_amendments: amendments, chart_note_draft: soapDraft }),
@@ -2329,7 +2327,6 @@ export async function pgClinicianDictation(setTopbar) {
   const el = document.getElementById('content');
   if (!el) return;
 
-  const BASE  = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
   const token = api.getToken();
 
   let _captureMode   = 'voice';
@@ -2562,7 +2559,7 @@ export async function pgClinicianDictation(setTopbar) {
       if (_captureMode === 'text') {
         const textContent = document.getElementById('dict-text-content')?.value?.trim();
         if (!textContent) throw new Error('Please enter a note.');
-        const r = await fetch(`${BASE}/api/v1/media/clinician/note/text`, {
+        const r = await fetch(`${API_BASE}/api/v1/media/clinician/note/text`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
           body: JSON.stringify({ patient_id: patientId, course_id: courseId, session_id: sessionId, note_type: noteType, text_content: textContent }),
@@ -2578,7 +2575,7 @@ export async function pgClinicianDictation(setTopbar) {
         if (courseId)  formData.append('course_id',  courseId);
         if (sessionId) formData.append('session_id', sessionId);
         formData.append('note_type', noteType);
-        const r = await fetch(`${BASE}/api/v1/media/clinician/note/audio`, {
+        const r = await fetch(`${API_BASE}/api/v1/media/clinician/note/audio`, {
           method: 'POST',
           headers: { Authorization: 'Bearer ' + token },
           body: formData,
@@ -2618,7 +2615,6 @@ export async function pgClinicianDraftReview(setTopbar) {
   const el = document.getElementById('content');
   if (!el) return;
 
-  const BASE  = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
   const token = api.getToken();
   const esc   = s => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -2718,7 +2714,7 @@ export async function pgClinicianDraftReview(setTopbar) {
     if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; }
 
     try {
-      const r = await fetch(`${BASE}/api/v1/media/clinician/draft/${draftId}/approve`, {
+      const r = await fetch(`${API_BASE}/api/v1/media/clinician/draft/${draftId}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify({

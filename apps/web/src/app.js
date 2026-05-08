@@ -1,4 +1,4 @@
-import { api } from './api.js';
+import { api, API_BASE } from './api.js';
 // Demo migration of the typed API client (ROI #4). The legacy `api.health()`
 // call below is intentionally left untouched and remains the source of
 // truth; the typed client runs in a non-blocking shadow call so we can
@@ -246,7 +246,6 @@ let _notifCount = 0;
 // duplicate toasts/badge increments after reconnects that replay events.
 const _seenNotifIds = new Set();
 
-const _API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 
 // ── Global error handlers ─────────────────────────────────────────────────────
 window.addEventListener('unhandledrejection', (e) => {
@@ -2314,7 +2313,7 @@ window._testNotif = function() {
   // Dispatch via backend so the notification flows through the SSE stream
   const token = api.getToken();
   if (token) {
-    fetch(`${_API_BASE}/api/v1/notifications/test?token=${encodeURIComponent(token)}`, { method: 'POST' })
+    fetch(`${API_BASE}/api/v1/notifications/test?token=${encodeURIComponent(token)}`, { method: 'POST' })
       .catch(() => {});
   }
   // Also trigger locally for instant feedback (handles case where SSE isn't up yet)
@@ -2341,7 +2340,7 @@ function connectSSE() {
     window._sseSource = null;
   }
 
-  const evtSource = new EventSource(`${_API_BASE}/api/v1/notifications/stream?token=${encodeURIComponent(token)}`);
+  const evtSource = new EventSource(`${API_BASE}/api/v1/notifications/stream?token=${encodeURIComponent(token)}`);
 
   evtSource.onopen = () => {
     _sseRetryDelay = 3000; // reset backoff on successful connection

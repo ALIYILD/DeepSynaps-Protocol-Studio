@@ -7,7 +7,7 @@
 //   3. AI Report        — AI interpretation + clinician review
 //   4. Compare          — pre/post comparison
 // ─────────────────────────────────────────────────────────────────────────────
-import { api, downloadBlob } from './api.js';
+import { api, downloadBlob, API_BASE } from './api.js';
 import { renderBrainMap10_20, renderTopoHeatmap, renderConnectivityMatrix, renderConnectivityBrainMap, renderConnectivityChordLite, renderICAComponents, renderWaveletHeatmap, renderChannelQualityMap, renderAsymmetryMap, renderPowerBarChart, renderTBRBarChart, renderSignalDeviationChart, renderBiomarkerGauges, renderBrodmannTable, render3DBrainMap, render3DBrainMapMini } from './brain-map-svg.js';
 import { emptyState, showToast, spark } from './helpers.js';
 import { DK_LOBES, groupROIsByLobe, formatDKLabel } from './qeeg-dk-atlas.js';
@@ -47,7 +47,6 @@ export {
   erpValidateEventMapping,
 } from './erp-event-mapping.js';
 
-const FUSION_API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const FUSION_TOKEN_KEY = 'ds_access_token';
 
 // Feature flag for the Contract V2 AI upgrade panels + buttons. Defaults to

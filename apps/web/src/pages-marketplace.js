@@ -34,10 +34,6 @@ function _mlEsc(v) {
     .replace(/'/g, '&#x27;');
 }
 
-function _mlApiBase() {
-  try { return import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'; }
-  catch { return 'http://127.0.0.1:8000'; }
-}
 
 // Founder contact — anchored to a single canonical email so the mailto links
 // stay in sync if it changes. No existing module exports this constant, so

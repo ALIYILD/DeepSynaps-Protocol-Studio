@@ -4,7 +4,6 @@ import os
 import re
 from typing import Any
 
-from anthropic import Anthropic
 from app.settings import get_settings
 
 _llm_log = logging.getLogger(__name__)
@@ -274,6 +273,7 @@ def _llm_chat(
                 exc,
             )
     if settings.anthropic_api_key:
+        from anthropic import Anthropic
         client = Anthropic(api_key=settings.anthropic_api_key)
         resp = client.messages.create(
             model=_anthropic_fallback_model(),
@@ -564,6 +564,7 @@ def _agent_llm_dispatch(
             return f"OpenAI error: {str(e)}"
 
     if provider == "anthropic" and settings.anthropic_api_key:
+        from anthropic import Anthropic
         client = Anthropic(api_key=settings.anthropic_api_key)
         response = client.messages.create(
             model=_anthropic_fallback_model(),
