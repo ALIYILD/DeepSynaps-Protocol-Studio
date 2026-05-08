@@ -3047,6 +3047,21 @@ function _demoBanner() {
     + 'Upload a real EDF/BDF/SET recording to run the live qEEG pipeline.</span></div>';
 }
 
+function _qeegCapabilitiesBadgeHtml(capStatus) {
+  if (!capStatus) return '';
+  var badges = [];
+  // Show pipeline status: active, demo, or unavailable
+  if (capStatus.pipeline_status === 'active') {
+    badges.push('<span class="badge" style="background:rgba(34,197,94,0.18);color:var(--green);font-size:11px;font-weight:700;padding:3px 8px;border-radius:12px">Pipeline: active</span>');
+  } else if (capStatus.pipeline_status === 'demo') {
+    badges.push('<span class="badge" style="background:rgba(251,191,36,0.18);color:var(--amber);font-size:11px;font-weight:700;padding:3px 8px;border-radius:12px">Pipeline: demo</span>');
+  } else if (capStatus.pipeline_status === 'unavailable') {
+    badges.push('<span class="badge" style="background:rgba(239,68,68,0.18);color:var(--red);font-size:11px;font-weight:700;padding:3px 8px;border-radius:12px">Pipeline: unavailable</span>');
+  }
+  if (badges.length === 0) return '';
+  return '<div style="display:flex;gap:8px;margin-top:6px;margin-bottom:8px">' + badges.join('') + '</div>';
+}
+
 // ── Clinical safety footer (always visible) ─────────────────────────────────
 // Audit requirement: disclaimers must be visible on the Analyzer page so a
 // reviewing clinician cannot miss them. These are static strings — they are
@@ -4847,6 +4862,23 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   el.innerHTML = pageHtml;
   _wireQEEGTabKeyboard();
   _qeegRestoreScroll(tab);
+
+  // Async: Fetch and render qEEG capabilities badge (pipeline status)
+  (async function _loadCapabilitiesBadge() {
+    try {
+      if (!api || typeof api.apiFetch !== 'function') return;
+      var capsResp = await api.apiFetch('/api/v1/qeeg/capabilities');
+      if (capsResp && capsResp.pipeline_status) {
+        var badgeHtml = _qeegCapabilitiesBadgeHtml(capsResp);
+        var heroDiv = document.querySelector('.qeeg-hero');
+        if (heroDiv && badgeHtml) {
+          var badgeContainer = document.createElement('div');
+          badgeContainer.innerHTML = badgeHtml;
+          heroDiv.insertAdjacentElement('afterend', badgeContainer.firstElementChild);
+        }
+      }
+    } catch (_) { /* non-fatal: capabilities badge is optional */ }
+  })();
 
   try {
     var _miHost = document.getElementById('ds-medical-image-card-qeeg-analysis');
