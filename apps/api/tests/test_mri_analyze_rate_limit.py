@@ -17,7 +17,7 @@ from app.routers import mri_analysis_router as m
 
 
 def test_analyze_mri_decorated_with_rate_limit() -> None:
-    src = inspect.getsource(m.analyze_mri)
+    _src = inspect.getsource(m.analyze_mri)
     # The @limiter.limit decorator binds before @router.post, so
     # inspect.getsource on the route handler (router.post returns
     # the original function unchanged) should still show the

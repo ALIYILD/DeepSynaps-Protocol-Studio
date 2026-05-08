@@ -161,7 +161,7 @@ def test_patient_create_and_patch_session(client: TestClient, auth_headers: dict
     )
     assert r.status_code == 201, r.text
     doc = r.json()
-    sid = doc["id"]
+    _sid = doc["id"]
     assert doc["protocol_name"]
     assert len(doc["tasks"]) == 16
     assert doc.get("clinical_context", {}).get("preset_id") == "parkinsonism_followup"

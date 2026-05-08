@@ -571,7 +571,7 @@ class TestShare:
         assert "symptom_journal.entry_shared_to_clinician" in actions
 
         # The clinician filter on actor scope sees the clinician-target row.
-        clin_rows = client.get(
+        clin_rows = client.get(  # noqa: F841  # call exercises clinician-scope path; assertion below uses admin_rows
             "/api/v1/audit-trail?surface=symptom_journal",
             headers=auth_headers["clinician"],
         ).json()["items"]

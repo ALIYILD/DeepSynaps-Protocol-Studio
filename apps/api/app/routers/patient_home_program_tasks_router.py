@@ -666,7 +666,6 @@ def get_summary(
     rows = _list_tasks_for_patient(db, patient)
     now = datetime.now(timezone.utc)
     today = now.date()
-    today_str = today.isoformat()
     week_cutoff = now - timedelta(days=7)
 
     # Build a quick set of completed server_task_ids to avoid N queries.

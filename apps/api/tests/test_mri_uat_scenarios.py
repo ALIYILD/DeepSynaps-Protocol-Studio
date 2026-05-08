@@ -439,7 +439,7 @@ def test_phi_scrutury_timeline_no_patient_name(
     auth_headers: dict,
 ) -> None:
     """Timeline events must reference patient_id only, never patient name."""
-    analysis_id = _seed_analysis(
+    _seed_analysis(
         client,
         auth_headers,
         structural_json={},

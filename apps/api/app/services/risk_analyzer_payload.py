@@ -577,8 +577,8 @@ def _merge_relapse_adherence(clinical_scores: dict[str, Any]) -> dict:
     else:
         adh_d = {}
 
-    rv = _safe_float(rel_v if rel_v is not None else rel_d.get("value"))
-    av = _safe_float(adh_v if adh_v is not None else adh_d.get("value"))
+    _rv = _safe_float(rel_v if rel_v is not None else rel_d.get("value"))
+    _av = _safe_float(adh_v if adh_v is not None else adh_d.get("value"))
     msg_parts = []
     if rel_d.get("message"):
         msg_parts.append(str(rel_d["message"]))

@@ -156,7 +156,7 @@ def test_data_privacy_create_export_decorator_order_pins_limiter_innermost() -> 
     import inspect
     from app.routers import data_privacy_router
 
-    src = inspect.getsource(data_privacy_router.create_export)
+    _src = inspect.getsource(data_privacy_router.create_export)
     # Walk back to the source lines preceding the def to find the
     # decorator order in original file order.
     file_src = inspect.getsource(data_privacy_router)
