@@ -13,6 +13,7 @@
 
 import { t } from '../i18n.js';
 import { setTopbar, spinner } from './_shared.js';
+import { isDemoSession } from '../demo-session.js';
 import {
   _fetchPatientReportsBundle,
   _normalizeDocs,
@@ -181,6 +182,62 @@ function _wearableSummaryCard(rows) {
 }
 
 /**
+ * Render the Advanced Analyzers tab body.
+ *
+ * Default state: a "Coming soon" tile with a chip row listing the
+ * planned analyzer surfaces (qEEG / MRI / Voice / Text / Movement).
+ *
+ * Demo mode (`isDemoSession()` true): non-interactive synthetic preview
+ * cards that no-op on click and show a tooltip explaining they are
+ * demo previews. Mirrors the precedent at pages-clinical-tools.js:5803
+ * where the demo build surfaces synthetic content rather than the
+ * empty error state.
+ */
+function _analyzersPanel() {
+  const planned = ['qEEG', 'MRI', 'Voice', 'Text', 'Movement'];
+
+  if (isDemoSession()) {
+    const previews = [
+      { kind: 'qEEG',     age: '14-day-old', state: 'ready to view' },
+      { kind: 'MRI',      age: '4-week-old', state: 'awaiting review' },
+      { kind: 'Voice',    age: '7-day-old',  state: 'analysed' },
+      { kind: 'Text',     age: '3-day-old',  state: 'analysed' },
+      { kind: 'Movement', age: '2-day-old',  state: 'pending review' },
+    ];
+    return `
+      <div class="pt-hr-tab-body">
+        <div class="pt-demo-banner" role="status"
+             style="margin-bottom:12px;padding:10px 14px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;font-size:12.5px;color:#9a3412">
+          <strong>DEMO data</strong> — synthetic analyzer previews. These cards do not link to live analyzers.
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
+          ${previews.map(p => `
+            <div class="pt-doc-card pt-hr-analyzer-preview" data-analyzer="${esc(p.kind)}"
+                 style="cursor:not-allowed;opacity:0.85;padding:14px 16px;border-radius:12px;border:1px solid rgba(255,255,255,0.08)"
+                 title="Demo preview — wires to live ${esc(p.kind)} analyzer post-launch"
+                 onclick="event.preventDefault(); return false;">
+              <div style="font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--teal,#00d4bc);margin-bottom:6px">
+                ${esc(p.kind)}
+              </div>
+              <div style="font-size:14px;font-weight:600;color:var(--text-primary)">${esc(p.kind)} · ${esc(p.age)}</div>
+              <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">${esc(p.state)}</div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }
+
+  return `
+    <div class="pt-docs-empty">
+      <div class="pt-docs-empty-icon">&#128344;</div>
+      <div class="pt-docs-empty-title">${esc(t('patient.health_reports.coming_soon'))}</div>
+      <div class="pt-docs-empty-body">${esc(t('patient.health_reports.empty.analyzers'))}</div>
+      <div class="pt-hr-analyzer-chips" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:14px">
+        ${planned.map(p => `<span class="pt-doc-chip" style="font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid rgba(255,255,255,0.1)">${esc(p)}</span>`).join('')}
+      </div>
+    </div>`;
+}
+
+/**
  * Render the Biometrics & Wearables tab body. Wearable summary card on
  * top; weekly biometric snapshot doc cards just below (these are the
  * `category === 'biometrics'` docs synthesised by `_normalizeDocs`).
@@ -261,7 +318,7 @@ export async function pgPatientHealthReports() {
 
   const panels = [
     _panel('outcomes',   _outcomesPanel(docs, ctx, _consentActive), true),
-    _panel('analyzers',  _emptyTile(t('patient.health_reports.empty.analyzers'))),
+    _panel('analyzers',  _analyzersPanel()),
     _panel('biometrics', _biometricsPanel(docs, ctx, bundle.wearableSummary, _consentActive)),
     _panel('documents',  _documentsPanel(docs, ctx)),
   ].join('');

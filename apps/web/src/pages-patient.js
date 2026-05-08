@@ -2553,6 +2553,21 @@ export async function pgPatientReports() {
   const el = document.getElementById('patient-content');
   el.innerHTML = spinner();
 
+  // ── Moved-to-Health-Reports banner ───────────────────────────────────────
+  // Non-dismissable info banner pointing patients to the new v2 page.
+  // Rendered as the very first child of the content innerHTML in BOTH the
+  // empty-state and the populated render below, so the redirect surface is
+  // consistent regardless of whether the patient has any docs.
+  const _legacyMovedBanner = `
+    <div role="status" aria-live="polite" data-testid="pt-reports-legacy-moved"
+         style="margin-bottom:12px;padding:12px 16px;background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.25);border-radius:10px;font-size:13px;color:var(--text-primary);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <span>${t('patient.health_reports.legacy_banner')}</span>
+      <button class="btn btn-ghost btn-sm"
+              onclick="window._navPatient && window._navPatient('patient-health-reports')">
+        ${t('patient.health_reports.legacy_banner_cta')} &rarr;
+      </button>
+    </div>`;
+
   // ── Fetch in parallel ────────────────────────────────────────────────────
   // 3s timeout so a hung Fly backend can never wedge the page on a spinner.
   const _timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
@@ -2977,6 +2992,7 @@ export async function pgPatientReports() {
   // ── Empty state ──────────────────────────────────────────────────────────
   if (docs.length === 0) {
     el.innerHTML = `
+      ${_legacyMovedBanner}
       <div class="pt-docs-empty">
         <div class="pt-docs-empty-icon">&#9649;</div>
         <div class="pt-docs-empty-title">${t('patient.reports.empty.title')}</div>
@@ -3485,6 +3501,7 @@ export async function pgPatientReports() {
 
   el.innerHTML = `
     <div class="pt-docs-wrap">
+      ${_legacyMovedBanner}
       ${_patientReportsDemoBanner}
       ${_patientReportsConsentBanner}
       ${_patientReportsOfflineBanner}
