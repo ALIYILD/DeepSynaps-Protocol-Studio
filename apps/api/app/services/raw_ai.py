@@ -41,7 +41,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.persistence.models import AutoCleanRun, CleaningDecision
+from app.persistence.models import AutoCleanRun, CleaningDecision, QeegCleaningAnnotation
 
 _log = logging.getLogger(__name__)
 
@@ -264,6 +264,100 @@ def _load_cleaning_snapshot(analysis_id: str, db: Session) -> dict[str, Any]:
             "Compare raw vs cleaned to verify what changed before re-running. "
             "Original raw EEG remains untouched."
         ),
+    }
+
+
+def _normalize_decision_status(value: Any) -> str:
+    status = str(value or "").strip().lower()
+    if status in {"accepted", "rejected", "suggested", "needs_review"}:
+        return status
+    if status in {"review", "needs review", "needs-review"}:
+        return "needs_review"
+    if status in {"accept", "approve"}:
+        return "accepted"
+    if status in {"reject", "dismiss", "discard"}:
+        return "rejected"
+    return "suggested"
+
+
+def _ai_suggestion_key(row: QeegCleaningAnnotation) -> str:
+    payload = row.payload_json or "{}"
+    try:
+        data = json.loads(payload)
+    except (TypeError, ValueError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    raw_key = data.get("suggestion_key") or data.get("ai_label") or data.get("label")
+    if raw_key:
+        return str(raw_key)
+    parts = [
+        getattr(row, "analysis_id", "") or "",
+        getattr(row, "kind", "") or "",
+        getattr(row, "channel", "") or "",
+        f"{getattr(row, 'start_sec', None)}",
+        f"{getattr(row, 'end_sec', None)}",
+    ]
+    return "|".join(parts)
+
+
+def load_ai_suggestion_decision_state(analysis_id: str, db: Session) -> dict[str, Any]:
+    """Group AI suggestion annotations into accepted/rejected/pending buckets."""
+    rows = (
+        db.query(QeegCleaningAnnotation)
+        .filter(
+            QeegCleaningAnnotation.analysis_id == analysis_id,
+            QeegCleaningAnnotation.kind == "ai_suggestion",
+        )
+        .order_by(QeegCleaningAnnotation.created_at.asc())
+        .all()
+    )
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        key = _ai_suggestion_key(row)
+        try:
+            payload = json.loads(row.payload_json or "{}")
+        except (TypeError, ValueError):
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        status = _normalize_decision_status(row.decision_status or payload.get("decision_status"))
+        item = grouped.setdefault(
+            key,
+            {
+                "suggestion_key": key,
+                "ai_label": payload.get("ai_label") or row.label or "suggestion",
+                "channel": row.channel,
+                "start_sec": row.start_sec,
+                "end_sec": row.end_sec,
+                "decision_status": status,
+                "accepted_by_user": row.accepted_by_user,
+                "latest_note": row.note,
+            },
+        )
+        item["decision_status"] = status
+        item["accepted_by_user"] = row.accepted_by_user
+        item["latest_note"] = row.note or item.get("latest_note")
+
+    items = list(grouped.values())
+    decision_counts = {"suggested": 0, "accepted": 0, "rejected": 0}
+    for item in items:
+        status = _normalize_decision_status(item.get("decision_status"))
+        if status in decision_counts:
+            decision_counts[status] += 1
+    total = len(items)
+    accepted_count = decision_counts["accepted"]
+    rejected_count = decision_counts["rejected"]
+    pending_count = max(0, total - accepted_count - rejected_count)
+    return {
+        "analysis_id": analysis_id,
+        "total_suggestions": total,
+        "decision_counts": decision_counts,
+        "pending_count": pending_count,
+        "accepted_count": accepted_count,
+        "rejected_count": rejected_count,
+        "decisions_logged": len(rows),
+        "items": items,
     }
 
 
@@ -1179,6 +1273,7 @@ def copilot_assist_bundle(analysis_id: str, db: Session) -> dict[str, Any]:
 
 
 __all__ = [
+    "load_ai_suggestion_decision_state",
     "quality_score",
     "auto_clean_propose",
     "explain_bad_channel",

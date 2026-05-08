@@ -37,6 +37,7 @@ from app.persistence.models import (
     QeegCleaningVersion,
 )
 from app.repositories.patients import resolve_patient_clinic_id
+from app.services.raw_ai import load_ai_suggestion_decision_state
 
 _log = logging.getLogger(__name__)
 
@@ -71,6 +72,10 @@ class CleaningLogItem(BaseModel):
     action_type: str
     target: Optional[str] = None
     accepted_by_user: Optional[bool] = None
+    decision_status: Optional[str] = None
+    source: Optional[str] = None
+    ai_label: Optional[str] = None
+    suggestion_key: Optional[str] = None
     confidence: Optional[float] = None
     created_at: Optional[str] = None
 
@@ -79,6 +84,7 @@ class CleaningLogItem(BaseModel):
 class CleaningLogResponse(BaseModel):
     analysis_id: str
     items: list[CleaningLogItem] = Field(default_factory=list)
+    suggestion_state: dict[str, Any] = Field(default_factory=dict)
 
 
 # core-schema-exempt: workbench-only header block; PHI fields are
@@ -408,6 +414,27 @@ def _require_mne() -> None:
             message="EEG signal service unavailable",
             status_code=503,
         )
+
+
+def _audit_event_decision_payload(row: QeegCleaningAuditEvent) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    try:
+        raw = json.loads(row.new_value_json or "{}")
+        if isinstance(raw, dict):
+            payload = raw
+    except (TypeError, ValueError):
+        payload = {}
+    status = str(payload.get("decision_status") or "").strip().lower()
+    if not status and row.action_type == "ai_suggestion:generated":
+        status = "suggested"
+    if status not in {"accepted", "rejected", "suggested"}:
+        status = "suggested"
+    return {
+        "decision_status": status,
+        "source": payload.get("source") or row.source,
+        "ai_label": payload.get("ai_label"),
+        "suggestion_key": payload.get("suggestion_key") or payload.get("suggestion_id"),
+    }
 
 
 # ── Endpoint 0: Lightweight metadata (no MNE) ──────────────────────────────
@@ -890,22 +917,39 @@ def get_cleaning_log(
         .order_by(QeegCleaningAuditEvent.created_at.desc())
         .all()
     )
-    items = [
-        CleaningLogItem(
-            id=r.id,
-            actor_id=r.actor_id or "unknown",
-            action_type=r.action_type,
-            target=(
-                r.channel
-                or (f"{r.start_sec}-{r.end_sec}" if r.start_sec is not None or r.end_sec is not None else None)
-            ),
-            accepted_by_user=None,
-            confidence=None,
-            created_at=r.created_at.isoformat() if r.created_at else None,
+    items: list[CleaningLogItem] = []
+    for r in rows:
+        payload = _audit_event_decision_payload(r)
+        decision_status = payload["decision_status"]
+        items.append(
+            CleaningLogItem(
+                id=r.id,
+                actor_id=r.actor_id or "unknown",
+                action_type=r.action_type,
+                target=(
+                    r.channel
+                    or (
+                        f"{r.start_sec}-{r.end_sec}"
+                        if r.start_sec is not None or r.end_sec is not None
+                        else None
+                    )
+                ),
+                accepted_by_user=(
+                    True if decision_status == "accepted" else False if decision_status == "rejected" else None
+                ),
+                decision_status=decision_status,
+                source=payload["source"],
+                ai_label=payload["ai_label"],
+                suggestion_key=payload["suggestion_key"],
+                confidence=None,
+                created_at=r.created_at.isoformat() if r.created_at else None,
+            )
         )
-        for r in rows
-    ]
-    return CleaningLogResponse(analysis_id=analysis_id, items=items)
+    return CleaningLogResponse(
+        analysis_id=analysis_id,
+        items=items,
+        suggestion_state=load_ai_suggestion_decision_state(analysis_id, db),
+    )
 
 
 # ── Endpoint 1: Channel Info ────────────────────────────────────────────────

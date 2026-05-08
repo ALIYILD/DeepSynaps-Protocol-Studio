@@ -3414,6 +3414,14 @@ function renderAIPanel(state) {
   const bundle = state.copilotBundle?.data || state.copilotBundle?.result || state.copilotBundle || null;
   const sections = Array.isArray(bundle?.assistant_sections) ? bundle.assistant_sections : [];
   const compare = bundle?.compare_summary || state.rawCleanedSummary || null;
+  const decisionState = bundle?.suggestion_decision_state || null;
+  const decisionTotal = Number(decisionState?.total_suggestions || 0);
+  const decisionAccepted = Number((decisionState?.decision_counts && decisionState.decision_counts.accepted) ?? decisionState?.accepted_count ?? 0);
+  const decisionRejected = Number((decisionState?.decision_counts && decisionState.decision_counts.rejected) ?? decisionState?.rejected_count ?? 0);
+  const decisionPending = Number(decisionState?.pending_count || 0);
+  const decisionReviewed = Math.max(0, decisionAccepted + decisionRejected);
+  const decisionAcceptanceRate = decisionTotal > 0 ? Math.round((decisionAccepted / decisionTotal) * 100) : 0;
+  const decisionReviewRate = decisionTotal > 0 ? Math.round((decisionReviewed / decisionTotal) * 100) : 0;
   return `
     <div class="qwb-side-section">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -3429,6 +3437,23 @@ function renderAIPanel(state) {
       <div class="qwb-ai-banner">
         AI-assisted suggestion only. Clinician confirmation required before any cleaning is applied.
       </div>
+      ${decisionState ? `
+        <div class="qwb-card" data-testid="qwb-ai-decision-state" style="margin:10px 0 12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+            <div>
+              <div style="font-weight:600;font-size:12px">Suggestion decision state</div>
+              <div style="font-size:10px;color:#6b6660;margin-top:2px">Tracks accepted, rejected, and pending AI suggestions from the audit trail.</div>
+            </div>
+            <span class="qwb-bp-pill" style="background:#fff;color:#3a3633">${esc(String(decisionState.total_suggestions || 0))} suggestions</span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+            <span class="qwb-bp-pill" style="background:#fff;color:#3a3633">Accepted ${esc(String(decisionAccepted))}</span>
+            <span class="qwb-bp-pill" style="background:#fff;color:#3a3633">Rejected ${esc(String(decisionRejected))}</span>
+            <span class="qwb-bp-pill" style="background:#fff;color:#3a3633">Pending ${esc(String(decisionPending))}</span>
+            <span class="qwb-bp-pill" style="background:#fff;color:#3a3633">Acceptance rate ${esc(String(decisionAcceptanceRate))}%</span>
+            <span class="qwb-bp-pill" style="background:#fff;color:#3a3633">Review coverage ${esc(String(decisionReviewRate))}%</span>
+          </div>
+        </div>` : ''}
       ${sections.length ? `
         <div style="display:grid;grid-template-columns:1fr;gap:8px;margin:10px 0 12px">
           ${sections.map(section => {
@@ -3455,7 +3480,10 @@ function renderAIPanel(state) {
               <div style="font-weight:600;font-size:12px">Compare snapshot</div>
               <div style="font-size:10px;color:#6b6660;margin-top:2px">Use the compare modal to verify the exact cleaning delta before re-running.</div>
             </div>
-            <button class="qwb-side-btn" id="qwb-compare" title="Raw vs Cleaned">Open</button>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+              <button class="qwb-side-btn" id="qwb-compare" title="Raw vs Cleaned">Inspect</button>
+              <button class="qwb-side-btn" id="qwb-compare-promote" ${compare?.latest_version_number ? '' : 'disabled'} title="Promote compare snapshot into the current session">Promote</button>
+            </div>
           </div>
           <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
             <span class="qwb-bp-pill" style="background:#fff;color:#3a3633">Retained ${esc(String(compare.retained_data_pct ?? compare.retainedPct ?? '—'))}%</span>
@@ -3478,9 +3506,9 @@ function renderAIPanel(state) {
           </div>
           <div style="font-size:11px;color:#1a1a1a;margin-bottom:8px;line-height:1.4">${esc(s.explanation||'')}</div>
           <div style="display:flex;gap:6px">
-            <button class="qwb-side-btn" data-ai-decision="accepted" data-ai-id="${esc(s.id)}">Accept</button>
-            <button class="qwb-side-btn" data-ai-decision="rejected" data-ai-id="${esc(s.id)}">Dismiss</button>
-            <button class="qwb-side-btn" data-ai-decision="needs_review" data-ai-id="${esc(s.id)}">Review</button>
+            <button class="qwb-side-btn" data-ai-action="accept" data-ai-id="${esc(s.id)}">Accept</button>
+            <button class="qwb-side-btn" data-ai-action="reject" data-ai-id="${esc(s.id)}">Reject</button>
+            <button class="qwb-side-btn" data-ai-action="inspect" data-ai-id="${esc(s.id)}">Inspect</button>
           </div>
           <div style="font-size:10px;color:#6b6660;margin-top:6px">Status: ${esc(s.decision_status||'suggested')}</div>
         </div>`;
@@ -5121,6 +5149,18 @@ function attachManualAnalysisHandlers(state) {
 function attachAIPanelHandlers(state) {
   document.getElementById('qwb-ai-generate')?.addEventListener('click', () => generateAISuggestions(state));
   document.getElementById('qwb-ai-accept-all')?.addEventListener('click', () => acceptAllAI(state, state.aiThreshold ?? 0.7));
+  document.getElementById('qwb-compare')?.addEventListener('click', () => loadRawVsCleaned(state));
+  document.getElementById('qwb-compare-promote')?.addEventListener('click', () => promoteCompareSnapshot(state));
+  document.querySelectorAll('#qwb-right-body [data-ai-action]').forEach(b => {
+    b.addEventListener('click', () => {
+      const id = b.dataset.aiId;
+      const action = b.dataset.aiAction;
+      if (!id || !action) return;
+      if (action === 'inspect') inspectAISuggestion(state, id);
+      else if (action === 'accept') recordAIDecision(state, id, 'accepted');
+      else if (action === 'reject') recordAIDecision(state, id, 'rejected');
+    });
+  });
   document.querySelectorAll('#qwb-right-body [data-ai-decision]').forEach(b => {
     b.addEventListener('click', () => recordAIDecision(state, b.dataset.aiId, b.dataset.aiDecision));
   });
@@ -5737,6 +5777,44 @@ async function generateAISuggestions(state) {
   }
 }
 
+function inspectAISuggestion(state, suggestionId) {
+  const sugg = (state.aiSuggestions || []).find(s => s.id === suggestionId);
+  if (!sugg) return;
+  state.aiInspectId = suggestionId;
+  if (sugg.channel) state.selectedChannel = sugg.channel;
+  if (sugg.start_sec != null) {
+    const tb = state.timebase || 10;
+    state.windowStart = Math.max(0, Math.floor(Math.max(0, sugg.start_sec) - tb / 2));
+  }
+  state.rightTab = 'manual';
+  state.saveStatus = `Inspecting AI suggestion ${suggestionId}`;
+  renderRightPanel(state);
+  redrawCanvas(state);
+  renderStatusBar(state);
+}
+
+function promoteCompareSnapshot(state) {
+  const compare = state.copilotBundle?.result?.compare_summary
+    || state.copilotBundle?.compare_summary
+    || state.rawCleanedSummary
+    || null;
+  if (!compare) return;
+  if (compare.latest_version_number != null || compare.latest_version_id != null) {
+    state.cleaningVersion = {
+      ...(state.cleaningVersion || {}),
+      id: compare.latest_version_id || state.cleaningVersion?.id || null,
+      version_number: compare.latest_version_number ?? state.cleaningVersion?.version_number ?? null,
+      review_status: compare.review_status || state.cleaningVersion?.review_status || 'draft',
+    };
+  }
+  state.rawCleanedSummary = compare;
+  state.saveStatus = compare.latest_version_number != null
+    ? `Compare snapshot promoted to Cleaning Version v${compare.latest_version_number}`
+    : 'Compare snapshot promoted to session view';
+  renderRightPanel(state);
+  renderStatusBar(state);
+}
+
 async function acceptAllAI(state, threshold) {
   for (const s of (state.aiSuggestions || [])) {
     if ((s.ai_confidence || 0) >= threshold && (s.decision_status || 'suggested') === 'suggested') {
@@ -5749,6 +5827,7 @@ export async function recordAIDecision(state, suggestionId, decision) {
   const sugg = (state.aiSuggestions || []).find(s => s.id === suggestionId);
   if (!sugg) return;
   sugg.decision_status = decision;
+  sugg.decision_state = decision;
   if (decision === 'accepted') markDirty(state);
   await postAnnotation(state, {
     kind: 'ai_suggestion',
