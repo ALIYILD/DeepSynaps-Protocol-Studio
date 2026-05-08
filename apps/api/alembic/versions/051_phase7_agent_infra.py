@@ -204,7 +204,7 @@ def upgrade() -> None:
                 "processed",
                 sa.Boolean(),
                 nullable=False,
-                server_default=sa.text("1"),
+                server_default=sa.text("true"),
             ),
         )
         op.create_index(
@@ -228,7 +228,7 @@ def upgrade() -> None:
                 "enabled",
                 sa.Boolean(),
                 nullable=False,
-                server_default=sa.text("1"),
+                server_default=sa.text("true"),
                 index=True,
             ),
             sa.Column("created_at", sa.DateTime(), nullable=False),

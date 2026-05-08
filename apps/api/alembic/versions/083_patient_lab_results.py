@@ -42,7 +42,7 @@ def upgrade() -> None:
         sa.Column("ref_text", sa.String(255), nullable=True),
         sa.Column("sample_collected_at", sa.DateTime(), nullable=True),
         sa.Column("source", sa.String(32), nullable=False, server_default="manual"),
-        sa.Column("is_demo", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("is_demo", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
     )

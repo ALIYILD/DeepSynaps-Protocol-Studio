@@ -60,7 +60,7 @@ def upgrade() -> None:
         sa.Column("model_used", sa.String(64), nullable=True),
         sa.Column("prompt_hash", sa.String(64), nullable=True),
         sa.Column("confidence_note", sa.Text(), nullable=True),
-        sa.Column("clinician_reviewed", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("clinician_reviewed", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("clinician_amendments", sa.Text(), nullable=True),
         sa.Column("reviewed_at", sa.DateTime(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),

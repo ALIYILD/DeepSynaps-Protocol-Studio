@@ -91,7 +91,7 @@ def upgrade() -> None:
             "opted_in",
             sa.Boolean(),
             nullable=False,
-            server_default=sa.text("0"),
+            server_default=sa.text("false"),
         ),
         sa.Column(
             "preferred_channel",
