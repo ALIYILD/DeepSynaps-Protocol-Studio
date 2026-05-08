@@ -47,7 +47,13 @@ MODALITY_PRODUCT_CODES = {
     "rTMS":   ["OBP"],
     "dTMS":   ["OBP"],
 
-    # Unverified: RNS, DRG, SNM, PNS, tDCS, MRgFUS, BAT, REN.
+    # MRgFUS (brain-only) — OYJ = "Stereotactic Ablation System, MR-Image Guided",
+    # QBV = "System, Image-Guided Neurosurgical Lesioning". Without this filter,
+    # an Insightec applicant search pulls in their pelvic / breast / prostate
+    # ultrasound systems (codes PLP, MOS) which are NOT neuromodulation.
+    "MRgFUS": ["OYJ", "QBV"],
+
+    # Unverified: RNS, DRG, SNM, PNS, tDCS, BAT, REN.
     # ingest.py skips FDA lookup for these until codes are confirmed.
 }
 
