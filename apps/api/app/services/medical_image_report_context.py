@@ -51,17 +51,44 @@ def _read_sidecar_safe(path: Path) -> Optional[dict[str, Any]]:
 
 
 def load_latest_medical_image_for_patient(
-    patient_id: str, *, media_storage_root: str
+    patient_id: str,
+    *,
+    media_storage_root: str,
+    db: Any = None,
 ) -> Optional[dict]:
-    """Return the most recent sidecar dict whose ``patient_id`` matches.
+    """Return the most recent imaging sidecar-shaped dict for the patient.
 
-    Reads ``<media_storage_root>/medical_image_previews/<image_id>/
-    sidecar.json``. Returns ``None`` when the directory does not exist or no
-    sidecar matches. Never raises on missing dir / unreadable sidecar — the
-    bad sidecar is logged and skipped.
+    Migration 098 (DB-backed ``MedicalImageAsset``): when ``db`` is given,
+    the DB row wins (fast indexed query, multi-tenant scope correct). When
+    no DB row matches OR ``db`` is omitted, falls back to scanning
+    ``<media_storage_root>/medical_image_previews/<image_id>/sidecar.json``
+    so legacy uploads that pre-date the migration still resolve.
+
+    Returns ``None`` when neither path produces a match. Never raises on
+    missing dir / unreadable sidecar — the bad sidecar is logged and
+    skipped.
     """
     if not patient_id:
         return None
+
+    if db is not None:
+        try:
+            from app.repositories.medical_images import (
+                asset_to_sidecar_dict,
+                latest_medical_image_for_patient,
+            )
+
+            row = latest_medical_image_for_patient(db, patient_id)
+            if row is not None:
+                return asset_to_sidecar_dict(row)
+        except Exception as exc:  # pragma: no cover — defensive
+            _log.info(
+                "medical_image_report_context: DB lookup failed for %s (%s) — "
+                "falling back to sidecar scan",
+                patient_id,
+                exc,
+            )
+
     root = _previews_root(media_storage_root)
     if not root.exists() or not root.is_dir():
         return None
@@ -191,6 +218,11 @@ def attach_medical_image_context_to_payload(
     pre-attached. Never includes diagnostic claims; sets ``available=false``
     when no imaging exists.
 
+    When ``db`` is provided, the DB-backed ``MedicalImageAsset`` row wins
+    (migration 098); on miss or DB-less callers, the helper falls back to
+    the legacy sidecar scan so previews uploaded before migration 098 still
+    resolve.
+
     Audit emission: when ``db`` and ``actor`` are both supplied AND a
     non-empty (``available=True``) imaging block is freshly attached, emits
     a ``medical_image.used_in_report`` audit event. Legacy callers that
@@ -213,7 +245,7 @@ def attach_medical_image_context_to_payload(
     if patient_id:
         try:
             sidecar = load_latest_medical_image_for_patient(
-                patient_id, media_storage_root=media_root
+                patient_id, media_storage_root=media_root, db=db
             )
         except Exception as exc:  # pragma: no cover — defensive
             _log.warning(
@@ -253,7 +285,7 @@ def attach_medical_image_context_to_payload(
 
 
 def build_qeeg_cross_modal_section(
-    patient_id: Optional[str], *, settings=None
+    patient_id: Optional[str], *, settings=None, db: Any = None
 ) -> dict:
     """Return cross-modal availability flags for the qEEG report layer.
 
@@ -265,6 +297,9 @@ def build_qeeg_cross_modal_section(
     explicitly states the MRI was NOT used to infer the qEEG findings —
     the cross-reference is a clinician-review handoff, not a diagnostic
     claim.
+
+    Migration 098: when ``db`` is given, prefers the DB-backed
+    ``MedicalImageAsset`` row; falls back to the sidecar scan otherwise.
     """
     cfg = _resolve_settings(settings)
     media_root = getattr(cfg, "media_storage_root", None) or "./media_uploads"
@@ -273,7 +308,7 @@ def build_qeeg_cross_modal_section(
     if patient_id:
         try:
             sidecar = load_latest_medical_image_for_patient(
-                patient_id, media_storage_root=media_root
+                patient_id, media_storage_root=media_root, db=db
             )
         except Exception as exc:  # pragma: no cover — defensive
             _log.warning(
