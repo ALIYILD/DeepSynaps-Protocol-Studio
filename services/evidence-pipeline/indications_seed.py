@@ -197,9 +197,18 @@ SEED = [
         "condition": "Urge incontinence, urinary retention, fecal incontinence",
         "grade": "A",
         "regulatory": "FDA-approved 1997/1999/2011",
-        "pubmed_q": '("sacral neuromodulation"[Title/Abstract] OR "sacral nerve stimulation"[Title/Abstract] OR InterStim[Title/Abstract])',
-        "broad_q": '"sacral neuromodulation"',
-        "trial_q": '"sacral neuromodulation"',
+        # Tightened on 2026-05-08: prior query (modality terms only) routed
+        # ~50% noise — papers about SNM for unrelated indications. The bladder/
+        # bowel slug must AND with the actual condition surface.
+        "pubmed_q": (
+            '("sacral neuromodulation"[Title/Abstract] OR "sacral nerve stimulation"[Title/Abstract] OR InterStim[Title/Abstract]) '
+            'AND (bladder[Title/Abstract] OR bowel[Title/Abstract] OR incontinence[Title/Abstract] '
+            'OR "urinary retention"[Title/Abstract] OR "lower urinary"[Title/Abstract] '
+            'OR "overactive bladder"[Title/Abstract] OR "fecal incontinence"[Title/Abstract] '
+            'OR LUTS[Title/Abstract] OR pelvic[Title/Abstract])'
+        ),
+        "broad_q": '"sacral neuromodulation" AND (bladder OR bowel OR incontinence)',
+        "trial_q": '"sacral neuromodulation" AND (bladder OR bowel OR incontinence)',
         "fda_applicants": ["Medtronic", "Axonics"],
     },
     {
