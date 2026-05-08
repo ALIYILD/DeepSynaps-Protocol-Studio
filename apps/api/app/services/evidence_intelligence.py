@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 
 from fastapi import HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -134,6 +134,7 @@ class EvidenceCitationPayload(BaseModel):
 
 
 class EvidenceProvenance(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     source_paper_ids: list[str] = Field(default_factory=list)
     retrieval_reasons: list[str] = Field(default_factory=list)
     matched_concepts: list[str] = Field(default_factory=list)

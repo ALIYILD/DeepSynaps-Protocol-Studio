@@ -128,6 +128,7 @@ class PatientMeta(BaseModel):
 # Per-region metric with normative z-score
 # ---------------------------------------------------------------------------
 class NormedValue(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     value: float
     unit: str | None = None
     z: float | None = None
@@ -158,6 +159,7 @@ class BrainAgePrediction(BaseModel):
     Research / wellness use only — not a clinical diagnostic.
     """
 
+    model_config = ConfigDict(protected_namespaces=())
     status: Literal["ok", "dependency_missing", "failed", "not_estimable"] = "dependency_missing"
     predicted_age_years: float | None = None
     chronological_age_years: float | None = None

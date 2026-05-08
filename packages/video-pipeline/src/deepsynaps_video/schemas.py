@@ -14,7 +14,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 VideoUseCase = Literal["clinical_task", "monitoring"]
@@ -426,6 +426,7 @@ Side = Literal["left", "right", "bilateral", "n/a"]
 class TaskResult(BaseModel):
     """One structured-task analysis run."""
 
+    model_config = ConfigDict(protected_namespaces=())
     task_id: TaskId
     epoch_s: tuple[float, float]
     side: Side = "n/a"
@@ -448,6 +449,7 @@ MonitoringEventId = Literal[
 
 
 class MonitoringEvent(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     event_id: MonitoringEventId
     camera_id: str
     timestamp_range: tuple[str, str]

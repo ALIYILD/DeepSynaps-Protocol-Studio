@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class EventEnvelope(BaseModel):
@@ -63,6 +63,7 @@ class QEEGRecordingPayload(BaseModel):
 class AIInferencePayload(BaseModel):
     """Payload for studio.ai-inference.v1 emitted by this encoder."""
 
+    model_config = ConfigDict(protected_namespaces=())
     inference_id: str
     model_id: str
     model_version: str
