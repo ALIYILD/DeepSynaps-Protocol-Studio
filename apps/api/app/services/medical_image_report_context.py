@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -21,6 +23,7 @@ _log = logging.getLogger(__name__)
 
 _PREVIEW_SUBDIR = "medical_image_previews"
 _SIDECAR_NAME = "sidecar.json"
+_USED_IN_REPORT_ACTION = "medical_image.used_in_report"
 
 
 def _resolve_settings(settings: Any) -> Any:
@@ -48,17 +51,44 @@ def _read_sidecar_safe(path: Path) -> Optional[dict[str, Any]]:
 
 
 def load_latest_medical_image_for_patient(
-    patient_id: str, *, media_storage_root: str
+    patient_id: str,
+    *,
+    media_storage_root: str,
+    db: Any = None,
 ) -> Optional[dict]:
-    """Return the most recent sidecar dict whose ``patient_id`` matches.
+    """Return the most recent imaging sidecar-shaped dict for the patient.
 
-    Reads ``<media_storage_root>/medical_image_previews/<image_id>/
-    sidecar.json``. Returns ``None`` when the directory does not exist or no
-    sidecar matches. Never raises on missing dir / unreadable sidecar — the
-    bad sidecar is logged and skipped.
+    Migration 098 (DB-backed ``MedicalImageAsset``): when ``db`` is given,
+    the DB row wins (fast indexed query, multi-tenant scope correct). When
+    no DB row matches OR ``db`` is omitted, falls back to scanning
+    ``<media_storage_root>/medical_image_previews/<image_id>/sidecar.json``
+    so legacy uploads that pre-date the migration still resolve.
+
+    Returns ``None`` when neither path produces a match. Never raises on
+    missing dir / unreadable sidecar — the bad sidecar is logged and
+    skipped.
     """
     if not patient_id:
         return None
+
+    if db is not None:
+        try:
+            from app.repositories.medical_images import (
+                asset_to_sidecar_dict,
+                latest_medical_image_for_patient,
+            )
+
+            row = latest_medical_image_for_patient(db, patient_id)
+            if row is not None:
+                return asset_to_sidecar_dict(row)
+        except Exception as exc:  # pragma: no cover — defensive
+            _log.info(
+                "medical_image_report_context: DB lookup failed for %s (%s) — "
+                "falling back to sidecar scan",
+                patient_id,
+                exc,
+            )
+
     root = _previews_root(media_storage_root)
     if not root.exists() or not root.is_dir():
         return None
@@ -129,6 +159,48 @@ def _empty_context_block() -> dict[str, Any]:
     )
 
 
+def _emit_used_in_report_audit(
+    session: Any,
+    *,
+    actor: Any,
+    image_id: Optional[str],
+    patient_id: Optional[str],
+    surface: Optional[str],
+) -> None:
+    """Emit ``medical_image.used_in_report`` when imaging context flows into
+    a report. Closes the audit-trail gap left by PR #619 (4 of 5 events
+    shipped; this is the 5th).
+
+    Defensive: any failure here MUST NOT break report generation.
+    """
+    try:
+        from app.repositories.audit import create_audit_event
+
+        actor_id = getattr(actor, "actor_id", None) or "unknown"
+        role = getattr(actor, "role", None) or "unknown"
+        note_payload = {
+            "patient_id": patient_id,
+            "image_id": image_id,
+            "surface": surface or "unspecified",
+        }
+        create_audit_event(
+            session,
+            event_id=f"medical_image.{uuid.uuid4().hex[:12]}",
+            target_id=(image_id or "unknown")[:64],
+            target_type="medical_image",
+            action=_USED_IN_REPORT_ACTION,
+            role=role,
+            actor_id=actor_id,
+            note=json.dumps(note_payload, default=str)[:1024],
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+    except Exception:  # pragma: no cover — never block the report
+        _log.exception(
+            "medical_image_report_context: %s audit emit failed",
+            _USED_IN_REPORT_ACTION,
+        )
+
+
 def attach_medical_image_context_to_payload(
     payload: dict,
     *,
@@ -136,16 +208,28 @@ def attach_medical_image_context_to_payload(
     db=None,
     settings=None,
     clinician_imaging_note: Optional[str] = None,
+    actor: Any = None,
+    surface: Optional[str] = None,
 ) -> dict:
     """Mutate ``payload`` in place by adding a ``medical_image_context`` key.
 
     Idempotent — when the key already exists with the same ``image_id`` it
     is left untouched. The caller wins when a different ``image_id`` is
     pre-attached. Never includes diagnostic claims; sets ``available=false``
-    when no imaging exists. The ``db`` parameter is reserved for a future
-    DB-backed sidecar read and is intentionally unused today.
+    when no imaging exists.
+
+    When ``db`` is provided, the DB-backed ``MedicalImageAsset`` row wins
+    (migration 098); on miss or DB-less callers, the helper falls back to
+    the legacy sidecar scan so previews uploaded before migration 098 still
+    resolve.
+
+    Audit emission: when ``db`` and ``actor`` are both supplied AND a
+    non-empty (``available=True``) imaging block is freshly attached, emits
+    a ``medical_image.used_in_report`` audit event. Legacy callers that
+    omit ``actor`` see no behaviour change. The ``surface`` label is
+    recorded in the audit note so the trail can answer
+    "which report consumed this image?".
     """
-    del db  # reserved for future DB-backed lookup
     if not isinstance(payload, dict):
         raise TypeError("payload must be a dict")
 
@@ -161,7 +245,7 @@ def attach_medical_image_context_to_payload(
     if patient_id:
         try:
             sidecar = load_latest_medical_image_for_patient(
-                patient_id, media_storage_root=media_root
+                patient_id, media_storage_root=media_root, db=db
             )
         except Exception as exc:  # pragma: no cover — defensive
             _log.warning(
@@ -187,11 +271,21 @@ def attach_medical_image_context_to_payload(
         image_id=sidecar.get("id"),
     )
     payload["medical_image_context"] = context
+
+    if context.get("available") and db is not None and actor is not None:
+        _emit_used_in_report_audit(
+            db,
+            actor=actor,
+            image_id=context.get("image_id"),
+            patient_id=patient_id,
+            surface=surface,
+        )
+
     return payload
 
 
 def build_qeeg_cross_modal_section(
-    patient_id: Optional[str], *, settings=None
+    patient_id: Optional[str], *, settings=None, db: Any = None
 ) -> dict:
     """Return cross-modal availability flags for the qEEG report layer.
 
@@ -203,6 +297,9 @@ def build_qeeg_cross_modal_section(
     explicitly states the MRI was NOT used to infer the qEEG findings —
     the cross-reference is a clinician-review handoff, not a diagnostic
     claim.
+
+    Migration 098: when ``db`` is given, prefers the DB-backed
+    ``MedicalImageAsset`` row; falls back to the sidecar scan otherwise.
     """
     cfg = _resolve_settings(settings)
     media_root = getattr(cfg, "media_storage_root", None) or "./media_uploads"
@@ -211,7 +308,7 @@ def build_qeeg_cross_modal_section(
     if patient_id:
         try:
             sidecar = load_latest_medical_image_for_patient(
-                patient_id, media_storage_root=media_root
+                patient_id, media_storage_root=media_root, db=db
             )
         except Exception as exc:  # pragma: no cover — defensive
             _log.warning(
