@@ -12,6 +12,12 @@ import {
 } from './voice-decision-support.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
+import { drHero, clinicalBand } from './helpers.js';
+
+// Clinical question this page actually answers — surfaced in topbar + drHero
+// so a doctor lands on "what am I looking at?" instead of "upload audio".
+const VOICE_CLINICAL_QUESTION = "Has this patient's voice changed in ways that suggest mood, cognition, or motor concerns?";
+const VOICE_HOW_TO_READ = "Findings appear with severity bands (Low / Moderate / Elevated / High) where the model returns calibration-aware percentiles. Raw model scores are shown numerically when no band is calibrated. Always require clinical correlation — voice signals are adjunct to examination, not standalone diagnosis.";
 
 function _readVaAccessToken() {
   try {
@@ -370,8 +376,14 @@ function _renderBiomarkerSection(vr) {
     && (pd.jitter_local_pct != null || pd.shimmer_local_pct != null || pd.hnr_db != null || pd.f0_mean_hz != null)
     && pd.score == null && !pd.model_name;
   if (pd && typeof pd === 'object' && (pd.score != null || pd.model_name || pdLegacyMetrics)) {
+    const pdBandChip = (pd.percentile != null)
+      ? clinicalBand(pd.percentile, { kind: 'percentile', confidence: pd.confidence, helpText: 'Parkinson-style voice screening percentile vs reference distribution' })
+      : (pd.score != null ? clinicalBand(pd.score, { kind: 'score', scaleLabel: '0–1', confidence: pd.confidence, helpText: 'Raw 0–1 model output — clinical correlation required (no calibrated band)' }) : '');
     blocks.push(`<div style="padding:10px;border-radius:8px;border:1px solid var(--border);margin-bottom:8px;background:rgba(255,255,255,.02)">
-      <div style="font-weight:600;font-size:12px;margin-bottom:6px">Parkinson-style voice screening (research indicator)</div>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+        <div style="font-weight:600;font-size:12px">Parkinson-style voice screening (research indicator)</div>
+        ${pdBandChip ? `<div style="display:flex;align-items:center;gap:6px"><span style="font-size:10px;color:var(--text-tertiary)">Severity</span>${pdBandChip}</div>` : ''}
+      </div>
       <div style="font-size:11px;color:var(--text-secondary);line-height:1.45">
         ${pd.score != null ? `Score: ${esc(Number(pd.score).toFixed(3))} (0–1 model output)` : ''}
         ${pd.confidence != null ? ` · Model confidence: ${esc(Number(pd.confidence).toFixed(2))}` : ''}
@@ -392,8 +404,14 @@ function _renderBiomarkerSection(vr) {
       const legacyDetail = legacy
         ? `Speech rate ${cog.speech_rate_wpm != null ? esc(String(cog.speech_rate_wpm)) + ' wpm' : '—'}; pause ratio ${cog.pause_ratio != null ? esc(String(cog.pause_ratio)) : '—'}; type–token ${cog.type_token_ratio != null ? esc(String(cog.type_token_ratio)) : '—'}. (Heuristic / legacy row — not a validated score.)`
         : '';
+      const cogBandChip = (cog.percentile != null)
+        ? clinicalBand(cog.percentile, { kind: 'percentile', confidence: cog.confidence, helpText: 'Cognitive speech indicator percentile vs reference distribution' })
+        : (hasScore ? clinicalBand(cog.score, { kind: 'score', scaleLabel: '0–1', confidence: cog.confidence, helpText: 'Raw cognitive speech indicator — clinical correlation required (no calibrated band)' }) : '');
       blocks.push(`<div style="padding:10px;border-radius:8px;border:1px solid var(--border);margin-bottom:8px;background:rgba(255,255,255,.02)">
-        <div style="font-weight:600;font-size:12px;margin-bottom:6px">Cognitive / linguistic speech metrics</div>
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+          <div style="font-weight:600;font-size:12px">Cognitive / linguistic speech metrics</div>
+          ${cogBandChip ? `<div style="display:flex;align-items:center;gap:6px"><span style="font-size:10px;color:var(--text-tertiary)">Severity</span>${cogBandChip}</div>` : ''}
+        </div>
         <div style="font-size:11px;color:var(--text-secondary);line-height:1.45">
           ${hasScore ? `Risk indicator: ${esc(Number(cog.score).toFixed(3))} · ${esc(cog.model_name || '')} ${esc(cog.model_version || '')}` : ''}
           ${legacy ? `<br/>${legacyDetail}` : ''}
@@ -473,10 +491,10 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
   try {
     setTopbar({
       title: 'Voice Analyzer',
-      subtitle: 'Clinician-reviewed acoustic voice / speech analysis workspace',
+      subtitle: VOICE_CLINICAL_QUESTION,
     });
   } catch {
-    try { setTopbar('Voice Analyzer', 'Acoustic biomarkers'); } catch (_) {}
+    try { setTopbar('Voice Analyzer', VOICE_CLINICAL_QUESTION); } catch (_) {}
   }
 
   const el = document.getElementById('content');
@@ -515,6 +533,12 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
   el.innerHTML = `
     <div class="va-shell" style="max-width:960px;margin:0 auto;padding:16px 20px 48px">
       ${voiceAnalyzerPreviewBuildBanner()}
+      ${drHero({
+        question: VOICE_CLINICAL_QUESTION,
+        howToRead: VOICE_HOW_TO_READ,
+        flagCount: 0,
+        flagSummary: '',
+      })}
       <div style="padding:14px 16px;border-radius:12px;border:1px solid rgba(246,178,60,.35);background:rgba(246,178,60,.09);margin-bottom:18px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
         <strong style="color:var(--text-primary)">Clinical decision-support.</strong> ${DISCLAIMER}
       </div>
