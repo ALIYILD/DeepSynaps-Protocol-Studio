@@ -6,6 +6,7 @@ import {
   DEMO_MODE_BANNER_HTML,
 } from './demo-fixtures-analyzers.js';
 import { drHero } from './helpers.js';
+import { loadPatientFlagSummary } from './dr-friendly-flags.js';
 
 const DP_CLINICAL_QUESTION = "What do this patient's daily-life signals (sleep, mobility, social, voice diary) suggest about their trajectory?";
 const DP_HOW_TO_READ = "Digital cues are exploratory — they reflect passive signals over a window of days/weeks and may be missing or stale. Combine with interview, assessments, and biometrics. Cues alone are not diagnostic.";
@@ -680,7 +681,7 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
   el.innerHTML = `
     <div class="ds-dp-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
       <div id="dp-demo-banner"></div>
-      ${drHero({ question: DP_CLINICAL_QUESTION, howToRead: DP_HOW_TO_READ, flagCount: 0 })}
+      <div id="dp-dr-hero-slot">${drHero({ question: DP_CLINICAL_QUESTION, howToRead: DP_HOW_TO_READ, flagCount: 0 })}</div>
       <div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(155,127,255,0.28);background:rgba(155,127,255,0.06);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
         <strong style="color:var(--text-primary)">Exploratory decision-support.</strong>
         ${esc(GOVERNANCE_REQUIRED_COPY)}
@@ -689,6 +690,18 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
       <div id="dp-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px"></div>
       <div id="dp-body"></div>
     </div>`;
+
+  async function _refreshDpDrHero(patientId) {
+    const slot = document.getElementById('dp-dr-hero-slot');
+    if (!slot) return;
+    let flagCount = 0; let flagSummary = '';
+    if (patientId) {
+      const s = await loadPatientFlagSummary(patientId);
+      flagCount = s.flagCount; flagSummary = s.flagSummary;
+    }
+    slot.innerHTML = drHero({ question: DP_CLINICAL_QUESTION, howToRead: DP_HOW_TO_READ, flagCount, flagSummary });
+  }
+  _refreshDpDrHero(activePatientId);
 
   const $ = (id) => document.getElementById(id);
 

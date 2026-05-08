@@ -11,6 +11,7 @@ import { currentUser } from './auth.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 import { drHero } from './helpers.js';
+import { loadPatientFlagSummary } from './dr-friendly-flags.js';
 
 const PHENOTYPE_CLINICAL_QUESTION = "What clinical phenotype labels has this patient received, and how confident are they?";
 const PHENOTYPE_HOW_TO_READ = "Phenotype hypothesis labels document clinician stratification thinking for team alignment. They are not diagnoses, eligibility decisions, protocol-selection picks, or autonomous treatment recommendations.";
@@ -659,7 +660,7 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
   el.innerHTML = `
     <div class="ds-phenotype-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
       <div id="ph-demo-banner"></div>
-      ${drHero({ question: PHENOTYPE_CLINICAL_QUESTION, howToRead: PHENOTYPE_HOW_TO_READ, flagCount: 0 })}
+      <div id="ph-dr-hero-slot">${drHero({ question: PHENOTYPE_CLINICAL_QUESTION, howToRead: PHENOTYPE_HOW_TO_READ, flagCount: 0 })}</div>
       <div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(155,127,255,0.28);background:rgba(155,127,255,0.06);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
         <strong style="color:var(--text-primary)">Clinical decision-support — requires clinician review.</strong>
         Phenotype <em>hypothesis</em> labels document stratification thinking for team alignment. They are not diagnoses, eligibility decisions, protocol-selection picks, or autonomous treatment recommendations. Missing data does not imply clinical clearance.
@@ -668,6 +669,18 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
       <div id="ph-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px"></div>
       <div id="ph-body"></div>
     </div>`;
+
+  async function _refreshPhDrHero(patientId) {
+    const slot = document.getElementById('ph-dr-hero-slot');
+    if (!slot) return;
+    let flagCount = 0; let flagSummary = '';
+    if (patientId) {
+      const s = await loadPatientFlagSummary(patientId);
+      flagCount = s.flagCount; flagSummary = s.flagSummary;
+    }
+    slot.innerHTML = drHero({ question: PHENOTYPE_CLINICAL_QUESTION, howToRead: PHENOTYPE_HOW_TO_READ, flagCount, flagSummary });
+  }
+  _refreshPhDrHero(activePatientId);
 
   const $ = (id) => document.getElementById(id);
 
