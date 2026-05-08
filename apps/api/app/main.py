@@ -385,7 +385,14 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
         _seed_demo_users_for_dev(session)
         # Seed synthetic demo clinic operational data (patients/courses/queues).
         # Gated by app_env allowlist + DEEPSYNAPS_DEMO_CLINIC_SEED=1.
-        if demo_seed_enabled(settings.app_env):
+        # Defense-in-depth: also skip when running under pytest. Tests that
+        # legitimately exercise the demo seed (test_seed_demo.py) call the
+        # seed function directly with monkeypatched env, so the lifespan
+        # never needs to fire it during a test session. This prevents a
+        # process-wide env-var leak from one test bleeding demo rows into
+        # every TestClient(app) lifespan in the rest of the suite — which
+        # was the root cause of the 21e42d02 backend test regression.
+        if demo_seed_enabled(settings.app_env) and "PYTEST_CURRENT_TEST" not in os.environ:
             seed_demo_clinic_data(session)
             # Also seed scheduling-focused synthetic data (rooms/devices/
             # appointments) so the Scheduling Hub demo has real backing rows.
