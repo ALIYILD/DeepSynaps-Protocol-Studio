@@ -262,6 +262,39 @@ class AgentSubscription(Base):
     )
 
 
+class AgentHire(Base):
+    """Per-clinician active-roster of AI agents (migration 097).
+
+    Distinct from :class:`AgentSubscription`: that table tracks the
+    clinic-wide Stripe entitlement ("this clinic has paid for agent X").
+    ``AgentHire`` tracks the per-clinician selection ("this clinician
+    actively wants agent X on their daily roster"). A clinic may be
+    entitled to ten agents while each clinician hires only the three
+    they actually use. The hire-flow is independent of payment — a
+    clinician can only hire agents the clinic is already entitled to.
+    """
+
+    __tablename__ = "agent_hires"
+    __table_args__ = (
+        UniqueConstraint("actor_id", "agent_id", name="uq_agent_hires_actor_agent"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinic_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        ForeignKey("clinics.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    actor_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    agent_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    hired_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc)
+    )
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+
+
 # ── Phase 7 — per-package token / cost budget caps (migration 051) ──────────
 
 class PackageTokenBudget(Base):

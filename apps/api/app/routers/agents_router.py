@@ -53,6 +53,7 @@ from app.persistence.models import (
     AgentRunAudit,
     ClinicMonthlyCostCap,
 )
+from app.repositories import agent_hires as agent_hires_repo
 from app.services.agents import cost_cap as cost_cap_service
 from app.services.agents import runner
 from app.services.agents import sla as sla_service
@@ -85,10 +86,19 @@ class AgentListItem(BaseModel):
     tool_allowlist: list[str]
     monthly_price_gbp: int
     tags: list[str]
+    hired: bool = False
+    last_used_at: str | None = None
 
 
 class AgentListResponse(BaseModel):
     agents: list[AgentListItem]
+
+
+class HireAgentResponse(BaseModel):
+    agent_id: str
+    hired: bool = True
+    hired_at: str
+    created: bool
 
 
 class AgentRunRequest(BaseModel):
@@ -149,7 +159,12 @@ class AgentRunResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _to_list_item(agent_def) -> AgentListItem:
+def _to_list_item(
+    agent_def,
+    *,
+    hired: bool = False,
+    last_used_at: datetime | None = None,
+) -> AgentListItem:
     """Project an :class:`AgentDefinition` to its public-facing tile shape."""
     return AgentListItem(
         id=agent_def.id,
@@ -161,7 +176,22 @@ def _to_list_item(agent_def) -> AgentListItem:
         tool_allowlist=list(agent_def.tool_allowlist),
         monthly_price_gbp=agent_def.monthly_price_gbp,
         tags=list(agent_def.tags),
+        hired=hired,
+        last_used_at=last_used_at.isoformat() if last_used_at is not None else None,
     )
+
+
+def _hire_state_for_actor(
+    db: Session, actor: AuthenticatedActor
+) -> dict[str, datetime | None]:
+    """Return ``{agent_id: last_used_at}`` for the actor's active hires.
+
+    Empty for guests / non-clinician roles — only clinicians and admins
+    can carry hires."""
+    if actor.role not in ("clinician", "admin", "supervisor"):
+        return {}
+    rows = agent_hires_repo.list_hires_for_actor(db, actor_id=actor.actor_id)
+    return {row.agent_id: row.last_used_at for row in rows}
 
 
 # ---------------------------------------------------------------------------
@@ -172,10 +202,108 @@ def _to_list_item(agent_def) -> AgentListItem:
 @router.get("/", response_model=AgentListResponse)
 def list_agents(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> AgentListResponse:
-    """Return all marketplace agents the calling actor is entitled to see."""
+    """Return all marketplace agents the calling actor is entitled to see.
+
+    Each tile carries a ``hired`` flag so the FE can render the right CTA
+    (Hire / Open / Configure) without a second round-trip.
+    """
     visible = list_visible_agents(actor)
-    return AgentListResponse(agents=[_to_list_item(a) for a in visible])
+    hire_state = _hire_state_for_actor(db, actor)
+    return AgentListResponse(
+        agents=[
+            _to_list_item(
+                a,
+                hired=a.id in hire_state,
+                last_used_at=hire_state.get(a.id),
+            )
+            for a in visible
+        ]
+    )
+
+
+@router.get("/hired", response_model=AgentListResponse)
+def list_hired_agents(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> AgentListResponse:
+    """Return the calling clinician's active hire roster, sorted by recency.
+
+    Filtered to agents the actor is still entitled to see — if a clinic
+    drops an entitlement, the corresponding hire row stays in the DB but
+    is hidden from the rail until entitlement comes back.
+    """
+    require_minimum_role(actor, "clinician")
+    visible_by_id = {a.id: a for a in list_visible_agents(actor)}
+    hires = agent_hires_repo.list_hires_for_actor(db, actor_id=actor.actor_id)
+    items: list[AgentListItem] = []
+    for hire in hires:
+        agent_def = visible_by_id.get(hire.agent_id)
+        if agent_def is None:
+            continue
+        items.append(
+            _to_list_item(agent_def, hired=True, last_used_at=hire.last_used_at)
+        )
+    return AgentListResponse(agents=items)
+
+
+@router.post("/{agent_id}/hire", response_model=HireAgentResponse)
+def hire_agent_endpoint(
+    agent_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> HireAgentResponse:
+    """Add an agent to the clinician's active roster.
+
+    Idempotent: hiring an already-active agent returns the existing row.
+    Hiring a paused agent reactivates it. Refuses to hire an agent the
+    actor is not entitled to (404 — same response as unknown ``agent_id``,
+    so we don't leak the catalogue to underprivileged actors).
+    """
+    require_minimum_role(actor, "clinician")
+    visible_by_id = {a.id: a for a in list_visible_agents(actor)}
+    if agent_id not in visible_by_id:
+        raise ApiServiceError(
+            code="agent_not_found",
+            message=f"Agent {agent_id!r} is not available to hire.",
+            status_code=404,
+        )
+    existing = agent_hires_repo.get_hire(
+        db, actor_id=actor.actor_id, agent_id=agent_id
+    )
+    was_already_active = existing is not None and existing.status == "active"
+    row = agent_hires_repo.hire_agent(
+        db,
+        actor_id=actor.actor_id,
+        agent_id=agent_id,
+        clinic_id=actor.clinic_id,
+    )
+    db.commit()
+    return HireAgentResponse(
+        agent_id=row.agent_id,
+        hired=True,
+        hired_at=row.hired_at.isoformat(),
+        created=not was_already_active,
+    )
+
+
+@router.delete("/{agent_id}/hire", status_code=204)
+def unhire_agent_endpoint(
+    agent_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> None:
+    """Remove an agent from the clinician's active roster (soft-pause).
+
+    Returns 204 whether or not a row existed — unhire is idempotent and
+    we do not want to leak which agents the clinician had hired.
+    """
+    require_minimum_role(actor, "clinician")
+    agent_hires_repo.unhire_agent(
+        db, actor_id=actor.actor_id, agent_id=agent_id
+    )
+    db.commit()
 
 
 @router.post("/{agent_id}/run", response_model=AgentRunResponse)
@@ -224,6 +352,17 @@ def run_agent_endpoint(
         db=db,
         confirmed_tool_call_id=payload.confirmed_tool_call_id,
     )
+
+    # Best-effort: stamp last_used_at on the hire row so the FE rail can
+    # sort by recency. Failures are silently ignored — a missing hire row
+    # is the common case for a "Try once" run on an unhired agent.
+    try:
+        agent_hires_repo.touch_last_used(
+            db, actor_id=actor.actor_id, agent_id=agent_id
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
 
     pending_raw = result.get("pending_tool_call")
     executed_raw = result.get("tool_call_executed")

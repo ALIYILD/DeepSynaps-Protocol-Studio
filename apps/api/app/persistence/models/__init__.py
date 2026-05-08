@@ -77,6 +77,7 @@ from .auth import (
     UserSession,
 )
 from .billing import (
+    AgentHire,
     AgentPromptOverride,
     AgentSubscription,
     ClinicMonthlyCostCap,
@@ -275,6 +276,7 @@ from .wellness import (
 __all__ = [
     "Base",
     "AdverseEvent",
+    "AgentHire",
     "AgentPromptOverride",
     "AgentRunAudit",
     "AgentSkill",
