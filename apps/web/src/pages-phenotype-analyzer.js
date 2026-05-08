@@ -665,6 +665,14 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
         <strong style="color:var(--text-primary)">Clinical decision-support — requires clinician review.</strong>
         Phenotype <em>hypothesis</em> labels document stratification thinking for team alignment. They are not diagnoses, eligibility decisions, protocol-selection picks, or autonomous treatment recommendations. Missing data does not imply clinical clearance.
       </div>
+      <div role="region" aria-label="Related clinical workspace" style="margin-bottom:14px;padding:12px 16px;border-radius:10px;border:1px solid rgba(74,158,255,0.20);background:rgba(74,158,255,0.04);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:10px;color:var(--blue);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;margin-bottom:2px">Related workspace</div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:2px">Daily-life digital signals</div>
+          <div style="font-size:11px;color:var(--text-tertiary);line-height:1.4">Sleep, mobility, social engagement, voice-diary cues — useful when phenotype assignments need behavioural corroboration.</div>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" onclick="window._nav && window._nav('digital-phenotyping-analyzer')" style="white-space:nowrap">Open Digital Phenotyping →</button>
+      </div>
       <div id="ph-toolbar" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px;font-size:12px"></div>
       <div id="ph-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px"></div>
       <div id="ph-body"></div>
