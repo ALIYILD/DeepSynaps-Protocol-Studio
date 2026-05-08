@@ -301,6 +301,7 @@ async function _ensureProtoData() {
 /* ── tab meta ──────────────────────────────────────────────────────────────── */
 const TAB_META = {
   overview:    { label: 'Overview',                   color: 'var(--teal)'   },
+  indications: { label: 'Indications (Live DB)',      color: 'var(--teal)'   },
   conditions:  { label: 'Conditions & Comorbidity',   color: 'var(--blue)'   },
   assessments: { label: 'Assessments & Scales',       color: 'var(--violet)' },
   protocols:   { label: 'Protocols & Devices',        color: 'var(--green)'  },
@@ -387,6 +388,7 @@ export async function pgResearchEvidence(setTopbar, navigate) {
 
   /* ── render per tab ──────────────────────────────────────────────────────── */
   if (tab === 'overview')         await renderOverview(body, liveEvidence);
+  else if (tab === 'indications') await renderIndicationsSpine(body);
   else if (tab === 'conditions')  await renderConditions(body, q, filt, sort, sInput, pills, sortBtn);
   else if (tab === 'assessments') await renderAssessments(body, q, filt, sInput, pills);
   else if (tab === 'protocols')   await renderProtocols(body, q, sInput);
@@ -2837,4 +2839,327 @@ async function renderNeedsReview(body) {
     papersSection;
 }
 
-export { renderEvidenceResultCard, _reExpandEvidenceSearchQuery, _reDedupeKey };
+/* ══════════════════════════════════════════════════════════════════════════════
+   TAB — Indications (live evidence DB spine)
+   ──────────────────────────────────────────────────────────────────────────────
+   Wires `pages-research-evidence` to the per-indication endpoints added in
+   `apps/api/app/routers/evidence_router.py` (PR feat/evidence-ui-wiring).
+   The list is the navigation spine; selecting a slug fans out to a single
+   `/indications/{slug}/detail` call which returns header + top papers + top
+   trials + curated devices + high-confidence protocols.
+
+   Honest empty states:
+   * If `/indications/summary` 503s, the panel shows the connection error.
+   * If a slug has zero curated papers (paper_indications empty), the detail
+     view shows a 'no curated papers yet — fall back to FTS' empty state and
+     a one-click search button instead of fabricating counts.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+const _GRADE_COLOR_MAP = { A: '#2dd4bf', B: '#60a5fa', C: '#fbbf24', D: '#f97316' };
+
+function _gradeBadge(grade) {
+  if (!grade) return '';
+  const c = _GRADE_COLOR_MAP[String(grade).toUpperCase()] || 'var(--text-tertiary)';
+  return `<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;background:${c};color:#0b1220;letter-spacing:0.5px">EV-${esc(String(grade).toUpperCase())}</span>`;
+}
+
+function _paperLink(paper) {
+  // Prefer a stable canonical link in priority order:
+  //   1. open-access URL (free PDF or HTML)
+  //   2. DOI resolver
+  //   3. PubMed ID
+  //   4. Europe PMC URL (if migrated DB has it)
+  if (paper.oa_url) return paper.oa_url;
+  if (paper.doi) return `https://doi.org/${paper.doi}`;
+  if (paper.pmid) return `https://pubmed.ncbi.nlm.nih.gov/${paper.pmid}/`;
+  if (paper.europe_pmc_url) return paper.europe_pmc_url;
+  return null;
+}
+
+function _renderPaperRow(paper) {
+  const link = _paperLink(paper);
+  const titleHtml = link
+    ? `<a href="${esc(link)}" target="_blank" rel="noopener noreferrer" style="color:var(--text-primary);text-decoration:none;font-weight:600">${esc(paper.title || '(untitled)')}</a>`
+    : `<span style="color:var(--text-primary);font-weight:600">${esc(paper.title || '(untitled)')}</span>`;
+  const journal = paper.journal ? esc(paper.journal) : '';
+  const year = paper.year ? esc(String(paper.year)) : '';
+  const cites = paper.cited_by_count != null ? `${fmt(paper.cited_by_count)} cites` : '';
+  const oa = paper.is_oa ? '<span style="font-size:10px;color:#2dd4bf;font-weight:700">OPEN</span>' : '';
+  const meta = [journal, year, cites, oa].filter(Boolean).join(' · ');
+  return (
+    '<div style="padding:10px 12px;border-bottom:1px solid var(--border)">' +
+    `<div style="margin-bottom:4px">${titleHtml}</div>` +
+    `<div style="font-size:11px;color:var(--text-tertiary)">${meta}</div>` +
+    '</div>'
+  );
+}
+
+function _renderTrialRow(trial) {
+  const link = trial.nct_id
+    ? `https://clinicaltrials.gov/study/${esc(trial.nct_id)}`
+    : null;
+  const titleHtml = link
+    ? `<a href="${link}" target="_blank" rel="noopener noreferrer" style="color:var(--text-primary);text-decoration:none;font-weight:600">${esc(trial.title || '(untitled trial)')}</a>`
+    : `<span style="color:var(--text-primary);font-weight:600">${esc(trial.title || '(untitled trial)')}</span>`;
+  const meta = [
+    trial.nct_id ? esc(trial.nct_id) : '',
+    trial.phase ? esc(trial.phase) : '',
+    trial.status ? esc(trial.status) : '',
+    trial.enrollment ? `n=${esc(String(trial.enrollment))}` : '',
+  ].filter(Boolean).join(' · ');
+  return (
+    '<div style="padding:10px 12px;border-bottom:1px solid var(--border)">' +
+    `<div style="margin-bottom:4px">${titleHtml}</div>` +
+    `<div style="font-size:11px;color:var(--text-tertiary)">${meta}</div>` +
+    '</div>'
+  );
+}
+
+function _renderDeviceRow(device) {
+  const link = device.kind === '510k'
+    ? `https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID=${esc(device.number)}`
+    : device.kind === 'pma'
+      ? `https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpma/pma.cfm?id=${esc(device.number)}`
+      : null;
+  const titleHtml = link
+    ? `<a href="${link}" target="_blank" rel="noopener noreferrer" style="color:var(--text-primary);text-decoration:none;font-weight:600">${esc(device.trade_name || device.applicant || device.number)}</a>`
+    : `<span style="color:var(--text-primary);font-weight:600">${esc(device.trade_name || device.applicant || device.number)}</span>`;
+  const meta = [
+    device.kind ? esc(device.kind.toUpperCase()) : '',
+    device.number ? esc(device.number) : '',
+    device.applicant ? esc(device.applicant) : '',
+    device.decision_date ? esc(device.decision_date) : '',
+  ].filter(Boolean).join(' · ');
+  return (
+    '<div style="padding:8px 12px;border-bottom:1px solid var(--border)">' +
+    `<div style="margin-bottom:2px">${titleHtml}</div>` +
+    `<div style="font-size:11px;color:var(--text-tertiary)">${meta}</div>` +
+    '</div>'
+  );
+}
+
+function _renderProtocolRow(p) {
+  const params = [
+    p.modality ? `modality=${esc(p.modality)}` : '',
+    p.target_anatomy ? `target=${esc(p.target_anatomy)}` : '',
+    p.frequency_hz != null ? `${esc(String(p.frequency_hz))} Hz` : '',
+    p.amplitude_mA != null ? `${esc(String(p.amplitude_mA))} mA` : '',
+    p.total_sessions != null ? `${esc(String(p.total_sessions))} sessions` : '',
+  ].filter(Boolean).join(' · ');
+  const sourceLink = p.source_type === 'ctgov'
+    ? `https://clinicaltrials.gov/study/${esc(p.source_id)}`
+    : null;
+  const sourceHtml = sourceLink
+    ? `<a href="${sourceLink}" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:var(--teal);text-decoration:none">${esc(p.source_id)}</a>`
+    : `<span style="font-size:11px;color:var(--text-tertiary)">${esc(p.source_id)}</span>`;
+  const confColor = p.confidence === 'high' ? '#2dd4bf'
+    : p.confidence === 'medium' ? '#fbbf24'
+    : '#94a3b8';
+  return (
+    '<div style="padding:10px 12px;border-bottom:1px solid var(--border)">' +
+    `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">` +
+    `<span style="font-weight:600;color:var(--text-primary)">${esc(p.arm_label || '(unlabelled arm)')}</span>` +
+    `<span style="font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px;background:${confColor};color:#0b1220">${esc((p.confidence || 'low').toUpperCase())}</span>` +
+    `</div>` +
+    `<div style="font-size:11px;color:var(--text-secondary);margin-bottom:2px">${params || '(no parameters extracted)'}</div>` +
+    `<div>${sourceHtml}</div>` +
+    '</div>'
+  );
+}
+
+function _renderSpineSidebar(rows, selectedSlug) {
+  return (
+    '<div style="display:flex;flex-direction:column;gap:2px;max-height:560px;overflow-y:auto">' +
+    rows.map((row) => {
+      const isSel = row.slug === selectedSlug;
+      const counts = `${fmt(row.paper_count)}p · ${fmt(row.trial_count)}t · ${fmt(row.device_count)}d`;
+      return (
+        `<button type="button"` +
+        ` onclick="window._reIndicationSlug='${esc(row.slug)}';window._nav('research-evidence')"` +
+        ` style="text-align:left;padding:8px 10px;border-radius:6px;border:1px solid ${isSel ? 'var(--teal)' : 'transparent'};` +
+        `background:${isSel ? 'rgba(45,212,191,0.08)' : 'transparent'};cursor:pointer;color:var(--text-primary);` +
+        `display:flex;flex-direction:column;gap:2px">` +
+        `<span style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600">` +
+        `${_gradeBadge(row.evidence_grade)}<span>${esc(row.label)}</span></span>` +
+        `<span style="font-size:10px;color:var(--text-tertiary)">${esc(row.modality)} · ${counts}</span>` +
+        '</button>'
+      );
+    }).join('') +
+    '</div>'
+  );
+}
+
+function _renderDetailSection(title, rows, renderFn, emptyMsg, count) {
+  const headerCount = count != null ? ` <span style="font-size:11px;color:var(--text-tertiary);font-weight:500">(${fmt(count)})</span>` : '';
+  if (!rows || rows.length === 0) {
+    return (
+      '<div class="ch-card" style="padding:0;margin-bottom:12px">' +
+      `<div style="padding:10px 12px;border-bottom:1px solid var(--border);font-weight:600">${esc(title)}${headerCount}</div>` +
+      `<div style="padding:14px;font-size:12px;color:var(--text-tertiary);font-style:italic">${esc(emptyMsg)}</div>` +
+      '</div>'
+    );
+  }
+  return (
+    '<div class="ch-card" style="padding:0;margin-bottom:12px">' +
+    `<div style="padding:10px 12px;border-bottom:1px solid var(--border);font-weight:600">${esc(title)}${headerCount}</div>` +
+    rows.map(renderFn).join('') +
+    '</div>'
+  );
+}
+
+async function renderIndicationsSpine(body) {
+  body.innerHTML = spinner();
+
+  let indications = [];
+  let summaryError = null;
+  try {
+    indications = await api.evidenceIndicationsSummary();
+  } catch (err) {
+    summaryError = err;
+  }
+
+  if (summaryError || !Array.isArray(indications)) {
+    body.innerHTML = (
+      '<div class="ch-card" role="status" style="padding:14px;border-left:3px solid var(--rose);background:rgba(244,63,94,0.06)">' +
+      '<div style="font-size:13px;font-weight:600;color:var(--rose);margin-bottom:6px">Indications spine unavailable</div>' +
+      '<div style="font-size:12px;color:var(--text-secondary);line-height:1.55">' +
+      'GET <code>/api/v1/evidence/indications/summary</code> failed. ' +
+      'The evidence DB may not be ingested in this environment yet, or your session lacks clinician role. ' +
+      'See <code>services/evidence-pipeline/README.md</code> for ingest instructions.' +
+      '</div></div>'
+    );
+    return;
+  }
+
+  if (indications.length === 0) {
+    body.innerHTML = (
+      '<div class="ch-card" style="padding:14px">' +
+      '<div style="font-size:13px;font-weight:600;margin-bottom:6px">No indications curated yet</div>' +
+      '<div style="font-size:12px;color:var(--text-tertiary)">' +
+      'The evidence DB is reachable but no indications have been seeded. ' +
+      'Run <code>python3 services/evidence-pipeline/indications_seed.py</code>.' +
+      '</div></div>'
+    );
+    return;
+  }
+
+  // Default selection: first slug with non-zero papers, fallback to first.
+  const defaultSlug = (indications.find((r) => Number(r.paper_count) > 0) || indications[0]).slug;
+  const selectedSlug = window._reIndicationSlug || defaultSlug;
+  window._reIndicationSlug = selectedSlug;
+
+  const totalPapers = indications.reduce((s, r) => s + Number(r.paper_count || 0), 0);
+  const totalTrials = indications.reduce((s, r) => s + Number(r.trial_count || 0), 0);
+  const totalDevices = indications.reduce((s, r) => s + Number(r.device_count || 0), 0);
+  const totalProtocols = indications.reduce((s, r) => s + Number(r.protocol_count || 0), 0);
+
+  const summaryBar = (
+    '<div class="ch-card" style="padding:10px 14px;margin-bottom:12px;display:flex;flex-wrap:wrap;gap:18px;align-items:center">' +
+    `<div><span style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px">Indications</span> <span style="font-size:18px;font-weight:700;margin-left:6px">${fmt(indications.length)}</span></div>` +
+    `<div><span style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px">Papers</span> <span style="font-size:18px;font-weight:700;margin-left:6px">${fmt(totalPapers)}</span></div>` +
+    `<div><span style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px">Trials</span> <span style="font-size:18px;font-weight:700;margin-left:6px">${fmt(totalTrials)}</span></div>` +
+    `<div><span style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px">Devices</span> <span style="font-size:18px;font-weight:700;margin-left:6px">${fmt(totalDevices)}</span></div>` +
+    `<div><span style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px">Protocols</span> <span style="font-size:18px;font-weight:700;margin-left:6px">${fmt(totalProtocols)}</span></div>` +
+    '<div style="margin-left:auto;font-size:11px;color:var(--text-tertiary)">Source: <code>GET /api/v1/evidence/indications/summary</code></div>' +
+    '</div>'
+  );
+
+  const sidebarHtml = _renderSpineSidebar(indications, selectedSlug);
+
+  body.innerHTML = (
+    summaryBar +
+    '<div style="display:grid;grid-template-columns:280px 1fr;gap:14px;align-items:flex-start">' +
+    `<aside class="ch-card" style="padding:10px">${sidebarHtml}</aside>` +
+    '<section id="re-indication-detail">' + spinner() + '</section>' +
+    '</div>'
+  );
+
+  const detailEl = document.getElementById('re-indication-detail');
+
+  let detail = null;
+  let detailError = null;
+  try {
+    detail = await api.evidenceIndicationDetail(selectedSlug, {
+      paperLimit: 10,
+      trialLimit: 5,
+      protocolLimit: 5,
+    });
+  } catch (err) {
+    detailError = err;
+  }
+
+  if (detailError) {
+    detailEl.innerHTML = (
+      '<div class="ch-card" style="padding:14px;border-left:3px solid var(--rose)">' +
+      `<div style="font-size:13px;font-weight:600;color:var(--rose);margin-bottom:6px">Failed to load detail for ${esc(selectedSlug)}</div>` +
+      '<div style="font-size:12px;color:var(--text-secondary)">' + esc(String(detailError?.message || detailError)) + '</div>' +
+      '</div>'
+    );
+    return;
+  }
+
+  const ind = detail.indication;
+  const headerHtml = (
+    '<div class="ch-card" style="padding:14px;margin-bottom:12px;display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap">' +
+    '<div style="flex:1 1 280px">' +
+    `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">${_gradeBadge(ind.evidence_grade)}` +
+    `<span style="font-size:18px;font-weight:700;color:var(--text-primary)">${esc(ind.label)}</span></div>` +
+    `<div style="font-size:12px;color:var(--text-secondary)">${esc(ind.modality)} → ${esc(ind.condition)}</div>` +
+    (ind.regulatory ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">Regulatory: ${esc(ind.regulatory)}</div>` : '') +
+    '</div>' +
+    '<div style="display:flex;gap:14px;flex-wrap:wrap">' +
+    `<div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase">Papers</div><div style="font-size:18px;font-weight:700">${fmt(ind.paper_count)}</div></div>` +
+    `<div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase">Trials</div><div style="font-size:18px;font-weight:700">${fmt(ind.trial_count)}</div></div>` +
+    `<div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase">Devices</div><div style="font-size:18px;font-weight:700">${fmt(ind.device_count)}</div></div>` +
+    `<div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase">Protocols</div><div style="font-size:18px;font-weight:700">${fmt(ind.protocol_count)}</div></div>` +
+    '</div>' +
+    '</div>'
+  );
+
+  const fallbackBanner = detail.fts_fallback
+    ? (
+        '<div class="ch-card" role="status" aria-live="polite" style="padding:10px 14px;margin-bottom:12px;border-left:3px solid var(--amber);background:rgba(245,158,11,0.06)">' +
+        '<div style="font-size:12.5px;color:var(--text-secondary);line-height:1.55">' +
+        '<strong style="color:var(--amber)">No curated papers yet for this indication.</strong> ' +
+        `The <code>paper_indications</code> junction is empty for <code>${esc(selectedSlug)}</code>; ` +
+        'the curation pipeline has not yet linked any of the 184k indexed papers to this slug. ' +
+        '<button type="button" class="btn btn-ghost btn-xs" ' +
+        `onclick="window._resEvidenceTab='search';window._nav('research-evidence')">` +
+        'Fall back to FTS search</button>' +
+        '</div></div>'
+      )
+    : '';
+
+  const papersHtml = _renderDetailSection(
+    'Top papers',
+    detail.papers,
+    _renderPaperRow,
+    'No curated papers — try the FTS search tab.',
+    detail.papers ? detail.papers.length : 0,
+  );
+  const trialsHtml = _renderDetailSection(
+    'Top trials',
+    detail.trials,
+    _renderTrialRow,
+    'No trials linked yet for this indication.',
+    detail.trials ? detail.trials.length : 0,
+  );
+  const devicesHtml = _renderDetailSection(
+    'FDA-cleared devices',
+    detail.devices,
+    _renderDeviceRow,
+    'No FDA-cleared devices linked to this indication via device_indications.',
+    detail.devices ? detail.devices.length : 0,
+  );
+  const protocolsHtml = _renderDetailSection(
+    'High-confidence protocols',
+    detail.protocols,
+    _renderProtocolRow,
+    'No structured protocols extracted yet for this indication. Run extract_protocols.py to populate.',
+    detail.protocols ? detail.protocols.length : 0,
+  );
+
+  detailEl.innerHTML = headerHtml + fallbackBanner + papersHtml + trialsHtml + devicesHtml + protocolsHtml;
+}
+
+export { renderEvidenceResultCard, _reExpandEvidenceSearchQuery, _reDedupeKey, renderIndicationsSpine };
