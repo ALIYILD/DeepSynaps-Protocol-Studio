@@ -98,7 +98,7 @@ def test_narrative_bank_loads_and_has_required_rois() -> None:
 
 def test_compute_indicators_from_features() -> None:
     features = _sample_pipeline_dict()["features"]
-    ind = compute_indicators(features)
+    ind = compute_indicators(features, include_unevidenced=True)
     assert ind.tbr.value == pytest.approx(4.1)
     assert ind.tbr.percentile == pytest.approx(77.8)
     assert ind.tbr.band == "balanced"  # 16 < 77.8 < 84

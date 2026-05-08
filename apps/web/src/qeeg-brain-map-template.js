@@ -98,13 +98,16 @@ function renderIndicatorCard(label, indicator, helpText) {
 
 function renderIndicatorGrid(indicators) {
   var ind = indicators || {};
+  // Indicators that come back as null are gated by the backend
+  // (DEEPSYNAPS_QEEG_UNEVIDENCED_INDICATORS feature flag). Filter them
+  // out — do not render an empty "—" placeholder card.
   var items = [
     ['Theta/Beta Ratio (TBR)', ind.tbr, 'Exploratory theta/beta ratio. Interpret with state, age, medication, and artifact context.'],
     ['Occipital Peak Alpha Frequency', ind.occipital_paf, 'Descriptive peak alpha frequency at occipital electrodes. Best reviewed eyes-closed.'],
     ['Alpha Wave Reactivity', ind.alpha_reactivity, 'Eyes-open vs eyes-closed alpha modulation. A typical brain shows roughly 2× alpha eyes-closed.'],
     ['Frontal Alpha Asymmetry (FAA)', ind.brain_balance, 'Inter-hemispheric alpha-band laterality. Research-grade marker — not regulatory-cleared.'],
     ['Brain Age Estimate', ind.ai_brain_age, 'Model-estimated brain age compared to chronological age.'],
-  ];
+  ].filter(function (it) { return it[1] != null; });
   return '<section class="qeeg-cover__indicators ds-print" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:24px">'
     + items.map(function (it) { return renderIndicatorCard(it[0], it[1], it[2]); }).join('')
     + '</section>';
