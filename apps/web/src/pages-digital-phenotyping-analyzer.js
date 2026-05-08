@@ -7,6 +7,7 @@ import {
 } from './demo-fixtures-analyzers.js';
 import { drHero } from './helpers.js';
 import { loadPatientFlagSummary } from './dr-friendly-flags.js';
+import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
 
 const DP_CLINICAL_QUESTION = "What do this patient's daily-life signals (sleep, mobility, social, voice diary) suggest about their trajectory?";
 const DP_HOW_TO_READ = "Digital cues are exploratory — they reflect passive signals over a window of days/weeks and may be missing or stale. Combine with interview, assessments, and biometrics. Cues alone are not diagnostic.";
@@ -713,6 +714,18 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
     slot.innerHTML = drHero({ question: DP_CLINICAL_QUESTION, howToRead: DP_HOW_TO_READ, flagCount, flagSummary });
   }
   _refreshDpDrHero(activePatientId);
+
+  if (!el.querySelector('[data-aar-strip="digital_phenotyping"]')) {
+    const _aarHost = document.createElement('div');
+    _aarHost.dataset.aarStrip = 'digital_phenotyping';
+    el.prepend(_aarHost);
+    mountAnalyzerAIReportStrip({
+      container: _aarHost,
+      analyzerType: 'digital_phenotyping',
+      getAnalysisId: () => activePatientId,
+      label: 'AI Decision Support',
+    });
+  }
 
   const $ = (id) => document.getElementById(id);
 

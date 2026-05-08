@@ -7,6 +7,7 @@ import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 import { drHero } from './helpers.js';
 import { loadPatientFlagSummary } from './dr-friendly-flags.js';
+import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
 
 const MOVEMENT_CLINICAL_QUESTION = "Are this patient's motor signs (tremor, bradykinesia, gait, posture) changing in clinically meaningful ways?";
 const MOVEMENT_HOW_TO_READ = "Movement cues fuse passive sensors and chart context where available. Outputs are decision-support cues — not autonomous neurological diagnosis, fall-risk final determination, treatment eligibility, or medication recommendations.";
@@ -713,6 +714,18 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
     slot.innerHTML = drHero({ question: MOVEMENT_CLINICAL_QUESTION, howToRead: MOVEMENT_HOW_TO_READ, flagCount, flagSummary });
   }
   _refreshMvDrHero(activePatientId);
+
+  if (!el.querySelector('[data-aar-strip="movement"]')) {
+    const _aarHost = document.createElement('div');
+    _aarHost.dataset.aarStrip = 'movement';
+    el.prepend(_aarHost);
+    mountAnalyzerAIReportStrip({
+      container: _aarHost,
+      analyzerType: 'movement',
+      getAnalysisId: () => activePatientId,
+      label: 'AI Decision Support',
+    });
+  }
 
   const $ = (id) => document.getElementById(id);
 

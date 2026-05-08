@@ -12,6 +12,7 @@ import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 import { drHero } from './helpers.js';
 import { loadPatientFlagSummary } from './dr-friendly-flags.js';
+import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
 
 const PHENOTYPE_CLINICAL_QUESTION = "What clinical phenotype labels has this patient received, and how confident are they?";
 const PHENOTYPE_HOW_TO_READ = "Phenotype hypothesis labels document clinician stratification thinking for team alignment. They are not diagnoses, eligibility decisions, protocol-selection picks, or autonomous treatment recommendations.";
@@ -677,6 +678,27 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
       <div id="ph-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px"></div>
       <div id="ph-body"></div>
     </div>`;
+
+  // ── AI decision-support strip (mounted once per page invocation) ────────
+  if (!el.querySelector('[data-aar-strip="phenotype"]')) {
+    const _aarHost = document.createElement('div');
+    _aarHost.dataset.aarStrip = 'phenotype';
+    const _shell = el.querySelector('.ds-phenotype-analyzer-shell');
+    const _bcAnchor = _shell?.querySelector('#ph-toolbar');
+    if (_bcAnchor && _bcAnchor.parentNode) {
+      _bcAnchor.parentNode.insertBefore(_aarHost, _bcAnchor);
+    } else if (_shell) {
+      _shell.prepend(_aarHost);
+    } else {
+      el.prepend(_aarHost);
+    }
+    mountAnalyzerAIReportStrip({
+      container: _aarHost,
+      analyzerType: 'phenotype',
+      getAnalysisId: () => activePatientId,
+      label: 'AI Decision Support',
+    });
+  }
 
   async function _refreshPhDrHero(patientId) {
     const slot = document.getElementById('ph-dr-hero-slot');

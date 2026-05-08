@@ -18,6 +18,7 @@ import { currentUser } from './auth.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 import { drHero } from './helpers.js';
 import { loadPatientFlagSummary } from './dr-friendly-flags.js';
+import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
 
 const RISK_CLINICAL_QUESTION = "What's this patient's risk profile right now — anything that needs action?";
 const RISK_HOW_TO_READ = "Risks are stratified into Low / Moderate / Elevated / High bands across safety, deterioration, adherence, and engagement. Bands reflect rule-based / model-assisted indices over chart data — clinician review is required before operational decisions.";
@@ -613,6 +614,27 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
       <div id="ra-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px"></div>
       <div id="ra-body"></div>
     </div>`;
+
+  // ── AI decision-support strip (mounted once per page invocation) ────────
+  if (!el.querySelector('[data-aar-strip="risk"]')) {
+    const _aarHost = document.createElement('div');
+    _aarHost.dataset.aarStrip = 'risk';
+    const _shell = el.querySelector('.ds-risk-analyzer-shell');
+    const _bcAnchor = _shell?.querySelector('#ra-breadcrumb');
+    if (_bcAnchor && _bcAnchor.parentNode) {
+      _bcAnchor.parentNode.insertBefore(_aarHost, _bcAnchor);
+    } else if (_shell) {
+      _shell.prepend(_aarHost);
+    } else {
+      el.prepend(_aarHost);
+    }
+    mountAnalyzerAIReportStrip({
+      container: _aarHost,
+      analyzerType: 'risk',
+      getAnalysisId: () => activePatientId,
+      label: 'AI Decision Support',
+    });
+  }
 
   // Refresh the drHero alert chip with the loaded patient's flagged risk
   // categories so the at-a-glance answer ("anything to act on?") sits at

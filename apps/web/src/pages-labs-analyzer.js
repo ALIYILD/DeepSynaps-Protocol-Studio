@@ -1,6 +1,7 @@
 import { api } from './api.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
+import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
 
 /** Mirrors backend ROLE_ORDER — Labs API requires clinician minimum. */
 export const LABS_ANALYZER_ROLE_ORDER = Object.freeze({
@@ -677,6 +678,27 @@ export async function pgLabsAnalyzer(setTopbar, navigate) {
       <div id="lb-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px"></div>
       <div id="lb-body"></div>
     </div>`;
+
+  // ── AI decision-support strip (mounted once per page invocation) ────────
+  if (!el.querySelector('[data-aar-strip="labs"]')) {
+    const _aarHost = document.createElement('div');
+    _aarHost.dataset.aarStrip = 'labs';
+    const _shell = el.querySelector('.ds-labs-analyzer-shell');
+    const _bcAnchor = _shell?.querySelector('#lb-breadcrumb');
+    if (_bcAnchor && _bcAnchor.parentNode) {
+      _bcAnchor.parentNode.insertBefore(_aarHost, _bcAnchor);
+    } else if (_shell) {
+      _shell.prepend(_aarHost);
+    } else {
+      el.prepend(_aarHost);
+    }
+    mountAnalyzerAIReportStrip({
+      container: _aarHost,
+      analyzerType: 'labs',
+      getAnalysisId: () => activePatientId,
+      label: 'AI Decision Support',
+    });
+  }
 
   const $ = (id) => document.getElementById(id);
 

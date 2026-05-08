@@ -2544,6 +2544,27 @@ export const api = {
   },
   generateQEEGAIReport: (analysisId, body = {}) =>
     apiFetch(`/api/v1/qeeg-analysis/${analysisId}/ai-report`, { method: 'POST', body: JSON.stringify(body) }),
+
+  // ── Unified Analyzer AI Report (decision-support) ──────────────────────
+  // Single endpoint family that powers "Generate AI Report" + "Download PDF"
+  // on every analyzer page (mri, voice, video_assessment, movement, phenotype,
+  // labs, nutrition, risk, digital_phenotyping, deeptwin, treatment_sessions).
+  // For per-patient analyzers the analysisId argument is the patient_id.
+  listAnalyzerReportTypes: () =>
+    apiFetch('/api/v1/analyzer-reports'),
+  generateAnalyzerAIReport: (analyzerType, analysisId, body = {}) =>
+    apiFetch(
+      `/api/v1/analyzer-reports/${encodeURIComponent(analyzerType)}/${encodeURIComponent(analysisId)}/ai-report`,
+      { method: 'POST', body: JSON.stringify(body || {}) },
+    ),
+  downloadAnalyzerReportPDF: (analyzerType, analysisId, opts = {}) => {
+    const qs = opts && opts.patientContext
+      ? '?patient_context=' + encodeURIComponent(opts.patientContext)
+      : '';
+    return apiFetchBinary(
+      `/api/v1/analyzer-reports/${encodeURIComponent(analyzerType)}/${encodeURIComponent(analysisId)}/pdf${qs}`,
+    );
+  },
   listQEEGAnalysisReports: (analysisId) =>
     apiFetch(`/api/v1/qeeg-analysis/${analysisId}/reports`),
   amendQEEGReport: (reportId, body) =>

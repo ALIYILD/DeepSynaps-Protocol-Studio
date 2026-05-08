@@ -17,6 +17,7 @@
 import { api, downloadBlob, API_BASE } from './api.js';
 import { emptyState, showToast } from './helpers.js';
 import { EvidenceChip, createEvidenceQueryForTarget, initEvidenceDrawer, openEvidenceDrawer, wireEvidenceChips } from './evidence-intelligence.js';
+import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
 // Cornerstone3D viewer is loaded dynamically — the @cornerstonejs/* packages
 // are optional and may not be installed.  When absent the build still succeeds
 // and the MRI page falls back to the NiiVue viewer.
@@ -3548,6 +3549,27 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
       patientId: pid || (_report && _report.patient && _report.patient.patient_id) || null,
       patientAnalyses: patientAnalyses,
     });
+    // Mount the shared analyzer AI report strip (decision support).
+    // Row key: _mriAnalysisId (the canonical "current MRI analysis_id" used by
+    // _dsExportFhir / exportFHIRBundle elsewhere in this file).
+    if (!el.querySelector('[data-aar-strip="mri"]')) {
+      var _aarHost = document.createElement('div');
+      _aarHost.dataset.aarStrip = 'mri';
+      el.prepend(_aarHost);
+      mountAnalyzerAIReportStrip({
+        container: _aarHost,
+        analyzerType: 'mri',
+        getAnalysisId: function () {
+          return _mriAnalysisId || (_report && _report.analysis_id) || '';
+        },
+        getPatientContext: function () {
+          return (_patientMeta && _patientMeta.patient_id)
+            || (_report && _report.patient && _report.patient.patient_id)
+            || '';
+        },
+        label: 'AI Decision Support',
+      });
+    }
     _mountInlineMRIViewer(_report);
     _wireUploader(navigate);
     _wireRunButton(navigate);

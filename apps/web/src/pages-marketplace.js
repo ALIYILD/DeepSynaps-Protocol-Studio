@@ -227,6 +227,15 @@ let _mlState = {
   fetchError: null,
 };
 
+// API base for the anonymous catalog fetch — kept local so this module
+// stays import-free for the node:test environment. PR #593 removed the
+// previous shared definition; restoring it here so the live endpoint hit
+// in `_mlFetchAnonymousCatalog` resolves at all.
+function _mlApiBase() {
+  try { return import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'; }
+  catch { return 'http://127.0.0.1:8000'; }
+}
+
 async function _mlFetchAnonymousCatalog() {
   // Best-effort hit of the live endpoint. The contract is documented in
   // apps/api/app/routers/agents_router.py: anonymous (or unentitled) actors
