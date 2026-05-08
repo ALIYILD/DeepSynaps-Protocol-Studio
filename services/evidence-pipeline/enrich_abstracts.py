@@ -1,21 +1,32 @@
-"""enrich_abstracts.py — Pilot abstract enrichment for the top-N most-cited papers.
+"""enrich_abstracts.py — Abstract enrichment for curated and top-cited papers.
 
-Selects the top N papers by cited_by_count where abstract IS NULL (or empty),
-batches their PMIDs through the EuropePMC REST search endpoint, writes the
-returned abstract text back into papers.abstract and sets papers.abstract_source.
+Two operating modes
+-------------------
+Default (--limit N):
+    Selects the top N papers by cited_by_count where abstract IS NULL (or empty),
+    batches their PMIDs through the EuropePMC REST search endpoint, writes the
+    returned abstract text back into papers.abstract and sets papers.abstract_source.
 
-Idempotent: rows with a non-empty abstract are skipped.  Re-running with the
-same --limit resumes from wherever the previous run stopped.
+--curated-first:
+    First enriches every paper that appears in paper_indications but has no
+    abstract yet (regardless of cited_by_count rank).  These are highest-value
+    rows because each is linked to a curated indication slug.  After the curated
+    set is exhausted, continues with the top-N by cited_by_count (--limit controls
+    the top-up cap; the curated set does not count against it).
+
+Idempotent: rows with a non-empty abstract or abstract_source IS NOT NULL are
+skipped automatically — re-running is always safe.
 
 Migration required before first run:
     DB=/path/to/evidence.db ./migrations/run-migrations.sh
 (or: sqlite3 $DB < migrations/008_papers_abstract_source.sql)
 
 Usage:
-    python3 enrich_abstracts.py                              # top 10,000, default DB
-    python3 enrich_abstracts.py --limit 100                  # smoke test
+    python3 enrich_abstracts.py                                       # top 10,000, default DB
+    python3 enrich_abstracts.py --limit 100                           # smoke test
     python3 enrich_abstracts.py --db /path/to/evidence.db --limit 500 --batch 50
-    python3 enrich_abstracts.py --report                     # fill-rate report only
+    python3 enrich_abstracts.py --curated-first --limit 30000        # GOAL (a)+(b)
+    python3 enrich_abstracts.py --report                              # fill-rate report only
 
 Rate-limiting behaviour:
     EuropePMC does not publish a hard rate limit for the REST API, but their
@@ -126,6 +137,7 @@ def select_candidates(conn, limit: int) -> list[dict]:
         SELECT id, pmid, doi, cited_by_count
         FROM   papers
         WHERE  (abstract IS NULL OR abstract = '')
+          AND  abstract_source IS NULL
           AND  pmid IS NOT NULL
         ORDER BY cited_by_count DESC NULLS LAST
         LIMIT  ?
@@ -135,31 +147,47 @@ def select_candidates(conn, limit: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def enrich(
-    db_path: str,
-    limit: int = DEFAULT_LIMIT,
-    batch_size: int = DEFAULT_BATCH,
-    sleep_seconds: float = DEFAULT_SLEEP,
+def select_curated_candidates(conn) -> list[dict]:
+    """Return all paper_indications-linked papers with no abstract (not yet attempted).
+
+    These are the highest-value rows — every one is attached to a curated
+    indication slug.  Ordered by cited_by_count DESC so the most-cited curated
+    papers are fetched first (better for partial-run value).
+    """
+    rows = conn.execute(
+        """
+        SELECT DISTINCT p.id, p.pmid, p.doi, p.cited_by_count
+        FROM   papers p
+        JOIN   paper_indications pi ON pi.paper_id = p.id
+        WHERE  (p.abstract IS NULL OR p.abstract = '')
+          AND  p.abstract_source IS NULL
+          AND  p.pmid IS NOT NULL
+        ORDER  BY p.cited_by_count DESC NULLS LAST
+        """
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _run_enrichment_loop(
+    conn,
+    candidates: list[dict],
+    batch_size: int,
+    sleep_seconds: float,
+    label: str = "batch",
 ) -> dict[str, Any]:
-    """Main enrichment loop. Returns a summary dict."""
-    conn = _db.connect(db_path)
-    _ensure_abstract_source_column(conn)
+    """Shared inner loop — processes `candidates` and writes results to DB.
 
-    candidates = select_candidates(conn, limit)
+    Returns a summary dict with keys: targeted, enriched, not_found, errors,
+    fill_rate_pct, stopped_early (bool).
+    """
     total = len(candidates)
-    log.info("Candidates (pmid, no abstract, top by citations): %d", total)
-
-    if not candidates:
-        log.info("Nothing to enrich -- all top-%d papers already have abstracts.", limit)
-        conn.close()
-        return {"targeted": 0, "enriched": 0, "not_found": 0, "errors": 0}
-
     enriched = 0
     not_found = 0
     errors = 0
     consecutive_429 = 0
     batch_num = 0
     total_batches = -(-total // batch_size)  # ceiling division
+    stopped_early = False
 
     for offset in range(0, total, batch_size):
         chunk = candidates[offset : offset + batch_size]
@@ -168,7 +196,8 @@ def enrich(
 
         batch_num += 1
         log.info(
-            "Batch %d/%d  papers %d-%d  (pmids: %d)",
+            "[%s] Batch %d/%d  papers %d-%d  (pmids: %d)",
+            label,
             batch_num,
             total_batches,
             offset + 1,
@@ -190,14 +219,14 @@ def enrich(
                 if consecutive_429 >= MAX_CONSECUTIVE_429:
                     log.error(
                         "Aborting after %d consecutive 429s. "
-                        "Stopped at batch %d (paper offset %d). "
-                        "Re-run with --limit %d to resume from where we stopped "
-                        "(already-enriched rows are skipped automatically).",
+                        "Stopped at %s batch %d (paper offset %d). "
+                        "Re-run is idempotent — already-enriched rows are skipped.",
                         MAX_CONSECUTIVE_429,
+                        label,
                         batch_num,
                         offset,
-                        limit,
                     )
+                    stopped_early = True
                     break
                 time.sleep(sleep_seconds * 10)  # back off longer on 429
                 errors += len(chunk)
@@ -249,14 +278,90 @@ def enrich(
         if offset + batch_size < total:
             time.sleep(sleep_seconds)
 
-    conn.close()
     return {
         "targeted": total,
         "enriched": enriched,
         "not_found": not_found,
         "errors": errors,
         "fill_rate_pct": round(100 * enriched / total, 2) if total else 0,
+        "stopped_early": stopped_early,
     }
+
+
+def enrich(
+    db_path: str,
+    limit: int = DEFAULT_LIMIT,
+    batch_size: int = DEFAULT_BATCH,
+    sleep_seconds: float = DEFAULT_SLEEP,
+    curated_first: bool = False,
+) -> dict[str, Any]:
+    """Main enrichment entry point. Returns a summary dict.
+
+    When curated_first=True, runs two phases:
+      Phase A — all paper_indications-linked papers with no abstract.
+      Phase B — top `limit` additional papers by cited_by_count (skipping
+                 already-enriched rows, so picks up from rank 10,001+).
+
+    When curated_first=False (default), runs only the top-limit by citation.
+    """
+    conn = _db.connect(db_path)
+    _ensure_abstract_source_column(conn)
+
+    if curated_first:
+        # ---- Phase A: curated -----------------------------------------------
+        curated = select_curated_candidates(conn)
+        log.info(
+            "Phase A (curated-first): %d paper_indications-linked papers need abstracts.",
+            len(curated),
+        )
+        if curated:
+            summary_a = _run_enrichment_loop(
+                conn, curated, batch_size, sleep_seconds, label="curated"
+            )
+            log.info("Phase A complete: %s", summary_a)
+            if summary_a["stopped_early"]:
+                conn.close()
+                return {"phase_a": summary_a, "phase_b": None, "stopped_after": "phase_a"}
+        else:
+            summary_a = {"targeted": 0, "enriched": 0, "not_found": 0, "errors": 0,
+                         "fill_rate_pct": 0.0, "stopped_early": False}
+            log.info("Phase A: nothing to do — all curated papers already have abstracts.")
+
+        # ---- Phase B: top-up by cited_by_count -------------------------------
+        log.info(
+            "Phase B (top-up): fetching up to %d more papers by cited_by_count "
+            "(skipping already-enriched rows).",
+            limit,
+        )
+        topup = select_candidates(conn, limit)
+        log.info("Phase B candidates remaining after phase A: %d", len(topup))
+        if topup:
+            summary_b = _run_enrichment_loop(
+                conn, topup, batch_size, sleep_seconds, label="top-up"
+            )
+            log.info("Phase B complete: %s", summary_b)
+        else:
+            summary_b = {"targeted": 0, "enriched": 0, "not_found": 0, "errors": 0,
+                         "fill_rate_pct": 0.0, "stopped_early": False}
+            log.info("Phase B: nothing to do.")
+
+        conn.close()
+        return {"phase_a": summary_a, "phase_b": summary_b}
+
+    # ---- Original single-phase mode (no --curated-first) --------------------
+    candidates = select_candidates(conn, limit)
+    total = len(candidates)
+    log.info("Candidates (pmid, no abstract, top by citations): %d", total)
+
+    if not candidates:
+        log.info("Nothing to enrich -- all top-%d papers already have abstracts.", limit)
+        conn.close()
+        return {"targeted": 0, "enriched": 0, "not_found": 0, "errors": 0,
+                "fill_rate_pct": 0.0, "stopped_early": False}
+
+    result = _run_enrichment_loop(conn, candidates, batch_size, sleep_seconds, label="top-cited")
+    conn.close()
+    return result
 
 
 def modality_report(conn) -> list[dict]:
@@ -326,9 +431,31 @@ def before_after_stats(conn) -> dict:
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+def _print_modality_table(conn) -> None:
+    """Print a per-modality fill-rate table to stdout."""
+    TARGET_MODALITIES = {"rTMS", "DBS", "VNS", "SCS", "tDCS", "NFB", "PBM", "ESWT"}
+    rows = modality_report(conn)
+    print(f"\n{'Modality':<12}  {'with_abstract':>13}  {'total':>7}  {'fill_%':>7}  {'flag':>4}")
+    print("-" * 54)
+    for row in rows:
+        pct = (
+            round(100 * row["with_abstract"] / row["total_papers"], 1)
+            if row["total_papers"]
+            else 0.0
+        )
+        flag = "<-- target" if row["modality"] in TARGET_MODALITIES else ""
+        print(
+            f"  {row['modality']:<10}  {row['with_abstract']:>13,}  "
+            f"{row['total_papers']:>7,}  {pct:>6.1f}%  {flag}"
+        )
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Enrich top-N most-cited papers with abstracts from EuropePMC."
+        description=(
+            "Enrich papers with abstracts from EuropePMC. "
+            "Use --curated-first to prioritise paper_indications-linked rows."
+        )
     )
     ap.add_argument(
         "--db",
@@ -340,7 +467,10 @@ def main() -> None:
         type=int,
         default=DEFAULT_LIMIT,
         metavar="N",
-        help=f"Target the top-N papers by cited_by_count (default: {DEFAULT_LIMIT}).",
+        help=(
+            f"Target the top-N papers by cited_by_count (default: {DEFAULT_LIMIT}). "
+            "With --curated-first this is the Phase B cap (not counting Phase A rows)."
+        ),
     )
     ap.add_argument(
         "--batch",
@@ -355,6 +485,15 @@ def main() -> None:
         default=DEFAULT_SLEEP,
         metavar="SECS",
         help=f"Seconds to sleep between batches (default: {DEFAULT_SLEEP}).",
+    )
+    ap.add_argument(
+        "--curated-first",
+        action="store_true",
+        help=(
+            "Phase A: enrich every paper linked via paper_indications that has no abstract. "
+            "Phase B: top-up with --limit more papers by cited_by_count. "
+            "Both phases are idempotent and safe to re-run."
+        ),
     )
     ap.add_argument(
         "--report",
@@ -373,19 +512,7 @@ def main() -> None:
         stats = before_after_stats(conn)
         print("\n=== Abstract coverage (current state) ===")
         print(json.dumps(stats, indent=2))
-
-        print("\n=== Fill-rate by modality ===")
-        for row in modality_report(conn):
-            pct = (
-                round(100 * row["with_abstract"] / row["total_papers"], 1)
-                if row["total_papers"]
-                else 0
-            )
-            print(
-                f"  {row['modality']:10s}  "
-                f"{row['with_abstract']:>5}/{row['total_papers']:<5}  ({pct}%)"
-            )
-
+        _print_modality_table(conn)
         print("\n=== 5 sample enriched rows ===")
         for s in sample_enriched(conn, n=5):
             print(
@@ -408,8 +535,16 @@ def main() -> None:
     conn.close()
 
     # --- Enrich
-    summary = enrich(db_path, limit=args.limit, batch_size=args.batch, sleep_seconds=args.sleep)
-    log.info("Enrichment complete: %s", summary)
+    t0 = time.monotonic()
+    summary = enrich(
+        db_path,
+        limit=args.limit,
+        batch_size=args.batch,
+        sleep_seconds=args.sleep,
+        curated_first=args.curated_first,
+    )
+    elapsed = time.monotonic() - t0
+    log.info("Enrichment complete in %.1f s: %s", elapsed, summary)
 
     # --- After stats + report
     conn = _db.connect(db_path)
@@ -421,17 +556,7 @@ def main() -> None:
         after["avg_len"] or 0,
     )
 
-    print("\n=== Fill-rate by modality ===")
-    for row in modality_report(conn):
-        pct = (
-            round(100 * row["with_abstract"] / row["total_papers"], 1)
-            if row["total_papers"]
-            else 0
-        )
-        print(
-            f"  {row['modality']:10s}  "
-            f"{row['with_abstract']:>5}/{row['total_papers']:<5}  ({pct}%)"
-        )
+    _print_modality_table(conn)
 
     print("\n=== 5 sample enriched rows ===")
     for s in sample_enriched(conn, n=5):
@@ -442,7 +567,7 @@ def main() -> None:
         )
 
     conn.close()
-    print("\n=== Summary ===")
+    print(f"\n=== Summary (elapsed: {elapsed:.0f}s) ===")
     print(json.dumps(summary, indent=2))
 
 
