@@ -59,9 +59,9 @@ Top uncovered modules (see [`docs/test-coverage-plan.md`](./test-coverage-plan.m
 | `src/brain-map-svg.js` | 14.96 |
 | `src/pages-brainmap.js` | 17.14 |
 
-### 2.2 Backend — measured (full run on this branch)
+### 2.2 Backend — measured ✅
 
-Full-suite run was started on this branch with:
+Full-suite run completed:
 
 ```
 cd apps/api && python -m pytest \
@@ -69,30 +69,61 @@ cd apps/api && python -m pytest \
   -o "addopts=" --tb=line --timeout=60 --timeout-method=thread -q
 ```
 
-The run took longer than the report window of this session (Windows pytest collects ~286 test files into a 75,359-statement coverage scope). The terminal log is preserved at `~/.gstack/api-cov.log`; the structured outputs are at `apps/api/coverage.xml`, `apps/api/htmlcov/index.html`. Re-run on Linux/CI will produce a faster turnaround — `make test-coverage-api` is the canonical command.
+| Metric | Result |
+|---|---:|
+| Tests collected | **3,991 pass · 22 skipped · 2 fail** |
+| Statements measured | 75,359 |
+| **Lines covered** | **75 %** (75,359 → 19,052 missed) |
+| Run time | 34 minutes (Windows; CI Linux is faster) |
 
-**Initial probe (only `tests/test_health.py`, 2 tests):** 33 % lines on the 75,359-statement universe. This represents the import-time floor — every module `app/main.py` imports gets executed during health-check setup, even though almost no business logic is exercised. The full suite's number is whatever the saved `coverage.xml` reports; the Phase 7 raise to 90 % targets that full-suite measurement, not the smoke probe.
+Two pre-existing failing tests (not introduced by this PR):
+- `tests/test_qeeg_rag_service.py::test_query_literature_returns_empty_when_no_backend`
+- `tests/test_security_headers.py::test_route_set_referrer_policy_is_honoured_by_middleware`
 
-> **Action item for the next PR:** read the saved `coverage.xml` and replace this section with the full-run table (overall %, top 20 uncovered files, top 10 most-impactful files).
+These should be either fixed or quarantined in a follow-up PR — they fail on `main` too.
 
-### 2.3 Packages — partial measured
+**Top backend modules below 60 % (Phase 3 targets):**
 
-10 of 16 packages probed (the remaining 6 follow the same pattern):
+The full breakdown is in `apps/api/htmlcov/index.html`. Notable gaps:
+- `app/services/spectral_analysis.py` — 50 %
+- `app/services/telegram_service.py` — 49 %
+- `app/services/wearable_flags.py` — 36 %
+- `app/services/stripe_service.py` — 36 %
+- `app/services/transcription_service.py` — 39 %
+- `app/services/risk_analyzer_payload.py` — 41 %
+- `app/source/*` — 14–40 % across the source-localisation submodule
+- `app/spikes/*` — 8–16 % across spike-detection submodule
+
+The 75 % overall baseline means the lift to 90 % is **+15 pp** of backend lines, concentrated in the routers/services listed in Phase 3 of [`docs/test-coverage-plan.md`](./test-coverage-plan.md).
+
+### 2.3 Packages — measured (all 16 with `tests/`) ✅
+
+After the editable install graph is hydrated (`make install-python` + the audio-pipeline conftest skip from PR 3), the comprehensive baseline is:
 
 | Package | Lines % | Tests | Notes |
 |---|---:|---:|---|
-| `clinical-data-registry` | **100.00** | (small) | trivial-but-100-pct registry; verify test depth in Phase 5 |
-| `qa` | **73.95** | 54 passed | `cli.py` 0 % — clear Phase 5 target |
-| `render-engine` | **41.65** | 2 passed | massive WeasyPrint paths uncovered |
-| `evidence` | **28.72** | 47 passed | `validator.py` 0 % (111 untested lines) |
-| `generation-engine` | **25.66** | 2 passed | only 2 tests — Phase 5 target |
-| `biometrics-pipeline` | 0.00 | 3 passed | tests pass but don't import the source — broken wiring |
-| `feature-store` | 0.00 | 0 collected | tests/ exists but nothing collects |
-| `text-pipeline` | 0.00 | 50 passed | tests pass but don't import source — broken wiring |
-| `video-pipeline` | 0.00 | 50 passed | same — broken wiring |
-| `audio-pipeline` | n/a | collection error | unfixed in Phase 1 |
+| `text-pipeline` | **87.39** | 50 | Strong coverage; minor gaps in workflow_orchestration |
+| `qa` | **73.95** | 54 | `cli.py` (94 lines) at 0 % — Phase 5 target |
+| `deeptwin-neuroai-lab` | **71.19** | 14 | |
+| `video-pipeline` | **68.14** | 50 | |
+| `neuro-engine` | **64.75** | 61 | |
+| `mri-pipeline` | **56.60** | 122 | Big test suite, branch-y workflows under-tested |
+| `qeeg-encoder` | **52.14** | 23 | |
+| `audio-pipeline` | **49.61** | 28 | After skipping `test_ingestion.py` (stale API references) |
+| `biometrics-pipeline` | **44.50** | 3 | Only 3 tests for the package — Phase 5 target |
+| `qeeg-pipeline` | **42.96** | 148 | Big test suite, big surface area; viz/web payload at 40 % |
+| `render-engine` | **41.65** | 2 | Only 2 tests — WeasyPrint paths fully uncovered |
+| `feature-store` | **29.30** | 0 collected | `tests/` exists but no test files collect — investigate |
+| `evidence` | **28.72** | 47 | `validator.py` 0 % (111 untested lines) |
+| `generation-engine` | **25.66** | 2 | Only 2 tests — Phase 5 target |
+| `clinical-data-registry` | **100.00** | (small) | Trivial registry, verify test depth in Phase 5 |
+| `voice-engine` | n/a | 35 passed | Top-level package layout (no `src/` dir); tests pass but `--cov=` cannot resolve a single module — Phase 5 fix |
 
-**Packages with no tests/ directory** (Phase 5 priority — clinical safety surface):
+**Earlier "0 % with passing tests" findings were probe-time mistakes** — `--cov=deepsynaps_text_pipeline` (wrong) vs. `--cov=deepsynaps_text` (right). All measurements above use the correct module names.
+
+**Packages with NO tests directory** (Phase 5 priority — clinical safety surface):
+
+**Packages with NO tests directory** (Phase 5 priority — clinical safety surface):
 
 - `api-client` (generated; spot-check excluded)
 - `condition-registry` ❗
@@ -101,8 +132,6 @@ The run took longer than the report window of this session (Windows pytest colle
 - `device-registry` ❗
 - `modality-registry` ❗
 - `safety-engine` ❗ (clinical safety)
-
-The four `0 %` packages with passing tests are a Phase 5 P0 — the tests exist but don't measure the right module. Likely fix: tests import via package alias (`text_pipeline.foo`) instead of the editable-installed name (`deepsynaps_text_pipeline.foo`), or vice versa.
 
 ---
 

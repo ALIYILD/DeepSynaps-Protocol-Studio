@@ -128,8 +128,9 @@ omit = [
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
-# Phase 1 baseline gate. Raise per Phase 7 of docs/test-coverage-plan.md.
-fail_under = 60
+# Honest baseline measured 2026-05-08: 75 % lines on 75,359 statements
+# (3,991 passing tests). Raise per Phase 7 of docs/test-coverage-plan.md.
+fail_under = 75
 exclude_lines = [
     "pragma: no cover",
     "raise NotImplementedError",
