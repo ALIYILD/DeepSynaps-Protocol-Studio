@@ -68,24 +68,39 @@ cd "$PIPELINE_DIR"
 
 echo "[$(ts)] enrichment cycle start  db=$EVIDENCE_DB_PATH  batch=$ENRICH_BATCH  top=$ROUTE_TOP"
 
-# 1. enrich the next batch via EuropePMC.
-echo "[$(ts)] step 1/4 enrich_abstracts.py --limit $ENRICH_BATCH"
+# Source funnel:
+#   1. EuropePMC  (PMID-keyed, MEDLINE+PMC, batched 50)
+#   2. PubMed     (PMID-keyed, MEDLINE, batched 50)
+#   3. CrossRef   (DOI-keyed, JATS-XML abstracts, per-record)
+#   4. OpenAlex   (DOI-keyed, inverted-index reconstruction, per-record)
+# Each tier targets the rows the previous tier marked as not_found, so the
+# funnel is monotonic — no row is hit by more than one source per cycle.
+# A row that ends up 'openalex:not_found' is genuinely abstract-less in
+# every major index and is not retried by future cron ticks.
+
+# 1. EuropePMC main pass
+echo "[$(ts)] step 1/6 enrich_abstracts.py --limit $ENRICH_BATCH (europepmc)"
 python3 enrich_abstracts.py --limit "$ENRICH_BATCH"
 
-# 2. retry rows EuropePMC couldn't find against PubMed E-utilities efetch.
-#    PubMed has broader MEDLINE coverage (older / non-PMC papers). Each
-#    paper that PubMed also misses gets marked 'pubmed:not_found' and is
-#    not retried again.
-echo "[$(ts)] step 2/4 enrich_abstracts.py --retry-not-found --limit $ENRICH_BATCH"
+# 2. PubMed retry of europepmc:not_found
+echo "[$(ts)] step 2/6 enrich_abstracts.py --retry-not-found (pubmed)"
 python3 enrich_abstracts.py --retry-not-found --limit "$ENRICH_BATCH"
 
-# 3. re-route paper_indications (clears existing rows for each slug + reroutes)
-echo "[$(ts)] step 3/4 route_indications.py --clear --top $ROUTE_TOP"
+# 3. CrossRef retry of pubmed:not_found
+echo "[$(ts)] step 3/6 enrich_abstracts.py --retry-with-crossref"
+python3 enrich_abstracts.py --retry-with-crossref --limit "$ENRICH_BATCH"
+
+# 4. OpenAlex retry of crossref:not_found
+echo "[$(ts)] step 4/6 enrich_abstracts.py --retry-with-openalex"
+python3 enrich_abstracts.py --retry-with-openalex --limit "$ENRICH_BATCH"
+
+# 5. re-route paper_indications (clears existing rows for each slug + reroutes)
+echo "[$(ts)] step 5/6 route_indications.py --clear --top $ROUTE_TOP"
 python3 route_indications.py --clear --top "$ROUTE_TOP"
 
-# 4. re-extract paper-derived protocols. Trial extraction is a no-op
+# 6. re-extract paper-derived protocols. Trial extraction is a no-op
 #    here — interventions_json doesn't change between runs.
-echo "[$(ts)] step 4/4 extract_protocols.py --source papers"
+echo "[$(ts)] step 6/6 extract_protocols.py --source papers"
 python3 extract_protocols.py --source papers
 
 # Health summary
