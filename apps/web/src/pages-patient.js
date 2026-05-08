@@ -445,6 +445,10 @@ import { pgDataImport } from './pages-patient/import-wizard.js';
 import { pgPatientMediaConsent, pgPatientMediaUpload, pgPatientMediaHistory } from './pages-patient/media.js';
 import { pgPatientWearables } from './pages-patient/wearables.js';
 import { pgSymptomJournal, pgPatientNotificationSettings } from './pages-patient/symptom-notifications.js';
+// Health Reports v2 — new 4-tab page that supersedes the legacy `My
+// Reports` view. Re-exported below so the central dispatcher in `app.js`
+// can call it via the same `loadPatient()` module reference.
+import { pgPatientHealthReports } from './pages-patient/health-reports.js';
 // Shared report helpers — load-bearing for the new Health Reports v2 page
 // (./pages-patient/health-reports.js). Pulling them from a single module so
 // the legacy `pgPatientReports` body and the v2 page share the SAME
@@ -468,6 +472,7 @@ import {
 // from the shared module to keep those references working.
 import { _hdEsc } from './pages-patient/_shared.js';
 export { pgPatientCaregiver, pgPatientDigest };
+export { pgPatientHealthReports };
 export { pgPatientHomeDevices, pgPatientHomeDevice, pgPatientHomeSessionLog };
 export { pgPatientAdherenceEvents, pgPatientAdherenceHistory };
 export { pgIntake };
