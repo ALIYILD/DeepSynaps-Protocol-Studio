@@ -559,6 +559,10 @@ def main(argv: list[str] | None = None) -> int:
         for name in selected:
             reflected[name] = Table(name, metadata, autoload_with=pg_conn)
 
+        # SQLAlchemy 2.0 autobegan a transaction during reflection. Commit it
+        # so we can start a fresh outer transaction that wraps the copy phase.
+        if pg_conn.in_transaction():
+            pg_conn.commit()
         outer = pg_conn.begin()
         per_table_results: list[tuple[str, int, float]] = []
         try:
