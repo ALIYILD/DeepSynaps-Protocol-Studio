@@ -21,8 +21,13 @@
 //   - docCardHTML()               doc-card HTML renderer (takes a ctx object
 //                                 carrying the closure state the legacy
 //                                 page used to capture)
+//   - logPatientReportsAuditEvent() best-effort audit-event POST. Used by
+//                                 both the legacy `pgPatientReports` and the
+//                                 v2 `pgPatientHealthReports` so the audit
+//                                 trail stays uniform across both surfaces.
 //
-// All helpers are pure; they read no global state.
+// All helpers are pure (apart from `logPatientReportsAuditEvent`, which
+// fire-and-forgets a network call); none read global state.
 
 import { t } from '../i18n.js';
 import { fmtDate } from './_shared.js';
@@ -592,4 +597,30 @@ export function docCardHTML(doc, ctx = {}, opts = {}) {
       </div>
       ${plSection}
     </div>`;
+}
+
+/**
+ * Best-effort audit-event POST. Mirrors the legacy `_patientReportsLogAuditEvent`
+ * helper from `pages-patient.js` (2026-05-01) so both the legacy My Reports
+ * page and the v2 Health Reports page emit identically-shaped audit rows
+ * against `POST /api/v1/reports/patient/audit-events`.
+ *
+ * Fire-and-forget — never throws back at the caller. Audit failures must
+ * never block the UI.
+ *
+ * @param {string} event   audit event-type (e.g. 'view', 'tab_change',
+ *                         'report_opened', 'report_downloaded')
+ * @param {object} extra   optional { report_id, note, using_demo_data }
+ */
+export async function logPatientReportsAuditEvent(event, extra) {
+  try {
+    if (api && typeof api.postPatientReportsAuditEvent === 'function') {
+      await api.postPatientReportsAuditEvent({
+        event,
+        report_id: (extra && extra.report_id) ? String(extra.report_id) : null,
+        note: (extra && extra.note) ? String(extra.note).slice(0, 480) : null,
+        using_demo_data: !!(extra && extra.using_demo_data),
+      });
+    }
+  } catch (_) { /* audit failures must never block UI */ }
 }

@@ -18,6 +18,7 @@ import {
   _fetchPatientReportsBundle,
   _normalizeDocs,
   docCardHTML,
+  logPatientReportsAuditEvent,
 } from './_reports-shared.js';
 
 // HTML escaper — local to this module (mirrors `_hdEsc` from `_shared.js`).
@@ -43,10 +44,45 @@ function _tabDefs() {
   ];
 }
 
+// ── Audit-event scope (2026-05-08) ───────────────────────────────────────
+// The doc-card HTML emitted by `docCardHTML` references global click handlers
+// (window._ptReportOpened / _ptReportDownloaded) that the legacy
+// `pgPatientReports` function defines lazily on render. The v2 page is a
+// distinct entry point — when a patient lands on Health Reports without
+// having visited the legacy page first, those handlers do not exist and the
+// audit row is silently dropped. We register module-level fallbacks here so
+// per-doc view/download events are always recorded.
+//
+// `_pgHrLastDemoFlag` is set by `pgPatientHealthReports()` on each render so
+// the per-card handlers know whether the page is currently in demo mode.
+let _pgHrLastDemoFlag = false;
+if (typeof window !== 'undefined') {
+  if (!window._ptReportOpened) {
+    window._ptReportOpened = function(reportId, kind) {
+      logPatientReportsAuditEvent('report_opened', {
+        report_id: reportId,
+        using_demo_data: _pgHrLastDemoFlag,
+        note: kind || 'view',
+      });
+    };
+  }
+  if (!window._ptReportDownloaded) {
+    window._ptReportDownloaded = function(reportId) {
+      logPatientReportsAuditEvent('report_downloaded', {
+        report_id: reportId,
+        using_demo_data: _pgHrLastDemoFlag,
+        note: 'download click',
+      });
+    };
+  }
+}
+
 /**
  * Tab-switch handler. Toggles `.active` on the button and shows/hides the
  * matching panel by `data-tab` attribute. Installed once at module load
- * via `window._ptHrTab` so re-renders don't stack handlers.
+ * via `window._ptHrTab` so re-renders don't stack handlers. Also emits a
+ * `tab_change` audit event so the audit trail captures patient navigation
+ * across the four tabs.
  */
 if (typeof window !== 'undefined' && !window._ptHrTab) {
   window._ptHrTab = function(tabId) {
@@ -61,6 +97,11 @@ if (typeof window !== 'undefined' && !window._ptHrTab) {
     panels.forEach(p => {
       if (p.getAttribute('data-tab') === tabId) p.removeAttribute('hidden');
       else p.setAttribute('hidden', '');
+    });
+    // Best-effort audit ping. Never throws back at the click handler.
+    logPatientReportsAuditEvent('tab_change', {
+      using_demo_data: _pgHrLastDemoFlag,
+      note: 'tab=' + String(tabId || ''),
     });
   };
 }
@@ -290,6 +331,10 @@ export async function pgPatientHealthReports() {
   const patientReportsRaw = bundle.patientReports;
   const _consentActive = patientReportsRaw ? !!patientReportsRaw.consent_active : true;
   const _serverLive = !!patientReportsRaw && !bundle.serverErr;
+  const _isDemo = !!(patientReportsRaw && patientReportsRaw.is_demo);
+  // Stash for the module-level click handlers that fire from doc-card
+  // onclick attributes (they don't have direct access to this closure).
+  _pgHrLastDemoFlag = _isDemo;
 
   // patientReportsById index for the doc-card CTA states (acknowledged,
   // share-back-pending). Falls back to {} when the server is unreachable.
@@ -298,6 +343,17 @@ export async function pgPatientHealthReports() {
   for (const it of items) {
     if (it && it.id) patientReportsById[String(it.id)] = it;
   }
+
+  // Mount-time audit ping (parity with legacy `pgPatientReports`). Records
+  // that the patient opened the v2 Health Reports page with an honest
+  // connectivity hint — a regulator can tell page-loads where the API was
+  // unreachable from real opens. Never throws.
+  logPatientReportsAuditEvent('view', {
+    using_demo_data: _isDemo,
+    note: _serverLive
+      ? `surface=health_reports_v2; items=${items.length}; consent_active=${_consentActive ? 1 : 0}`
+      : 'surface=health_reports_v2; fallback=offline',
+  });
 
   const ctx = _ctxFor(docs, {
     patientReportsById,
