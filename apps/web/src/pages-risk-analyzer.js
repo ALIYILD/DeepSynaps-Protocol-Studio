@@ -17,6 +17,7 @@ import { isDemoSession } from './demo-session.js';
 import { currentUser } from './auth.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 import { drHero } from './helpers.js';
+import { loadPatientFlagSummary } from './dr-friendly-flags.js';
 
 const RISK_CLINICAL_QUESTION = "What's this patient's risk profile right now — anything that needs action?";
 const RISK_HOW_TO_READ = "Risks are stratified into Low / Moderate / Elevated / High bands across safety, deterioration, adherence, and engagement. Bands reflect rule-based / model-assisted indices over chart data — clinician review is required before operational decisions.";
@@ -554,7 +555,7 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
   el.innerHTML = `
     <div class="ds-risk-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
       <div id="ra-demo-banner"></div>
-      ${drHero({ question: RISK_CLINICAL_QUESTION, howToRead: RISK_HOW_TO_READ, flagCount: 0 })}
+      <div id="ra-dr-hero-slot">${drHero({ question: RISK_CLINICAL_QUESTION, howToRead: RISK_HOW_TO_READ, flagCount: 0 })}</div>
       <div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(155,127,255,0.28);background:rgba(155,127,255,0.06);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
         <strong style="color:var(--text-primary)">Clinical decision-support.</strong>
         Outputs are rule-based / model-assisted indices linked to chart data where available. They are not diagnoses, emergency determinations, prescriptions, or autonomous safeguarding actions. Clinician review is required before operational decisions.
@@ -562,6 +563,21 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
       <div id="ra-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px"></div>
       <div id="ra-body"></div>
     </div>`;
+
+  // Refresh the drHero alert chip with the loaded patient's flagged risk
+  // categories so the at-a-glance answer ("anything to act on?") sits at
+  // the top of the page. Failures keep the calm placeholder.
+  async function _refreshRaDrHero(patientId) {
+    const slot = document.getElementById('ra-dr-hero-slot');
+    if (!slot) return;
+    let flagCount = 0; let flagSummary = '';
+    if (patientId) {
+      const s = await loadPatientFlagSummary(patientId);
+      flagCount = s.flagCount; flagSummary = s.flagSummary;
+    }
+    slot.innerHTML = drHero({ question: RISK_CLINICAL_QUESTION, howToRead: RISK_HOW_TO_READ, flagCount, flagSummary });
+  }
+  _refreshRaDrHero(activePatientId);
 
   const $ = (id) => document.getElementById(id);
 
