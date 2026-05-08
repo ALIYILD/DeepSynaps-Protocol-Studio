@@ -122,6 +122,24 @@ function _miniTopomap(weights, opts) {
 // §1 Brain-age card
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Stub badge — surfaced when the AI bridge persisted is_stub:true (i.e. the
+// underlying NN model isn't installed and the payload is a placeholder).
+// Reference: AI go-live audit 2026-05-08 (#9). Returns '' when the payload
+// is real so populated cards render unchanged.
+function _stubBadge(payload) {
+  if (!payload || payload.is_stub !== true) return '';
+  return '<div role="alert" aria-live="polite" '
+    + 'style="margin:-4px 0 10px;padding:8px 12px;border-radius:8px;'
+    + 'background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.45);'
+    + 'color:#fecaca;font-size:11.5px;font-weight:700;letter-spacing:0.04em;'
+    + 'text-transform:uppercase">'
+    + 'Model not available — do not clinically use'
+    + '<div style="font-size:10.5px;font-weight:500;letter-spacing:0;color:#fca5a5;'
+    + 'text-transform:none;margin-top:3px">The underlying neural-network model isn\'t installed on this worker. '
+    + 'Values shown are placeholder data only.</div>'
+    + '</div>';
+}
+
 export function renderBrainAgeCard(analysis) {
   if (!analysis || !analysis.brain_age) return '';
   var ba = analysis.brain_age;
@@ -167,7 +185,8 @@ export function renderBrainAgeCard(analysis) {
       + _miniTopomap(ba.electrode_importance, { size: 220 }) + '</div>';
   }
 
-  var body = '<div class="qeeg-ai-ba">'
+  var body = _stubBadge(ba)
+    + '<div class="qeeg-ai-ba">'
     + '<div class="qeeg-ai-ba-gauge-wrap">' + gaugeSvg + statsHtml + '</div>'
     + topoHtml
     + '</div>'
@@ -230,7 +249,8 @@ export function renderRiskScoreBars(analysis) {
   var disclaimer = rs.disclaimer
     || 'These are neurophysiological similarity indices; they do not establish any medical condition.';
 
-  var body = '<div class="qeeg-ai-risk-sub">Higher values = more similarity to the cohort pattern, '
+  var body = _stubBadge(rs)
+    + '<div class="qeeg-ai-risk-sub">Higher values = more similarity to the cohort pattern, '
     + 'not a likelihood of disease.</div>'
     + '<div class="qeeg-ai-riskbars">' + rowsHtml + '</div>'
     + '<div class="qeeg-ai-footnote">' + esc(disclaimer) + '</div>';

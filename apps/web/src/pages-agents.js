@@ -3035,6 +3035,36 @@ function _renderToolCancelledCard() {
   `;
 }
 
+// Crisis escalation card. Backend (agents_router.py) attaches a deterministic
+// payload whenever the patient.crisis agent runs so emergency contacts are
+// surfaced regardless of what the LLM produced. This card MUST render above
+// the chat reply when present.
+function _renderCrisisCard(card) {
+  if (!card) return '';
+  const contacts = Array.isArray(card.contacts) ? card.contacts : [];
+  const contactRows = contacts.map(function (c) {
+    const label = _esc(c.label || '');
+    const value = _esc(c.value || '');
+    const href = String(c.href || '');
+    const safeHref = (href.startsWith('tel:') || href.startsWith('https://')) ? href : '';
+    const valueNode = safeHref
+      ? `<a href="${_esc(safeHref)}" style="color:#fee2e2;font-weight:700;text-decoration:underline">${value}</a>`
+      : `<span style="color:#fee2e2;font-weight:700">${value}</span>`;
+    return `<li style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid rgba(239,68,68,0.18)">
+      <span style="color:#fecaca">${label}</span>
+      ${valueNode}
+    </li>`;
+  }).join('');
+  return `
+    <div role="alert" aria-live="assertive" style="margin-bottom:12px;padding:14px 16px;border-radius:10px;background:rgba(239,68,68,0.12);border:2px solid rgba(239,68,68,0.55);color:#fecaca;font-size:13px;line-height:1.55">
+      <div style="font-weight:700;font-size:14px;color:#fee2e2;margin-bottom:6px">${_esc(card.title || 'If you are in immediate danger, contact emergency services now.')}</div>
+      ${card.body ? `<p style="margin:0 0 10px;color:#fecaca">${_esc(card.body)}</p>` : ''}
+      <ul style="list-style:none;padding:0;margin:0 0 8px">${contactRows}</ul>
+      ${card.footer ? `<div style="font-size:11px;color:#fca5a5;font-style:italic;margin-top:8px">${_esc(card.footer)}</div>` : ''}
+    </div>
+  `;
+}
+
 function _renderMarketplaceModal() {
   if (!_marketplaceModalAgent) return '';
   const a = _marketplaceModalAgent;
@@ -3055,8 +3085,11 @@ function _renderMarketplaceModal() {
       : _marketplaceModalCancelled
         ? _renderToolCancelledCard()
         : '';
+  const crisisBlock = (_marketplaceModalReply && _marketplaceModalReply.crisis_escalation)
+    ? _renderCrisisCard(_marketplaceModalReply.crisis_escalation)
+    : '';
   const replyBlock = _marketplaceModalReply
-    ? `<div style="margin-top:12px;padding:12px;border-radius:8px;background:rgba(255,255,255,0.04);border:1px solid var(--border);font-size:12px;color:var(--text-primary);line-height:1.55;white-space:pre-wrap">${_formatAgentText(_marketplaceModalReply.reply || '(empty reply)')}
+    ? `${crisisBlock}<div style="margin-top:12px;padding:12px;border-radius:8px;background:rgba(255,255,255,0.04);border:1px solid var(--border);font-size:12px;color:var(--text-primary);line-height:1.55;white-space:pre-wrap">${_formatAgentText(_marketplaceModalReply.reply || '(empty reply)')}
         ${groundedBlock}
         ${toolBlock}
         <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:10.5px;color:var(--text-tertiary);font-style:italic">${_esc(_marketplaceModalReply.safety_footer || 'Decision-support, not autonomous diagnosis.')}</div>
