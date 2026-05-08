@@ -313,6 +313,91 @@ def _export_csv(conn, path: Path, limit: int | None = None) -> int:
     return len(rows)
 
 
+def _extract_from_papers(conn, limit: int | None, dry: bool, min_confidence: str = "medium") -> int:
+    """Extract structured protocols from paper abstracts.
+
+    Conservative by default — `min_confidence='medium'` skips low-confidence
+    one-field hits because abstracts contain a lot of incidental numbers
+    (sample sizes, ages, p-values) that the regex pipeline can mistake for
+    stim parameters. Re-rank on the abstract's modality hint when present
+    (`modalities_json` is populated by the EuropePMC enrichment pipeline).
+    """
+    confidence_rank = {"high": 3, "medium": 2, "low": 1}
+    threshold = confidence_rank.get(min_confidence, 2)
+
+    # Detect optional columns added by migration 004_csv_enrichment.sql so this
+    # script works against DBs where 004 was never applied (the canonical v4 DB
+    # is one such — its papers table is the v1 shape).
+    paper_cols = {
+        row[1] for row in conn.execute("PRAGMA table_info(papers)").fetchall()
+    }
+    has_modalities = "modalities_json" in paper_cols
+
+    select_cols = "id, pmid, doi, title, abstract"
+    if has_modalities:
+        select_cols += ", modalities_json"
+
+    sql = (
+        f"SELECT {select_cols} FROM papers "
+        "WHERE abstract IS NOT NULL AND length(abstract) >= 100 "
+        + (f"LIMIT {limit}" if limit else "")
+    )
+    rows = conn.execute(sql).fetchall()
+
+    n = 0
+    for r in rows:
+        text = (r["abstract"] or "") + " " + (r["title"] or "")
+
+        # If EuropePMC tagged the paper with a modality, prefer that. Otherwise
+        # fall back to the regex-based heuristic.
+        modality = None
+        if has_modalities:
+            try:
+                mods = json.loads(r["modalities_json"]) if r["modalities_json"] else []
+                if mods:
+                    first = (mods[0] or "").lower()
+                    modality = {
+                        "tms": "rTMS", "rtms": "rTMS", "dtms": "dTMS",
+                        "tdcs": "tDCS", "tacs": "tACS", "trns": "tRNS",
+                        "dbs": "DBS", "vns": "VNS", "scs": "SCS",
+                        "drg": "DRG", "rns": "RNS", "hns": "HNS", "snm": "SNM",
+                        "mrgfus": "MRgFUS", "fus": "FUS", "tfus": "tFUS",
+                        "pbm": "PBM", "nfb": "NFB", "ces": "CES",
+                        "tens": "TENS", "fes": "FES",
+                    }.get(first)
+            except Exception:
+                pass
+        if not modality:
+            modality = _infer_modality(text)
+
+        rec = _parse_block(text, modality)
+        if not rec:
+            continue
+        if confidence_rank.get(rec["confidence"], 0) < threshold:
+            continue
+
+        # Use pmid as primary, fall back to DOI; skip if neither is present.
+        sid = r["pmid"] or r["doi"]
+        if not sid:
+            continue
+
+        rec["indication_id"] = None
+        rec["source_type"] = "paper"
+        rec["source_id"] = str(sid)
+        rec["arm_label"] = "abstract"
+
+        if dry:
+            print(
+                f"  paper {sid} mod={rec['modality']} "
+                f"Hz={rec['frequency_hz']} mt={rec['motor_threshold_pct']} "
+                f"sess={rec['total_sessions']} ({rec['confidence']})"
+            )
+        else:
+            _upsert(conn, rec)
+        n += 1
+    return n
+
+
 def _extract_from_devices(conn, limit: int | None, dry: bool) -> int:
     # FDA PMA summaries aren't in this table directly (raw_json is the PMA
     # metadata); real label text usually needs device/udi endpoint or PDFs.
@@ -343,6 +428,11 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry", action="store_true", help="Parse + print, don't write.")
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--source", choices=["trials", "papers", "all"], default="all",
+                    help="Which corpus to extract from (default: all).")
+    ap.add_argument("--min-confidence", choices=["low", "medium", "high"], default="medium",
+                    help="Minimum confidence for paper-derived rows (default: medium). "
+                         "Trials are unaffected — they use the raw _parse_block confidence.")
     ap.add_argument("--all-trials", action="store_true",
                     help="Skip trial_indications JOIN; run against every trial "
                          "with interventions_json (uses text-based modality inference).")
@@ -355,9 +445,19 @@ def main() -> None:
     conn = db.connect()
     conn.executescript(SCHEMA)
 
-    n_trials = _extract_from_trials(conn, args.limit, args.dry, args.all_trials)
-    n_fda = _extract_from_devices(conn, args.limit, args.dry)
-    print(f"extracted {n_trials} trial protocols, {n_fda} FDA protocols ({'dry' if args.dry else 'written'})")
+    n_trials = 0
+    n_papers = 0
+    n_fda = 0
+    if args.source in ("trials", "all"):
+        n_trials = _extract_from_trials(conn, args.limit, args.dry, args.all_trials)
+    if args.source in ("papers", "all"):
+        n_papers = _extract_from_papers(conn, args.limit, args.dry, args.min_confidence)
+    if args.source == "all":
+        n_fda = _extract_from_devices(conn, args.limit, args.dry)
+    print(
+        f"extracted {n_trials} trial · {n_papers} paper · {n_fda} FDA "
+        f"protocols ({'dry' if args.dry else 'written'})"
+    )
 
     if not args.dry:
         total = conn.execute("SELECT count(*) FROM protocols").fetchone()[0]
