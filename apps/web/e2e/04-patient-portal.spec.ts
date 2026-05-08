@@ -43,10 +43,16 @@ test.describe('Patient Portal', () => {
 
     // Patient shell should be visible
     await page.waitForSelector('#patient-shell, #app-shell', { timeout: 10000 });
+
+    // Either patient shell or app shell must actually render visibly — not
+    // just exist in the DOM. Previously this test ended with
+    // `expect(true).toBeTruthy()`, which always passed even if both shells
+    // were hidden (e.g. if init() crashed mid-render and left a blank page).
     const patientShell = page.locator('#patient-shell');
-    const isPatientShell = await patientShell.isVisible().catch(() => false);
-    // Either patient shell or app shell is acceptable
-    expect(true).toBeTruthy(); // Page loaded without crash
+    const appShell = page.locator('#app-shell');
+    const patientVisible = await patientShell.isVisible().catch(() => false);
+    const appVisible = await appShell.isVisible().catch(() => false);
+    expect(patientVisible || appVisible).toBe(true);
   });
 
   test('wellness check-in page renders sliders', async ({ page }) => {
