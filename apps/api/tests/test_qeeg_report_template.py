@@ -17,6 +17,7 @@ from app.services.qeeg_report_template import (
     DEFAULT_DISCLAIMER,
     DK_ROIS_PER_HEMISPHERE,
     REPORT_SCHEMA_VERSION,
+    MedicalImageCrossModalSection,
     QEEGBrainMapReport,
     compute_brain_function_score,
     compute_indicators,
@@ -194,3 +195,166 @@ def test_dk_atlas_narrative_file_is_valid_json_and_has_meta() -> None:
     assert "_meta" in data
     assert data["_meta"]["atlas"] == "Desikan-Killiany"
     assert data["_meta"]["n_rois_per_hemisphere"] == 34
+
+
+# ── PR #619 follow-up: medical_image_context cross-modal section ─────────────
+
+
+class _TmpSettings:
+    """Minimal settings stub — only ``media_storage_root`` is read."""
+
+    def __init__(self, media_storage_root: str) -> None:
+        self.media_storage_root = media_storage_root
+
+
+def test_medical_image_context_default_none_back_compat() -> None:
+    """Existing callers (no patient_id) must see no behaviour change."""
+    report = from_pipeline_result(_sample_pipeline_dict())
+    assert report.medical_image_context is None
+
+
+def test_medical_image_context_unavailable_when_no_mri(tmp_path) -> None:
+    """patient_id given but no MRI sidecar → has_mri=False with safe wording."""
+    report = from_pipeline_result(
+        _sample_pipeline_dict(),
+        patient_id="patient_no_mri",
+        settings=_TmpSettings(str(tmp_path)),
+    )
+    section = report.medical_image_context
+    assert section is not None
+    assert section.has_mri is False
+    assert section.mri_image_id is None
+    assert section.safe_sentence is not None
+    # The unavailable wording from preview_service.SAFE_REPORT_SENTENCES.
+    assert "no mri" in section.safe_sentence.lower()
+    assert "not used to infer" in (section.disclaimer or "").lower()
+
+
+def test_medical_image_context_attached_when_mri_sidecar_exists(tmp_path) -> None:
+    """patient_id with a sidecar → has_mri=True, image_id flows through."""
+    image_id = "img_test_abc"
+    img_dir = tmp_path / "medical_image_previews" / image_id
+    img_dir.mkdir(parents=True)
+    sidecar = {
+        "id": image_id,
+        "patient_id": "patient_with_mri",
+        "filename": "brain.nii.gz",
+        "format": "NIfTI",
+        "status": "ready",
+        "created_at": "2026-05-08T10:00:00Z",
+        "metadata": {
+            "filename": "brain.nii.gz",
+            "format": "NIfTI",
+            "dimensions": [256, 256, 176],
+            "voxel_size_mm": [1.0, 1.0, 1.0],
+            "volumes": 1,
+            "orientation_note": "Raw orientation preview; not reoriented.",
+            "compressed": True,
+            "warnings": [],
+        },
+    }
+    (img_dir / "sidecar.json").write_text(json.dumps(sidecar), encoding="utf-8")
+
+    report = from_pipeline_result(
+        _sample_pipeline_dict(),
+        patient_id="patient_with_mri",
+        settings=_TmpSettings(str(tmp_path)),
+    )
+    section = report.medical_image_context
+    assert section is not None
+    assert section.has_mri is True
+    assert section.mri_image_id == image_id
+    assert section.mri_preview_status == "ready"
+    assert section.safe_sentence
+    # Cross-modal disclaimer stays load-bearing on the success path too.
+    assert "not diagnostic" in (section.disclaimer or "").lower()
+
+
+def test_medical_image_context_never_emits_diagnostic_terms(tmp_path) -> None:
+    """Safety contract: the cross-modal section never contains forbidden terms."""
+    from app.services.medical_image_preview import DIAGNOSTIC_FORBIDDEN_TERMS
+
+    image_id = "img_test_diag"
+    img_dir = tmp_path / "medical_image_previews" / image_id
+    img_dir.mkdir(parents=True)
+    sidecar = {
+        "id": image_id,
+        "patient_id": "patient_diag",
+        "filename": "brain.nii.gz",
+        "format": "NIfTI",
+        "status": "ready",
+        "created_at": "2026-05-08T10:00:00Z",
+        "metadata": {
+            "filename": "brain.nii.gz",
+            "format": "NIfTI",
+            "dimensions": [256, 256, 176],
+            "voxel_size_mm": [1.0, 1.0, 1.0],
+            "volumes": 1,
+            "orientation_note": "Raw orientation preview; not reoriented.",
+            "compressed": True,
+            "warnings": [],
+        },
+    }
+    (img_dir / "sidecar.json").write_text(json.dumps(sidecar), encoding="utf-8")
+
+    # Both branches: no-MRI and with-MRI.
+    for pid in ("patient_no_mri_2", "patient_diag"):
+        report = from_pipeline_result(
+            _sample_pipeline_dict(),
+            patient_id=pid,
+            settings=_TmpSettings(str(tmp_path)),
+        )
+        section = report.medical_image_context
+        assert section is not None
+        blob = " ".join(
+            [
+                section.safe_sentence or "",
+                section.disclaimer or "",
+                section.mri_preview_status or "",
+            ]
+        ).lower()
+        for term in DIAGNOSTIC_FORBIDDEN_TERMS:
+            assert term not in blob, f"diagnostic term {term!r} leaked into cross-modal section"
+
+
+def test_medical_image_cross_modal_section_forbids_extra_keys() -> None:
+    """The new model uses ConfigDict(extra='forbid') — pin that contract."""
+    with pytest.raises(Exception):
+        MedicalImageCrossModalSection.model_validate({"has_mri": False, "rogue_key": 1})
+
+
+def test_qeeg_brain_map_report_round_trip_includes_cross_modal(tmp_path) -> None:
+    """JSON round-trip preserves medical_image_context."""
+    image_id = "img_round_trip"
+    img_dir = tmp_path / "medical_image_previews" / image_id
+    img_dir.mkdir(parents=True)
+    sidecar = {
+        "id": image_id,
+        "patient_id": "patient_rt",
+        "filename": "brain.nii.gz",
+        "format": "NIfTI",
+        "status": "ready",
+        "created_at": "2026-05-08T10:00:00Z",
+        "metadata": {
+            "filename": "brain.nii.gz",
+            "format": "NIfTI",
+            "dimensions": [256, 256, 176],
+            "voxel_size_mm": [1.0, 1.0, 1.0],
+            "volumes": 1,
+            "orientation_note": "Raw orientation preview; not reoriented.",
+            "compressed": True,
+            "warnings": [],
+        },
+    }
+    (img_dir / "sidecar.json").write_text(json.dumps(sidecar), encoding="utf-8")
+
+    report = from_pipeline_result(
+        _sample_pipeline_dict(),
+        patient_id="patient_rt",
+        settings=_TmpSettings(str(tmp_path)),
+    )
+    payload = report.model_dump(mode="json")
+    rehydrated = QEEGBrainMapReport.model_validate(json.loads(json.dumps(payload)))
+    assert rehydrated.medical_image_context is not None
+    assert rehydrated.medical_image_context.has_mri is True
+    assert rehydrated.medical_image_context.mri_image_id == image_id
