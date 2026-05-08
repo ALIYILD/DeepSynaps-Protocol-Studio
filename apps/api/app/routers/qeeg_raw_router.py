@@ -823,10 +823,50 @@ def get_raw_vs_cleaned_summary(
     require_minimum_role(actor, "clinician")
     analysis = _load_analysis(analysis_id, db, actor)
     channels = _parse_channels_json(getattr(analysis, "channels_json", None))
+    latest_version = (
+        db.query(QeegCleaningVersion)
+        .filter(QeegCleaningVersion.analysis_id == analysis_id)
+        .order_by(QeegCleaningVersion.version_number.desc())
+        .first()
+    )
+    cleaning_cfg: dict[str, Any] = {}
+    try:
+        if getattr(analysis, "cleaning_config_json", None):
+            raw_cfg = json.loads(analysis.cleaning_config_json)
+            if isinstance(raw_cfg, dict):
+                cleaning_cfg = raw_cfg
+    except (TypeError, ValueError):
+        cleaning_cfg = {}
+    if not cleaning_cfg and latest_version is not None:
+        try:
+            cleaning_cfg = {
+                "bad_channels": json.loads(latest_version.bad_channels_json or "[]"),
+                "bad_segments": json.loads(latest_version.rejected_segments_json or "[]"),
+                "excluded_ica_components": json.loads(latest_version.rejected_ica_components_json or "[]"),
+            }
+        except (TypeError, ValueError):
+            cleaning_cfg = {}
+    bad_channels = [c for c in (cleaning_cfg.get("bad_channels") or []) if isinstance(c, str)]
+    bad_segments = [s for s in (cleaning_cfg.get("bad_segments") or []) if isinstance(s, dict)]
+    excluded_ica = [x for x in (cleaning_cfg.get("excluded_ica_components") or []) if isinstance(x, int)]
     return {
         "analysis_id": analysis_id,
         "channel_count": len(channels) or getattr(analysis, "channel_count", 0) or 0,
         "duration_sec": float(getattr(analysis, "recording_duration_sec", 0.0) or 0.0),
+        "cleaning_version": {
+            "id": getattr(latest_version, "id", None),
+            "version_number": getattr(latest_version, "version_number", None),
+            "review_status": getattr(latest_version, "review_status", None),
+        },
+        "compare_snapshot": {
+            "bad_channels": bad_channels,
+            "bad_segments_count": len(bad_segments),
+            "excluded_ica_count": len(excluded_ica),
+            "retained_data_pct": max(
+                0.0,
+                100.0 - min(100.0, len(bad_channels) * 3.5 + len(bad_segments) * 2.0 + len(excluded_ica) * 1.5),
+            ),
+        },
         "notice": _workbench_notice(),
     }
 

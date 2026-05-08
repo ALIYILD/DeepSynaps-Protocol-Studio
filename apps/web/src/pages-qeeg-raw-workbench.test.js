@@ -298,6 +298,9 @@ await test('AI Assistant panel shows safety wording in source', async () => {
   assert.ok(WORKBENCH_SRC.includes('AI Review Queue'), 'AI tab heading present in source');
   assert.ok(WORKBENCH_SRC.includes('AI-assisted suggestion only'), 'AI safety banner present');
   assert.ok(WORKBENCH_SRC.includes('Clinician confirmation required'), 'AI confirmation requirement present');
+  assert.ok(WORKBENCH_SRC.includes('qwb-ai-section-'), 'assistant section cards present');
+  assert.ok(WORKBENCH_SRC.includes('Compare snapshot'), 'compare snapshot card present');
+  assert.ok(WORKBENCH_SRC.includes('getQEEGCopilotAssistBundle'), 'copilot bundle loader present');
 });
 
 await test('Examples panel covers all canonical artefact archetypes', async () => {

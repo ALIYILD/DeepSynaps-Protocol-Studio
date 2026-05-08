@@ -607,6 +607,7 @@ export async function pgQEEGRawWorkbench(setTopbar, navigate) {
     rejectedICA: new Set(),
     annotations: [],
     aiSuggestions: [],
+    copilotBundle: null,
     auditLog: [],
     cleaningVersion: null,
     showShortcuts: false,
@@ -3410,6 +3411,9 @@ function renderAIPanel(state) {
   const threshold = state.aiThreshold ?? 0.7;
   const items = all.filter(s => (s.ai_confidence || 0) >= threshold);
   const hidden = all.length - items.length;
+  const bundle = state.copilotBundle?.data || state.copilotBundle?.result || state.copilotBundle || null;
+  const sections = Array.isArray(bundle?.assistant_sections) ? bundle.assistant_sections : [];
+  const compare = bundle?.compare_summary || state.rawCleanedSummary || null;
   return `
     <div class="qwb-side-section">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -3425,6 +3429,41 @@ function renderAIPanel(state) {
       <div class="qwb-ai-banner">
         AI-assisted suggestion only. Clinician confirmation required before any cleaning is applied.
       </div>
+      ${sections.length ? `
+        <div style="display:grid;grid-template-columns:1fr;gap:8px;margin:10px 0 12px">
+          ${sections.map(section => {
+            const evidence = Array.isArray(section.evidence) ? section.evidence : [];
+            const items = Array.isArray(section.items) ? section.items : [];
+            return `
+              <div class="qwb-card" data-testid="qwb-ai-section-${esc(section.id || 'section')}">
+                <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
+                  <div>
+                    <div style="font-weight:600;font-size:12px">${esc(section.title || 'Assistant')}</div>
+                    <div style="font-size:10px;color:#6b6660;margin-top:2px">${esc(section.summary || '')}</div>
+                  </div>
+                  <span class="qwb-bp-pill" style="background:#f3eee5;color:#6b6660">${esc(section.status || 'review')}</span>
+                </div>
+                ${evidence.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${evidence.map(ev => `<span class="qwb-bp-pill" style="background:#fff;color:#3a3633">${esc(ev.label || 'Evidence')}: ${esc(String(ev.value ?? ''))}</span>`).join('')}</div>` : ''}
+                ${items.length ? `<div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">${items.slice(0, 3).map(item => `<div style="padding:6px 8px;border:1px solid #e6dfd4;border-radius:8px;background:#fff"><div style="font-size:11px;font-weight:600">${esc(item.label || item.rationale || 'Suggested step')}</div><div style="font-size:10px;color:#6b6660;margin-top:2px">${esc(item.rationale || item.summary || '')}</div></div>`).join('')}</div>` : ''}
+              </div>`;
+          }).join('')}
+        </div>` : ''}
+      ${compare ? `
+        <div class="qwb-card" data-testid="qwb-compare-snapshot" style="margin:10px 0 12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+            <div>
+              <div style="font-weight:600;font-size:12px">Compare snapshot</div>
+              <div style="font-size:10px;color:#6b6660;margin-top:2px">Use the compare modal to verify the exact cleaning delta before re-running.</div>
+            </div>
+            <button class="qwb-side-btn" id="qwb-compare" title="Raw vs Cleaned">Open</button>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+            <span class="qwb-bp-pill" style="background:#fff;color:#3a3633">Retained ${esc(String(compare.retained_data_pct ?? compare.retainedPct ?? '—'))}%</span>
+            <span class="qwb-bp-pill" style="background:#fff;color:#3a3633">Bad channels ${esc(String((compare.change_summary && compare.change_summary.bad_channels) ?? (compare.bad_channels || []).length ?? 0))}</span>
+            <span class="qwb-bp-pill" style="background:#fff;color:#3a3633">Rejected segments ${esc(String((compare.change_summary && compare.change_summary.bad_segments) ?? compare.bad_segments_count ?? 0))}</span>
+            <span class="qwb-bp-pill" style="background:#fff;color:#3a3633">ICA removed ${esc(String((compare.change_summary && compare.change_summary.excluded_ica_components) ?? compare.excluded_ica_count ?? 0))}</span>
+          </div>
+        </div>` : ''}
       ${items.length === 0 ? '<div style="color:#6b6660;font-size:12px;padding:18px 0;text-align:center">No suggestions yet — click <em>Generate</em>.</div>'
         : items.map(s => {
             const c = kindColour(s.ai_label);
@@ -6059,18 +6098,22 @@ function _computeBeforeAfterMetrics(state) {
 
 function showRawVsCleanedModal(state) {
   var m = _computeBeforeAfterMetrics(state);
+  var summary = state.rawCleanedSummary || {};
+  var snap = summary.compare_snapshot || {};
+  var latest = summary.cleaning_version || {};
   var html = '<div id="qwb-compare-modal" class="qwb-compare-modal" style="display:flex">'
     + '<div class="qwb-modal-panel">'
     + '<div class="qwb-modal-header">Raw vs Cleaned Summary <button class="qwb-modal-close" id="qwb-compare-close">×</button></div>'
     + '<div class="qwb-modal-body">'
     + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">'
-    + '<div class="qwb-card"><div style="font-size:10px;color:#6b6660">Retained data</div><div style="font-size:18px;font-weight:600">' + m.retainedPct + '%</div></div>'
+    + '<div class="qwb-card"><div style="font-size:10px;color:#6b6660">Retained data</div><div style="font-size:18px;font-weight:600">' + (snap.retained_data_pct != null ? snap.retained_data_pct : m.retainedPct) + '%</div></div>'
     + '<div class="qwb-card"><div style="font-size:10px;color:#6b6660">Rejected seconds</div><div style="font-size:18px;font-weight:600">' + m.rejectedSec.toFixed(1) + 's</div></div>'
-    + '<div class="qwb-card"><div style="font-size:10px;color:#6b6660">Bad channels</div><div style="font-size:18px;font-weight:600">' + m.badChannels + '</div></div>'
-    + '<div class="qwb-card"><div style="font-size:10px;color:#6b6660">Rejected segments</div><div style="font-size:18px;font-weight:600">' + m.rejectedSegments + '</div></div>'
-    + '<div class="qwb-card"><div style="font-size:10px;color:#6b6660">ICA components removed</div><div style="font-size:18px;font-weight:600">' + m.rejectedICA + '</div></div>'
+    + '<div class="qwb-card"><div style="font-size:10px;color:#6b6660">Bad channels</div><div style="font-size:18px;font-weight:600">' + (snap.bad_channels ? snap.bad_channels.length : m.badChannels) + '</div></div>'
+    + '<div class="qwb-card"><div style="font-size:10px;color:#6b6660">Rejected segments</div><div style="font-size:18px;font-weight:600">' + (snap.bad_segments_count != null ? snap.bad_segments_count : m.rejectedSegments) + '</div></div>'
+    + '<div class="qwb-card"><div style="font-size:10px;color:#6b6660">ICA components removed</div><div style="font-size:18px;font-weight:600">' + (snap.excluded_ica_count != null ? snap.excluded_ica_count : m.rejectedICA) + '</div></div>'
     + '<div class="qwb-card"><div style="font-size:10px;color:#6b6660">Artifacts cleaned</div><div style="font-size:18px;font-weight:600;color:#2f6b3a">' + m.cleanedArtifacts + '/' + m.beforeArtifacts + '</div></div>'
     + '</div>'
+    + (latest.version_number ? '<div class="qwb-card" style="margin-bottom:12px"><div style="font-size:10px;color:#6b6660">Cleaning version</div><div style="font-size:14px;font-weight:600">v' + latest.version_number + '</div><div style="font-size:10px;color:#6b6660;margin-top:4px">' + esc(latest.review_status || 'draft') + '</div></div>' : '')
     + '<div class="qwb-safety-footer">Original raw EEG preserved. Decision-support only.</div>'
     + '</div></div></div>';
   var tmp = document.createElement('div'); tmp.innerHTML = html;
@@ -6412,6 +6455,10 @@ async function loadAll(state) {
   try {
     const checklist = await api.getQEEGManualAnalysisChecklist(state.analysisId);
     state.manualChecklist = checklist.items || [];
+  } catch (_e) {}
+  try {
+    const bundle = await api.getQEEGCopilotAssistBundle(state.analysisId);
+    state.copilotBundle = bundle || null;
   } catch (_e) {}
   try {
     const annotations = await api.listQEEGCleaningAnnotations(state.analysisId, { kind: 'manual_finding', limit: 50 });
