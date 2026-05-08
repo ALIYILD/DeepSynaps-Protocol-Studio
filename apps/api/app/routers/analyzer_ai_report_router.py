@@ -54,6 +54,7 @@ router = APIRouter(prefix="/api/v1/analyzer-reports", tags=["analyzer-reports"])
 # ── Models ───────────────────────────────────────────────────────────────────
 
 
+# core-schema-exempt: router-private request body, not consumed outside this file
 class AIReportRequest(BaseModel):
     """Request body for the AI report endpoint."""
 
@@ -64,6 +65,7 @@ class AIReportRequest(BaseModel):
     )
 
 
+# core-schema-exempt: response sub-model for /analyzer-reports, never reused
 class LiteratureRef(BaseModel):
     pmid: str = ""
     doi: str = ""
@@ -73,6 +75,7 @@ class LiteratureRef(BaseModel):
     journal: str = ""
 
 
+# core-schema-exempt: response sub-model for /analyzer-reports, never reused
 class KeyFinding(BaseModel):
     title: str = ""
     observation: str = ""
@@ -80,6 +83,7 @@ class KeyFinding(BaseModel):
     confidence: float = 0.0
 
 
+# core-schema-exempt: response sub-model for /analyzer-reports, never reused
 class DecisionSupportData(BaseModel):
     executive_summary: str = ""
     key_findings: list[KeyFinding] = Field(default_factory=list)
@@ -91,6 +95,8 @@ class DecisionSupportData(BaseModel):
     confidence_overall: str = "moderate"
 
 
+# core-schema-exempt: response envelope for /analyzer-reports, distinct from
+# the like-named class in qeeg_analysis_router (different field set)
 class AIReportOut(BaseModel):
     model_config = {"protected_namespaces": ()}
 
@@ -107,6 +113,7 @@ class AIReportOut(BaseModel):
     generated_at: str
 
 
+# core-schema-exempt: trivial list wrapper for /analyzer-reports, router-private
 class AnalyzersOut(BaseModel):
     analyzer_types: list[str]
 
