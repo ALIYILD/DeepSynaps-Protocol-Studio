@@ -2344,6 +2344,7 @@ def promote_to_library(
 # protocols.indication_id are not yet populated for the slug.
 
 
+# core-schema-exempt: indication-summary projection is router-local; not reused by patient/clinician schemas
 class IndicationSummaryOut(BaseModel):
     """One row in the indication navigation spine for the Studio Evidence
     workspace. Counts come from the junction tables in evidence.db; protocols
@@ -2361,6 +2362,7 @@ class IndicationSummaryOut(BaseModel):
     protocol_count: int = 0
 
 
+# core-schema-exempt: trial-extracted protocol projection is router-local; canonical schema lives in services/evidence-pipeline
 class ProtocolOut(BaseModel):
     """One row from the structured protocols table — extracted from CT.gov /
     FDA filings. `confidence` is the extractor's heuristic (high/medium/low)."""
@@ -2389,6 +2391,7 @@ class ProtocolOut(BaseModel):
     notes: Optional[str] = None
 
 
+# core-schema-exempt: indication-detail aggregate is router-local; bundles per-slug projections only used here
 class IndicationDetailOut(BaseModel):
     """Single-call detail bundle for the Evidence Indications spine UI.
 
@@ -2808,11 +2811,13 @@ def get_indication_detail(
     )
 
 
+# core-schema-exempt: FTS hit envelope is router-local; only used by /evidence/search response
 class EvidenceSearchHitOut(BaseModel):
     paper: PaperOut
     rank: float
 
 
+# core-schema-exempt: FTS search response envelope; pairs with EvidenceSearchHitOut above
 class EvidenceSearchOut(BaseModel):
     query: str
     total: int
