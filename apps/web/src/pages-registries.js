@@ -460,7 +460,7 @@ export async function pgDeviceRegistry(setTopbar) {
     window._regDetailItems = data;
     const cards = data.length
       ? data.map((d, i) => {
-          // Count protocols using this device from the 87K-backed library
+          // Count protocols using this device from the indexed evidence library
           const _devProtos = PROTOCOL_LIBRARY?.filter(p => p.device === d.id || p.device === d.modality?.toLowerCase()?.replace(/\s+/g,'-')) || [];
           const _devCondCount = new Set(_devProtos.map(p => p.conditionId)).size;
           const _devProtoLine = _devProtos.length ? `<div style="margin-top:4px"><span style="color:var(--text-tertiary);font-size:0.72rem">Protocols:</span> ${_devProtos.length} protocols across ${_devCondCount} conditions</div>` : '';

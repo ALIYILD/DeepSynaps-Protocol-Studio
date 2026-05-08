@@ -1985,7 +1985,7 @@ export async function pgDash(setTopbar, navigate) {
     ${_chartBody}
   </div>`;
 
-  // ── Protocol Studio connection card (87K evidence dataset) ───────────────────
+  // ── Protocol Studio connection card (indexed evidence corpus) ──────────────
   const _liveCoverageRows = protocolOverview?.coverageRows || [];
   const _liveTemplateRows = protocolOverview?.templates || [];
   const _liveSafetyRows = protocolOverview?.safetySignals || [];

@@ -319,7 +319,7 @@ export async function pgDevices(setTopbar) {
     }));
   }
 
-  // Build per-device evidence stats from 87K dataset
+  // Build per-device evidence stats from indexed corpus
   const _devEvStats = {};
   for (const d of PROTO_DEVICES || []) {
     const protos = PROTOCOL_LIBRARY.filter(p => p.device === d.id);
@@ -19582,7 +19582,7 @@ export async function pgConditionBrowser(setTopbar) {
     { slug:'opioid-withdrawal', name:'Opioid Withdrawal', category:'Addiction', icd:'F11.2', ev:'EV-C', modalities:['TMS','taVNS','CES'] },
   ];
 
-  // Enrich each package with evidence data from 87K dataset
+  // Enrich each package with evidence data from indexed corpus
   for (const pkg of KNOWN_PACKAGES) {
     const ev = getConditionEvidence(pkg.slug);
     const protos = getProtocolsByCondition(pkg.slug);

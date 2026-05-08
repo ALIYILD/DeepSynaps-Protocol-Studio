@@ -156,7 +156,7 @@ export function pgHome() {
   const el = document.getElementById('public-shell');
   el.scrollTop = 0;
 
-  // ── Evidence matrix data — sourced from DeepSynaps 87K Evidence Dataset (2026-04-24) ──
+  // ── Evidence matrix data — sourced from DeepSynaps indexed evidence corpus (2026-04-24) ──
   // Bundled orientation figures — live counts from GET /api/v1/evidence/status when online.
   // Grades: S = Strong (Grade A: FDA-approved / multiple RCTs + meta-analysis)
   //         M = Moderate (Grade B: RCT evidence)
@@ -184,7 +184,7 @@ export function pgHome() {
     return { name: pd.label, cat: pd.category, ev };
   }).filter(Boolean);
 
-  // ── Study counts — tooltip data built from 87K dataset per condition-modality pair ──
+  // ── Study counts — tooltip data built from indexed corpus per condition-modality pair ──
   const _totalModPapers = Object.values(_modDist).reduce((a, b) => a + b, 0);
   const _modWeights = Object.fromEntries(DEVICES.map(d => {
     const key = Object.keys(_modDist).find(k => k.toLowerCase().includes(d.id)) || d.label;
@@ -878,7 +878,7 @@ export function pgHome() {
       const body = await res.json();
       const c = (body && body.counts) || {};
       const fmt = n => Number(n).toLocaleString('en-US');
-      // Use the higher of API count or static 87K dataset — the curated
+      // Use the higher of API count or static bundled dataset — the curated
       // dataset is authoritative; live API may only hold a subset.
       const papers = Math.max(c.papers || 0, EVIDENCE_TOTAL_PAPERS);
       const trials = Math.max(c.trials || 0, EVIDENCE_TOTAL_TRIALS);
