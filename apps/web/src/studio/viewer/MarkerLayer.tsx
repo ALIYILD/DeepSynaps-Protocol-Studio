@@ -16,6 +16,7 @@ export function MarkerLayer({
   dragSelect,
   labelMarkers,
   photicMarkers = [],
+  artifactIntervals = [],
 }: {
   width: number;
   height: number;
@@ -26,6 +27,7 @@ export function MarkerLayer({
   dragSelect: { startSec: number; endSec: number } | null;
   labelMarkers: LabelMarker[];
   photicMarkers?: { timeSec: number }[];
+  artifactIntervals?: { fromSec: number; toSec: number }[];
 }) {
   const span = toSec - fromSec || 1;
   const x = (t: number) => ((t - fromSec) / span) * width;
