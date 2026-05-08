@@ -550,3 +550,185 @@ def test_nibabel_path_matches_fallback(tmp_path: Path):
     md = svc.extract_medical_volume_metadata(str(src))
     assert md.dimensions == [5, 6, 7]
     assert md.volumes == 1
+
+
+# ── FreeSurfer-specific tests ───────────────────────────────────────────────
+
+
+def _build_mgz(tmp_path: Path, shape=(8, 8, 8), name: str = "scan.mgz"):
+    """Synthetic FreeSurfer .mgz fixture using nibabel.MGHImage.
+
+    Skips cleanly via ``pytest.importorskip`` so the fixture builder cannot
+    be called when nibabel is unavailable.
+    """
+    nib = pytest.importorskip("nibabel")
+    import numpy as np
+
+    data = np.arange(int(np.prod(shape)), dtype=np.float32).reshape(shape)
+    img = nib.MGHImage(data, affine=np.eye(4))
+    out = tmp_path / name
+    nib.save(img, str(out))
+    return out
+
+
+def test_freesurfer_extension_detected():
+    """Confirm that .mgz / .mgh / .mgh.gz still classify as FreeSurfer."""
+    from app.services import medical_image_preview as svc
+
+    assert svc.detect_medical_volume_format("aparc.mgz") == "FreeSurfer"
+    assert svc.detect_medical_volume_format("aparc.MGH") == "FreeSurfer"
+    assert svc.detect_medical_volume_format("aparc.mgh.gz") == "FreeSurfer"
+    assert svc.is_supported_medical_volume("aparc.mgz") is True
+
+
+def test_supported_formats_freesurfer_tier(monkeypatch: pytest.MonkeyPatch):
+    """FreeSurfer should be tier ``primary`` when nibabel is installed and
+    fall back to ``metadata`` when it is not.
+    """
+    from app.services import medical_image_preview as svc
+
+    formats = svc.supported_formats()
+    fs = next(f for f in formats if f["format"] == "FreeSurfer")
+    expected = "primary" if _has_nibabel() else "metadata"
+    assert fs["tier"] == expected
+
+    # Force nibabel-unavailable and re-check.
+    monkeypatch.setattr(svc, "_try_import_nibabel", lambda: None)
+    formats_off = svc.supported_formats()
+    fs_off = next(f for f in formats_off if f["format"] == "FreeSurfer")
+    assert fs_off["tier"] == "metadata"
+    # MRtrix is metadata-only regardless of nibabel — never promotes.
+    mrtrix_off = next(f for f in formats_off if f["format"] == "MRtrix")
+    assert mrtrix_off["tier"] == "metadata"
+
+
+@pytest.mark.skipif(not _has_nibabel(), reason="nibabel not installed")
+def test_freesurfer_slice_generation_with_nibabel(tmp_path: Path):
+    """Synthetic .mgz produces axial / coronal / sagittal PNGs."""
+    from app.services import medical_image_preview as svc
+
+    src = _build_mgz(tmp_path, shape=(8, 10, 12))
+    out = tmp_path / "previews"
+
+    preview = svc.generate_orthogonal_preview_slices(str(src), str(out))
+    assert preview.status == "ready", preview.error
+    assert preview.metadata.format == "FreeSurfer"
+    for plane in ("axial", "coronal", "sagittal"):
+        path = out / f"{plane}.png"
+        assert path.exists(), f"missing {plane}.png"
+        assert path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+    # Orientation note must still flag raw orientation — FreeSurfer can
+    # carry conformed data, but for safety we treat it as raw.
+    assert "not reoriented" in preview.metadata.orientation_note.lower() or any(
+        "not reoriented" in w.lower() for w in preview.metadata.warnings
+    )
+
+
+@pytest.mark.skipif(not _has_nibabel(), reason="nibabel not installed")
+def test_freesurfer_4d_uses_first_volume(tmp_path: Path):
+    """A 4-D MGH should preview the first volume only and warn loudly."""
+    from app.services import medical_image_preview as svc
+
+    src = _build_mgz(tmp_path, shape=(6, 6, 6, 3), name="ts.mgz")
+    out = tmp_path / "previews"
+
+    preview = svc.generate_orthogonal_preview_slices(str(src), str(out))
+    assert preview.status == "ready", preview.error
+    assert preview.metadata.volumes >= 2
+    assert any(
+        "first volume" in w.lower() or "4-d volume" in w.lower()
+        for w in preview.metadata.warnings
+    ), preview.metadata.warnings
+
+
+def test_freesurfer_metadata_only_without_nibabel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """If nibabel is patched away, FreeSurfer falls back cleanly."""
+    from app.services import medical_image_preview as svc
+
+    # Build the fixture only when nibabel is genuinely available; otherwise
+    # skip — we cannot synthesise an .mgz any other way.
+    nib_real = pytest.importorskip("nibabel")  # noqa: F841
+    src = _build_mgz(tmp_path, shape=(4, 4, 4), name="anat.mgz")
+    out = tmp_path / "previews"
+
+    # Now flip the runtime detector so the service believes nibabel is gone.
+    monkeypatch.setattr(svc, "_try_import_nibabel", lambda: None)
+
+    preview = svc.generate_orthogonal_preview_slices(str(src), str(out))
+    assert preview.status == "metadata_only"
+    assert preview.error is not None
+    assert "nibabel" in preview.error.lower()
+    # No PNGs were written.
+    assert not (out / "axial.png").exists()
+    assert not (out / "coronal.png").exists()
+    assert not (out / "sagittal.png").exists()
+
+
+def test_freesurfer_no_diagnostic_words_in_warnings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Safety scrub: across all FreeSurfer scenarios above, the rendered
+    warnings / error text MUST never contain a diagnostic-forbidden term.
+    """
+    from app.services import medical_image_preview as svc
+
+    forbidden = svc.DIAGNOSTIC_FORBIDDEN_TERMS
+    scenarios: list[svc.MedicalVolumePreview] = []
+
+    # Detection-only scenarios — synthesise a metadata object without nibabel.
+    md_meta = svc.MedicalVolumeMetadata(
+        filename="aparc.mgz", format="FreeSurfer", dimensions=[8, 8, 8]
+    )
+    scenarios.append(
+        svc.MedicalVolumePreview(
+            metadata=md_meta,
+            status="metadata_only",
+            error="FreeSurfer preview requires the nibabel package.",
+        )
+    )
+
+    if _has_nibabel():
+        # 3-D ready preview.
+        src3 = _build_mgz(tmp_path, shape=(6, 6, 6), name="anat.mgz")
+        scenarios.append(
+            svc.generate_orthogonal_preview_slices(str(src3), str(tmp_path / "p3"))
+        )
+
+        # 4-D first-volume preview.
+        src4 = _build_mgz(tmp_path, shape=(4, 4, 4, 2), name="ts.mgz")
+        scenarios.append(
+            svc.generate_orthogonal_preview_slices(str(src4), str(tmp_path / "p4"))
+        )
+
+        # nibabel-disabled fallback against the same .mgz.
+        with monkeypatch.context() as mp:
+            mp.setattr(svc, "_try_import_nibabel", lambda: None)
+            scenarios.append(
+                svc.generate_orthogonal_preview_slices(
+                    str(src3), str(tmp_path / "p_disabled")
+                )
+            )
+
+        # Corrupt FreeSurfer file → error path, must still be diagnostic-clean.
+        corrupt = tmp_path / "broken.mgz"
+        corrupt.write_bytes(b"not an MGH header" * 50)
+        scenarios.append(
+            svc.generate_orthogonal_preview_slices(
+                str(corrupt), str(tmp_path / "p_corrupt")
+            )
+        )
+
+    for preview in scenarios:
+        warning_blob = " ".join(preview.metadata.warnings).lower()
+        error_blob = (preview.error or "").lower()
+        for term in forbidden:
+            assert term not in warning_blob, (
+                f"diagnostic term {term!r} leaked into warnings: "
+                f"{preview.metadata.warnings!r}"
+            )
+            assert term not in error_blob, (
+                f"diagnostic term {term!r} leaked into error: {preview.error!r}"
+            )

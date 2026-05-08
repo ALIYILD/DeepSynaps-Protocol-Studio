@@ -93,10 +93,20 @@ def supported_formats() -> list[dict[str, Any]]:
 
     Tier "primary" = implemented end-to-end (preview slices generated).
     Tier "metadata" = format detected but no slice rendering yet.
+
+    FreeSurfer rendering requires nibabel; when nibabel is not installed at
+    runtime FreeSurfer falls back to ``"metadata"`` so callers don't promise
+    slices the worker cannot deliver. MRtrix stays at ``"metadata"`` because
+    nibabel does not ship a ``.mif`` reader.
     """
+    has_nibabel = _try_import_nibabel() is not None
     return [
         {"format": "NIfTI", "extensions": [".nii", ".nii.gz"], "tier": "primary"},
-        {"format": "FreeSurfer", "extensions": [".mgh", ".mgz", ".mgh.gz"], "tier": "metadata"},
+        {
+            "format": "FreeSurfer",
+            "extensions": [".mgh", ".mgz", ".mgh.gz"],
+            "tier": "primary" if has_nibabel else "metadata",
+        },
         {"format": "MRtrix", "extensions": [".mif", ".mif.gz"], "tier": "metadata"},
     ]
 
@@ -456,6 +466,36 @@ def normalize_slice_for_preview(slice_array) -> "Image.Image":  # noqa: F821 —
     return Image.fromarray(scaled, mode="L")
 
 
+def _reduce_to_first_3d_slab(data):
+    """Collapse anything past the 3rd axis to a single 3-D slab.
+
+    ``nibabel`` data arrays for non-NIfTI formats can be 3-D (anatomical),
+    4-D (time series, or DWI volume index), or even 5-D (vector / tensor
+    field — e.g. some MRtrix or extended FreeSurfer outputs). For preview
+    we always render a single 3-D slab. The function returns
+    ``(slab_3d, total_volumes_along_axis3, extra_axes_count)`` so the
+    caller can emit a clear warning when more than one trailing axis was
+    folded away. ``total_volumes_along_axis3`` mirrors the NIfTI semantics
+    (axis-3 length) so 4-D-time-series previews still report the correct
+    volume count.
+    """
+    import numpy as np
+
+    arr = np.asarray(data)
+    if arr.ndim <= 3:
+        # Pad degenerate trailing 1-axes (e.g. shape (X, Y, 1)) to a 2-D
+        # slice — only meaningful when ndim == 3. We just return as-is and
+        # let the caller's 3-D check handle truly degenerate shapes.
+        return arr, 1, 0
+    total = int(arr.shape[3]) if arr.ndim >= 4 else 1
+    # Take index 0 along every axis past the 3rd until we have a 3-D slab.
+    extra = arr.ndim - 3
+    slab = arr
+    while slab.ndim > 3:
+        slab = slab[..., 0] if slab.ndim > 4 else slab[..., 0]
+    return slab, total, extra - 1  # extra-1 because the first folded axis is the "volumes" axis
+
+
 def safe_load_first_volume(file_path: str):
     """Return (volume_3d, metadata, total_volumes) — nibabel or fallback.
 
@@ -478,18 +518,16 @@ def safe_load_first_volume(file_path: str):
             )
         img = nib.load(file_path)  # type: ignore[union-attr]
         data = img.get_fdata()
-        total = int(data.shape[3]) if data.ndim >= 4 else 1
-        first = data[..., 0] if data.ndim == 4 else data
-        return first, img.header, total
+        slab, total, _extra = _reduce_to_first_3d_slab(data)
+        return slab, img.header, total
 
     nib = _try_import_nibabel()
     if nib is not None:
         try:
             img = nib.load(file_path)  # type: ignore[union-attr]
             data = img.get_fdata()
-            total = int(data.shape[3]) if data.ndim >= 4 else 1
-            first = data[..., 0] if data.ndim == 4 else data
-            return first, img.header, total
+            slab, total, _extra = _reduce_to_first_3d_slab(data)
+            return slab, img.header, total
         except Exception as exc:  # pragma: no cover
             _log.info("nibabel volume read failed, using fallback: %s", exc)
 
@@ -515,9 +553,20 @@ def generate_orthogonal_preview_slices(
             error="File extension not recognised as a medical volume.",
         )
 
-    if fmt != "NIfTI" and _try_import_nibabel() is None:
-        # Without nibabel we cannot read FreeSurfer / MRtrix data — return
-        # metadata-only, never partial slices.
+    # nibabel availability gate. NIfTI has a pure-Python fallback, so it can
+    # always render. FreeSurfer needs nibabel. MRtrix has no Python reader in
+    # nibabel, so it stays metadata-only regardless.
+    nib = _try_import_nibabel()
+    if fmt == "MRtrix":
+        return MedicalVolumePreview(
+            metadata=metadata,
+            status="metadata_only",
+            error=(
+                "MRtrix (.mif) slice rendering is not yet supported; "
+                "metadata only. Use the original viewer for visual review."
+            ),
+        )
+    if fmt == "FreeSurfer" and nib is None:
         return MedicalVolumePreview(
             metadata=metadata,
             status="metadata_only",
@@ -528,6 +577,19 @@ def generate_orthogonal_preview_slices(
         import numpy as np
 
         volume, _hdr, total_volumes = safe_load_first_volume(file_path)
+        # Track whether nibabel handed us a >4-D array (e.g. a DWI tensor
+        # field) so we can warn — generation still proceeds against the
+        # collapsed first 3-D slab, never claiming diagnostic interpretation.
+        original_ndim = None
+        if nib is not None and fmt != "NIfTI":
+            try:
+                _img = nib.load(file_path)  # type: ignore[union-attr]
+                original_ndim = int(_img.ndim) if hasattr(_img, "ndim") else len(
+                    list(getattr(_img, "shape", ()) or [])
+                )
+            except Exception:  # pragma: no cover — best-effort warning only
+                original_ndim = None
+
         if volume.ndim != 3:
             raise ValueError(f"expected 3-D volume, got shape {volume.shape}")
 
@@ -556,6 +618,16 @@ def generate_orthogonal_preview_slices(
             metadata.volumes = int(total_volumes)
             metadata.warnings.append(
                 "4-D volume — preview shows the first volume only."
+            )
+
+        # If the source array carried more than 4 dims (e.g. a DWI tensor
+        # field stored as 5-D), we collapsed every trailing axis to index 0.
+        # Surface that fact loudly; never imply we interpreted the rest.
+        if original_ndim is not None and original_ndim > 4:
+            metadata.warnings.append(
+                f"{fmt} volume has {original_ndim} dimensions; preview "
+                "shows the first 3-D slab only and is not a tensor / "
+                "vector visualisation."
             )
 
         return MedicalVolumePreview(
