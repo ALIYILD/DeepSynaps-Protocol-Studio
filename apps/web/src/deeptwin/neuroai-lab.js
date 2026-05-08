@@ -115,7 +115,7 @@ export function renderNeuroAiLabSection({ patientId, timeline, dataSources }) {
       <div class="card" style="padding:12px 14px;margin-top:12px">
         <div style="font-weight:600;margin-bottom:6px">Safety & evidence</div>
         <ul class="dt-muted" style="margin:0;padding-left:18px;font-size:12px;line-height:1.45">
-          <li>No autonomous protocol selection.</li>
+          <li>Clinician review is required for all decisions.</li>
           <li>No normative labels unless validated pipelines supply them.</li>
           <li>Off-label or extreme parameters require explicit evidence review.</li>
         </ul>
