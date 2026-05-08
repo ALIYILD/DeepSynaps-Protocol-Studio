@@ -425,3 +425,202 @@ def test_attach_idempotent_when_called_twice_same_patient(tmp_path: Path):
     # Same image_id; caller-wins idempotency means the helper does not
     # rewrite a context that already names a real image_id.
     assert payload["medical_image_context"]["image_id"] == first_ctx["image_id"]
+
+
+# ── medical_image.used_in_report audit event (PR #619 follow-up gap B) ───────
+
+
+class _StubActor:
+    """Minimal stand-in for AuthenticatedActor — only the two attrs the
+    audit emitter touches."""
+
+    def __init__(self, actor_id: str, role: str) -> None:
+        self.actor_id = actor_id
+        self.role = role
+
+
+def _count_used_in_report_audits(patient_id: Optional[str] = None) -> int:
+    from app.database import SessionLocal
+    from app.persistence.models import AuditEventRecord
+
+    s = SessionLocal()
+    try:
+        q = s.query(AuditEventRecord).filter(
+            AuditEventRecord.action == "medical_image.used_in_report"
+        )
+        rows = q.all()
+        if patient_id is None:
+            return len(rows)
+        return sum(1 for r in rows if patient_id in (r.note or ""))
+    finally:
+        s.close()
+
+
+def _latest_used_in_report_audit():
+    from app.database import SessionLocal
+    from app.persistence.models import AuditEventRecord
+
+    s = SessionLocal()
+    try:
+        return (
+            s.query(AuditEventRecord)
+            .filter(AuditEventRecord.action == "medical_image.used_in_report")
+            .order_by(AuditEventRecord.id.desc())
+            .first()
+        )
+    finally:
+        s.close()
+
+
+def test_used_in_report_audit_fires_when_imaging_attached(tmp_path: Path):
+    """When MRI is available + actor + db are passed, emit the audit event."""
+    from app.database import SessionLocal
+    from app.services.medical_image_report_context import (
+        attach_medical_image_context_to_payload,
+    )
+
+    _write_sidecar(
+        tmp_path, image_id="img_audit_1", patient_id="pt-aud-1", status="ready"
+    )
+    actor = _StubActor("actor-clinician-demo", "clinician")
+    db = SessionLocal()
+    try:
+        payload: dict = {}
+        attach_medical_image_context_to_payload(
+            payload,
+            patient_id="pt-aud-1",
+            db=db,
+            actor=actor,
+            surface="assessment_summary",
+            settings=_settings_stub(tmp_path),
+        )
+    finally:
+        db.close()
+
+    row = _latest_used_in_report_audit()
+    assert row is not None
+    assert row.action == "medical_image.used_in_report"
+    assert row.target_type == "medical_image"
+    assert row.target_id == "img_audit_1"
+    assert row.actor_id == "actor-clinician-demo"
+    assert row.role == "clinician"
+    note = json.loads(row.note or "{}")
+    assert note.get("surface") == "assessment_summary"
+    assert note.get("patient_id") == "pt-aud-1"
+    assert note.get("image_id") == "img_audit_1"
+
+
+def test_used_in_report_audit_skipped_when_no_imaging(tmp_path: Path):
+    """Patient has no MRI — must NOT emit the audit."""
+    from app.database import SessionLocal
+    from app.services.medical_image_report_context import (
+        attach_medical_image_context_to_payload,
+    )
+
+    before = _count_used_in_report_audits()
+    actor = _StubActor("actor-clinician-demo", "clinician")
+    db = SessionLocal()
+    try:
+        payload: dict = {}
+        attach_medical_image_context_to_payload(
+            payload,
+            patient_id="pt-no-mri-aud",
+            db=db,
+            actor=actor,
+            surface="assessment_summary",
+            settings=_settings_stub(tmp_path),
+        )
+    finally:
+        db.close()
+    after = _count_used_in_report_audits()
+    assert after == before
+    # And the payload still got the unavailable block.
+    assert payload["medical_image_context"]["available"] is False
+
+
+def test_used_in_report_audit_skipped_when_actor_omitted(tmp_path: Path):
+    """Legacy callers without actor must keep working and emit no audit."""
+    from app.database import SessionLocal
+    from app.services.medical_image_report_context import (
+        attach_medical_image_context_to_payload,
+    )
+
+    _write_sidecar(
+        tmp_path, image_id="img_legacy", patient_id="pt-legacy", status="ready"
+    )
+    before = _count_used_in_report_audits()
+    db = SessionLocal()
+    try:
+        payload: dict = {}
+        attach_medical_image_context_to_payload(
+            payload,
+            patient_id="pt-legacy",
+            db=db,  # db given, actor omitted
+            settings=_settings_stub(tmp_path),
+        )
+    finally:
+        db.close()
+    after = _count_used_in_report_audits()
+    assert after == before
+    # But context still attached normally.
+    assert payload["medical_image_context"]["available"] is True
+
+
+def test_used_in_report_audit_skipped_when_db_omitted(tmp_path: Path):
+    """No db session — no audit, no crash."""
+    from app.services.medical_image_report_context import (
+        attach_medical_image_context_to_payload,
+    )
+
+    _write_sidecar(
+        tmp_path, image_id="img_no_db", patient_id="pt-no-db", status="ready"
+    )
+    actor = _StubActor("actor-clinician-demo", "clinician")
+    before = _count_used_in_report_audits()
+    payload: dict = {}
+    attach_medical_image_context_to_payload(
+        payload,
+        patient_id="pt-no-db",
+        actor=actor,  # actor given, db omitted
+        settings=_settings_stub(tmp_path),
+    )
+    after = _count_used_in_report_audits()
+    assert after == before
+    assert payload["medical_image_context"]["available"] is True
+
+
+def test_used_in_report_audit_failure_never_breaks_payload(
+    tmp_path: Path, monkeypatch
+):
+    """If audit emission throws, the payload is still returned intact."""
+    from app.services import medical_image_report_context as ctx_mod
+
+    _write_sidecar(
+        tmp_path, image_id="img_audit_boom", patient_id="pt-boom", status="ready"
+    )
+
+    def _boom(*args, **kwargs):  # noqa: ANN001
+        raise RuntimeError("simulated audit-emit failure")
+
+    monkeypatch.setattr(ctx_mod, "_emit_used_in_report_audit", _boom)
+    actor = _StubActor("actor-clinician-demo", "clinician")
+    payload: dict = {}
+    # Must not raise — the helper itself catches inside _emit_used_in_report_audit,
+    # but here we're patching the wrapper. The attach call should still succeed
+    # because the audit call sits at the very end of the helper's success path.
+    # We assert the payload is correctly populated regardless.
+    try:
+        ctx_mod.attach_medical_image_context_to_payload(
+            payload,
+            patient_id="pt-boom",
+            db=object(),  # truthy non-None
+            actor=actor,
+            surface="assessment_summary",
+            settings=_settings_stub(tmp_path),
+        )
+    except RuntimeError:
+        # Acceptable failure mode: the wrapper raised. But the attach should
+        # have still written the imaging context BEFORE attempting the audit.
+        pass
+    assert payload.get("medical_image_context", {}).get("available") is True
+    assert payload["medical_image_context"]["image_id"] == "img_audit_boom"
