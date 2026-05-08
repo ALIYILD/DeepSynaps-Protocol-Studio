@@ -246,7 +246,11 @@ function _renderClinicTable(summary, sortKey) {
     patients.sort((a, b) => {
       const al = (a.categories || []).find((c) => c.category === sortKey)?.level;
       const bl = (b.categories || []).find((c) => c.category === sortKey)?.level;
-      return rank(bl) - rank(al);
+      const primary = rank(bl) - rank(al);
+      if (primary !== 0) return primary;
+      // Tiebreaker: fall back to worst aggregate so safety-critical patients
+      // who tie on the chosen category still surface above quieter ones.
+      return rank(b.worst_level) - rank(a.worst_level);
     });
   }
 
@@ -578,7 +582,11 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
 
   let view = 'clinic';
   let summaryCache = null;
-  let sortKey = 'worst';
+  // Default sort puts safety-critical patients at the top — Audit 3 fix.
+  // The previous 'worst' default treated safety equal to adherence, which a
+  // busy clinician scanning a clinic doesn't want. The "Worst" column header
+  // is still clickable for users who prefer the aggregate view.
+  let sortKey = 'safety';
   let activePatientId = null;
   let activePatientName = '';
   let usingFixtures = false;
