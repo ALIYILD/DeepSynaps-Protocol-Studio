@@ -304,8 +304,26 @@ _INDICATOR_EVIDENCE: dict[str, dict[str, str]] = {
 }
 
 
-def compute_indicators(features: dict[str, Any]) -> Indicators:
-    """Compute the 5 cover indicators from the pipeline feature dict."""
+UNEVIDENCED_INDICATOR_FIELDS: tuple[str, ...] = (
+    "alpha_reactivity",
+    "brain_balance",
+    "ai_brain_age",
+)
+
+
+def compute_indicators(
+    features: dict[str, Any],
+    *,
+    include_unevidenced: bool = False,
+) -> Indicators:
+    """Compute the 5 cover indicators from the pipeline feature dict.
+
+    The three indicators in :data:`UNEVIDENCED_INDICATOR_FIELDS` lack
+    regulatory clearance and are gated by default — callers must opt in
+    explicitly via ``include_unevidenced=True``. Default behaviour returns
+    ``None`` for those fields so they cannot reach clinician- or
+    patient-facing renderers. Reference: ``deepsynaps-qeeg-evidence-gaps.md``.
+    """
     spec = features.get("spectral") or {}
     asymmetry = features.get("asymmetry") or {}
     aperiodic = features.get("aperiodic") or {}
@@ -314,6 +332,36 @@ def compute_indicators(features: dict[str, Any]) -> Indicators:
     tbr_pct = spec.get("theta_beta_ratio_percentile")
     paf_hz = spec.get("peak_alpha_frequency_hz")
     paf_pct = spec.get("peak_alpha_frequency_percentile")
+
+    if include_unevidenced:
+        alpha_reactivity = IndicatorValue(
+            value=_to_float(spec.get("alpha_reactivity_ratio")),
+            unit="EO/EC",
+            percentile=_to_float(spec.get("alpha_reactivity_percentile")),
+            band=_percentile_to_band(_to_float(spec.get("alpha_reactivity_percentile"))),
+            evidence_grade=_INDICATOR_EVIDENCE["alpha_reactivity"]["evidence_grade"],
+            evidence_caveat=_INDICATOR_EVIDENCE["alpha_reactivity"]["evidence_caveat"],
+        )
+        brain_balance = IndicatorValue(
+            value=_to_float(asymmetry.get("hemisphere_laterality_index")),
+            unit="laterality",
+            percentile=_to_float(asymmetry.get("hemisphere_laterality_percentile")),
+            band=_percentile_to_band(_to_float(asymmetry.get("hemisphere_laterality_percentile"))),
+            evidence_grade=_INDICATOR_EVIDENCE["brain_balance"]["evidence_grade"],
+            evidence_caveat=_INDICATOR_EVIDENCE["brain_balance"]["evidence_caveat"],
+        )
+        ai_brain_age = IndicatorValue(
+            value=_to_float(aperiodic.get("ai_estimated_brain_age_years")),
+            unit="years",
+            percentile=None,
+            band=None,
+            evidence_grade=_INDICATOR_EVIDENCE["ai_brain_age"]["evidence_grade"],
+            evidence_caveat=_INDICATOR_EVIDENCE["ai_brain_age"]["evidence_caveat"],
+        )
+    else:
+        alpha_reactivity = None
+        brain_balance = None
+        ai_brain_age = None
 
     return Indicators(
         tbr=IndicatorValue(
@@ -332,30 +380,9 @@ def compute_indicators(features: dict[str, Any]) -> Indicators:
             evidence_grade=_INDICATOR_EVIDENCE["occipital_paf"]["evidence_grade"],
             evidence_caveat=_INDICATOR_EVIDENCE["occipital_paf"]["evidence_caveat"],
         ),
-        alpha_reactivity=IndicatorValue(
-            value=_to_float(spec.get("alpha_reactivity_ratio")),
-            unit="EO/EC",
-            percentile=_to_float(spec.get("alpha_reactivity_percentile")),
-            band=_percentile_to_band(_to_float(spec.get("alpha_reactivity_percentile"))),
-            evidence_grade=_INDICATOR_EVIDENCE["alpha_reactivity"]["evidence_grade"],
-            evidence_caveat=_INDICATOR_EVIDENCE["alpha_reactivity"]["evidence_caveat"],
-        ),
-        brain_balance=IndicatorValue(
-            value=_to_float(asymmetry.get("hemisphere_laterality_index")),
-            unit="laterality",
-            percentile=_to_float(asymmetry.get("hemisphere_laterality_percentile")),
-            band=_percentile_to_band(_to_float(asymmetry.get("hemisphere_laterality_percentile"))),
-            evidence_grade=_INDICATOR_EVIDENCE["brain_balance"]["evidence_grade"],
-            evidence_caveat=_INDICATOR_EVIDENCE["brain_balance"]["evidence_caveat"],
-        ),
-        ai_brain_age=IndicatorValue(
-            value=_to_float(aperiodic.get("ai_estimated_brain_age_years")),
-            unit="years",
-            percentile=None,
-            band=None,
-            evidence_grade=_INDICATOR_EVIDENCE["ai_brain_age"]["evidence_grade"],
-            evidence_caveat=_INDICATOR_EVIDENCE["ai_brain_age"]["evidence_caveat"],
-        ),
+        alpha_reactivity=alpha_reactivity,
+        brain_balance=brain_balance,
+        ai_brain_age=ai_brain_age,
     )
 
 
@@ -499,8 +526,13 @@ def from_pipeline_result(
     quality_in = pipeline_dict.get("quality") or {}
     method = pipeline_dict.get("method_provenance") or {}
 
+    from app.settings import get_settings
+
     header = ReportHeader(**(patient_meta or {}))
-    indicators = compute_indicators(features)
+    indicators = compute_indicators(
+        features,
+        include_unevidenced=get_settings().qeeg_unevidenced_indicators_enabled,
+    )
     score = compute_brain_function_score(features)
     lobes = _build_lobe_breakdown(features)
     source_map = _build_source_map(zscores)
@@ -545,6 +577,7 @@ __all__ = [
     "REPORT_SCHEMA_VERSION",
     "DEFAULT_DISCLAIMER",
     "DK_ROIS_PER_HEMISPHERE",
+    "UNEVIDENCED_INDICATOR_FIELDS",
     "load_narrative_bank",
     "compute_brain_function_score",
     "compute_indicators",
