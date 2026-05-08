@@ -676,6 +676,9 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
     activePatientId = handoffPatientId;
     activePatientName = 'Patient';
     view = 'patient';
+    // _refreshDpDrHero is hoisted (declared inside same fn scope below) and
+    // gates on slot existence — safe to call before el.innerHTML runs.
+    _refreshDpDrHero(activePatientId);
   }
 
   el.innerHTML = `
@@ -789,6 +792,7 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
         const p = (summaryCache?.patients || []).find((x) => x.patient_id === pid);
         applyDigitalPhenotypingPatientContext('patient-profile', pid);
         activePatientId = pid;
+        _refreshDpDrHero(activePatientId);
         activePatientName = p?.patient_name || pid;
         view = 'patient';
         render();
@@ -808,6 +812,7 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
         const p = (summaryCache?.patients || []).find((x) => x.patient_id === pid);
         applyDigitalPhenotypingPatientContext('patient-profile', pid);
         activePatientId = pid;
+        _refreshDpDrHero(activePatientId);
         activePatientName = p?.patient_name || pid;
         view = 'patient';
         render();

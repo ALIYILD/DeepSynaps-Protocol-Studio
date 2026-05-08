@@ -547,6 +547,7 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
     if (handoff && String(handoff).trim()) {
       activePatientId = String(handoff).trim();
       activePatientName = 'Patient';
+      _refreshRaDrHero(activePatientId);
       view = 'patient';
       window._riskAnalyzerPatientId = null;
     }
@@ -657,6 +658,7 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
       const pid = tr.getAttribute('data-patient-id');
       const open = () => {
         activePatientId = pid;
+        _refreshRaDrHero(activePatientId);
         const p = (summaryCache?.patients || []).find((x) => x.patient_id === pid);
         activePatientName = p?.patient_name || 'Patient';
         try {

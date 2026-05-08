@@ -779,6 +779,7 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
         view = 'clinic';
         selectedPhenotypeId = null;
         activePatientId = null;
+        _refreshPhDrHero(activePatientId);
         render();
       });
       _wireOpenPatientChart(tb);
@@ -798,6 +799,7 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
         view = 'clinic';
         selectedPhenotypeId = null;
         activePatientId = null;
+        _refreshPhDrHero(activePatientId);
         render();
       });
     }
@@ -805,6 +807,7 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
 
   function _openPatient(pid, pname) {
     activePatientId = pid;
+    _refreshPhDrHero(activePatientId);
     activePatientName = pname || pid;
     selectedPhenotypeId = null;
     view = 'patient';
