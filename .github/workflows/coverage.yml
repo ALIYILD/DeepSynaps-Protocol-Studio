@@ -27,8 +27,11 @@ env:
   # Bump these in the relevant phase PR — DO NOT lower to game CI.
   COV_THRESHOLD_BACKEND: "60"
   COV_THRESHOLD_WORKER: "60"
-  COV_THRESHOLD_FRONTEND_LINES: "48"
-  COV_THRESHOLD_FRONTEND_BRANCHES: "65"
+  # Honest baselines after PR #642 landed `all: true` in apps/web/.c8rc.json
+  # (previously c8 only measured imported files, which over-stated %).
+  COV_THRESHOLD_FRONTEND_LINES: "40"
+  COV_THRESHOLD_FRONTEND_BRANCHES: "60"
+  COV_THRESHOLD_FRONTEND_FUNCTIONS: "25"
   COV_THRESHOLD_PACKAGES: "60"
 
 jobs:
