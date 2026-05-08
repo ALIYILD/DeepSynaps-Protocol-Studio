@@ -2580,7 +2580,18 @@ export async function pgClinicianDictation(setTopbar) {
           headers: { Authorization: 'Bearer ' + token },
           body: formData,
         });
-        if (!r.ok) throw new Error(`API error ${r.status}`);
+        if (!r.ok) {
+          // Surface a clearer, actionable banner for transcription failures \u2014
+          // 503 typically means OPENAI_API_KEY isn't configured or Whisper is
+          // upstream-down. Stash the audio so the clinician can retry without
+          // re-recording. Reference: AI go-live audit 2026-05-08 (#8).
+          let detail = '';
+          try { const j = await r.json(); detail = j?.detail || j?.message || ''; } catch {}
+          const err = new Error(detail || `Transcription failed (${r.status})`);
+          err.status = r.status;
+          err.kind = 'transcription_unavailable';
+          throw err;
+        }
         result = await r.json();
       }
 
@@ -2594,7 +2605,57 @@ export async function pgClinicianDictation(setTopbar) {
       }
     } catch (e) {
       if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Generate Draft Note'; }
-      if (errorEl) { errorEl.textContent = e.message; errorEl.style.display = 'block'; }
+      if (errorEl) {
+        if (e?.kind === 'transcription_unavailable') {
+          // Audio is preserved in the in-memory _audioBlob; clicking retry
+          // re-uses the same recording. Falling back to text mode keeps the
+          // clinician productive even if Whisper stays down.
+          const retryAvailable = Boolean(_audioBlob);
+          const blobForDownload = _audioBlob;
+          errorEl.innerHTML = `
+            <div style="font-weight:600;margin-bottom:6px">Transcription service unavailable</div>
+            <div style="font-size:12px;margin-bottom:8px;color:var(--text-secondary)">
+              ${e.status === 503 ? 'The transcription provider is not configured or is currently down.' : 'The audio could not be transcribed at this time.'}
+              Your recording is still saved in this tab and has not been lost.
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              ${retryAvailable ? '<button id="dict-retry-btn" class="btn btn-sm btn-primary">Retry transcription</button>' : ''}
+              <button id="dict-fallback-text-btn" class="btn btn-sm btn-ghost">Type the note instead</button>
+              <button id="dict-download-audio-btn" class="btn btn-sm btn-ghost">Download recording</button>
+            </div>`;
+          errorEl.style.display = 'block';
+          const retryBtn = document.getElementById('dict-retry-btn');
+          if (retryBtn) {
+            retryBtn.onclick = function () {
+              errorEl.style.display = 'none';
+              if (window._dictSubmit) window._dictSubmit();
+            };
+          }
+          const fbBtn = document.getElementById('dict-fallback-text-btn');
+          if (fbBtn) {
+            fbBtn.onclick = function () {
+              errorEl.style.display = 'none';
+              const tab = document.querySelector('[data-dict-tab="text"]');
+              if (tab) tab.click();
+            };
+          }
+          const dlBtn = document.getElementById('dict-download-audio-btn');
+          if (dlBtn && blobForDownload) {
+            dlBtn.onclick = function () {
+              const url = URL.createObjectURL(blobForDownload);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'dictation-' + Date.now() + '.webm';
+              document.body.appendChild(a);
+              a.click();
+              setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url); }, 0);
+            };
+          }
+        } else {
+          errorEl.textContent = e.message;
+          errorEl.style.display = 'block';
+        }
+      }
     }
   };
 }
@@ -2744,9 +2805,33 @@ export async function pgClinicianDraftReview(setTopbar) {
     }
   };
 
-  window._draftDiscard = function() {
+  window._draftDiscard = async function() {
     if (!confirm('Discard this draft? Unsaved note content will be lost.')) return;
-    window._nav('media-queue');
+    const errEl = document.getElementById('draft-error');
+    const noteKind = (draftData && (draftData.note_kind || (draftData.note && draftData.note.note_kind))) || '';
+    let rationale = null;
+    if (String(noteKind).toLowerCase() === 'adverse_event') {
+      // Adverse-event drafts require an audit-trail rationale per the
+      // clinician-tools UX safety contract.
+      rationale = window.prompt('This is an adverse-event draft. Briefly explain why you are rejecting this AI output (required for the audit trail):', '');
+      if (rationale == null) return; // user cancelled
+      if (!rationale.trim()) {
+        if (errEl) { errEl.textContent = 'A rationale is required to reject an adverse-event draft.'; errEl.style.display = 'block'; }
+        return;
+      }
+    } else {
+      // Non-AE drafts: rationale optional. Empty string → null.
+      rationale = window.prompt('Optional: brief reason for discarding this draft (leave blank to skip).', '') || null;
+    }
+    try {
+      await api.rejectClinicianDraft(draftId, rationale);
+      window._nav('media-queue');
+    } catch (e) {
+      if (errEl) {
+        errEl.textContent = 'Could not discard draft: ' + (e?.message || 'request failed');
+        errEl.style.display = 'block';
+      }
+    }
   };
 }
 

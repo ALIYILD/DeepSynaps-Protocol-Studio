@@ -100,6 +100,15 @@ class ApproveDraftRequest(BaseModel):
     included_tasks: Optional[list] = None
 
 
+# core-schema-exempt: router-local DTO for /clinician/draft/{id}/reject; not reused elsewhere
+class RejectDraftRequest(BaseModel):
+    """Reject a generated clinician note draft. Required for adverse-event
+    drafts so we can audit why the AI output was discarded; optional but
+    encouraged for the other note kinds.
+    """
+    rationale: Optional[str] = None
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
@@ -1758,6 +1767,68 @@ def approve_clinician_draft(
     db.commit()
 
     return {"ok": True}
+
+
+@router.post("/clinician/draft/{draft_id}/reject")
+def reject_clinician_draft(
+    draft_id: str,
+    body: RejectDraftRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    """Clinician rejects (discards) a generated note draft.
+
+    Mirrors the ``/approve`` endpoint so the frontend's discard CTA writes
+    a real backend status instead of orphaning ``status=generated`` drafts.
+    Adverse-event drafts require a rationale so the audit trail captures
+    why the AI output was deemed unsuitable.
+    """
+    _require_clinician(actor)
+
+    draft = db.query(ClinicianNoteDraft).filter_by(id=draft_id).first()
+    if draft is None:
+        raise ApiServiceError(code="not_found", message="Draft not found.", status_code=404)
+
+    note = db.query(ClinicianMediaNote).filter_by(id=draft.note_id).first()
+    if note is None:
+        raise ApiServiceError(code="not_found", message="Clinician note not found.", status_code=404)
+    _check_patient_access(note.patient_id, actor, db)
+
+    rationale = (body.rationale or "").strip()
+    if (note.note_kind or "").lower() == "adverse_event" and not rationale:
+        raise ApiServiceError(
+            code="rationale_required",
+            message=(
+                "Rejecting an adverse-event draft requires a brief rationale "
+                "for the audit trail."
+            ),
+            status_code=400,
+        )
+
+    draft.status = "rejected"
+    draft.approved_by = actor.actor_id  # reuses column as "decided_by"
+    draft.approved_at = datetime.now(timezone.utc)
+    if rationale:
+        # Store the rationale alongside the draft. clinician_edits is a free-
+        # form text column already used for approval-time edits; we tag the
+        # entry so the audit reader can distinguish reject-rationale from
+        # approval edits.
+        draft.clinician_edits = f"[rejected] {rationale}"
+
+    _write_audit(
+        db,
+        target_id=draft_id,
+        target_type="clinician_note_draft",
+        action="clinician_draft_rejected",
+        actor=actor,
+        note=(
+            f"draft={draft_id} note={draft.note_id} clinician={actor.actor_id} "
+            f"kind={note.note_kind or 'unknown'} rationale={rationale or '(none)'}"
+        ),
+    )
+    db.commit()
+
+    return {"ok": True, "status": "rejected"}
 
 
 # ── Patient upload deletion ───────────────────────────────────────────────────
