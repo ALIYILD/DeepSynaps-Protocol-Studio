@@ -1288,6 +1288,7 @@ async function renderPatientPage() {
     case 'patient-homework':    await m.pgPatientHomework();              break;
     case 'patient-assessments': await m.pgPatientAssessments();           break;
     case 'patient-reports':     await m.pgPatientReports();               break;
+    case 'patient-health-reports': await m.pgPatientHealthReports();      break;
     case 'patient-brainmap':    await m.pgPatientBrainMap();              break;
     case 'patient-messages':   await m.pgPatientMessages();               break;
     case 'patient-wearables':  await m.pgPatientWearables();               break;
