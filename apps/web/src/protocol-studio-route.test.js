@@ -19,7 +19,7 @@ test('Protocol Hub shell strings remain for clinician messaging', () => {
   const hubs = readFileSync(join(__dirname, 'pages-clinical-hubs.js'), 'utf8');
   assert.ok(hubs.includes('export async function pgProtocolHub'));
   assert.ok(hubs.includes('AI-assisted draft'));
-  assert.ok(hubs.includes('Clinician-reviewed protocol drafting'));
+  assert.ok(hubs.includes('clinician-supervised draft'));
 });
 
 test('pgProtocolSearch supports mountEl embed for Browse tab', () => {
