@@ -23,7 +23,7 @@ def upgrade() -> None:
         sa.Column("server_task_id", sa.String(length=36), nullable=False),
         sa.Column("patient_id", sa.String(length=36), nullable=False),
         sa.Column("clinician_id", sa.String(length=64), nullable=False),
-        sa.Column("completed", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column("completed", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("completed_at", sa.DateTime(), nullable=False),
         sa.Column("rating", sa.Integer(), nullable=True),
         sa.Column("difficulty", sa.Integer(), nullable=True),

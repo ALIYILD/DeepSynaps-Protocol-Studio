@@ -93,7 +93,7 @@ def upgrade() -> None:
                 "is_demo",
                 sa.Boolean(),
                 nullable=False,
-                server_default=sa.text("0"),
+                server_default=sa.text("false"),
             ),
             sa.Column("created_at", sa.DateTime(), nullable=False),
             sa.Column("updated_at", sa.DateTime(), nullable=False),
@@ -161,7 +161,7 @@ def upgrade() -> None:
                 "is_demo",
                 sa.Boolean(),
                 nullable=False,
-                server_default=sa.text("0"),
+                server_default=sa.text("false"),
             ),
             sa.Column("created_at", sa.DateTime(), nullable=False),
         )

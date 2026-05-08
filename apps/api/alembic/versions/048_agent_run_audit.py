@@ -62,7 +62,7 @@ def upgrade() -> None:
         sa.Column("reply_preview", sa.String(520), nullable=False, server_default=""),
         sa.Column("context_used_json", sa.Text(), nullable=True),
         sa.Column("latency_ms", sa.Integer(), nullable=True),
-        sa.Column("ok", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column("ok", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("error_code", sa.String(64), nullable=True),
     )
 

@@ -73,7 +73,7 @@ def upgrade() -> None:
             sa.Column("closed_at", sa.DateTime(), nullable=True),
             sa.Column("closed_by", sa.String(length=64), nullable=True),
             sa.Column("closure_note", sa.Text(), nullable=True),
-            sa.Column("is_demo", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+            sa.Column("is_demo", sa.Boolean(), nullable=False, server_default=sa.text("false")),
             sa.Column("created_at", sa.DateTime(), nullable=True),
             sa.Column("updated_at", sa.DateTime(), nullable=True),
             sa.Column("created_by", sa.String(length=64), nullable=False, index=True),

@@ -55,7 +55,7 @@ def upgrade() -> None:
             nullable=True,
         ),
         sa.Column("current_step", sa.String(64), nullable=False, server_default="welcome"),
-        sa.Column("is_demo", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("is_demo", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("completed_at", sa.DateTime(), nullable=True),
         sa.Column("abandoned_at", sa.DateTime(), nullable=True),
         sa.Column("abandon_reason", sa.String(255), nullable=True),
