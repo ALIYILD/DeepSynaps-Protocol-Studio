@@ -4765,18 +4765,50 @@ export async function pgPatientQueue(setTopbar) {
   function _pqSave(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
   const _pqE = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
-  // Seed queue data if missing
-  if (!localStorage.getItem('ds_today_queue')) {
+  // Demo seed \u2014 only in VITE_ENABLE_DEMO builds (Netlify preview / landing-page
+  // demo). Production builds skip the seed so a real clinician's first login
+  // sees an honest empty state, not fictional patient names. The live queue
+  // is fetched from /api/v1/clinic/day-queue below; this seed only acts as a
+  // pre-API placeholder so the demo viewer has something to look at.
+  // Reference: AI go-live audit 2026-05-08 (#4).
+  const _PQ_DEMO = (function () {
+    try { return Boolean(import.meta.env?.VITE_ENABLE_DEMO); } catch { return false; }
+  })();
+  if (_PQ_DEMO && !localStorage.getItem('ds_today_queue')) {
     const seed = [
-      { id:'pq001', time:'08:30', patientId:'pt001', courseId:'crs001', patientName:'Alexis Morgan',   condition:'Depression', sessionNum:8,  sessionTotal:20, protocol:'TMS 10Hz L-DLPFC',       status:'done',       alerts:[],                    notes:'Tolerated well, reported mood lift.' },
-      { id:'pq002', time:'09:15', patientId:'pt002', courseId:'crs002', patientName:'Jordan Blake',    condition:'Anxiety',    sessionNum:15, sessionTotal:20, protocol:'Alpha/Beta NFB',          status:'done',       alerts:['homework'],          notes:'Missed home EEG exercises x2.' },
-      { id:'pq003', time:'10:00', patientId:'pt003', courseId:'crs003', patientName:'Sam Rivera',      condition:'PTSD',       sessionNum:3,  sessionTotal:30, protocol:'Alpha/Theta NFB',         status:'in-session', alerts:['wearable'],          notes:'HRV anomaly detected during last session.' },
-      { id:'pq004', time:'11:00', patientId:'pt004', courseId:'crs004', patientName:'Casey Kim',       condition:'ADHD',       sessionNum:12, sessionTotal:20, protocol:'Theta Suppression NFB',   status:'waiting',    alerts:[],                    notes:'' },
-      { id:'pq005', time:'13:30', patientId:'pt005', courseId:'crs005', patientName:'Morgan Ellis',    condition:'Insomnia',   sessionNum:5,  sessionTotal:15, protocol:'SMR Enhancement NFB',     status:'waiting',    alerts:['assessment'],        notes:'PHQ-9 overdue by 9 days.' },
-      { id:'pq006', time:'14:15', patientId:'pt006', courseId:'crs006', patientName:'Taylor Nguyen',   condition:'OCD',        sessionNum:6,  sessionTotal:20, protocol:'Deep TMS H7 Coil',        status:'no-show',    alerts:['deviation'],         notes:'Called \u2014 no answer. Left voicemail.' },
+      { id:'pq001', time:'08:30', patientId:'pt001', courseId:'crs001', patientName:'Alexis Morgan (demo)',   condition:'Depression', sessionNum:8,  sessionTotal:20, protocol:'TMS 10Hz L-DLPFC',       status:'done',       alerts:[],                    notes:'Tolerated well, reported mood lift.' },
+      { id:'pq002', time:'09:15', patientId:'pt002', courseId:'crs002', patientName:'Jordan Blake (demo)',    condition:'Anxiety',    sessionNum:15, sessionTotal:20, protocol:'Alpha/Beta NFB',          status:'done',       alerts:['homework'],          notes:'Missed home EEG exercises x2.' },
+      { id:'pq003', time:'10:00', patientId:'pt003', courseId:'crs003', patientName:'Sam Rivera (demo)',      condition:'PTSD',       sessionNum:3,  sessionTotal:30, protocol:'Alpha/Theta NFB',         status:'in-session', alerts:['wearable'],          notes:'HRV anomaly detected during last session.' },
+      { id:'pq004', time:'11:00', patientId:'pt004', courseId:'crs004', patientName:'Casey Kim (demo)',       condition:'ADHD',       sessionNum:12, sessionTotal:20, protocol:'Theta Suppression NFB',   status:'waiting',    alerts:[],                    notes:'' },
+      { id:'pq005', time:'13:30', patientId:'pt005', courseId:'crs005', patientName:'Morgan Ellis (demo)',    condition:'Insomnia',   sessionNum:5,  sessionTotal:15, protocol:'SMR Enhancement NFB',     status:'waiting',    alerts:['assessment'],        notes:'PHQ-9 overdue by 9 days.' },
+      { id:'pq006', time:'14:15', patientId:'pt006', courseId:'crs006', patientName:'Taylor Nguyen (demo)',   condition:'OCD',        sessionNum:6,  sessionTotal:20, protocol:'Deep TMS H7 Coil',        status:'no-show',    alerts:['deviation'],         notes:'Called \u2014 no answer. Left voicemail.' },
     ];
     _pqSave('ds_today_queue', seed);
   }
+  if (!_PQ_DEMO) {
+    // Production: clear any stale seed left by a prior demo build so we
+    // never render fictional patients on a real clinic.
+    if (localStorage.getItem('ds_today_queue')) {
+      localStorage.removeItem('ds_today_queue');
+    }
+  }
+
+  // Fire-and-forget fetch from the real backend. On success we overwrite
+  // localStorage and re-render. On failure we keep whatever is in
+  // localStorage (demo seed in preview, empty array in production) and the
+  // current render stays.
+  (async function () {
+    try {
+      const r = await api.getClinicDayQueue(todayISO);
+      if (r && Array.isArray(r.entries)) {
+        _pqSave('ds_today_queue', r.entries);
+        if (typeof _pqRender === 'function') _pqRender();
+      }
+    } catch (e) {
+      // Backend unreachable / 401 \u2014 leave localStorage alone, log only.
+      try { console.warn('day-queue fetch failed:', e?.message || e); } catch {}
+    }
+  })();
 
   if (!localStorage.getItem('ds_pq_adherence_alerts')) {
     _pqSave('ds_pq_adherence_alerts', [
@@ -4861,6 +4893,12 @@ export async function pgPatientQueue(setTopbar) {
         '<td>' + actions + '</td>' +
       '</tr>';
     }).join('');
+    if (!queue.length) {
+      return '<div class="pq-table-wrap" style="padding:32px 16px;text-align:center;color:var(--text-secondary);border:1px dashed var(--border);border-radius:8px">' +
+        '<div style="font-weight:600;font-size:14px;margin-bottom:6px;color:var(--text-primary)">No sessions scheduled for today</div>' +
+        '<div style="font-size:12.5px">Once you schedule a session for a patient (or accept a walk-in), it will appear here. Honest empty state — no fictional fallback.</div>' +
+        '</div>';
+    }
     return '<div class="pq-table-wrap"><table class="pq-table">' +
       '<thead><tr><th>Time</th><th>Patient</th><th>Condition</th><th>Session #</th><th>Protocol</th><th>Status</th><th>Alerts</th><th>Actions</th></tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
