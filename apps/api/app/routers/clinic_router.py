@@ -407,6 +407,7 @@ _PQ_STATUS_MAP = {
 }
 
 
+# core-schema-exempt: router-local DTO for /clinic/day-queue; not reused elsewhere
 class DayQueueEntry(BaseModel):
     id: str
     time: str
@@ -422,6 +423,7 @@ class DayQueueEntry(BaseModel):
     notes: Optional[str] = None
 
 
+# core-schema-exempt: router-local DTO for /clinic/day-queue; not reused elsewhere
 class DayQueueResponse(BaseModel):
     date: str  # ISO YYYY-MM-DD
     entries: list[DayQueueEntry]
