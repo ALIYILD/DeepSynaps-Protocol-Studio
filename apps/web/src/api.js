@@ -2680,6 +2680,32 @@ export const api = {
     }
   },
 
+  // ── Medical Image Preview (MIQ-inspired Quick Look surface) ─────────────
+  // Lightweight, non-diagnostic preview alongside the heavy MRI Analyzer.
+  // Backend: app.routers.medical_images_router. Service:
+  // app.services.medical_image_preview.
+  listSupportedMedicalImageFormats: () =>
+    apiFetch('/api/v1/medical-images/supported-formats'),
+  // file: File, patient_id (optional), upload_id (optional).
+  previewMedicalImage: ({ file, patient_id, upload_id } = {}) => {
+    const fd = new FormData();
+    if (file) fd.append('file', file);
+    if (patient_id) fd.append('patient_id', String(patient_id));
+    if (upload_id) fd.append('upload_id', String(upload_id));
+    return apiFetch('/api/v1/medical-images/preview', { method: 'POST', body: fd });
+  },
+  getMedicalImage: (imageId) =>
+    apiFetch(`/api/v1/medical-images/${encodeURIComponent(imageId)}`),
+  // POST so the clinician note can be supplied without leaking through query
+  // params. Passing an empty body re-fetches the existing safe context.
+  getMedicalImageReportContext: (imageId, { clinician_imaging_note } = {}) =>
+    apiFetch(`/api/v1/medical-images/${encodeURIComponent(imageId)}/report-context`, {
+      method: 'POST',
+      body: JSON.stringify({ clinician_imaging_note: clinician_imaging_note ?? null }),
+    }),
+  listPatientMedicalImages: (patientId) =>
+    apiFetch(`/api/v1/medical-images/patients/${encodeURIComponent(patientId)}/index`),
+
   // ── MRI Analyzer (packages/mri-pipeline; see portal_integration/api_contract.md)
   // Multipart upload (.zip DICOM or .nii.gz NIfTI). FormData must include
   //   file: File, patient_id: string

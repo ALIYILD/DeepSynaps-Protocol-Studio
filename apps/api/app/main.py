@@ -192,6 +192,7 @@ from app.routers.qeeg_copilot_router import router as qeeg_copilot_router
 from app.routers.qeeg_viz_router import router as qeeg_viz_router
 from app.routers.qeeg_capabilities_router import router as qeeg_capabilities_router
 from app.routers.mri_analysis_router import router as mri_analysis_router
+from app.routers.medical_images_router import router as medical_images_router
 from app.routers.fusion_router import router as fusion_router
 from app.routers.patient_summary_router import router as patient_summary_router
 from app.routers.patient_timeline_router import router as patient_timeline_router
@@ -648,6 +649,7 @@ app.include_router(qeeg_105_analysis_catalog_router)
 app.include_router(qeeg_105_analysis_run_router)
 app.include_router(qeeg_105_analysis_results_router)
 app.include_router(mri_analysis_router)
+app.include_router(medical_images_router)
 app.include_router(fusion_router)
 app.include_router(monitor_router)
 app.include_router(deeptwin_router)
