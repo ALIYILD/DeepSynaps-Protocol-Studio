@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import time
 import urllib.parse
 import urllib.request
@@ -108,39 +109,69 @@ def upsert_papers(conn, records: list[dict], indication_id: int | None = None) -
     for rec in records:
         if not rec.get("pmid"):
             continue
-        existing = conn.execute(
-            "SELECT id, sources_json FROM papers WHERE pmid=? OR (doi IS NOT NULL AND doi=?)",
-            (rec["pmid"], rec.get("doi")),
-        ).fetchone()
+        # Prefer DOI match over PMID match: a different paper already holding the
+        # same DOI is a hard collision (papers.doi is UNIQUE), and a stale PMID
+        # row without DOI cannot be promoted to that DOI without violating
+        # uniqueness. So look up by DOI first, then fall back to PMID.
+        existing = None
+        rec_doi = rec.get("doi")
+        if rec_doi:
+            existing = conn.execute(
+                "SELECT id, sources_json FROM papers WHERE doi=?",
+                (rec_doi,),
+            ).fetchone()
+        if existing is None:
+            existing = conn.execute(
+                "SELECT id, sources_json FROM papers WHERE pmid=?",
+                (rec["pmid"],),
+            ).fetchone()
         if existing:
             srcs = set(json.loads(existing["sources_json"] or "[]"))
             srcs.add("pubmed")
-            conn.execute(
-                "UPDATE papers SET pmid=COALESCE(pmid,?), doi=COALESCE(doi,?), "
-                "title=COALESCE(?,title), abstract=COALESCE(?,abstract), "
-                "year=COALESCE(?,year), journal=COALESCE(?,journal), "
-                "authors_json=COALESCE(?,authors_json), pub_types_json=COALESCE(?,pub_types_json), "
-                "sources_json=?, last_ingested=? WHERE id=?",
-                (
-                    rec["pmid"], rec.get("doi"),
-                    rec["title"], rec["abstract"], rec["year"], rec["journal"],
-                    rec["authors_json"], rec["pub_types_json"],
-                    json.dumps(sorted(srcs)), now, existing["id"],
-                ),
-            )
+            try:
+                conn.execute(
+                    "UPDATE papers SET pmid=COALESCE(pmid,?), doi=COALESCE(doi,?), "
+                    "title=COALESCE(?,title), abstract=COALESCE(?,abstract), "
+                    "year=COALESCE(?,year), journal=COALESCE(?,journal), "
+                    "authors_json=COALESCE(?,authors_json), pub_types_json=COALESCE(?,pub_types_json), "
+                    "sources_json=?, last_ingested=? WHERE id=?",
+                    (
+                        rec["pmid"], rec_doi,
+                        rec["title"], rec["abstract"], rec["year"], rec["journal"],
+                        rec["authors_json"], rec["pub_types_json"],
+                        json.dumps(sorted(srcs)), now, existing["id"],
+                    ),
+                )
+            except sqlite3.IntegrityError:
+                # Promoting the existing row would step on another row's UNIQUE
+                # key (most often: this row matched on PMID but rec_doi is
+                # already held by a different row from a prior indication).
+                # Skip the metadata merge; we still link to indication below.
+                pass
             paper_id = existing["id"]
         else:
-            cur = conn.execute(
-                "INSERT INTO papers(pmid, doi, title, abstract, year, journal, authors_json, pub_types_json, sources_json, last_ingested) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (
-                    rec["pmid"], rec.get("doi"), rec["title"], rec["abstract"],
-                    rec["year"], rec["journal"], rec["authors_json"], rec["pub_types_json"],
-                    json.dumps(["pubmed"]), now,
-                ),
-            )
-            paper_id = cur.lastrowid
-            n += 1
+            try:
+                cur = conn.execute(
+                    "INSERT INTO papers(pmid, doi, title, abstract, year, journal, authors_json, pub_types_json, sources_json, last_ingested) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        rec["pmid"], rec_doi, rec["title"], rec["abstract"],
+                        rec["year"], rec["journal"], rec["authors_json"], rec["pub_types_json"],
+                        json.dumps(["pubmed"]), now,
+                    ),
+                )
+                paper_id = cur.lastrowid
+                n += 1
+            except sqlite3.IntegrityError:
+                # Race between SELECT and INSERT (another upsert just took the
+                # PMID/DOI). Re-fetch and link below.
+                fallback = conn.execute(
+                    "SELECT id FROM papers WHERE pmid=? OR (? IS NOT NULL AND doi=?)",
+                    (rec["pmid"], rec_doi, rec_doi),
+                ).fetchone()
+                if fallback is None:
+                    continue
+                paper_id = fallback["id"]
         if indication_id:
             conn.execute(
                 "INSERT OR IGNORE INTO paper_indications(paper_id, indication_id) VALUES (?,?)",
