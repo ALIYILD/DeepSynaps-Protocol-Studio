@@ -280,17 +280,35 @@ def _normalize_decision_status(value: Any) -> str:
     return "suggested"
 
 
+def _accepted_flag_from_status(status: str) -> bool | None:
+    """Derive a tri-state accepted flag from ``decision_status``.
+
+    ``QeegCleaningAnnotation`` has no ``accepted_by_user`` column (that
+    column lives on the audit-only ``CleaningDecision`` table). The user
+    accept/reject signal is encoded in ``decision_status`` instead, so we
+    project it here:
+
+    * ``"accepted"`` → ``True``
+    * ``"rejected"`` → ``False``
+    * anything else  → ``None`` (still pending / needs review)
+    """
+    if status == "accepted":
+        return True
+    if status == "rejected":
+        return False
+    return None
+
+
 def _ai_suggestion_key(row: QeegCleaningAnnotation) -> str:
-    payload = row.payload_json or "{}"
-    try:
-        data = json.loads(payload)
-    except (TypeError, ValueError):
-        data = {}
-    if not isinstance(data, dict):
-        data = {}
-    raw_key = data.get("suggestion_key") or data.get("ai_label") or data.get("label")
-    if raw_key:
-        return str(raw_key)
+    """Stable de-dup key for an AI suggestion annotation row.
+
+    ``QeegCleaningAnnotation`` does not carry a ``payload_json`` blob —
+    its first-class fields (``ai_label`` etc.) are the source of truth —
+    so the key is derived from those columns directly.
+    """
+    ai_label = getattr(row, "ai_label", None)
+    if ai_label:
+        return str(ai_label)
     parts = [
         getattr(row, "analysis_id", "") or "",
         getattr(row, "kind", "") or "",
@@ -315,28 +333,23 @@ def load_ai_suggestion_decision_state(analysis_id: str, db: Session) -> dict[str
     grouped: dict[str, dict[str, Any]] = {}
     for row in rows:
         key = _ai_suggestion_key(row)
-        try:
-            payload = json.loads(row.payload_json or "{}")
-        except (TypeError, ValueError):
-            payload = {}
-        if not isinstance(payload, dict):
-            payload = {}
-        status = _normalize_decision_status(row.decision_status or payload.get("decision_status"))
+        status = _normalize_decision_status(row.decision_status)
+        accepted_flag = _accepted_flag_from_status(status)
         item = grouped.setdefault(
             key,
             {
                 "suggestion_key": key,
-                "ai_label": payload.get("ai_label") or row.label or "suggestion",
+                "ai_label": row.ai_label or "suggestion",
                 "channel": row.channel,
                 "start_sec": row.start_sec,
                 "end_sec": row.end_sec,
                 "decision_status": status,
-                "accepted_by_user": row.accepted_by_user,
+                "accepted_by_user": accepted_flag,
                 "latest_note": row.note,
             },
         )
         item["decision_status"] = status
-        item["accepted_by_user"] = row.accepted_by_user
+        item["accepted_by_user"] = accepted_flag
         item["latest_note"] = row.note or item.get("latest_note")
 
     items = list(grouped.values())
