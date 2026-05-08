@@ -12,17 +12,27 @@ from app.persistence.models import (
     ClinicalSession,
     ConsentRecord,
     Patient,
+    PatientAdherenceEvent,
     PatientMediaUpload,
     ReviewQueueItem,
     RiskStratificationResult,
     TreatmentCourse,
     WearableAlertFlag,
     WearableDailySummary,
+    WellnessCheckin,
 )
 
 
 DEMO_CLINIC_ID = "clinic-demo-default"
 DEMO_CLINICIAN_ID = "actor-clinician-demo"
+
+DEMO_DIGEST_PATIENT_SPECS = [
+    ("demo-pt-samantha-li", "Samantha", "Li"),
+    ("demo-pt-elena-vasquez", "Elena", "Vasquez"),
+    ("demo-pt-marcus-chen", "Marcus", "Chen"),
+    ("demo-pt-omar-haddad", "Omar", "Haddad"),
+    ("demo-pt-amelia-brown", "Amelia", "Brown"),
+]
 
 
 def _env_truthy(name: str) -> bool:
@@ -423,4 +433,177 @@ def seed_demo_clinic_data(db: Session) -> dict[str, int]:
         "patients": len(patients),
         "courses": len(courses),
     }
+
+
+def seed_demo_clinic_digest(session: Session) -> dict[str, int]:
+    """Seed minimal cross-surface activity so Clinician Digest renders non-zero
+    counts in controlled preview environments.
+
+    Idempotent: patient ids are fixed and skipped if present; audit rows use
+    fresh uuids so re-runs don't collide on event_id.
+    """
+    now = datetime.now(timezone.utc)
+    seeded: dict[str, int] = {
+        "patients": 0,
+        "audit_events": 0,
+        "wearable_flags": 0,
+        "adherence_events": 0,
+        "wellness_checkins": 0,
+        "adverse_events": 0,
+    }
+    clinician_id = DEMO_CLINICIAN_ID
+
+    for pid, first, last in DEMO_DIGEST_PATIENT_SPECS:
+        if session.query(Patient).filter_by(id=pid).first() is None:
+            session.add(
+                Patient(
+                    id=pid,
+                    clinician_id=clinician_id,
+                    first_name=first,
+                    last_name=last,
+                    email=f"{pid}@example.com",
+                    consent_signed=True,
+                    status="active",
+                    notes="[DEMO] Clinician Digest synthetic preview patient (non-PHI).",
+                )
+            )
+            seeded["patients"] += 1
+
+    session.flush()
+
+    for i, (pid, _first, _last) in enumerate(DEMO_DIGEST_PATIENT_SPECS):
+        session.add(
+            WearableAlertFlag(
+                id=str(uuid.uuid4()),
+                patient_id=pid,
+                flag_type="signal_dropout" if i % 2 == 0 else "hrv_anomaly",
+                severity="urgent" if i % 2 == 0 else "warning",
+                detail="Synthetic demo wearable alert flag (preview only).",
+                metric_snapshot="{}",
+                triggered_at=now - timedelta(hours=6, minutes=10 + i),
+                workbench_status="open",
+                dismissed=False,
+            )
+        )
+        seeded["wearable_flags"] += 1
+
+        session.add(
+            PatientAdherenceEvent(
+                id=str(uuid.uuid4()),
+                patient_id=pid,
+                assignment_id=None,
+                course_id=None,
+                event_type="side_effect" if i % 2 == 0 else "missed_session",
+                severity="moderate" if i % 2 == 0 else "low",
+                report_date=(now - timedelta(days=1)).date().isoformat(),
+                body="Synthetic demo adherence event for Clinician Digest preview.",
+                structured_json="{}",
+                status="open",
+                acknowledged_by=None,
+                acknowledged_at=None,
+                resolution_note=None,
+                created_at=now - timedelta(hours=8, minutes=5 + i),
+            )
+        )
+        seeded["adherence_events"] += 1
+
+        session.add(
+            WellnessCheckin(
+                id=str(uuid.uuid4()),
+                patient_id=pid,
+                author_actor_id="actor-patient-demo",
+                mood=3 if i % 2 == 0 else 4,
+                anxiety=4 if i % 2 == 0 else 2,
+                sleep=2 if i % 2 == 0 else 3,
+                energy=3 if i % 2 == 0 else 4,
+                clinician_status="open",
+                clinician_acted_at=None,
+                deleted_at=None,
+                created_at=now - timedelta(hours=10, minutes=2 + i),
+                updated_at=now - timedelta(hours=10, minutes=2 + i),
+            )
+        )
+        seeded["wellness_checkins"] += 1
+
+        if i in (1, 4):
+            session.add(
+                AdverseEvent(
+                    id=str(uuid.uuid4()),
+                    patient_id=pid,
+                    course_id=None,
+                    session_id=None,
+                    clinician_id=clinician_id,
+                    event_type="tolerability",
+                    severity="mild",
+                    description="Synthetic demo AE draft (preview only).",
+                    onset_timing="during_session",
+                    resolution="ongoing",
+                    action_taken="continue_monitor",
+                    reported_at=now - timedelta(days=2, hours=3),
+                    resolved_at=None,
+                    signed_at=None,
+                )
+            )
+            seeded["adverse_events"] += 1
+
+    def _add_audit(*, target_type: str, action: str, target_id: str, note: str, created_at: datetime) -> None:
+        session.add(
+            AuditEventRecord(
+                event_id=f"demo-cdg-{uuid.uuid4().hex}",
+                target_id=target_id,
+                target_type=target_type,
+                action=action,
+                role="clinician",
+                actor_id=clinician_id,
+                note=note,
+                created_at=created_at.isoformat(),
+            )
+        )
+        seeded["audit_events"] += 1
+
+    _add_audit(
+        target_type="clinician_inbox",
+        action="clinician_inbox.item_acknowledged",
+        target_id="inbox-ack-1",
+        note="patient=demo-pt-samantha-li; reviewed",
+        created_at=now - timedelta(hours=2),
+    )
+    _add_audit(
+        target_type="wearables_workbench",
+        action="wearables_workbench.flag_acknowledged",
+        target_id="flag-ack-1",
+        note="patient=demo-pt-marcus-chen; wearable triage",
+        created_at=now - timedelta(hours=3),
+    )
+    _add_audit(
+        target_type="clinician_adherence_hub",
+        action="clinician_adherence_hub.event_escalated",
+        target_id="adh-esc-1",
+        note="priority=high; patient=demo-pt-elena-vasquez; severity=urgent",
+        created_at=now - timedelta(hours=4),
+    )
+    _add_audit(
+        target_type="clinician_inbox",
+        action="inbox.item_paged_to_oncall",
+        target_id="page-1",
+        note="patient=demo-pt-omar-haddad; manual page",
+        created_at=now - timedelta(hours=1, minutes=10),
+    )
+    _add_audit(
+        target_type="clinician_inbox",
+        action="inbox.item_paged_to_oncall",
+        target_id="page-2",
+        note="patient=demo-pt-amelia-brown; manual page",
+        created_at=now - timedelta(hours=1, minutes=35),
+    )
+    _add_audit(
+        target_type="wearables_workbench",
+        action="wearables_workbench.flag_created",
+        target_id="flag-open-sla",
+        note="priority=high; patient=demo-pt-samantha-li; severity=high",
+        created_at=now - timedelta(hours=3, minutes=20),
+    )
+
+    session.commit()
+    return seeded
 
