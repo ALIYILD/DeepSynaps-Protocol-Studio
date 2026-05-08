@@ -1778,7 +1778,10 @@ async function renderPage() {
     case 'telehealth-recorder': { const m = await loadPractice(); await m.pgTelehealthRecorder(setTopbar); break; }
     case 'monitoring': { window._devicesPresetTab = 'live'; navigate('monitor'); break; }
     case 'wearables':  { window._devicesPresetTab = 'biometrics'; navigate('monitor'); break; }
-    case 'library-hub':    { window._resEvidenceTab = 'search'; window._nav('research-evidence'); break; }
+    // library-hub now lands on the live Indications spine (was 'search').
+    // Indications tab calls /api/v1/evidence/indications/summary + /detail
+    // and is the new default for the library/registry deep links.
+    case 'library-hub':    { window._resEvidenceTab = 'indications'; window._nav('research-evidence'); break; }
     case 'adjunct-evidence':
     case 'research-adjunct': { window._resEvidenceTab = 'adjunct'; window._nav('research-evidence'); break; }
     case 'monitor-hub':    { const { pgMonitorHub }    = await loadClinicalHubs(); await pgMonitorHub(setTopbar, navigate);    break; }

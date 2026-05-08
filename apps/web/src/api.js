@@ -1888,6 +1888,51 @@ export const api = {
   // Public counts + last_updated timestamp (no auth required).
   evidenceStatus: () => apiFetch('/api/v1/evidence/status'),
 
+  // ── Live Indications Spine (added 2026-05-08) ───────────────────────────
+  // Read-only views over the curated evidence DB junction tables. Each
+  // endpoint enforces clinician role server-side; the UI surfaces honest
+  // empty states when paper_indications / trial_indications are unpopulated
+  // for a slug.
+  evidenceIndicationsSummary: () =>
+    apiFetch('/api/v1/evidence/indications/summary'),
+  evidenceIndicationDetail: (slug, { paperLimit = 10, trialLimit = 5, protocolLimit = 5 } = {}) => {
+    const params = new URLSearchParams();
+    if (paperLimit)    params.set('paper_limit', String(paperLimit));
+    if (trialLimit)    params.set('trial_limit', String(trialLimit));
+    if (protocolLimit) params.set('protocol_limit', String(protocolLimit));
+    const qs = params.toString();
+    return apiFetch(`/api/v1/evidence/indications/${encodeURIComponent(slug)}/detail${qs ? '?' + qs : ''}`);
+  },
+  evidenceIndicationPapers: (slug, { limit = 20, includeAbstract = false } = {}) => {
+    const params = new URLSearchParams();
+    if (limit)            params.set('limit', String(limit));
+    if (includeAbstract)  params.set('include_abstract', 'true');
+    return apiFetch(`/api/v1/evidence/indications/${encodeURIComponent(slug)}/papers?${params.toString()}`);
+  },
+  evidenceIndicationTrials: (slug, { limit = 20 } = {}) => {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    return apiFetch(`/api/v1/evidence/indications/${encodeURIComponent(slug)}/trials?${params.toString()}`);
+  },
+  evidenceIndicationDevices: (slug, { limit = 50 } = {}) => {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    return apiFetch(`/api/v1/evidence/indications/${encodeURIComponent(slug)}/devices?${params.toString()}`);
+  },
+  evidenceIndicationProtocols: (slug, { confidence = '', limit = 20 } = {}) => {
+    const params = new URLSearchParams();
+    if (confidence) params.set('confidence', confidence);
+    if (limit)      params.set('limit', String(limit));
+    return apiFetch(`/api/v1/evidence/indications/${encodeURIComponent(slug)}/protocols?${params.toString()}`);
+  },
+  evidenceFTSSearch: ({ q = '', limit = 20, includeAbstract = false } = {}) => {
+    const params = new URLSearchParams();
+    params.set('q', q);
+    if (limit)            params.set('limit', String(limit));
+    if (includeAbstract)  params.set('include_abstract', 'true');
+    return apiFetch(`/api/v1/evidence/search?${params.toString()}`);
+  },
+
   // Admin-only: trigger / inspect a full evidence refresh.
   adminRefreshEvidence: () =>
     apiFetch('/api/v1/evidence/admin/refresh', { method: 'POST' }),

@@ -249,10 +249,23 @@ def _default_db_path() -> str:
     override = os.environ.get("EVIDENCE_DB_PATH")
     if override:
         return override
+    legacy_override = os.environ.get("DEEPSYNAPS_DB")
+    if legacy_override:
+        return legacy_override
     here = Path(__file__).resolve()
-    repo_guess = here.parents[4] / "services" / "evidence-pipeline" / "evidence.db"
-    if repo_guess.exists():
-        return str(repo_guess)
+    pipeline_dir = here.parents[4] / "services" / "evidence-pipeline"
+    # Prefer the canonical v4 DB (matches services/evidence-pipeline/db.py
+    # which is read by the MCP server + ingest scripts). When the v4 file
+    # is present it is the source of truth — 184,670 papers / 1,279 trials /
+    # 39 devices / 742 protocols / 29 indications / 42 device-indication
+    # mappings (paper_indications + trial_indications are populated
+    # incrementally by the curation pipeline).
+    v4_guess = pipeline_dir / "neuromodulation_evidence_2026-04-29_v4.db"
+    if v4_guess.exists():
+        return str(v4_guess)
+    legacy_guess = pipeline_dir / "evidence.db"
+    if legacy_guess.exists():
+        return str(legacy_guess)
     return "/app/evidence.db"
 
 
@@ -1663,6 +1676,56 @@ _PAPER_SELECT_COLS = (
     "p.europe_pmc_url, p.enrichment_status"
 )
 
+# Columns added by services/evidence-pipeline/migrations/004_csv_enrichment.sql.
+# Older DBs (e.g. neuromodulation_evidence_2026-04-29_v4.db) pre-date the
+# migration and don't have these columns; SELECTs that reference them throw
+# `OperationalError: no such column`. _paper_select_cols_for(conn) returns
+# the column list scoped to what the live DB actually has, so the same
+# router code works against both v3 and v4-shape DBs.
+_PAPER_OPTIONAL_COLS = (
+    "source",
+    "pmcid",
+    "modalities_json",
+    "conditions_json",
+    "study_design",
+    "sample_size",
+    "primary_outcome_measure",
+    "effect_direction",
+    "europe_pmc_url",
+    "enrichment_status",
+    "openalex_id",
+)
+_PAPER_BASE_COLS = (
+    "id",
+    "pmid",
+    "doi",
+    "title",
+    "year",
+    "journal",
+    "cited_by_count",
+    "is_oa",
+    "oa_url",
+    "pub_types_json",
+    "authors_json",
+    "sources_json",
+    "abstract",
+)
+
+
+def _paper_columns_present(conn: sqlite3.Connection) -> set[str]:
+    rows = conn.execute("PRAGMA table_info(papers)").fetchall()
+    return {r["name"] for r in rows}
+
+
+def _paper_select_cols_for(conn: sqlite3.Connection) -> str:
+    """Return the SELECT column list scoped to columns the DB actually has."""
+    present = _paper_columns_present(conn)
+    cols = [f"p.{c}" for c in _PAPER_BASE_COLS if c in present]
+    for c in _PAPER_OPTIONAL_COLS:
+        if c in present:
+            cols.append(f"p.{c}")
+    return ", ".join(cols)
+
 # Known tokens from migration 004 / CSV enrichment. Used by /papers/stats.
 _KNOWN_MODALITIES = [
     "tms", "dbs", "tdcs", "scs", "pns", "vns", "tacs", "snm", "rns",
@@ -1750,7 +1813,7 @@ def search_papers(
             params.append(q)
 
         sql = (
-            "SELECT " + _PAPER_SELECT_COLS + " "
+            "SELECT " + _paper_select_cols_for(conn) + " "
             "FROM papers p " + join
             + (" WHERE " + " AND ".join(where) if where else "")
             + " LIMIT ?"
@@ -1919,7 +1982,7 @@ def similar_papers(
         fts_query = " OR ".join(terms[:20])
 
         sql = (
-            "SELECT " + _PAPER_SELECT_COLS + " "
+            "SELECT " + _paper_select_cols_for(conn) + " "
             "FROM papers p JOIN papers_fts f ON f.rowid = p.id "
             "WHERE papers_fts MATCH ? AND p.id <> ? "
             "LIMIT ?"
@@ -1945,7 +2008,7 @@ def get_paper(
     conn = _evidence_conn()
     try:
         row = conn.execute(
-            "SELECT " + _PAPER_SELECT_COLS + " "
+            "SELECT " + _paper_select_cols_for(conn) + " "
             "FROM papers p WHERE p.id = ?",
             (paper_id,),
         ).fetchone()
@@ -2266,3 +2329,535 @@ def promote_to_library(
     _audit("papers.promote_to_library", actor, paper_id=paper_id, library_id=lib.id,
            pmid=row["pmid"], doi=row["doi"])
     return PromoteOut(library_id=lib.id, title=lib.title)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Per-indication convenience endpoints (added 2026-05-08)
+# ─────────────────────────────────────────────────────────────────────────────
+# These are thin shortcuts over the existing `/papers`, `/trials`, `/devices`
+# search endpoints, exposed at `/indications/{slug}/...` so the Studio UI can
+# build a single-call detail view per indication. They do NOT replicate query
+# logic — they delegate to the same SQL the parameterised endpoints use.
+#
+# All endpoints honour clinician role (same as the rest of the router) and
+# degrade to empty arrays when paper_indications / trial_indications /
+# protocols.indication_id are not yet populated for the slug.
+
+
+# core-schema-exempt: indication-summary projection is router-local; not reused by patient/clinician schemas
+class IndicationSummaryOut(BaseModel):
+    """One row in the indication navigation spine for the Studio Evidence
+    workspace. Counts come from the junction tables in evidence.db; protocols
+    use protocols.indication_id (which may be NULL for un-curated rows)."""
+
+    slug: str
+    label: str
+    modality: str
+    condition: str
+    evidence_grade: Optional[str] = None
+    regulatory: Optional[str] = None
+    paper_count: int = 0
+    trial_count: int = 0
+    device_count: int = 0
+    protocol_count: int = 0
+
+
+# core-schema-exempt: trial-extracted protocol projection is router-local; canonical schema lives in services/evidence-pipeline
+class ProtocolOut(BaseModel):
+    """One row from the structured protocols table — extracted from CT.gov /
+    FDA filings. `confidence` is the extractor's heuristic (high/medium/low)."""
+
+    id: int
+    indication_slug: Optional[str] = None
+    source_type: str
+    source_id: str
+    arm_label: Optional[str] = None
+    modality: Optional[str] = None
+    target_anatomy: Optional[str] = None
+    waveform: Optional[str] = None
+    frequency_hz: Optional[float] = None
+    frequency_hz_max: Optional[float] = None
+    pulse_width_us: Optional[float] = None
+    amplitude_mA: Optional[float] = None
+    amplitude_V: Optional[float] = None
+    motor_threshold_pct: Optional[float] = None
+    pulses_per_session: Optional[int] = None
+    session_duration_min: Optional[float] = None
+    sessions_per_week: Optional[int] = None
+    total_sessions: Optional[int] = None
+    total_pulses: Optional[int] = None
+    paired_behavior: Optional[str] = None
+    confidence: Optional[str] = None
+    notes: Optional[str] = None
+
+
+# core-schema-exempt: indication-detail aggregate is router-local; bundles per-slug projections only used here
+class IndicationDetailOut(BaseModel):
+    """Single-call detail bundle for the Evidence Indications spine UI.
+
+    Returns the slug header + top papers + top trials + curated devices +
+    high-confidence protocols. Each list is bounded; clients should hit the
+    /papers, /trials, /devices, /protocols subroutes for the full list.
+    """
+
+    indication: IndicationSummaryOut
+    papers: list[PaperOut] = Field(default_factory=list)
+    trials: list[TrialOut] = Field(default_factory=list)
+    devices: list[DeviceOut] = Field(default_factory=list)
+    protocols: list[ProtocolOut] = Field(default_factory=list)
+    fts_fallback: bool = Field(
+        default=False,
+        description=(
+            "True when paper_indications has no rows for this slug and the "
+            "Studio should display a 'no curated papers yet — falling back to "
+            "FTS search' empty state rather than fabricate counts."
+        ),
+    )
+
+
+def _indication_row_with_counts(conn: sqlite3.Connection, row: sqlite3.Row,
+                                 has_protocols_table: bool) -> IndicationSummaryOut:
+    """Pull paper / trial / device / protocol counts for one indication."""
+
+    paper_count = conn.execute(
+        "SELECT count(*) FROM paper_indications WHERE indication_id = ?",
+        (row["id"],),
+    ).fetchone()[0]
+    trial_count = conn.execute(
+        "SELECT count(*) FROM trial_indications WHERE indication_id = ?",
+        (row["id"],),
+    ).fetchone()[0]
+    device_count = conn.execute(
+        "SELECT count(*) FROM device_indications WHERE indication_id = ?",
+        (row["id"],),
+    ).fetchone()[0]
+    if has_protocols_table:
+        protocol_count = conn.execute(
+            "SELECT count(*) FROM protocols WHERE indication_id = ?",
+            (row["id"],),
+        ).fetchone()[0]
+    else:
+        protocol_count = 0
+    return IndicationSummaryOut(
+        slug=row["slug"],
+        label=row["label"],
+        modality=row["modality"],
+        condition=row["condition"],
+        evidence_grade=row["evidence_grade"],
+        regulatory=row["regulatory"],
+        paper_count=int(paper_count or 0),
+        trial_count=int(trial_count or 0),
+        device_count=int(device_count or 0),
+        protocol_count=int(protocol_count or 0),
+    )
+
+
+def _has_protocols_table(conn: sqlite3.Connection) -> bool:
+    try:
+        cur = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='protocols'"
+        ).fetchone()
+        return bool(cur)
+    except sqlite3.OperationalError:
+        return False
+
+
+@router.get("/indications/summary", response_model=list[IndicationSummaryOut])
+def list_indications_with_counts(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[IndicationSummaryOut]:
+    """Indication navigation spine, enriched with per-slug paper / trial /
+    device / protocol counts. The Studio uses this as the left-hand list on
+    the Evidence Indications view. Counts come from the junction tables;
+    when a junction is empty for a slug the count is 0 — never fabricated.
+    """
+    require_minimum_role(actor, "clinician")
+    conn = _evidence_conn()
+    try:
+        rows = conn.execute(
+            "SELECT id, slug, label, modality, condition, evidence_grade, regulatory "
+            "FROM indications ORDER BY modality, slug"
+        ).fetchall()
+        has_protocols = _has_protocols_table(conn)
+        out = [
+            _indication_row_with_counts(conn, r, has_protocols) for r in rows
+        ]
+    finally:
+        conn.close()
+    _audit("indications.summary", actor, count=len(out))
+    return out
+
+
+def _resolve_indication(conn: sqlite3.Connection, slug: str) -> sqlite3.Row:
+    row = conn.execute(
+        "SELECT id, slug, label, modality, condition, evidence_grade, regulatory "
+        "FROM indications WHERE slug = ?",
+        (slug,),
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"indication '{slug}' not found")
+    return row
+
+
+@router.get(
+    "/indications/{slug}/papers",
+    response_model=list[PaperOut],
+    summary="Top papers for an indication, ranked by score (cited_by, OA, type, year).",
+)
+def list_indication_papers(
+    slug: str,
+    limit: int = Query(20, ge=1, le=100),
+    include_abstract: bool = Query(False),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[PaperOut]:
+    """Top curated papers for one indication. Returns [] when
+    paper_indications has no rows for the slug — the Studio renders the
+    'no curated papers yet — fall back to FTS search' empty state."""
+    require_minimum_role(actor, "clinician")
+    conn = _evidence_conn()
+    try:
+        ind_row = _resolve_indication(conn, slug)
+        rows = conn.execute(
+            "SELECT " + _paper_select_cols_for(conn) + " "
+            "FROM papers p "
+            "JOIN paper_indications pi ON pi.paper_id = p.id "
+            "WHERE pi.indication_id = ? "
+            "LIMIT ?",
+            (ind_row["id"], limit * 4),
+        ).fetchall()
+    finally:
+        conn.close()
+    ranked = sorted(rows, key=_score, reverse=True)[:limit]
+    _audit("indications.papers", actor, slug=slug, result_count=len(ranked))
+    return [_paper_row_to_out(r, include_abstract=include_abstract) for r in ranked]
+
+
+@router.get(
+    "/indications/{slug}/trials",
+    response_model=list[TrialOut],
+    summary="Trials curated for an indication, newest first.",
+)
+def list_indication_trials(
+    slug: str,
+    limit: int = Query(20, ge=1, le=100),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[TrialOut]:
+    require_minimum_role(actor, "clinician")
+    conn = _evidence_conn()
+    try:
+        ind_row = _resolve_indication(conn, slug)
+        rows = conn.execute(
+            "SELECT t.nct_id, t.title, t.phase, t.status, t.enrollment, t.sponsor, "
+            "t.conditions_json, t.interventions_json, t.outcomes_json, "
+            "t.brief_summary, t.start_date, t.last_update "
+            "FROM trials t "
+            "JOIN trial_indications ti ON ti.trial_id = t.id "
+            "WHERE ti.indication_id = ? "
+            "ORDER BY t.last_update DESC LIMIT ?",
+            (ind_row["id"], limit),
+        ).fetchall()
+    finally:
+        conn.close()
+    out: list[TrialOut] = []
+    for r in rows:
+        out.append(TrialOut(
+            nct_id=r["nct_id"], title=r["title"], phase=r["phase"], status=r["status"],
+            enrollment=r["enrollment"], sponsor=r["sponsor"],
+            conditions=json.loads(r["conditions_json"] or "[]"),
+            interventions=json.loads(r["interventions_json"] or "[]"),
+            outcomes=json.loads(r["outcomes_json"] or "[]"),
+            brief_summary=r["brief_summary"], start_date=r["start_date"], last_update=r["last_update"],
+        ))
+    _audit("indications.trials", actor, slug=slug, result_count=len(out))
+    return out
+
+
+@router.get(
+    "/indications/{slug}/devices",
+    response_model=list[DeviceOut],
+    summary="FDA-cleared devices linked to an indication via device_indications.",
+)
+def list_indication_devices(
+    slug: str,
+    limit: int = Query(50, ge=1, le=200),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[DeviceOut]:
+    """Curated FDA device list for an indication. Honours the
+    `devices.curation_status` flag — rejected rows are excluded so the UI
+    never shows mis-tagged regulatory clearances. Curation_status NULL is
+    treated as 'not yet reviewed' and is included (the curation log marks
+    accept/reject explicitly)."""
+    require_minimum_role(actor, "clinician")
+    conn = _evidence_conn()
+    try:
+        ind_row = _resolve_indication(conn, slug)
+        rows = conn.execute(
+            "SELECT d.kind, d.number, d.applicant, d.trade_name, d.product_code, d.decision_date "
+            "FROM devices d "
+            "JOIN device_indications di ON di.device_id = d.id "
+            "WHERE di.indication_id = ? "
+            "AND (d.curation_status IS NULL OR d.curation_status != 'reject') "
+            "ORDER BY d.decision_date DESC LIMIT ?",
+            (ind_row["id"], limit),
+        ).fetchall()
+    finally:
+        conn.close()
+    _audit("indications.devices", actor, slug=slug, result_count=len(rows))
+    return [DeviceOut(**dict(r)) for r in rows]
+
+
+@router.get(
+    "/indications/{slug}/protocols",
+    response_model=list[ProtocolOut],
+    summary="Structured protocols extracted for an indication.",
+)
+def list_indication_protocols(
+    slug: str,
+    confidence: Optional[str] = Query(
+        None,
+        pattern="^(high|medium|low)$",
+        description="Filter by extractor confidence band.",
+    ),
+    limit: int = Query(20, ge=1, le=100),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[ProtocolOut]:
+    """Structured protocols for an indication. Source rows live in the
+    `protocols` table (migration 006), populated by extract_protocols.py
+    from CT.gov / FDA filings. When `protocols.indication_id` is NULL for
+    every row, this returns []."""
+    require_minimum_role(actor, "clinician")
+    conn = _evidence_conn()
+    try:
+        if not _has_protocols_table(conn):
+            _audit("indications.protocols.no_table", actor, slug=slug)
+            return []
+        ind_row = _resolve_indication(conn, slug)
+        params: list = [ind_row["id"]]
+        sql = (
+            "SELECT id, source_type, source_id, arm_label, modality, target_anatomy, "
+            "waveform, frequency_hz, frequency_hz_max, pulse_width_us, amplitude_mA, "
+            "amplitude_V, motor_threshold_pct, pulses_per_session, session_duration_min, "
+            "sessions_per_week, total_sessions, total_pulses, paired_behavior, "
+            "confidence, notes "
+            "FROM protocols WHERE indication_id = ?"
+        )
+        if confidence:
+            sql += " AND confidence = ?"
+            params.append(confidence)
+        sql += " ORDER BY CASE confidence WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+    finally:
+        conn.close()
+    out = [
+        ProtocolOut(
+            id=r["id"],
+            indication_slug=slug,
+            source_type=r["source_type"],
+            source_id=r["source_id"],
+            arm_label=r["arm_label"],
+            modality=r["modality"],
+            target_anatomy=r["target_anatomy"],
+            waveform=r["waveform"],
+            frequency_hz=r["frequency_hz"],
+            frequency_hz_max=r["frequency_hz_max"],
+            pulse_width_us=r["pulse_width_us"],
+            amplitude_mA=r["amplitude_mA"],
+            amplitude_V=r["amplitude_V"],
+            motor_threshold_pct=r["motor_threshold_pct"],
+            pulses_per_session=r["pulses_per_session"],
+            session_duration_min=r["session_duration_min"],
+            sessions_per_week=r["sessions_per_week"],
+            total_sessions=r["total_sessions"],
+            total_pulses=r["total_pulses"],
+            paired_behavior=r["paired_behavior"],
+            confidence=r["confidence"],
+            notes=r["notes"],
+        )
+        for r in rows
+    ]
+    _audit("indications.protocols", actor, slug=slug, result_count=len(out), confidence=confidence)
+    return out
+
+
+@router.get(
+    "/indications/{slug}/detail",
+    response_model=IndicationDetailOut,
+    summary="One-call detail bundle: header + top papers + trials + devices + protocols.",
+)
+def get_indication_detail(
+    slug: str,
+    paper_limit: int = Query(10, ge=1, le=50),
+    trial_limit: int = Query(5, ge=1, le=50),
+    protocol_limit: int = Query(5, ge=1, le=50),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> IndicationDetailOut:
+    """Single-call view-model for the Studio Evidence Indications page.
+
+    Avoids a 4-RTT waterfall on slug change by issuing all queries on one
+    sqlite connection. When paper_indications is empty for the slug,
+    `fts_fallback=True` is set so the UI can route the user to the FTS
+    search input rather than render a fabricated paper list.
+    """
+    require_minimum_role(actor, "clinician")
+    conn = _evidence_conn()
+    try:
+        ind_row = _resolve_indication(conn, slug)
+        has_protocols = _has_protocols_table(conn)
+        summary = _indication_row_with_counts(conn, ind_row, has_protocols)
+
+        paper_rows = conn.execute(
+            "SELECT " + _paper_select_cols_for(conn) + " "
+            "FROM papers p "
+            "JOIN paper_indications pi ON pi.paper_id = p.id "
+            "WHERE pi.indication_id = ? "
+            "LIMIT ?",
+            (ind_row["id"], paper_limit * 4),
+        ).fetchall()
+        ranked_papers = sorted(paper_rows, key=_score, reverse=True)[:paper_limit]
+
+        trial_rows = conn.execute(
+            "SELECT t.nct_id, t.title, t.phase, t.status, t.enrollment, t.sponsor, "
+            "t.conditions_json, t.interventions_json, t.outcomes_json, "
+            "t.brief_summary, t.start_date, t.last_update "
+            "FROM trials t "
+            "JOIN trial_indications ti ON ti.trial_id = t.id "
+            "WHERE ti.indication_id = ? "
+            "ORDER BY t.last_update DESC LIMIT ?",
+            (ind_row["id"], trial_limit),
+        ).fetchall()
+
+        device_rows = conn.execute(
+            "SELECT d.kind, d.number, d.applicant, d.trade_name, d.product_code, d.decision_date "
+            "FROM devices d "
+            "JOIN device_indications di ON di.device_id = d.id "
+            "WHERE di.indication_id = ? "
+            "AND (d.curation_status IS NULL OR d.curation_status != 'reject') "
+            "ORDER BY d.decision_date DESC",
+            (ind_row["id"],),
+        ).fetchall()
+
+        protocol_rows: list[sqlite3.Row] = []
+        if has_protocols:
+            protocol_rows = conn.execute(
+                "SELECT id, source_type, source_id, arm_label, modality, target_anatomy, "
+                "waveform, frequency_hz, frequency_hz_max, pulse_width_us, amplitude_mA, "
+                "amplitude_V, motor_threshold_pct, pulses_per_session, session_duration_min, "
+                "sessions_per_week, total_sessions, total_pulses, paired_behavior, "
+                "confidence, notes "
+                "FROM protocols WHERE indication_id = ? "
+                "ORDER BY CASE confidence WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END "
+                "LIMIT ?",
+                (ind_row["id"], protocol_limit),
+            ).fetchall()
+    finally:
+        conn.close()
+
+    papers = [_paper_row_to_out(r, include_abstract=False) for r in ranked_papers]
+    trials = [
+        TrialOut(
+            nct_id=r["nct_id"], title=r["title"], phase=r["phase"], status=r["status"],
+            enrollment=r["enrollment"], sponsor=r["sponsor"],
+            conditions=json.loads(r["conditions_json"] or "[]"),
+            interventions=json.loads(r["interventions_json"] or "[]"),
+            outcomes=json.loads(r["outcomes_json"] or "[]"),
+            brief_summary=r["brief_summary"], start_date=r["start_date"], last_update=r["last_update"],
+        )
+        for r in trial_rows
+    ]
+    devices = [DeviceOut(**dict(r)) for r in device_rows]
+    protocols = [
+        ProtocolOut(
+            id=r["id"],
+            indication_slug=slug,
+            source_type=r["source_type"],
+            source_id=r["source_id"],
+            arm_label=r["arm_label"],
+            modality=r["modality"],
+            target_anatomy=r["target_anatomy"],
+            waveform=r["waveform"],
+            frequency_hz=r["frequency_hz"],
+            frequency_hz_max=r["frequency_hz_max"],
+            pulse_width_us=r["pulse_width_us"],
+            amplitude_mA=r["amplitude_mA"],
+            amplitude_V=r["amplitude_V"],
+            motor_threshold_pct=r["motor_threshold_pct"],
+            pulses_per_session=r["pulses_per_session"],
+            session_duration_min=r["session_duration_min"],
+            sessions_per_week=r["sessions_per_week"],
+            total_sessions=r["total_sessions"],
+            total_pulses=r["total_pulses"],
+            paired_behavior=r["paired_behavior"],
+            confidence=r["confidence"],
+            notes=r["notes"],
+        )
+        for r in protocol_rows
+    ]
+
+    fts_fallback = summary.paper_count == 0
+    _audit(
+        "indications.detail", actor, slug=slug,
+        paper_count=len(papers), trial_count=len(trials),
+        device_count=len(devices), protocol_count=len(protocols),
+        fts_fallback=fts_fallback,
+    )
+    return IndicationDetailOut(
+        indication=summary,
+        papers=papers,
+        trials=trials,
+        devices=devices,
+        protocols=protocols,
+        fts_fallback=fts_fallback,
+    )
+
+
+# core-schema-exempt: FTS hit envelope is router-local; only used by /evidence/search response
+class EvidenceSearchHitOut(BaseModel):
+    paper: PaperOut
+    rank: float
+
+
+# core-schema-exempt: FTS search response envelope; pairs with EvidenceSearchHitOut above
+class EvidenceSearchOut(BaseModel):
+    query: str
+    total: int
+    hits: list[PaperOut] = Field(default_factory=list)
+
+
+@router.get(
+    "/search",
+    response_model=EvidenceSearchOut,
+    summary="FTS5 full-text search across the papers corpus.",
+)
+def search_evidence(
+    q: str = Query(..., min_length=2, max_length=240),
+    limit: int = Query(20, ge=1, le=100),
+    include_abstract: bool = Query(False),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> EvidenceSearchOut:
+    """Full-text search across `papers_fts` (title + abstract). Used by the
+    Studio Evidence search box and by the indication-page fallback when
+    paper_indications is empty for the selected slug."""
+    require_minimum_role(actor, "clinician")
+    conn = _evidence_conn()
+    try:
+        # Defensive: SQLite FTS5 rejects unbalanced quotes. Strip them.
+        cleaned = q.replace('"', " ").strip()
+        if not cleaned:
+            return EvidenceSearchOut(query=q, total=0, hits=[])
+        rows = conn.execute(
+            "SELECT " + _paper_select_cols_for(conn) + " "
+            "FROM papers p JOIN papers_fts f ON f.rowid = p.id "
+            "WHERE papers_fts MATCH ? "
+            "LIMIT ?",
+            (cleaned, limit * 4),
+        ).fetchall()
+    except sqlite3.OperationalError as exc:
+        _logger.warning("FTS query failed for q=%r: %s", q, exc)
+        raise HTTPException(status_code=400, detail="invalid search query")
+    finally:
+        conn.close()
+    ranked = sorted(rows, key=_score, reverse=True)[:limit]
+    hits = [_paper_row_to_out(r, include_abstract=include_abstract) for r in ranked]
+    _audit("search", actor, q=q, result_count=len(hits))
+    return EvidenceSearchOut(query=q, total=len(hits), hits=hits)
