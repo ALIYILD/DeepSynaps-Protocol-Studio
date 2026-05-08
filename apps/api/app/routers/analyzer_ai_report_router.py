@@ -54,6 +54,7 @@ router = APIRouter(prefix="/api/v1/analyzer-reports", tags=["analyzer-reports"])
 # ── Models ───────────────────────────────────────────────────────────────────
 
 
+# core-schema-exempt: router-local DTO for /analyzer-ai-report; not reused elsewhere
 class AIReportRequest(BaseModel):
     """Request body for the AI report endpoint."""
 
@@ -64,6 +65,7 @@ class AIReportRequest(BaseModel):
     )
 
 
+# core-schema-exempt: router-local DTO for /analyzer-ai-report; not reused elsewhere
 class LiteratureRef(BaseModel):
     pmid: str = ""
     doi: str = ""
@@ -73,6 +75,7 @@ class LiteratureRef(BaseModel):
     journal: str = ""
 
 
+# core-schema-exempt: router-local DTO for /analyzer-ai-report; not reused elsewhere
 class KeyFinding(BaseModel):
     title: str = ""
     observation: str = ""
@@ -80,6 +83,7 @@ class KeyFinding(BaseModel):
     confidence: float = 0.0
 
 
+# core-schema-exempt: router-local DTO for /analyzer-ai-report; not reused elsewhere
 class DecisionSupportData(BaseModel):
     executive_summary: str = ""
     key_findings: list[KeyFinding] = Field(default_factory=list)
@@ -91,6 +95,7 @@ class DecisionSupportData(BaseModel):
     confidence_overall: str = "moderate"
 
 
+# core-schema-exempt: router-local DTO for /analyzer-ai-report; not reused elsewhere
 class AIReportOut(BaseModel):
     model_config = {"protected_namespaces": ()}
 
@@ -107,6 +112,7 @@ class AIReportOut(BaseModel):
     generated_at: str
 
 
+# core-schema-exempt: router-local DTO for /analyzer-ai-report; not reused elsewhere
 class AnalyzersOut(BaseModel):
     analyzer_types: list[str]
 
