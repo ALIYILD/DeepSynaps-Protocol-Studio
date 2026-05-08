@@ -747,6 +747,7 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
     $('mv-back-clinic')?.addEventListener('click', () => {
       view = 'clinic';
       activePatientId = null;
+      _refreshMvDrHero(activePatientId);
       render();
     });
     $('mv-refresh')?.addEventListener('click', () => {
@@ -760,6 +761,7 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
       const v = String(ev.target.value || '').trim();
       if (!v) return;
       activePatientId = v;
+      _refreshMvDrHero(activePatientId);
       const hit = rosterCache.find((x) => x.id === v);
       activePatientName = _patientDisplayName(hit) || profileCache?.patient_name || v;
       view = 'patient';
@@ -838,6 +840,7 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
       const open = () => {
         const p = (summaryCache?.patients || []).find((x) => x.patient_id === pid);
         activePatientId = pid;
+        _refreshMvDrHero(activePatientId);
         activePatientName = p?.patient_name || pid;
         const sel = $('mv-patient-select');
         if (sel) sel.value = pid;
@@ -858,6 +861,7 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
         const pid = btn.getAttribute('data-patient-id');
         const p = (summaryCache?.patients || []).find((x) => x.patient_id === pid);
         activePatientId = pid;
+        _refreshMvDrHero(activePatientId);
         activePatientName = p?.patient_name || pid;
         const sel = $('mv-patient-select');
         if (sel) sel.value = pid;
