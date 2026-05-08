@@ -947,7 +947,7 @@ async function _fetchMarketplaceAgents() {
     } catch {}
     let payload = null;
     try {
-      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents`, {
+      const res = await fetch(`${API_BASE}/api/v1/agents`, {
         method: 'GET', headers, credentials: 'include',
       });
       if (res.ok) payload = await res.json();
@@ -1031,7 +1031,7 @@ async function _runMarketplaceAgent(agentId, message, confirmedToolCallId = null
     if (t) headers['Authorization'] = 'Bearer ' + t;
   } catch {}
   const body = { message, confirmed_tool_call_id: confirmedToolCallId || null };
-  const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/${encodeURIComponent(agentId)}/run`, {
+  const res = await fetch(`${API_BASE}/api/v1/agents/${encodeURIComponent(agentId)}/run`, {
     method: 'POST',
     headers,
     credentials: 'include',
@@ -1357,7 +1357,7 @@ async function _loadActivityRuns(force = false) {
     const qs = '?limit=50' + (_activityAgentFilter ? '&agent_id=' + encodeURIComponent(_activityAgentFilter) : '');
     let payload = null;
     try {
-      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/runs${qs}`, {
+      const res = await fetch(`${API_BASE}/api/v1/agents/runs${qs}`, {
         method: 'GET', headers, credentials: 'include',
       });
       if (res.ok) payload = await res.json();
@@ -1557,7 +1557,7 @@ async function _loadUsageChart(force = false) {
     const qs = '?since_days=' + encodeURIComponent(_usageChartSinceDays);
     let payload = null;
     try {
-      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/usage-chart${qs}`, {
+      const res = await fetch(`${API_BASE}/api/v1/agents/usage-chart${qs}`, {
         method: 'GET', headers, credentials: 'include',
       });
       if (res.ok) payload = await res.json();
@@ -1741,7 +1741,7 @@ async function _fetchPatientActivations() {
     } catch {}
     let payload = null;
     try {
-      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agent-admin/patient-activations`, {
+      const res = await fetch(`${API_BASE}/api/v1/agent-admin/patient-activations`, {
         method: 'GET', headers, credentials: 'include',
       });
       if (res.ok) payload = await res.json();
@@ -1877,7 +1877,7 @@ async function _fetchOpsRuns() {
     const qs = '?' + params.join('&');
     let payload = null;
     try {
-      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/ops/runs${qs}`, {
+      const res = await fetch(`${API_BASE}/api/v1/agents/ops/runs${qs}`, {
         method: 'GET', headers, credentials: 'include',
       });
       if (res.ok) payload = await res.json();
@@ -1914,7 +1914,7 @@ async function _fetchOpsSla() {
     const hours = _opsSlaApiHours(_opsSlaWindowHours);
     let payload = null;
     try {
-      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/ops/sla?since_hours=${encodeURIComponent(hours)}`, {
+      const res = await fetch(`${API_BASE}/api/v1/agents/ops/sla?since_hours=${encodeURIComponent(hours)}`, {
         method: 'GET', headers, credentials: 'include',
       });
       if (res.ok) payload = await res.json();
@@ -1950,7 +1950,7 @@ async function _fetchOpsAbuse() {
     } catch {}
     let payload = null;
     try {
-      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/ops/abuse-signals?window_minutes=60`, {
+      const res = await fetch(`${API_BASE}/api/v1/agents/ops/abuse-signals?window_minutes=60`, {
         method: 'GET', headers, credentials: 'include',
       });
       if (res.ok) payload = await res.json();
@@ -2308,7 +2308,7 @@ async function _fetchOnboardingFunnel(days) {
     } catch {}
     let payload = null;
     try {
-      const res = await fetch(`${_marketplaceApiBase()}/api/v1/onboarding/funnel?days=${encodeURIComponent(n)}`, {
+      const res = await fetch(`${API_BASE}/api/v1/onboarding/funnel?days=${encodeURIComponent(n)}`, {
         method: 'GET', headers, credentials: 'include',
       });
       if (res.ok) payload = await res.json();
@@ -2487,7 +2487,7 @@ async function _fetchPromptOverrides() {
     } catch {}
     let payload = null;
     try {
-      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/admin/prompt-overrides`, {
+      const res = await fetch(`${API_BASE}/api/v1/agents/admin/prompt-overrides`, {
         method: 'GET', headers, credentials: 'include',
       });
       if (res.ok) payload = await res.json();
@@ -2547,7 +2547,7 @@ async function _fetchPromptHistory(agentId) {
     } catch {}
     let payload = null;
     try {
-      const url = `${_marketplaceApiBase()}/api/v1/agents/admin/prompt-overrides/${encodeURIComponent(agentId)}/history?limit=20`;
+      const url = `${API_BASE}/api/v1/agents/admin/prompt-overrides/${encodeURIComponent(agentId)}/history?limit=20`;
       const res = await fetch(url, { method: 'GET', headers, credentials: 'include' });
       if (res.ok) payload = await res.json();
       else if (res.status === 403) _promptHistoryError = 'This action requires super-admin privileges.';
@@ -3667,7 +3667,7 @@ window._agentMarketplaceUpgrade = async function(agentId) {
   };
 
   try {
-    const res = await fetch(`${_marketplaceApiBase()}/api/v1/agent-billing/checkout/${encodeURIComponent(agentId)}`, {
+    const res = await fetch(`${API_BASE}/api/v1/agent-billing/checkout/${encodeURIComponent(agentId)}`, {
       method: 'POST',
       headers,
       credentials: 'include',
@@ -3968,7 +3968,7 @@ window._agentActivationSubmit = async function() {
   } catch {}
 
   try {
-    const res = await fetch(`${_marketplaceApiBase()}/api/v1/agent-admin/patient-activations`, {
+    const res = await fetch(`${API_BASE}/api/v1/agent-admin/patient-activations`, {
       method: 'POST',
       headers,
       credentials: 'include',
@@ -4025,7 +4025,7 @@ window._agentActivationDeactivate = async function(clinicId, agentId) {
   } catch {}
 
   try {
-    const res = await fetch(`${_marketplaceApiBase()}/api/v1/agent-admin/patient-activations/${encodeURIComponent(clinicId)}/${encodeURIComponent(agentId)}`, {
+    const res = await fetch(`${API_BASE}/api/v1/agent-admin/patient-activations/${encodeURIComponent(clinicId)}/${encodeURIComponent(agentId)}`, {
       method: 'DELETE',
       headers,
       credentials: 'include',
@@ -4151,7 +4151,7 @@ window._agentOpsWebhookReplaySubmit = async function() {
   } catch {}
 
   try {
-    const res = await fetch(`${_marketplaceApiBase()}/api/v1/agent-billing/admin/webhook-replay`, {
+    const res = await fetch(`${API_BASE}/api/v1/agent-billing/admin/webhook-replay`, {
       method: 'POST',
       headers,
       credentials: 'include',
@@ -4237,7 +4237,7 @@ window._agentActivityExportCsv = function() {
     if (_activityAgentFilter) {
       params.push('agent_id=' + encodeURIComponent(_activityAgentFilter));
     }
-    const url = `${_marketplaceApiBase()}/api/v1/agents/runs.csv?${params.join('&')}`;
+    const url = `${API_BASE}/api/v1/agents/runs.csv?${params.join('&')}`;
     window.location = url;
   } catch (err) {
     // Surface the failure inline rather than silently no-op'ing.
@@ -4343,7 +4343,7 @@ window._agentPromptOverrideSave = async function(agentId) {
   } catch {}
 
   try {
-    const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/admin/prompt-overrides`, {
+    const res = await fetch(`${API_BASE}/api/v1/agents/admin/prompt-overrides`, {
       method: 'POST',
       headers,
       credentials: 'include',
@@ -4419,7 +4419,7 @@ window._agentPromptOverrideReset = async function(agentId) {
   } catch {}
 
   try {
-    const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/admin/prompt-overrides/${encodeURIComponent(active.id)}`, {
+    const res = await fetch(`${API_BASE}/api/v1/agents/admin/prompt-overrides/${encodeURIComponent(active.id)}`, {
       method: 'DELETE',
       headers,
       credentials: 'include',
