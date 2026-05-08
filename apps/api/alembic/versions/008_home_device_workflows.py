@@ -43,7 +43,9 @@ def upgrade() -> None:
     )
     op.create_index('ix_device_source_registry_source_slug', 'device_source_registry', ['source_slug'], unique=True)
 
-    # Seed V1 "manual" entry — the only supported integration in Phase 1
+    # Seed V1 "manual" entry — the only supported integration in Phase 1.
+    # Bool literals: SQLite accepts 0/1; Postgres requires false/true (or TRUE/FALSE).
+    # `true`/`false` are accepted by both (SQLite 3.23+, released 2018-04).
     op.execute(
         sa.text(
             "INSERT INTO device_source_registry "
@@ -53,7 +55,7 @@ def upgrade() -> None:
             "VALUES "
             "('00000000-0000-0000-0000-000000000001', 'manual', 'Manual Entry', 'other', NULL, "
             " 'not_integrated', '{\"session_duration\": true, \"intensity\": true, \"notes\": true}', "
-            " 0, 0, 1, :now, :now)"
+            " false, false, true, :now, :now)"
         ).bindparams(now=datetime.now(timezone.utc))
     )
 
