@@ -100,6 +100,7 @@ class ApproveDraftRequest(BaseModel):
     included_tasks: Optional[list] = None
 
 
+# core-schema-exempt: router-local DTO for /clinician/draft/{id}/reject; not reused elsewhere
 class RejectDraftRequest(BaseModel):
     """Reject a generated clinician note draft. Required for adverse-event
     drafts so we can audit why the AI output was discarded; optional but
