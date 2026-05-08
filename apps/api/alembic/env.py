@@ -79,9 +79,28 @@ _env_log = _logging.getLogger("alembic.env")
 
 
 def _forgiving_exec(self, construct, *args, **kwargs):
+    bind = getattr(self, "connection", None)
+    is_pg = bool(bind is not None and getattr(bind.dialect, "name", "") == "postgresql")
+    if is_pg:
+        sp = bind.begin_nested()
+        try:
+            result = _orig_exec(self, construct, *args, **kwargs)
+            sp.commit()
+            return result
+        except Exception as exc:  # noqa: BLE001
+            sp.rollback()
+            msg = str(exc).lower()
+            if any(signal in msg for signal in _DRIFT_SIGNALS):
+                _env_log.warning(
+                    "alembic: swallowing idempotent drift on %s: %s",
+                    type(construct).__name__,
+                    str(exc)[:240],
+                )
+                return None
+            raise
     try:
         return _orig_exec(self, construct, *args, **kwargs)
-    except Exception as exc:  # noqa: BLE001 — narrow via message match below
+    except Exception as exc:  # noqa: BLE001
         msg = str(exc).lower()
         if any(signal in msg for signal in _DRIFT_SIGNALS):
             _env_log.warning(
