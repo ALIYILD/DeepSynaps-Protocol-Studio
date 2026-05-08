@@ -2463,6 +2463,11 @@ export const api = {
   getClinicianNote: (noteId) => apiFetch(`/api/v1/media/clinician/note/${encodeURIComponent(noteId)}`),
   approveClinicianDraft: (draftId, data = {}) =>
     apiFetch(`/api/v1/media/clinician/draft/${encodeURIComponent(draftId)}/approve`, { method: 'POST', body: JSON.stringify(data) }),
+  rejectClinicianDraft: (draftId, rationale = null) =>
+    apiFetch(`/api/v1/media/clinician/draft/${encodeURIComponent(draftId)}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ rationale: rationale || null }),
+    }),
 
   // ── Clinic day-queue ────────────────────────────────────────────────────────
   // Replaces ds_today_queue localStorage. Backend derives queue from
