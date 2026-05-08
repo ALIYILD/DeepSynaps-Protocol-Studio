@@ -180,7 +180,7 @@ export async function pgPatientWearables() {
     api.postPatientWearablesAuditEvent({ event: 'consent_banner_shown' });
   }
 
-  // ── Evidence intelligence bridge (biometrics → 87k corpus) ─────────────────
+  // ── Evidence intelligence bridge (biometrics → indexed corpus when API available) ──
   let wearEvidenceBlock = '';
   if (api.biometricsEvidence && api.biometricsCorrelations && api.biometricsFeatures) {
     try {
@@ -552,7 +552,7 @@ export async function pgPatientWearables() {
     <div style="font-size:11px;color:var(--text-tertiary,#64748b);margin-top:6px">7-day check-in log · connect a device to see biometric history</div>
   </div>
 
-  <!-- ⑤b EVIDENCE (87k library bridge) -->
+  <!-- ⑤b EVIDENCE (indexed corpus library bridge) -->
   <div class="pdw-section pdw-evidence-section">
     <div class="pdw-section-header">
       <h3 class="pdw-section-title"><span class="pdw-title-icon">⌕</span>Evidence behind wearable metrics</h3>

@@ -1,6 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// pages-research-evidence.js — Research Evidence Interactive Dashboard
-// 87,000 papers · 53 conditions · 13 modalities · 24 assessments · 18 devices
+// pages-research-evidence.js — Clinician evidence & governance workspace
+// Combines live corpus metrics (when API + ingest available), bundled registry
+// rollups, and brokered search — not autonomous clinical decision-making.
+// Indexed corpus totals come from GET /api/v1/evidence/status — never hard-coded.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { tag, spinner } from './helpers.js';
@@ -12,6 +14,7 @@ import {
   getTopConditionsByPaperCount, searchEvidenceByKeyword,
 } from './evidence-dataset.js';
 import { getEvidenceUiStats } from './evidence-ui-live.js';
+import { renderLiveEvidencePanel } from './live-evidence.js';
 import { loadResearchBundleWorkspace } from './research-bundle-workspace.js';
 import {
   CONDITION_REGISTRY, ASSESSMENT_REGISTRY, PROTOCOL_REGISTRY,
@@ -57,6 +60,135 @@ function hBar(label, value, maxVal, color) {
 /* ── grade color ───────────────────────────────────────────────────────────── */
 const GRADE_CLR = { A: '#2dd4bf', B: '#60a5fa', C: '#fbbf24', D: '#f97316', E: '#ef4444' };
 let _liveEvidenceUiStats = null;
+
+function _resDemoBuild() {
+  try {
+    return !!(import.meta.env?.DEV || import.meta.env?.VITE_ENABLE_DEMO === '1');
+  } catch {
+    return false;
+  }
+}
+
+/** Governance + safety framing — shown on key tabs */
+function _resGovernanceBanner() {
+  return (
+    '<div class="ch-card" role="region" aria-label="Evidence governance notice" style="margin-bottom:14px;border-left:3px solid var(--amber);background:rgba(245,158,11,0.06);padding:12px 14px">' +
+    '<div style="font-size:12.5px;line-height:1.55;color:var(--text-secondary)">' +
+    '<strong style="color:var(--amber)">Research Evidence.</strong> ' +
+    'This is a controlled preview evidence workspace. It supports literature review, evidence grading, and governance workflows only. ' +
+    'It does not diagnose, prescribe, approve treatment, triage emergencies, or act autonomously. ' +
+    'Evidence summaries require clinician review against current literature, device labelling, patient suitability, and local policy.' +
+    '</div>' +
+    '<div style="font-size:12.5px;line-height:1.55;color:var(--text-secondary);margin-top:10px">' +
+    'Bundled registry rollups are for navigation and preview context. They are not a substitute for verified primary literature retrieval.' +
+    '</div>' +
+    '<div style="font-size:12.5px;line-height:1.55;color:var(--text-secondary);margin-top:10px">' +
+    'Regulatory clearance is not the same as clinical efficacy, and adjacent-condition evidence does not automatically imply indication-specific suitability.' +
+    '</div></div>'
+  );
+}
+
+/** When live corpus counts are unavailable — honest degraded mode (hidden when status confirms indexed ingest) */
+function _resBundledDegradedBanner(stats) {
+  if (stats?.indexedCorpusAvailable) return '';
+  if (stats?.live) return '';
+  const previewMsg =
+    stats?.evidenceStatusReachable && !stats?.indexedCorpusAvailable
+      ? '<strong style="color:var(--rose)">Indexed evidence corpus unavailable in this preview environment.</strong> ' +
+        '<code style="font-size:10px">GET /api/v1/evidence/status</code> reported zero papers/trials/devices or the ingest is empty. ' +
+        'Bundled registry approximations below are for navigation only — not verified search results.'
+      : '<strong style="color:var(--rose)">Live evidence service unavailable.</strong> ' +
+        'Showing bundled registry approximations for navigation only.';
+  return (
+    '<div class="ch-card" role="status" aria-live="polite" style="margin-bottom:14px;border-left:3px solid var(--rose);background:rgba(244,63,94,0.06);padding:10px 14px">' +
+    '<div style="font-size:12px;color:var(--text-secondary);line-height:1.5">' +
+    previewMsg +
+    '</div></div>'
+  );
+}
+
+/** Labels live API vs bundled demo/registry fallback for transparency */
+function _resSourceStrip(stats) {
+  const demo = _resDemoBuild();
+  const idx = !!(stats && stats.indexedCorpusAvailable);
+  const apiLive = !!(stats && stats.live);
+  const st = Number(stats?.statusTotalPapers || 0);
+  const modeLabel = idx
+    ? 'Indexed evidence corpus connected — ~' +
+      fmt(st || stats?.totalPapers || 0) +
+      ' papers reported by GET /api/v1/evidence/status (search uses GET /api/v1/evidence/papers)'
+    : apiLive
+      ? 'Live evidence service (aggregated counts from API)'
+      : 'Bundled registry approximation — connect API + ingest for authoritative totals';
+  const liveBadge = idx
+    ? '<span style="margin-left:8px;padding:2px 8px;border-radius:999px;background:rgba(45,212,191,0.22);color:var(--teal);font-size:11px;font-weight:700">Indexed DB</span>'
+    : apiLive
+      ? '<span style="margin-left:8px;padding:2px 8px;border-radius:999px;background:rgba(45,212,191,0.18);color:var(--teal);font-size:11px;font-weight:700">Live API</span>'
+      : '<span style="margin-left:8px;padding:2px 8px;border-radius:999px;background:var(--surface-2);color:var(--text-secondary);font-size:11px;font-weight:600">Bundled registry</span>';
+  const demoNote = demo
+    ? '<span style="margin-left:8px;padding:2px 8px;border-radius:999px;background:rgba(245,158,11,0.15);color:var(--amber);font-size:11px;font-weight:600">Demo / preview build</span>'
+    : '';
+  const offlineNote =
+    !apiLive && stats?.evidenceStatusRejected
+      ? '<span style="margin-left:8px;font-size:11px;color:var(--text-tertiary)">Offline fallback</span>'
+      : '';
+  return (
+    '<div class="ch-card" style="padding:10px 14px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between">' +
+    '<div style="font-size:12px;color:var(--text-secondary)">' +
+    '<strong style="color:var(--text-primary)">Source mode:</strong> ' + esc(modeLabel) + liveBadge + demoNote + offlineNote +
+    '</div>' +
+    '<div style="font-size:11px;color:var(--text-tertiary);max-width:420px;text-align:right">' +
+    'Evidence grades describe literature summaries in this workspace — not automatic clinical grades. ' +
+    'See <code style="font-size:10px">docs/protocol-evidence-governance-policy.md</code>.' +
+    '</div>' +
+    '</div>'
+  );
+}
+
+/** Shared header: governance + degraded notice + source strip; optional module shortcuts */
+function _resWorkspaceHeader(liveEvidence, { shortcuts = false } = {}) {
+  return (
+    _resGovernanceBanner() +
+    _resBundledDegradedBanner(liveEvidence) +
+    _resSourceStrip(liveEvidence) +
+    (shortcuts ? _resWorkbenchShortcuts() : '')
+  );
+}
+
+/** Quick navigation to linked Clinical OS modules (draft/review contexts only) */
+function _resWorkbenchShortcuts() {
+  const role = currentUser?.role || '';
+  const patientOk = role && role !== 'patient';
+  return (
+    '<div class="ch-card" style="padding:14px 16px;margin-bottom:16px">' +
+    '<div style="font-weight:600;margin-bottom:10px;font-size:14px">Linked workspaces</div>' +
+    '<p style="font-size:12px;color:var(--text-secondary);margin:0 0 12px;line-height:1.5">' +
+    'Open related tools for <strong>draft</strong> protocols, handbook drafts, and planning — never as automatic approval from this page.</p>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:8px">' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'protocol-studio\')">Protocol Studio</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'handbooks-v2\')">Handbooks</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'brainmap-v2\')">Brain Map Planner</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'assessments-v2\')">Assessments</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'documents-v2\')">Documents</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'clinician-inbox\')">Inbox</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'schedule-v2\')">Schedule</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'deeptwin\')">DeepTwin</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'qeeg-launcher\')">qEEG</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'mri-analysis\')">MRI</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'video-assessments\')">Video</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'wearables\')">Biometrics</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'text-analyzer\')">Text</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'live-session\')">Virtual Care</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'biomarkers\')">Biomarkers</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'labs-analyzer\')">Labs</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'medication-analyzer\')">Medication</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'nutrition-analyzer\')">Nutrition</button>' +
+    (patientOk
+      ? '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'patients-v2\')">Patients</button>'
+      : '<span style="font-size:11px;color:var(--text-tertiary);align-self:center">Patient roster requires clinician context.</span>') +
+    '</div></div>'
+  );
+}
 let _researchBundleState = {
   loaded: false,
   loading: null,
@@ -193,8 +325,16 @@ export async function pgResearchEvidence(setTopbar, navigate) {
   });
   _liveEvidenceUiStats = liveEvidence;
 
+  const papersBadgeText = liveEvidence.totalPapers
+    ? `${fmtK(liveEvidence.totalPapers)} papers indexed`
+    : 'Evidence corpus';
+  const papersBadgeTitle = liveEvidence.indexedCorpusAvailable
+    ? 'Indexed evidence database connected — paper count from GET /api/v1/evidence/status. Use Evidence Search for live FTS over this ingest.'
+    : liveEvidence.live
+      ? 'Live evidence index aggregate for this session when API + ingest are connected.'
+      : 'Bundled corpus metadata / fallback — not guaranteed live database totals.';
   setTopbar('Research Evidence',
-    `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--teal);color:#fff;font-weight:600">${esc(fmtK(liveEvidence.totalPapers))} Papers</span>`);
+    `<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--surface-2);color:var(--text-secondary);font-weight:600;border:1px solid var(--border)" title="${esc(papersBadgeTitle)}">${esc(papersBadgeText)}</span>`);
 
   /* ── tab bar ─────────────────────────────────────────────────────────────── */
   function tabBar() {
@@ -272,22 +412,62 @@ async function renderOverview(body, liveEvidence = null) {
       }))
     : getTopConditionsByPaperCount(10);
 
-  /* KPI strip */
+  /* KPI strip — modality count uses registry when live distribution empty */
+  const modalityKeys = Object.keys(liveEvidence?.modalityDistribution || {});
+  const modalityKpi = modalityKeys.length
+    ? modalityKeys.length
+    : Object.keys(S.modalityDistribution || {}).length;
+  const kpiUseBundled = !liveEvidence?.indexedCorpusAvailable && !liveEvidence?.live;
+  const kpiPapers = liveEvidence?.totalPapers || EVIDENCE_TOTAL_PAPERS;
+  const kpiTrials = liveEvidence?.totalTrials || EVIDENCE_TOTAL_TRIALS;
+  const kpiMeta = liveEvidence?.totalMetaAnalyses || EVIDENCE_TOTAL_META;
   const kpis = [
-    { val: fmtK(liveEvidence?.totalPapers || EVIDENCE_TOTAL_PAPERS), label: 'Papers', color: 'var(--teal)' },
-    { val: fmtK(liveEvidence?.totalTrials || EVIDENCE_TOTAL_TRIALS), label: 'Clinical Trials', color: 'var(--blue)' },
-    { val: fmtK(liveEvidence?.totalMetaAnalyses || EVIDENCE_TOTAL_META), label: 'Meta-analyses', color: 'var(--violet)' },
-    { val: liveEvidence?.totalConditions || S.totalConditions, label: 'Conditions', color: 'var(--rose)' },
-    { val: Object.keys(liveEvidence?.modalityDistribution || {}).length || S.totalDevices, label: 'Modalities', color: 'var(--amber)' },
+    {
+      val: fmtK(kpiPapers),
+      label: 'Papers (index)',
+      sub: kpiUseBundled ? 'Bundled corpus metadata' : 'Live aggregate when API connected',
+      color: 'var(--teal)',
+    },
+    {
+      val: fmtK(kpiTrials),
+      label: 'Clinical Trials',
+      sub: kpiUseBundled ? 'Bundled rollup' : 'From evidence index',
+      color: 'var(--blue)',
+    },
+    {
+      val: fmtK(kpiMeta),
+      label: 'Meta-analyses',
+      sub: kpiUseBundled ? 'Bundled rollup' : 'From research summary',
+      color: 'var(--violet)',
+    },
+    {
+      val: liveEvidence?.totalConditions || S.totalConditions,
+      label: 'Conditions (registry)',
+      sub: 'Registry scope — not a diagnosis list',
+      color: 'var(--rose)',
+    },
+    {
+      val: modalityKpi,
+      label: 'Modalities tracked',
+      sub: kpiUseBundled ? 'Bundled distribution' : 'Live modality distribution',
+      color: 'var(--amber)',
+    },
   ];
-  let kpiHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">';
+  let kpiHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:12px">';
   for (const k of kpis) {
     kpiHtml += `<div class="ch-card" style="text-align:center;padding:16px 12px">
       <div style="font-size:28px;font-weight:700;color:${k.color};font-variant-numeric:tabular-nums">${k.val}</div>
       <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">${k.label}</div>
+      <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px;line-height:1.35">${esc(k.sub)}</div>
     </div>`;
   }
   kpiHtml += '</div>';
+  kpiHtml +=
+    '<p style="font-size:11px;color:var(--text-tertiary);margin:0 0 18px;line-height:1.45">' +
+    (kpiUseBundled
+      ? 'These KPIs use bundled corpus metadata for orientation — not real-time database totals or verified primary counts.'
+      : 'These KPIs reflect aggregated evidence-service counts when the indexed corpus and API are reachable.') +
+    '</p>';
 
   /* sources strip */
   let srcHtml = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:20px">';
@@ -295,6 +475,30 @@ async function renderOverview(body, liveEvidence = null) {
     srcHtml += `<span style="padding:3px 10px;font-size:11px;border-radius:12px;background:var(--surface-2);color:var(--text-secondary)">${esc(s)}</span>`;
   }
   srcHtml += '</div>';
+
+  /* Wearables ↔ biometrics evidence bridge (Studio wiring) */
+  const wearBridge =
+    '<div class="ch-card" style="padding:16px;margin-bottom:16px;border-left:3px solid var(--teal)">' +
+    '<div style="font-weight:600;margin-bottom:8px">Wearables &amp; passive sensing</div>' +
+    '<p style="font-size:13px;color:var(--text-secondary);margin:0 0 10px;line-height:1.5">' +
+    'Patient <strong>Devices &amp; Wearables</strong> can surface ranked citations via the same evidence-intelligence layer as this dashboard ' +
+    (liveEvidence?.indexedCorpusAvailable
+      ? '(deterministic retrieval over the indexed corpus — <strong>' +
+        fmt(liveEvidence.statusTotalPapers || liveEvidence.totalPapers) +
+        '</strong> papers reported by <code style="font-size:11px">/api/v1/evidence/status</code> in this deployment). '
+      : liveEvidence?.live
+        ? '(deterministic retrieval over the indexed corpus — on the order of <strong>' +
+          fmt(liveEvidence.totalPapers || EVIDENCE_TOTAL_PAPERS) +
+          '</strong> papers when the live evidence database matches this aggregate). '
+        : '(the <strong>' +
+          fmt(EVIDENCE_TOTAL_PAPERS) +
+          '</strong> figure is bundled corpus metadata for typical studio scale — not a live query result for this session). ') +
+    'Biometric <em>correlation</em> readouts are associational evidence summaries only — not autonomous diagnosis or treatment guidance.' +
+    '</p>' +
+    (currentUser && currentUser.role === 'patient'
+      ? '<button type="button" class="btn btn-ghost btn-sm" onclick="window._nav(\'patient-wearables\')">Open Devices &amp; Wearables</button>'
+      : '<span style="font-size:12px;color:var(--text-tertiary)">Clinicians: review citations under patient wearable summaries in the clinical workspace.</span>') +
+    '</div>';
 
   /* year distribution */
   const yd = S.yearDistribution;
@@ -308,7 +512,8 @@ async function renderOverview(body, liveEvidence = null) {
   /* evidence grade distribution */
   const gd = Object.keys(liveEvidence?.gradeDistribution || {}).length ? liveEvidence.gradeDistribution : S.gradeDistribution;
   const gdMax = Math.max(...Object.values(gd));
-  let gradeHtml = '<div class="ch-card" style="padding:16px;margin-bottom:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Evidence Grade Distribution</div>';
+  let gradeHtml = '<div class="ch-card" style="padding:16px;margin-bottom:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Evidence Grade Distribution</div>' +
+    '<p style="font-size:11px;color:var(--text-tertiary);margin:0 0 12px;line-height:1.45">Grades summarize literature in this workspace (A–E scale). They require clinician review — see governance policy. They are not automatic prescription or treatment grades.</p>';
   for (const [g, cnt] of Object.entries(gd)) {
     gradeHtml += hBar('Grade ' + g, cnt, gdMax, GRADE_CLR[g] || 'var(--teal)');
   }
@@ -364,10 +569,14 @@ async function renderOverview(body, liveEvidence = null) {
   liveSafetyHtml += '</div>';
 
   /* two-column layout for charts */
-  body.innerHTML = kpiHtml + srcHtml +
+  body.innerHTML =
+    _resWorkspaceHeader(liveEvidence, { shortcuts: true }) +
+    kpiHtml + srcHtml + wearBridge +
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px">' +
+    // merged from main: 90f0484e/bf505698 intent: live evidence-link, template, and safety panels
     yearHtml + gradeHtml + modHtml + tcHtml + liveLinksHtml + liveTemplateHtml + liveSafetyHtml +
-    '</div>';
+    '</div>' +
+    '<p style="font-size:11px;color:var(--text-tertiary);margin-top:12px">Grade and year distributions use bundled registry approximations when the live API is unavailable — use <strong>Evidence Search</strong> for verified primary literature retrieval.</p>';
 }
 
 
@@ -435,7 +644,9 @@ async function renderConditions(body, q, filt, sort, sInput, pills, sortBtn) {
   );
 
   /* toolbar */
-  let html = `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
+  let html = _resWorkspaceHeader(_liveEvidenceUiStats) +
+    '<p style="font-size:11px;color:var(--text-tertiary);margin:0 0 12px;line-height:1.45">Expand rows for registry context; use Evidence Search for verified primary citations.</p>' +
+    `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
     ${sInput('Search conditions...')}
     <div style="display:flex;flex-wrap:wrap;gap:4px">${pills(cats, filt)}</div>
   </div>`;
@@ -475,6 +686,10 @@ async function renderConditions(body, q, filt, sort, sInput, pills, sortBtn) {
       const safety = Array.isArray(detail.safety_signals) ? detail.safety_signals.slice(0, 4) : [];
       const protocolNotes = Array.isArray(detail.protocol_personalization_notes) ? detail.protocol_personalization_notes.slice(0, 3) : [];
       html += `<tr><td colspan="9" style="padding:0 8px 12px 24px;background:var(--surface-1,var(--bg))">
+        <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5;margin:8px 0">
+          Live registry context. Use <button type="button" class="btn btn-ghost btn-xs" onclick="window._resEvidenceTab='search';window._nav('research-evidence')">Evidence Search</button>
+          for verified primary citations — links and identifiers below render only when returned by the API.
+        </div>
         <div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin:8px 0 10px">Live Condition Detail</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:10px">
           <div style="padding:10px;border:1px solid var(--border);border-radius:8px">
@@ -637,11 +852,15 @@ async function renderAssessments(body, q, filt, sInput, pills) {
    ══════════════════════════════════════════════════════════════════════════════ */
 async function renderProtocols(body, q, sInput) {
   await _ensureResearchBundleData();
+  const protoSourceNote = _researchBundleState.loaded
+    ? '<p style="font-size:11px;color:var(--text-tertiary);margin:0 0 12px;line-height:1.45"><span style="padding:2px 8px;border-radius:999px;background:rgba(45,212,191,0.12);color:var(--teal);font-size:10px;font-weight:700;margin-right:8px">Live bundle</span>Protocol templates, coverage, safety, and evidence-graph rows below are served from the neuromodulation research API when available.</p>'
+    : '<p style="font-size:11px;color:var(--text-tertiary);margin:0 0 12px;line-height:1.45"><span style="padding:2px 8px;border-radius:999px;background:var(--surface-2);font-size:10px;font-weight:700;margin-right:8px">Registry fallback</span>Templates and devices use bundled registry data — live coverage/safety panels appear only when the research bundle API returns rows.</p>';
+  // merged from main: bf505698 intent: live FDA device fetch for Devices section
   let liveDevices = [];
   try {
     liveDevices = await api.searchEvidenceDevices?.({ limit: 60 });
   } catch {}
-  let html = sInput('Search protocols, devices, modalities...') + '<div style="margin-bottom:16px"></div>';
+  let html = _resWorkspaceHeader(_liveEvidenceUiStats) + protoSourceNote + sInput('Search protocols, devices, modalities...') + '<div style="margin-bottom:16px"></div>';
 
   /* ── Section A: Protocol Templates ────────────────────────────────────────── */
   const liveProtoRows = _researchBundleState.loaded
@@ -756,6 +975,7 @@ async function renderProtocols(body, q, sInput) {
       ].join(' ').toLowerCase().includes(q)))
       .slice(0, 6);
 
+    html += '<p style="font-size:11px;color:var(--text-tertiary);margin:12px 0;line-height:1.45">Panels below are <strong>live bundle</strong> slices from the API — not static registry cards.</p>';
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">';
     html += '<div class="ch-card" style="padding:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Live Coverage Watch</div>' +
       (coverageRows.length
@@ -779,7 +999,7 @@ async function renderProtocols(body, q, sInput) {
           </div>`).join('')
         : '<div style="font-size:12px;color:var(--text-tertiary)">No live safety signals available.</div>') +
       '</div>';
-    html += '<div class="ch-card" style="padding:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Live Evidence Graph Links</div>' +
+    html += '<div class="ch-card" style="padding:16px"><div style="font-weight:600;margin-bottom:12px;font-size:14px">Evidence relationship summary (bundle)</div>' +
       (graphRows.length
         ? graphRows.map((row) => `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
             <div style="font-size:12px;font-weight:600">${esc(_reNormalizeLabel(row.modality || 'Modality'))}${row.indication ? ' · ' + esc(_reNormalizeLabel(row.indication)) : ''}</div>
@@ -987,7 +1207,11 @@ async function renderNeuro(body, q, filt, sInput, pills) {
 async function renderAdjunctEvidence(body, q, sInput) {
   await _ensureResearchBundleData();
 
-  let html = `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px">
+  let html = _resWorkspaceHeader(_liveEvidenceUiStats) +
+    '<p style="font-size:11px;color:var(--text-tertiary);margin:0 0 14px;line-height:1.55;border-left:3px solid var(--cyan,var(--teal));padding-left:12px">' +
+    '<strong style="color:var(--text-secondary)">Adjunct evidence only.</strong> Labs, medications, diet, and biomarker papers here describe modifiers and confounders — not neuromodulation indication suitability by themselves. Adjunct evidence requires clinician review alongside protocol indication, device labelling, and patient factors.' +
+    '</p>' +
+    `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px">
     ${sInput('Search labs, medications, supplements, vitamins, and diet evidence...')}
   </div>`;
 
@@ -996,7 +1220,7 @@ async function renderAdjunctEvidence(body, q, sInput) {
   } else {
     html += `<div class="ch-card" style="padding:16px">
       <div style="font-weight:600;font-size:14px;margin-bottom:8px">Adjunct Evidence Unavailable</div>
-      <div style="font-size:12px;color:var(--text-tertiary)">No adjunct evidence bundle is loaded yet for labs, biomarkers, medications, supplements, vitamins, and diet.</div>
+      <div style="font-size:12px;color:var(--text-tertiary)">No live adjunct bundle rows returned from the research API for this session — this is not an empty evidence verdict on adjunct topics. Connect the neuromodulation research ingest or try later.</div>
     </div>`;
   }
 
@@ -1121,13 +1345,281 @@ async function renderAIML(body, q, sInput) {
   body.innerHTML = html;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════════
+   Evidence Search — synonym expansion (transparent FTS hints; does not fabricate)
+   ══════════════════════════════════════════════════════════════════════════════ */
+const _EV_TOKEN_SYNONYMS = {
+  depression: ['depression', 'MDD', 'depressive', '"major depressive disorder"'],
+  mdd: ['MDD', 'depression', 'depressive'],
+  rtms: ['rTMS', 'RTMS', 'repetitive', 'TMS', '"repetitive transcranial magnetic stimulation"'],
+  tms: ['TMS', 'transcranial', 'magnetic', '"transcranial magnetic stimulation"'],
+  tdcs: ['tDCS', 'transcranial', 'direct', 'current', '"transcranial direct current stimulation"'],
+  tacs: ['tACS'],
+  trns: ['tRNS'],
+  tfus: ['tFUS', 'focused', 'ultrasound'],
+  tps: ['TPS', 'pulse', 'stimulation', '"transcranial pulse stimulation"'],
+  asd: ['ASD', 'autism', 'spectrum', '"autism spectrum disorder"'],
+  adhd: ['ADHD', 'attention', 'deficit', 'hyperactivity', '"attention deficit hyperactivity disorder"'],
+  ocd: ['OCD', 'obsessive', 'compulsive'],
+  anxiety: ['anxiety', 'GAD', 'anxious'],
+  alzheimer: ['Alzheimer', 'dementia', '"Alzheimer disease"', '"Alzheimer\'s disease"'],
+  alzheimers: ['Alzheimer', 'dementia'],
+  neurofeedback: ['neurofeedback', 'EEG', 'biofeedback', '"EEG biofeedback"'],
+  qeeg: ['qEEG', 'EEG', 'quantitative'],
+  mri: ['MRI', 'neuroimaging', 'resonance'],
+  ces: ['CES', 'cranial', 'electrical', '"cranial electrotherapy stimulation"'],
+  pbm: ['PBM', 'photobiomodulation', 'laser'],
+  pain: ['pain', 'chronic', 'nociceptive', 'neuropathic'],
+  chronic: ['chronic', 'persistent'],
+  fibromyalgia: ['fibromyalgia', 'widespread'],
+  migraine: ['migraine', 'headache'],
+  stroke: ['stroke', 'cerebrovascular'],
+  parkinson: ['Parkinson', 'PD'],
+  epilepsy: ['epilepsy', 'seizure'],
+  insomnia: ['insomnia', 'sleep'],
+  ptsd: ['PTSD', 'trauma'],
+  tinnitus: ['tinnitus'],
+};
+
+function _reExpandEvidenceSearchQuery(raw) {
+  let working = String(raw || '').trim();
+  const noteParts = [];
+  if (/\bchronic\s+pain\b/i.test(working)) {
+    noteParts.push('chronic pain ↔ chronic pain OR neuropathic pain (FTS OR-group)');
+  }
+  const tokens = working.split(/\s+/).filter(Boolean);
+  const groups = tokens.map((tok) => {
+    const norm = tok.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const syn = _EV_TOKEN_SYNONYMS[norm];
+    if (syn && syn.length) {
+      const uniq = [...new Set(syn)].slice(0, 8);
+      noteParts.push(`${tok} → ${uniq.join(', ')}`);
+      return '(' + uniq.map((t) => (/\s/.test(t) ? `"${t.replace(/"/g, '')}"` : t)).join(' OR ') + ')';
+    }
+    return tok.replace(/["']/g, '');
+  });
+  return {
+    fts: groups.join(' '),
+    notes: noteParts.length ? 'Expanded query terms used for retrieval: ' + noteParts.join(' · ') : '',
+  };
+}
+
+function _reFilterCuratedLiterature(items, rawQ) {
+  const ql = String(rawQ || '').trim().toLowerCase();
+  if (!ql || ql.length < 2) return [];
+  return (items || []).filter((p) => {
+    const blob = [p.title, p.authors, p.journal, p.condition, p.study_type].filter(Boolean).join(' ').toLowerCase();
+    return blob.includes(ql);
+  });
+}
+
+function _reDedupeKey(rec, prefix) {
+  const pmid = rec.pmid != null && String(rec.pmid).trim() ? String(rec.pmid).trim() : '';
+  if (pmid) return 'pmid:' + pmid;
+  const doi = rec.doi != null && String(rec.doi).trim() ? String(rec.doi).trim().toLowerCase() : '';
+  if (doi) return 'doi:' + doi;
+  if (rec.id != null && rec.id !== '') return 'id:' + String(rec.id);
+  const t = (rec.title || '').trim().toLowerCase().slice(0, 160);
+  const y = rec.year != null ? String(rec.year) : '';
+  if (t) return 'ty:' + t + '|' + y;
+  return (prefix || 'nk') + ':' + Math.random().toString(36).slice(2);
+}
+
+/** Shared doctor-facing evidence card — never fabricates links or abstracts. */
+function renderEvidenceResultCard(raw, sourceType, opts = {}) {
+  const badgeMap = {
+    indexed: { label: 'Indexed DB', bg: 'rgba(45,212,191,0.14)', fg: 'var(--teal)', bd: 'rgba(45,212,191,0.35)' },
+    brokered: { label: 'Brokered search', bg: 'rgba(245,158,11,0.14)', fg: 'var(--amber)', bd: 'rgba(245,158,11,0.3)' },
+    curated: { label: 'Curated library', bg: 'rgba(139,92,246,0.14)', fg: 'var(--violet)', bd: 'rgba(139,92,246,0.35)' },
+    bundled: { label: 'Bundled registry context', bg: 'var(--surface-2)', fg: 'var(--text-secondary)', bd: 'var(--border)' },
+    research: { label: 'Research bundle (ranked)', bg: 'rgba(59,130,246,0.12)', fg: 'var(--blue)', bd: 'rgba(59,130,246,0.28)' },
+  };
+  const b = badgeMap[sourceType] || badgeMap.indexed;
+  const title = raw.title || '(untitled)';
+  const year = raw.year != null && raw.year !== '' ? raw.year : '';
+  const journal = raw.journal || '';
+
+  let authorLine = '';
+  if (Array.isArray(raw.authors)) {
+    const a = raw.authors.filter(Boolean);
+    if (a.length) {
+      const head = a.slice(0, 3).join(', ');
+      authorLine = a.length > 3 ? head + ' +' + (a.length - 3) + ' more' : head;
+    }
+  } else if (typeof raw.authors === 'string' && raw.authors.trim()) {
+    authorLine = raw.authors.trim();
+  }
+  if (!authorLine) authorLine = 'Authors unavailable';
+
+  const modalities = Array.isArray(raw.modalities) ? raw.modalities.filter(Boolean).slice(0, 8) : [];
+  const conds = Array.isArray(raw.conditions) ? raw.conditions.filter(Boolean).slice(0, 8) : [];
+  const condExtra = raw.condition ? [raw.condition] : [];
+  const pubTypes = (raw.pub_types || []).slice(0, 4);
+  const studyDesign = raw.study_design || raw.study_type_normalized || raw.study_type || '';
+  const evGrade = raw.evidence_grade || raw.evidence_tier || '';
+  const sampleSize = raw.sample_size != null && raw.sample_size !== '' ? raw.sample_size : null;
+  const effectDir = raw.effect_direction || '';
+  const outcome = raw.primary_outcome_measure || '';
+
+  const absRaw = (raw.abstract || raw.snippet || raw.research_summary || '').trim();
+  const snip = absRaw
+    ? esc(absRaw.slice(0, 420)) + (absRaw.length > 420 ? '…' : '')
+    : '<span style="font-size:11px;color:var(--text-tertiary)">Abstract unavailable from this record</span>';
+
+  const pmid = raw.pmid ? String(raw.pmid).trim() : '';
+  const doi = raw.doi ? String(raw.doi).trim() : '';
+  const openUrl = ((raw.oa_url || raw.url || '') + '').trim();
+  const europe = (raw.europe_pmc_url || '').trim();
+  let oax = raw.openalex_id ? String(raw.openalex_id).trim() : '';
+  let openalexUrl = '';
+  if (oax) {
+    if (/^https?:\/\//i.test(oax)) openalexUrl = oax;
+    else openalexUrl = 'https://openalex.org/' + oax.replace(/^https?:\/\/openalex\.org\//i, '');
+  }
+
+  const links = [];
+  if (openUrl) {
+    links.push('<a class="ch-btn-sm" target="_blank" rel="noopener noreferrer" href="' + esc(openUrl) + '">Open ↗</a>');
+  }
+  if (doi) {
+    links.push('<a class="ch-btn-sm" target="_blank" rel="noopener noreferrer" href="https://doi.org/' + esc(doi) + '">DOI</a>');
+  }
+  if (pmid) {
+    links.push('<a class="ch-btn-sm" target="_blank" rel="noopener noreferrer" href="https://pubmed.ncbi.nlm.nih.gov/' + esc(pmid) + '/">PubMed</a>');
+  }
+  if (europe) {
+    links.push('<a class="ch-btn-sm" target="_blank" rel="noopener noreferrer" href="' + esc(europe) + '">Europe PMC</a>');
+  }
+  if (openalexUrl) {
+    links.push('<a class="ch-btn-sm" target="_blank" rel="noopener noreferrer" href="' + esc(openalexUrl) + '">OpenAlex</a>');
+  }
+
+  const linkRow =
+    links.length > 0
+      ? links.join('')
+      : '<span style="font-size:11px;color:var(--text-tertiary)">No direct link available from this record.</span>';
+
+  const chips = [];
+  modalities.forEach((m) => chips.push('<span class="lib-tag">' + esc(m) + '</span>'));
+  conds.forEach((c) => chips.push('<span class="lib-tag">' + esc(c) + '</span>'));
+  condExtra.forEach((c) => chips.push('<span class="lib-tag">' + esc(c) + '</span>'));
+  pubTypes.forEach((t) => chips.push('<span class="lib-tag">' + esc(t) + '</span>'));
+  if (studyDesign) chips.push('<span class="lib-tag">' + esc(studyDesign) + '</span>');
+  if (evGrade) {
+    chips.push('<span class="lib-tag">' + esc(String(evGrade).replace(/^EV-?/i, '')) + '</span>');
+  }
+  if (sampleSize != null) chips.push('<span class="lib-tag">n=' + esc(String(sampleSize)) + '</span>');
+  if (effectDir) chips.push('<span class="lib-tag">' + esc(effectDir) + '</span>');
+  if (outcome) {
+    const om = String(outcome);
+    chips.push('<span class="lib-tag" title="' + esc(om) + '">' + esc(om.slice(0, 48)) + (om.length > 48 ? '…' : '') + '</span>');
+  }
+  if (raw.is_oa || raw.open_access_flag) {
+    chips.push('<span class="lib-tag" title="Open-access flag from ingest">OA</span>');
+  }
+
+  let trustRow = '';
+  if (sourceType === 'brokered') {
+    trustRow =
+      '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:6px">Trust: <b>' +
+      esc(raw.source_trust || '—') +
+      '</b> · Status: <b>' +
+      esc(raw.review_status || '—') +
+      '</b></div>';
+  }
+
+  const pid = Number(raw.id);
+  const showPromote =
+    (sourceType === 'indexed' || sourceType === 'brokered') && Number.isFinite(pid) && opts.promote !== false;
+  const promoteHtml = showPromote
+    ? '<button class="ch-btn-sm ch-btn-teal" onclick="window._libPromoteExternal(' +
+      pid +
+      ',\'' +
+      esc(title).replace(/'/g, "\\'") +
+      '\')">Promote to Library</button>' +
+      '<label class="ch-btn-sm" style="display:inline-flex;gap:4px;align-items:center;cursor:pointer"><input type="checkbox" class="lib-ai-pick" value="' +
+      pid +
+      '" style="margin:0"> AI draft</label>'
+    : '';
+
+  return (
+    '<div class="lib-card lib-card--review">' +
+    '<div class="lib-card-top">' +
+    '<span class="lib-card-name">' +
+    esc(title) +
+    '</span>' +
+    '<span class="lib-badge" style="background:' +
+    b.bg +
+    ';color:' +
+    b.fg +
+    ';border:1px solid ' +
+    b.bd +
+    '">' +
+    esc(b.label) +
+    '</span>' +
+    '</div>' +
+    '<div class="lib-card-meta">' +
+    (year !== '' && year != null ? '<span class="lib-tag">' + esc(year) + '</span>' : '') +
+    (journal ? '<span class="lib-tag">' + esc(journal) + '</span>' : '') +
+    '</div>' +
+    '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px;line-height:1.35">' +
+    esc(authorLine) +
+    '</div>' +
+    (chips.length ? '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">' + chips.join('') + '</div>' : '') +
+    trustRow +
+    '<div style="font-size:12px;color:var(--text-secondary);margin-top:8px;line-height:1.45">' +
+    snip +
+    '</div>' +
+    '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center">' +
+    linkRow +
+    promoteHtml +
+    '</div>' +
+    '</div>'
+  );
+}
+
+function _reEvidenceSearchErrorHtml(prefix, e) {
+  const code = e?.status;
+  let msg = e?.message || 'Unknown error';
+  if (code === 401) msg = 'Sign in as clinical staff to search the evidence service.';
+  if (code === 403) msg = 'Your role cannot access this evidence search action.';
+  if (code === 503) msg = 'Evidence service unavailable. Try again later or use bundled registry context.';
+  if (!code && (e?.name === 'TypeError' || /fetch|network|failed/i.test(String(msg)))) {
+    msg =
+      'Live evidence service unreachable. Bundled rollups are still available for navigation, but they are not verified search results.';
+  }
+  return (
+    '<div class="ch-card" style="padding:12px;margin-bottom:12px;border-left:3px solid var(--rose)">' +
+    '<strong>' +
+    esc(prefix) +
+    '</strong> — ' +
+    esc(msg) +
+    '</div>'
+  );
+}
+
+function _reEmptyVerifiedEvidenceHtml() {
+  return (
+    '<div class="ch-empty" style="line-height:1.55">' +
+    '<div style="margin-bottom:10px">No verified results found for this query in the connected evidence sources.</div>' +
+    '<ul style="font-size:12px;color:var(--text-tertiary);margin:0;padding-left:18px">' +
+    '<li>Broaden the query or remove filters.</li>' +
+    '<li>Try a condition synonym (e.g. MDD, depression) or modality-only (e.g. rTMS).</li>' +
+    '<li>Confirm the indexed evidence corpus is connected (status banner above).</li>' +
+    '<li>If the corpus shows unavailable, try brokered or curated sources from the selector.</li>' +
+    '<li>Try <strong>Curated library</strong> source if you have promoted papers.</li>' +
+    '</ul></div>'
+  );
+}
+
 
 /* ══════════════════════════════════════════════════════════════════════════════
    TAB 7 — Evidence Search (migrated from Library Hub)
-   External brokered search · promote-to-library · AI summarization · curated lib
+   Unified indexed corpus + brokered search · promote-to-library · AI summarization · curated lib
    ══════════════════════════════════════════════════════════════════════════════ */
 async function renderEvidenceSearch(body) {
   await _ensureProtoData();
+  const defaultSearch = String(window._reEvidencePrefill || window._reSearch?.search || '').trim();
 
   const kpi = (color, value, label, title) =>
     `<div class="ch-kpi-card" style="--kpi-color:${color}"${title ? ` title="${esc(title)}"` : ''}>` +
@@ -1141,16 +1633,39 @@ async function renderEvidenceSearch(body) {
   }
 
   /* ── parallel API fetch ──────────────────────────────────────────────── */
+  // merged from main: bf505698 intent: keep evidenceIndications fetch alongside HEAD's evidenceStatus
   let overview = null, conditions = [], curatedLitItems = [], evidenceIndications = [];
-  const [ovRes, litRes, indRes] = await Promise.allSettled([
+  const [ovRes, litRes, evStatusRes, indRes] = await Promise.allSettled([
     api.libraryOverview(),
     api.listLiterature(),
+    api.evidenceStatus(),
     api.evidenceIndications?.(),
   ]);
   if (ovRes.status === 'fulfilled') overview = ovRes.value;
   if (litRes.status === 'fulfilled') curatedLitItems = litRes.value?.items || [];
+  window._reCuratedLitSnapshot = curatedLitItems;
+  const evStatusPayload = evStatusRes.status === 'fulfilled' ? evStatusRes.value : null;
+  const indexedPaperCount = Number(evStatusPayload?.total_papers || 0);
   conditions = overview?.conditions || [];
   if (indRes.status === 'fulfilled' && Array.isArray(indRes.value)) evidenceIndications = indRes.value;
+  const corpusStatusBanner =
+    indexedPaperCount > 0
+      ? '<div class="ch-card" style="margin-bottom:14px;padding:12px 16px;border-left:3px solid var(--teal);background:rgba(45,212,191,0.06)">' +
+        '<strong style="color:var(--teal)">Indexed evidence corpus available.</strong> ' +
+        '<span style="font-size:12px;color:var(--text-secondary)">~' +
+        fmt(indexedPaperCount) +
+        ' papers reported by <code style="font-size:11px">GET /api/v1/evidence/status</code> — live count for this deployment, not the bundled orientation rollup.</span>' +
+        '</div>'
+      : '<div class="ch-card" style="margin-bottom:14px;padding:12px 16px;border-left:3px solid var(--amber);background:rgba(245,158,11,0.06)">' +
+        '<strong style="color:var(--amber)">Indexed evidence corpus unavailable.</strong> ' +
+        '<span style="font-size:12px;color:var(--text-secondary)">Showing available fallback sources only. Do not claim the bundled corpus rollup as live indexed search results.</span>' +
+        '</div>';
+  const libraryAuthNote =
+    ovRes.status === 'rejected' || litRes.status === 'rejected'
+      ? '<div class="ch-card" role="note" style="margin-bottom:14px;padding:12px 14px;border-left:3px solid var(--amber);font-size:12px;color:var(--text-secondary)">' +
+        '<strong>Library overview unavailable.</strong> Sign in as a clinician to load curated library totals, or continue with brokered search when the API is reachable. No evidence record has been changed.' +
+        '</div>'
+      : '';
 
   window._reLiveEvidenceState = window._reLiveEvidenceState || {
     filters: { q: '', indication: '', grade: '', oa_only: false },
@@ -1173,9 +1688,11 @@ async function renderEvidenceSearch(body) {
     .join('');
   const curatedCount = curatedLitItems.length;
   const evDbAvailable = overview?.evidence_db_available;
-  const _totalEvPapers = _liveEvidenceUiStats?.totalPapers || EVIDENCE_SUMMARY?.totalPapers || 87000;
+  const _totalEvPapers = _liveEvidenceUiStats?.totalPapers || EVIDENCE_SUMMARY?.totalPapers || 0;
   const _totalEvTrials = _liveEvidenceUiStats?.totalTrials || EVIDENCE_SUMMARY?.totalTrials || 0;
   const _totalEvFda = _liveEvidenceUiStats?.totalFda || 0;
+  const indexedPapersDisplay = _totalEvPapers ? fmtK(_totalEvPapers) : '—';
+  const curatedRollupDisplay = overview?.curated_paper_count != null ? fmtK(overview.curated_paper_count) : indexedPapersDisplay;
 
   function linkBtn(href, label, tone = '') {
     if (!href) return '';
@@ -1373,85 +1890,460 @@ async function renderEvidenceSearch(body) {
       await api.promoteEvidencePaper(paperId);
       window._dsToast?.({ title: 'Promoted to library', body: `Paper #${paperId}`, severity: 'success' });
     } catch (e) {
-      window._dsToast?.({ title: 'Promote failed', body: e?.message || 'Unknown error', severity: 'error' });
+      const code = e?.status;
+      let msg = e?.message || 'Unknown error';
+      if (code === 401) msg = 'Sign in as a clinician to promote papers.';
+      if (code === 403) msg = 'Your role cannot promote papers (clinician required).';
+      if (code === 503) msg = 'Evidence index unavailable — promotion cannot complete.';
+      window._dsToast?.({ title: 'Promote failed', body: msg, severity: 'error' });
     }
   };
-  window._reShowEvidenceDetail = async (paperId) => {
-    const host = document.getElementById('re-ev-detail');
-    if (!host) return;
-    host.innerHTML = spinner();
+  window._libPromoteExternal = async (paperId, title) => {
     try {
-      const detail = await api.evidencePaperDetail(paperId);
-      state.detail = detail || null;
-      host.innerHTML = renderDetailPanel(state.detail);
+      await api.promoteEvidencePaper(paperId);
+      window._dsToast?.({ title: 'Promoted to library', body: String(title || '').slice(0, 80), severity: 'success' });
     } catch (e) {
-      state.detail = null;
-      host.innerHTML = '<div class="ch-empty" style="color:var(--red);padding:24px 16px">Paper detail failed: ' + esc(e?.message || 'service unavailable') + '</div>';
+      const code = e?.status;
+      let msg = e?.message || 'Unknown error';
+      if (code === 401) msg = 'Sign in as a clinician to promote papers.';
+      if (code === 403) msg = 'Your role cannot promote papers (clinician required).';
+      if (code === 503) msg = 'Evidence index unavailable — promotion cannot complete.';
+      window._dsToast?.({ title: 'Promote failed', body: msg, severity: 'error' });
     }
   };
-  window._reRunIndexedSearch = async () => {
-    const input = document.getElementById('re-ev-q');
-    const cSel = document.getElementById('re-ev-cond');
-    const gSel = document.getElementById('re-ev-grade');
-    const oaCbx = document.getElementById('re-ev-oa');
-    const out = document.getElementById('re-ev-results');
-    const ctx = document.getElementById('re-ev-context');
-    const detailHost = document.getElementById('re-ev-detail');
-    if (!input || !cSel || !gSel || !oaCbx || !out || !ctx || !detailHost) return;
-    const qv = (input.value || '').trim();
-    const indication = cSel.value || '';
-    const grade = gSel.value || '';
-    const oaOnly = !!oaCbx.checked;
-    state.filters = { q: qv, indication, grade, oa_only: oaOnly };
-    state.detail = null;
-    out.innerHTML = spinner();
-    ctx.innerHTML = spinner();
-    detailHost.innerHTML = '<div class="ch-empty" style="padding:24px 16px">Select a paper to inspect abstract, methods, and outbound links.</div>';
-    if (qv.length < 2 && !indication) {
-      out.innerHTML = '<div class="ch-empty" style="padding:24px 16px">Enter at least 2 characters or choose a condition to search the live evidence index.</div>';
-      ctx.innerHTML = renderContextPanel([], [], []);
+  window._reRunEvSearchChip = (q) => {
+    const el = document.getElementById('lib-ext-q');
+    if (el) el.value = q;
+    window._libUnifiedEvidenceSearch();
+  };
+
+  window._reExploreGraphQuery = (q) => {
+    const el = document.getElementById('lib-ext-q');
+    if (el) el.value = String(q || '');
+    const sel = document.getElementById('re-ev-search-source');
+    if (sel) sel.value = 'indexed';
+    window._libUnifiedEvidenceSearch?.();
+  };
+
+  window._reRefreshEvidenceSearchPanels = async (fts, rawQ, indexedOk) => {
+    const graphHost = document.getElementById('re-ev-evidence-relationship-panel');
+    const tdHost = document.getElementById('re-ev-trials-devices');
+    if (graphHost) {
+      graphHost.innerHTML =
+        '<div style="padding:16px;text-align:center">' + spinner() + '</div>';
+      try {
+        const rows = await api.listResearchEvidenceGraph({ limit: 48 });
+        const qlow = String(rawQ || '').toLowerCase();
+        const parts = qlow.split(/\s+/).filter((w) => w.length > 2);
+        const filtered = (Array.isArray(rows) ? rows : []).filter((row) => {
+          if (!parts.length) return true;
+          const blob = [row.indication, row.modality, row.target].join(' ').toLowerCase();
+          return parts.some((p) => blob.includes(p));
+        }).slice(0, 14);
+        if (!filtered.length) {
+          graphHost.innerHTML =
+            '<div class="ch-empty" style="font-size:12px">No evidence-graph rows matched this query. Try broader keywords or check the neuromodulation research bundle.</div>';
+        } else {
+          graphHost.innerHTML =
+            '<p style="font-size:11px;color:var(--text-tertiary);margin:0 0 12px;line-height:1.45"><strong>Evidence relationship summary.</strong> Graph weights are literature-index summaries, not clinical recommendations.</p>' +
+            '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px">' +
+            filtered
+              .map((row) => {
+                const exploreQ = [row.modality, row.indication].filter(Boolean).join(' ').trim();
+                return (
+                  '<div class="ch-card" style="padding:12px;font-size:12px">' +
+                  '<div style="font-weight:600;margin-bottom:6px">' +
+                  esc(_reNormalizeLabel(row.modality || '—')) +
+                  ' · ' +
+                  esc(_reNormalizeLabel(row.indication || '—')) +
+                  (row.target ? '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + esc(row.target) + '</div>' : '') +
+                  '</div>' +
+                  '<div style="color:var(--text-tertiary);font-size:11px;line-height:1.45">' +
+                  fmt(row.paper_count || 0) +
+                  ' papers · citations Σ ' +
+                  fmt(row.citation_sum || 0) +
+                  ' · weight Σ ' +
+                  fmt(row.evidence_weight_sum || 0) +
+                  ' · OA ' +
+                  fmt(row.open_access_count || 0) +
+                  (row.year_min != null && row.year_max != null
+                    ? ' · years ' + esc(String(row.year_min)) + '–' + esc(String(row.year_max))
+                    : '') +
+                  '</div>' +
+                  (row.top_study_types
+                    ? '<div style="margin-top:6px;font-size:10px;color:var(--text-tertiary)">Study types: ' +
+                      esc(String(row.top_study_types).slice(0, 140)) +
+                      (String(row.top_study_types).length > 140 ? '…' : '') +
+                      '</div>'
+                    : '') +
+                  (row.top_safety_tags
+                    ? '<div style="margin-top:4px;font-size:10px;color:var(--rose)">Safety tags: ' +
+                      esc(String(row.top_safety_tags).slice(0, 140)) +
+                      '</div>'
+                    : '') +
+                  '<div style="margin-top:8px">' +
+                  '<button type="button" class="btn btn-ghost btn-xs" onclick="window._reExploreGraphQuery(' +
+                  JSON.stringify(exploreQ || rawQ) +
+                  ')">Explore papers</button>' +
+                  '</div>' +
+                  '</div>'
+                );
+              })
+              .join('') +
+            '</div>';
+        }
+      } catch {
+        graphHost.innerHTML =
+          '<div class="ch-empty" style="font-size:12px">Evidence graph API unavailable (research bundle or session). This panel is not a treatment recommendation.</div>';
+      }
+    }
+    if (tdHost) {
+      if (!indexedOk) {
+        tdHost.innerHTML =
+          '<div class="ch-card" style="padding:12px;font-size:12px;color:var(--text-secondary)">Trials/devices search is not connected in this preview (indexed corpus unavailable).</div>';
+        return;
+      }
+      if (!fts || String(fts).trim().length < 2) {
+        tdHost.innerHTML =
+          '<div class="ch-empty" style="font-size:11px">Enter a search query to load related trials/device corpus rows.</div>';
+        return;
+      }
+      tdHost.innerHTML = '<div style="padding:12px;text-align:center">' + spinner() + '</div>';
+      try {
+        const [tRes, dRes] = await Promise.allSettled([
+          api.searchEvidenceTrials({ q: String(fts || '').slice(0, 160), limit: 8 }),
+          api.searchEvidenceDevices({ limit: 8 }),
+        ]);
+        const trials = tRes.status === 'fulfilled' && Array.isArray(tRes.value) ? tRes.value : [];
+        const devices = dRes.status === 'fulfilled' && Array.isArray(dRes.value) ? dRes.value : [];
+        tdHost.innerHTML =
+          '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">' +
+          '<div class="ch-card" style="padding:12px"><strong style="font-size:12px">Related trials (corpus)</strong>' +
+          '<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px;line-height:1.45">' +
+          (trials.length
+            ? trials
+                .slice(0, 6)
+                .map(
+                  (t) =>
+                    '<div style="margin-bottom:10px;border-bottom:1px solid var(--border);padding-bottom:8px">' +
+                    '<div style="font-weight:600;font-size:12px">' +
+                    esc(t.title || t.nct_id || 'Trial') +
+                    '</div>' +
+                    '<div style="font-size:10px;color:var(--text-tertiary)">' +
+                    esc(t.nct_id || '') +
+                    ' · ' +
+                    esc(t.status || '') +
+                    '</div></div>',
+                )
+                .join('')
+            : '<span style="color:var(--text-tertiary)">No trial rows returned for this query.</span>') +
+          '</div></div>' +
+          '<div class="ch-card" style="padding:12px"><strong style="font-size:12px">FDA device records (corpus)</strong>' +
+          '<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px;line-height:1.45">' +
+          (devices.length
+            ? devices
+                .slice(0, 6)
+                .map(
+                  (d) =>
+                    '<div style="margin-bottom:10px;border-bottom:1px solid var(--border);padding-bottom:8px">' +
+                    '<div style="font-weight:600;font-size:12px">' +
+                    esc(d.trade_name || d.number || 'Device') +
+                    '</div>' +
+                    '<div style="font-size:10px;color:var(--text-tertiary)">' +
+                    esc(d.kind || '') +
+                    ' · ' +
+                    esc(d.number || '') +
+                    '</div></div>',
+                )
+                .join('')
+            : '<span style="color:var(--text-tertiary)">No device rows returned.</span>') +
+          '</div></div>' +
+          '</div>';
+      } catch {
+        tdHost.innerHTML =
+          '<div class="ch-empty" style="font-size:12px">Trials/devices lookup failed. Verify clinician session and evidence API.</div>';
+      }
+    }
+  };
+
+  window._libUnifiedEvidenceSearch = async () => {
+    const input = document.getElementById('lib-ext-q');
+    const sourceSel = document.getElementById('re-ev-search-source');
+    const cSel = document.getElementById('lib-ext-cond');
+    const out = document.getElementById('re-ev-search-results');
+    const noteEl = document.getElementById('re-ev-expanded-note');
+    if (!input || !out) return;
+    const rawQ = (input.value || '').trim();
+    if (rawQ.length < 2) {
+      out.innerHTML = '<div class="ch-empty">Type at least 2 characters.</div>';
       return;
     }
+    const { fts, notes } = _reExpandEvidenceSearchQuery(rawQ);
+    if (noteEl) {
+      noteEl.innerHTML = notes
+        ? '<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:10px;line-height:1.45">' + esc(notes) + '</div>'
+        : '';
+    }
+    out.innerHTML =
+      '<div style="padding:24px;text-align:center">' +
+      spinner() +
+      '<div style="margin-top:12px;font-size:12px;color:var(--text-secondary)">Searching evidence sources…</div></div>';
+
+    const readEvSearchFilters = () => {
+      const modEl = document.getElementById('re-ev-filter-modality');
+      const gradeEl = document.getElementById('re-ev-filter-grade');
+      const yMin = document.getElementById('re-ev-year-min');
+      const yMax = document.getElementById('re-ev-year-max');
+      const oaEl = document.getElementById('re-ev-oa-only');
+      const absEl = document.getElementById('re-ev-has-abstract');
+      const condTok = document.getElementById('re-ev-condition-token');
+      const modality = (modEl?.value || '').trim();
+      const grade = (gradeEl?.value || '').trim();
+      let year_min = yMin?.value ? parseInt(yMin.value, 10) : '';
+      let year_max = yMax?.value ? parseInt(yMax.value, 10) : '';
+      if (year_min !== '' && (year_min < 1900 || year_min > 2100)) year_min = '';
+      if (year_max !== '' && (year_max < 1900 || year_max > 2100)) year_max = '';
+      const oa_only = !!(oaEl?.checked);
+      const has_abstract = absEl?.checked === true ? true : undefined;
+      const condition = (condTok?.value || '').trim();
+      return { modality, grade, year_min, year_max, oa_only, has_abstract, condition };
+    };
+
+    const source = sourceSel ? sourceSel.value : 'all';
+    const conditionId = cSel?.value || null;
+    const curatedSnap = window._reCuratedLitSnapshot || [];
+    const chunks = [];
+    const seen = new Set();
+    const ixUnavailable = indexedPaperCount <= 0;
+
+    const pushAiToolbar = () =>
+      '<div style="display:flex;gap:8px;align-items:center;margin:14px 0;flex-wrap:wrap">' +
+      '<button type="button" class="ch-btn-sm ch-btn-teal" onclick="window._libAiDraft()">✦ Summarise selected</button>' +
+      '<span style="font-size:11px;color:var(--text-tertiary)">AI-assisted draft only — clinician review required.</span>' +
+      '</div>' +
+      '<div id="lib-ai-draft-panel"></div>';
+
+    const filters = readEvSearchFilters();
+
     try {
-      const [papersRes, graphRes, trialsRes, devicesRes, rankedRes] = await Promise.allSettled([
-        api.searchEvidencePapers({ q: qv, indication, grade, oa_only: oaOnly, limit: 20 }),
-        api.listResearchEvidenceGraph?.({ indication: indication || undefined, limit: 8 }),
-        api.searchEvidenceTrials?.({ indication, q: qv, limit: 6 }),
-        api.searchEvidenceDevices?.({ indication, limit: 6 }),
-        api.searchResearchPapers?.({
-          q: qv || undefined,
-          indication: indication || undefined,
-          evidence_tier: grade || undefined,
-          open_access_only: oaOnly,
-          ranking_mode: 'clinical',
-          limit: 6,
-        }),
-      ]);
-      const papers = papersRes.status === 'fulfilled' && Array.isArray(papersRes.value) ? papersRes.value : [];
-      const graphRows = graphRes.status === 'fulfilled' && Array.isArray(graphRes.value) ? graphRes.value : [];
-      const trials = trialsRes.status === 'fulfilled' && Array.isArray(trialsRes.value) ? trialsRes.value : [];
-      const devices = devicesRes.status === 'fulfilled' && Array.isArray(devicesRes.value) ? devicesRes.value : [];
-      const rankedRows = rankedRes.status === 'fulfilled' && Array.isArray(rankedRes.value) ? rankedRes.value : [];
-      state.lastResults = papers;
-      state.lastGraph = graphRows;
-      state.lastTrials = trials;
-      state.lastDevices = devices;
-      state.lastRanked = rankedRows;
-      out.innerHTML = papers.length
-        ? '<div class="lib-grid">' + papers.map(resultCard).join('') + '</div>'
-        : '<div class="ch-empty" style="padding:24px 16px">No indexed papers matched the current search. Widen filters or try another condition.</div>';
-      ctx.innerHTML = renderContextPanel(graphRows, trials, devices, rankedRows);
-      if (papers.length) {
-        try { window._reShowEvidenceDetail?.(papers[0].id); } catch {}
+      if (ixUnavailable && (source === 'all' || source === 'indexed')) {
+        chunks.push(
+          '<div class="ch-card" style="margin-bottom:12px;padding:12px 14px;border-left:3px solid var(--amber);background:rgba(245,158,11,0.06);font-size:12px;color:var(--text-secondary)">' +
+            '<strong style="color:var(--amber)">Indexed evidence corpus unavailable in this preview environment.</strong> ' +
+            'Search results may be limited to brokered or curated fallback sources. Corpus availability is read from <code style="font-size:10px">GET /api/v1/evidence/status</code> — not hard-coded.</div>',
+        );
       }
+
+      if (source === 'indexed' && ixUnavailable) {
+        chunks.push(
+          '<div class="ch-empty" style="margin-bottom:12px">Indexed corpus search requires a non-empty evidence database on the API host (<code style="font-size:10px">EVIDENCE_DB_PATH</code>).</div>',
+        );
+      } else if (source === 'all' || source === 'indexed') {
+        try {
+          const papers = await api.searchEvidencePapers({
+            q: fts,
+            limit: 48,
+            modality: filters.modality || undefined,
+            grade: filters.grade || undefined,
+            year_min: filters.year_min === '' ? undefined : filters.year_min,
+            year_max: filters.year_max === '' ? undefined : filters.year_max,
+            oa_only: filters.oa_only,
+            has_abstract: filters.has_abstract,
+            condition: filters.condition || undefined,
+            include_abstract: true,
+          });
+          const rows = Array.isArray(papers) ? papers : [];
+          rows.forEach((p) => seen.add(_reDedupeKey(p, 'ix')));
+          if (rows.length) {
+            chunks.push(
+              '<div style="font-size:12px;font-weight:600;margin:12px 0 8px;color:var(--text-secondary)">' +
+                '<span class="lib-badge" style="background:rgba(45,212,191,0.15);color:var(--teal);border:1px solid rgba(45,212,191,0.35)">Indexed DB</span> · ' +
+                rows.length +
+                ' result(s)</div>' +
+                '<div class="lib-grid">' +
+                rows.map((p) => renderEvidenceResultCard(p, 'indexed')).join('') +
+                '</div>',
+            );
+          } else if (source === 'indexed') {
+            chunks.push(_reEmptyVerifiedEvidenceHtml());
+          }
+        } catch (e) {
+          chunks.push(_reEvidenceSearchErrorHtml('Indexed corpus search', e));
+        }
+      }
+
+      if (source === 'all' || source === 'brokered') {
+        try {
+          const res = await api.libraryExternalSearch({
+            q: fts,
+            condition_id: conditionId,
+            limit: 30,
+          });
+          const items = (res?.items || []).filter((r) => {
+            const k = _reDedupeKey(r, 'br');
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+          });
+          if (items.length) {
+            chunks.push(
+              '<div class="lib-trust-banner" role="note" style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);padding:10px 14px;border-radius:8px;font-size:12px;margin:16px 0 12px">' +
+                '<b style="color:var(--amber)">Brokered external literature service</b> — ' +
+                esc(res.notice || '') +
+                '<br><span style="opacity:0.75">Provenance: ' +
+                esc(res.provenance || '—') +
+                ' · Last checked: ' +
+                esc((res.last_checked_at || '').slice(0, 19)) +
+                '</span></div>',
+            );
+            chunks.push(
+              '<div style="font-size:12px;font-weight:600;margin:8px 0;color:var(--text-secondary)">' +
+                '<span class="lib-badge" style="background:rgba(245,158,11,0.14);color:var(--amber)">Brokered search</span> · ' +
+                items.length +
+                ' result(s)</div>',
+            );
+            chunks.push('<div class="lib-grid">' + items.map((r) => renderEvidenceResultCard(r, 'brokered')).join('') + '</div>');
+          } else if (source === 'brokered') {
+            chunks.push(_reEmptyVerifiedEvidenceHtml());
+          }
+        } catch (e) {
+          chunks.push(_reEvidenceSearchErrorHtml('Brokered literature search', e));
+        }
+      }
+
+      if (source === 'all' || source === 'curated') {
+        const curatedHits = _reFilterCuratedLiterature(curatedSnap, rawQ).filter((p) => {
+          const k = _reDedupeKey(
+            {
+              ...p,
+              id: p.id ?? p.pmid ?? p.doi ?? p.title,
+              pmid: p.pmid,
+              doi: p.doi,
+              title: p.title,
+              year: p.year,
+            },
+            'cu',
+          );
+          if (seen.has(k)) return false;
+          seen.add(k);
+          return true;
+        });
+        if (curatedHits.length) {
+          chunks.push(
+            '<div style="font-size:12px;font-weight:600;margin:16px 0 8px;color:var(--text-secondary)">' +
+              '<span class="lib-badge" style="background:rgba(139,92,246,0.14);color:var(--violet)">Curated library</span> · ' +
+              curatedHits.length +
+              ' match(es)</div>',
+          );
+          chunks.push(
+            '<div class="lib-grid">' +
+              curatedHits
+                .slice(0, 40)
+                .map((p) =>
+                  renderEvidenceResultCard(
+                    {
+                      title: p.title,
+                      year: p.year,
+                      journal: p.journal,
+                      authors:
+                        typeof p.authors === 'string'
+                          ? p.authors
+                          : Array.isArray(p.authors)
+                            ? p.authors.join(', ')
+                            : '',
+                      abstract: p.abstract,
+                      pmid: p.pmid,
+                      doi: p.doi,
+                      oa_url: p.oa_url,
+                      url: p.url,
+                      condition: p.condition,
+                      study_type: p.study_type,
+                      evidence_grade: p.evidence_grade,
+                      pub_types: p.study_type ? [p.study_type] : [],
+                    },
+                    'curated',
+                    { promote: false },
+                  ),
+                )
+                .join('') +
+              '</div>',
+          );
+        } else if (source === 'curated') {
+          chunks.push(
+            '<div class="ch-empty">No curated library records matched this query. Promote papers from indexed results first.</div>',
+          );
+        }
+      }
+
+      const htmlOut = chunks.join('');
+      const hasGrid = htmlOut.includes('lib-grid');
+      const hasErr = htmlOut.includes('border-left:3px solid var(--rose)');
+      if (!hasGrid && !hasErr) {
+        out.innerHTML = _reEmptyVerifiedEvidenceHtml();
+      } else {
+        out.innerHTML = htmlOut + (hasGrid ? pushAiToolbar() : '');
+      }
+
+      const rankedHost = document.getElementById('re-ev-ranked-results');
+      if (rankedHost) {
+        rankedHost.innerHTML =
+          '<div style="padding:10px;text-align:center;font-size:11px;color:var(--text-tertiary)">Loading optional research-bundle ranking…</div>';
+        api
+          .searchResearchPapers({ q: rawQ, limit: 14 })
+          .then((rp) => {
+            const arr = Array.isArray(rp) ? rp : [];
+            if (!arr.length) {
+              rankedHost.innerHTML =
+                '<div class="ch-empty" style="font-size:11px">No neuromodulation bundle ranked rows for this query (bundle may be offline).</div>';
+              return;
+            }
+            rankedHost.innerHTML =
+              '<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:10px;line-height:1.45"><strong>Ranked research view</strong> (neuromodulation CSV bundle) — optional orientation only; primary physician search remains SQLite FTS above.</div>' +
+              '<div class="lib-grid">' +
+              arr
+                .map((row) =>
+                  renderEvidenceResultCard(
+                    {
+                      title: row.title,
+                      year: row.year,
+                      journal: row.journal,
+                      authors: row.authors,
+                      doi: row.doi,
+                      pmid: row.pmid,
+                      modalities: row.canonical_modalities || (row.primary_modality ? [row.primary_modality] : []),
+                      conditions: row.indication_tags || [],
+                      study_design: row.study_type_normalized,
+                      evidence_grade: row.evidence_tier,
+                      abstract: row.research_summary,
+                      open_access_flag: row.open_access_flag,
+                      is_oa: row.open_access_flag,
+                      oa_url: row.record_url,
+                      url: row.record_url,
+                    },
+                    'research',
+                    { promote: false },
+                  ),
+                )
+                .join('') +
+              '</div>';
+          })
+          .catch(() => {
+            rankedHost.innerHTML =
+              '<div class="ch-empty" style="font-size:11px">Research ranked papers API unavailable.</div>';
+          });
+      }
+
+      try {
+        await window._reRefreshEvidenceSearchPanels?.(fts, rawQ, indexedPaperCount > 0);
+      } catch {}
     } catch (e) {
-      out.innerHTML = '<div class="ch-empty" style="color:var(--red);padding:24px 16px">Indexed search failed: ' + esc(e?.message || 'service unavailable') + '</div>';
-      ctx.innerHTML = renderContextPanel([], [], [], []);
+      out.innerHTML = _reEvidenceSearchErrorHtml('Evidence search', e);
     }
   };
-  window._reSummarizeIndexedEvidence = async () => {
-    const picks = Array.from(document.querySelectorAll('.re-ev-pick:checked')).map((n) => Number(n.value)).filter(Boolean);
-    const panel = document.getElementById('re-ev-ai-draft');
+  window._libExternalSearch = window._libUnifiedEvidenceSearch;
+  window._libAiDraft = async () => {
+    const picks = Array.from(document.querySelectorAll('.lib-ai-pick:checked')).map(n => Number(n.value)).filter(Boolean);
+    const panel = document.getElementById('lib-ai-draft-panel');
     if (!panel) return;
     if (!picks.length) { panel.innerHTML = '<div class="ch-empty">Select at least one paper with the AI draft checkbox.</div>'; return; }
     panel.innerHTML = spinner();
@@ -1477,63 +2369,144 @@ async function renderEvidenceSearch(body) {
           '</div>' +
         '</div>';
     } catch (e) {
-      panel.innerHTML = '<div class="ch-empty" style="color:var(--red)">AI draft failed: ' + esc(e?.message || 'chat service unavailable') + '</div>';
+      const code = e?.status;
+      let msg = e?.message || 'chat service unavailable';
+      if (code === 401 || code === 403) msg = 'Sign in as a clinician to generate AI-assisted drafts.';
+      if (code === 503) msg = 'Evidence DB or AI provider unavailable — draft cannot be generated.';
+      if (code === 404) msg = 'Selected papers were not found in the evidence index.';
+      panel.innerHTML =
+        '<div class="ch-empty" style="color:var(--red)">AI-assisted draft unavailable: ' + esc(msg) + '</div>' +
+        '<p style="font-size:11px;color:var(--text-tertiary);margin-top:8px">Drafts cite ingested abstracts only — they are not systematic reviews unless explicitly produced as such elsewhere.</p>';
     }
   };
 
   /* ── HTML ─────────────────────────────────────────────────────────────── */
+  const exampleQueries = [
+    'depression rTMS',
+    'ASD tDCS',
+    'ADHD neurofeedback',
+    'chronic pain TPS',
+    'Alzheimer TPS',
+    'anxiety tDCS',
+    'OCD rTMS',
+  ];
+  const exampleChipRow =
+    '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;align-items:center">' +
+    '<span style="font-size:11px;color:var(--text-tertiary)">Example queries:</span>' +
+    exampleQueries
+      .map(
+        (q) =>
+          '<button type="button" class="btn btn-ghost btn-xs" onclick="window._reRunEvSearchChip(' +
+          JSON.stringify(q) +
+          ')">' +
+          esc(q) +
+          '</button>',
+      )
+      .join('') +
+    '</div>';
+
   let html =
+    _resWorkspaceHeader(_liveEvidenceUiStats, { shortcuts: true }) +
+    libraryAuthNote +
+    corpusStatusBanner +
+    '<div id="re-live-evidence-host" style="margin-bottom:16px"></div>' +
+    '<div class="ch-card" style="margin-bottom:16px;padding:14px 16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between">' +
+      '<div style="font-size:12px;color:var(--text-secondary)"><strong>Research export summary</strong> — clinician-only; audits on server.</div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">' +
+        '<button type="button" id="re-export-summary-btn" class="btn btn-ghost btn-sm" onclick="window._resExportEvidenceSummary && window._resExportEvidenceSummary()">Request export summary</button>' +
+        '<span id="re-export-summary-status" style="font-size:11px;color:var(--text-tertiary);max-width:280px"></span>' +
+      '</div>' +
+    '</div>' +
     '<div class="ch-kpi-strip" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px;margin-bottom:16px">' +
-      kpi('var(--teal)',   overview?.curated_paper_count || fmtK(_totalEvPapers), 'Curated papers', 'Public PubMed/OpenAlex ingest — 87K indexed') +
-      kpi('var(--blue)',   overview?.curated_trial_count || fmt(_totalEvTrials), 'Curated trials') +
+      kpi('var(--teal)',   curatedRollupDisplay, 'Indexed / curated papers', 'Library overview when signed in; else corpus aggregate from /api/v1/evidence/status') +
+      kpi('var(--blue)',   overview?.curated_trial_count != null ? fmt(overview.curated_trial_count) : fmt(_totalEvTrials), 'Trials (rollup)') +
       kpi('var(--blue)',   fmt(_totalEvFda), 'FDA devices') +
       kpi('var(--rose)',   _liveEvidenceUiStats?.totalMetaAnalyses || EVIDENCE_SUMMARY?.totalMetaAnalyses || 0, 'Meta-analyses') +
       kpi('var(--violet)', curatedCount, 'Your library', 'Per-clinician promoted papers') +
       kpi('var(--amber)',  _liveEvidenceUiStats?.totalConditions || CONDITION_EVIDENCE.length, 'Conditions covered') +
-      kpi('var(--teal)',   evDbAvailable ? 'Online' : 'Offline', 'Evidence index') +
+      kpi('var(--teal)',   evDbAvailable ? 'Online' : 'Unavailable', 'Evidence index reachability') +
     '</div>' +
-    /* Live indexed search */
+    /* Unified evidence search */
     '<div class="ch-card" style="margin-bottom:16px">' +
-      '<div class="ch-card-hd"><span class="ch-card-title">Live Indexed Evidence Search</span>' +
-        '<span class="lib-badge" style="background:rgba(20,184,166,0.14);color:var(--teal);border:1px solid rgba(20,184,166,0.3)" title="Searches the indexed evidence DB used by the API">Indexed DB</span>' +
+      '<div class="ch-card-hd"><span class="ch-card-title">Evidence Search</span>' +
+        '<span class="lib-badge" style="background:rgba(59,130,246,0.12);color:var(--blue);border:1px solid rgba(59,130,246,0.25)">Corpus + brokered + curated</span>' +
       '</div>' +
-      '<div style="padding:14px 16px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">' +
-        '<div style="flex:2;min-width:240px"><label class="sr-only" for="re-ev-q">Query</label>' +
-          '<input id="re-ev-q" type="search" placeholder="e.g. rTMS dlpfc depression meta-analysis" class="ph-search-input" style="width:100%" value="' + esc(state.filters.q || '') + '">' +
-        '</div>' +
-        '<div style="flex:1;min-width:180px"><label class="sr-only" for="re-ev-cond">Condition scope</label>' +
-          '<select id="re-ev-cond" class="ph-search-input" style="width:100%">' + condOptions + '</select>' +
-        '</div>' +
-        '<div style="min-width:120px"><label class="sr-only" for="re-ev-grade">Evidence grade</label>' +
-          '<select id="re-ev-grade" class="ph-search-input" style="width:100%">' +
-            '<option value="">All grades</option>' +
-            '<option value="A">Grade A</option>' +
-            '<option value="B">Grade B</option>' +
-            '<option value="C">Grade C</option>' +
-            '<option value="D">Grade D</option>' +
-            '<option value="E">Grade E</option>' +
-          '</select>' +
-        '</div>' +
-        '<label class="ch-btn-sm" style="display:inline-flex;gap:6px;align-items:center;cursor:pointer"><input id="re-ev-oa" type="checkbox" style="margin:0"' + (state.filters.oa_only ? ' checked' : '') + '> Open access only</label>' +
-        '<button class="btn btn-primary btn-sm" onclick="window._reRunIndexedSearch()">Search</button>' +
+      '<div style="padding:14px 16px 10px;font-size:12px;color:var(--text-secondary);line-height:1.55;border-bottom:1px solid var(--border)">' +
+        '<strong>Evidence governance.</strong> This page can search the connected evidence corpus when the evidence DB is available. ' +
+        'Source badges show whether results are from the live indexed corpus, brokered literature search, or curated library — not bundled registry rollups as verified citations.' +
       '</div>' +
-      '<div style="padding:0 16px 16px;font-size:11px;color:var(--text-tertiary)">' +
-        'Results come from the indexed evidence DB behind the API. Each record can expose DOI, PubMed, Europe PMC, and open-access links when available.' +
-      '</div>' +
-      '<div style="padding:0 16px 16px;display:grid;grid-template-columns:minmax(0,1.6fr) minmax(320px,1fr);gap:16px;align-items:start">' +
-        '<div>' +
-          '<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">' +
-            '<button class="ch-btn-sm ch-btn-teal" onclick="window._reSummarizeIndexedEvidence()">✦ Summarise selected</button>' +
-            '<span style="font-size:11px;color:var(--text-tertiary)">Search shows title, authors, journal, links, abstract snippets, and promotes directly to the clinician library.</span>' +
-          '</div>' +
-          '<div id="re-ev-results"></div>' +
-          '<div id="re-ev-ai-draft" style="margin-top:16px"></div>' +
+      exampleChipRow +
+      '<div style="padding:8px 16px 12px;display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">' +
+        '<div style="min-width:200px;flex:1">' +
+          '<label style="font-size:11px;color:var(--text-tertiary);display:block;margin-bottom:4px" for="re-ev-search-source">Search source</label>' +
+          '<select id="re-ev-search-source" class="ph-search-input" style="width:100%">' +
+          '<option value="all">All available sources</option>' +
+          '<option value="indexed">Evidence DB / indexed corpus</option>' +
+          '<option value="brokered">Live brokered search (library router)</option>' +
+          '<option value="curated">Curated library only</option>' +
+          '</select></div>' +
+        '<div style="flex:2;min-width:240px"><label class="sr-only" for="lib-ext-q">Query</label>' +
+          '<label style="font-size:11px;color:var(--text-tertiary);display:block;margin-bottom:4px" for="lib-ext-q">Query</label>' +
+          '<input id="lib-ext-q" type="search" value="' + esc(defaultSearch) + '" placeholder="e.g. depression rTMS, ASD tDCS, ADHD neurofeedback" class="ph-search-input" style="width:100%">' +
         '</div>' +
-        '<div>' +
-          '<div id="re-ev-context"></div>' +
-          '<div id="re-ev-detail" style="margin-top:16px">' + renderDetailPanel(state.detail) + '</div>' +
+        '<div style="flex:1;min-width:180px"><label class="sr-only" for="lib-ext-cond">Condition scope</label>' +
+          '<label style="font-size:11px;color:var(--text-tertiary);display:block;margin-bottom:4px" for="lib-ext-cond">Condition filter (brokered)</label>' +
+          '<select id="lib-ext-cond" class="ph-search-input" style="width:100%">' + condOptions + '</select>' +
+        '</div>' +
+        '<button type="button" class="btn btn-primary btn-sm" onclick="window._libUnifiedEvidenceSearch()">Search</button>' +
+      '</div>' +
+      '<div style="padding:10px 16px 12px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;border-top:1px solid var(--border)">' +
+        '<div style="min-width:140px">' +
+          '<label style="font-size:11px;color:var(--text-tertiary);display:block;margin-bottom:4px" for="re-ev-filter-modality">Modality filter (indexed)</label>' +
+          '<select id="re-ev-filter-modality" class="ph-search-input" style="width:100%">' +
+          '<option value="">All</option>' +
+          '<option value="tms">rTMS / TMS</option>' +
+          '<option value="tdcs">tDCS</option>' +
+          '<option value="tfus">tFUS</option>' +
+          '<option value="tacs">tACS</option>' +
+          '<option value="tvns">taVNS</option>' +
+          '<option value="dbs">DBS</option>' +
+          '<option value="scs">SCS</option>' +
+          '</select></div>' +
+        '<div style="min-width:108px">' +
+          '<label style="font-size:11px;color:var(--text-tertiary);display:block;margin-bottom:4px" for="re-ev-filter-grade">Grade A–E</label>' +
+          '<select id="re-ev-filter-grade" class="ph-search-input" style="width:100%">' +
+          '<option value="">All</option>' +
+          '<option value="A">A</option><option value="B">B</option><option value="C">C</option>' +
+          '<option value="D">D</option><option value="E">E</option>' +
+          '</select></div>' +
+        '<div style="min-width:76px">' +
+          '<label style="font-size:11px;color:var(--text-tertiary);display:block;margin-bottom:4px" for="re-ev-year-min">Year from</label>' +
+          '<input id="re-ev-year-min" type="number" min="1900" max="2100" placeholder="min" class="ph-search-input" style="width:100%">' +
+        '</div>' +
+        '<div style="min-width:76px">' +
+          '<label style="font-size:11px;color:var(--text-tertiary);display:block;margin-bottom:4px" for="re-ev-year-max">Year to</label>' +
+          '<input id="re-ev-year-max" type="number" min="1900" max="2100" placeholder="max" class="ph-search-input" style="width:100%">' +
+        '</div>' +
+        '<label style="font-size:11px;color:var(--text-secondary);display:flex;gap:6px;align-items:center;margin-top:18px;cursor:pointer;white-space:nowrap">' +
+          '<input id="re-ev-oa-only" type="checkbox"> OA only</label>' +
+        '<label style="font-size:11px;color:var(--text-secondary);display:flex;gap:6px;align-items:center;margin-top:18px;cursor:pointer;white-space:nowrap">' +
+          '<input id="re-ev-has-abstract" type="checkbox"> Has abstract</label>' +
+        '<div style="flex:1;min-width:180px">' +
+          '<label style="font-size:11px;color:var(--text-tertiary);display:block;margin-bottom:4px" for="re-ev-condition-token">Condition token (indexed JSON)</label>' +
+          '<input id="re-ev-condition-token" type="text" class="ph-search-input" style="width:100%" placeholder="e.g. mdd, asd (optional)">' +
         '</div>' +
       '</div>' +
+      '<div id="re-ev-expanded-note" style="padding:0 16px"></div>' +
+      '<div style="padding:8px 16px 12px;font-size:11px;color:var(--text-tertiary);line-height:1.5">' +
+        '<strong>Indexed corpus:</strong> <code style="font-size:10px">GET /api/v1/evidence/papers</code> (clinician auth). ' +
+        '<strong>Brokered:</strong> <code style="font-size:10px">POST /api/v1/library/external-search</code> — server-side FTS over the ingest; never browser PubMed scraping. ' +
+        '<strong>Curated:</strong> your promoted library rows (filtered in-browser). Filters apply to the indexed SQLite path; links render only when returned by the API.' +
+      '</div>' +
+      '<div style="padding:0 16px 12px">' +
+        '<div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--text-secondary)">Evidence relationship summary</div>' +
+        '<div id="re-ev-evidence-relationship-panel" style="margin-bottom:14px;min-height:40px;font-size:12px;color:var(--text-tertiary)">Loading graph summary…</div>' +
+        '<div style="font-weight:600;font-size:13px;margin:8px 0;color:var(--text-secondary)">Related trials/devices signals</div>' +
+        '<div id="re-ev-trials-devices" style="margin-bottom:14px;min-height:40px;font-size:12px;color:var(--text-tertiary)">Trials/devices appear after you run a search query.</div>' +
+        '<details style="margin-top:8px"><summary style="font-size:12px;cursor:pointer;color:var(--text-secondary)">Optional ranked research view (neuromodulation bundle)</summary>' +
+        '<div id="re-ev-ranked-results" style="margin-top:10px;min-height:28px;font-size:12px;color:var(--text-tertiary)"></div></details>' +
+      '</div>' +
+      '<div id="re-ev-search-results" style="padding:0 16px 16px;min-height:48px"></div>' +
     '</div>' +
     /* Curated library */
     '<div class="ch-card">' +
@@ -1573,22 +2546,31 @@ async function renderEvidenceSearch(body) {
     });
   }
 
-  const contextHost = document.getElementById('re-ev-context');
-  if (contextHost) contextHost.innerHTML = renderContextPanel(state.lastGraph || [], state.lastTrials || [], state.lastDevices || [], state.lastRanked || []);
-  const detailHost = document.getElementById('re-ev-detail');
-  if (detailHost) detailHost.innerHTML = renderDetailPanel(state.detail);
-
-  if (window._reEvidencePrefill) {
-    const _pref = String(window._reEvidencePrefill || '').trim();
-    window._reEvidencePrefill = null;
-    const _input = document.getElementById('re-ev-q');
-    if (_input && _pref) {
-      _input.value = _pref;
-      try { _input.focus(); _input.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {}
-      try { window._reRunIndexedSearch?.(); } catch {}
+  const liveHost = document.getElementById('re-live-evidence-host');
+  if (liveHost) {
+    try {
+      await renderLiveEvidencePanel(liveHost, { compact: true });
+    } catch {
+      liveHost.innerHTML =
+        '<div class="ch-card" role="alert" style="padding:14px;font-size:13px;color:var(--text-secondary)">' +
+        '<strong>Live indexed search unavailable</strong> in this session (offline, guest, or evidence DB not ingested). ' +
+        'Use brokered search below when signed in, or deploy the evidence pipeline.</div>';
     }
-  } else if (state.filters.q || state.filters.indication) {
-    try { window._reRunIndexedSearch?.(); } catch {}
+  }
+
+  try {
+    await window._reRefreshEvidenceSearchPanels?.('', '', indexedPaperCount > 0);
+  } catch {}
+
+  if (defaultSearch) {
+    window._reSearch = window._reSearch || {};
+    window._reSearch.search = defaultSearch;
+    window._reEvidencePrefill = null;
+    const _input = document.getElementById('lib-ext-q');
+    if (_input) {
+      try { _input.focus(); _input.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {}
+    }
+    try { window._libUnifiedEvidenceSearch?.(); } catch {}
   }
 }
 
@@ -1828,6 +2810,7 @@ async function renderNeedsReview(body) {
         generatedStamp +
         '<span style="font-size:11px;color:var(--text-tertiary);margin-left:auto">Deduped by PMID across protocols · cap 200</span>' +
       '</div>' +
+      '<p style="font-size:11px;color:var(--text-tertiary);padding:0 16px 8px;margin:0;line-height:1.45">Local verdict log (when shown in-browser) is stored in this browser only via localStorage for UX continuity — it is not a substitute for server audit records.</p>' +
       (!_litQueue.length
         ? '<div class="ch-empty" style="padding:30px 16px">' + emptyLitMsg + '</div>'
         : '<div class="lib-grid">' + _litQueue.map(paperRow).join('') + '</div>') +
@@ -1853,3 +2836,5 @@ async function renderNeedsReview(body) {
     protosSection +
     papersSection;
 }
+
+export { renderEvidenceResultCard, _reExpandEvidenceSearchQuery, _reDedupeKey };

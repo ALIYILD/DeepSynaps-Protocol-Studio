@@ -1,10 +1,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// evidence-dataset.js — DeepSynaps 87K Research Paper Evidence Intelligence
-// 87,000 curated papers · 53 conditions · 13 modalities · multi-source ingest
+// evidence-dataset.js — Bundled registry orientation (offline / no API)
+// Per-condition rows below sum to a legacy bundled total for navigation charts only.
+// Live corpus counts MUST come from GET /api/v1/evidence/status (never hard-coded UX).
+// Local dev SQLite example (2026-04): ~184,669 papers — deploy/preview counts vary.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const EVIDENCE_DATASET_VERSION = '2026-04-24';
-export const EVIDENCE_TOTAL_PAPERS   = 87000;
+/** Bundled fallback headline when status endpoint unavailable — not a deployed guarantee. */
+export const EVIDENCE_TOTAL_PAPERS   = 184669;
 export const EVIDENCE_TOTAL_TRIALS   = 12840;
 export const EVIDENCE_TOTAL_META     = 3920;
 export const EVIDENCE_SOURCES        = ['PubMed','OpenAlex','Cochrane','ClinicalTrials.gov','EMBASE','Scopus','PsycINFO','IEEE Xplore','bioRxiv','medRxiv'];
@@ -13,7 +16,7 @@ export const EVIDENCE_SOURCES        = ['PubMed','OpenAlex','Cochrane','Clinical
 // Each entry: { conditionId, paperCount, rctCount, metaAnalysisCount,
 //               systematicReviewCount, caseSeriesCount, trialCount,
 //               topJournals[], recentHighImpact[] }
-// SUM of all paperCount === 87000
+// SUM of all paperCount === legacy bundled navigation total (differs from SQLite row count)
 export const CONDITION_EVIDENCE = [
 
 // ══ DEPRESSIVE DISORDERS ═══════════════════════════════════════════════════════

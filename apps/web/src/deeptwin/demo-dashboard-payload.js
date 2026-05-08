@@ -60,7 +60,7 @@ export function buildDemoDashboard360Payload(patientId) {
     card('video', 'missing', `No video analyses on file. When present, each task section carries evidence_context: registry-backed (${EVIDENCE_TOTAL_PAPERS.toLocaleString()} papers) condition anchors + rationale for why kinematics map to literature — not diagnostic proof.`, {
       warnings: ['Video movement/monitoring outputs are not clinically validated diagnostic scores.'],
       source_links: [
-        { label: 'Research evidence (87k)', href: '/research-evidence' },
+        { label: 'Research evidence (indexed corpus)', href: '/research-evidence' },
         { label: 'Patient analytics · video panel', href: '/patient-analytics' },
       ],
       upload_links: [{ label: 'Open video visits', href: '/virtualcare', kind: 'video' }],

@@ -3005,7 +3005,7 @@ function renderLearnEEGPanel(state) {
 
       <div style="font-weight:600;font-size:12px;margin:10px 0 6px">Evidence Search</div>
       <div style="display:flex;gap:4px;margin-bottom:8px">
-        <input id="qwb-evidence-search" type="text" placeholder="Search 87K papers..." style="flex:1;padding:4px 6px;font-size:11px;border:1px solid #d8d1c3;border-radius:3px;background:#FAF7F2">
+        <input id="qwb-evidence-search" type="text" placeholder="Search indexed corpus..." style="flex:1;padding:4px 6px;font-size:11px;border:1px solid #d8d1c3;border-radius:3px;background:#FAF7F2">
         <button id="qwb-evidence-search-btn" class="qwb-btn" style="font-size:10px;padding:3px 8px">Search</button>
       </div>
       <div id="qwb-evidence-results" style="max-height:120px;overflow-y:auto;font-size:10px"></div>

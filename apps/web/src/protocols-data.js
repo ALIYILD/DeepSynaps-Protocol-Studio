@@ -1729,7 +1729,7 @@ export const PROTOCOL_LIBRARY = [
 },
 
 // ══════════════════════════════════════════════════════════════════════════════
-// EXPANDED PROTOCOL COVERAGE — 87K EVIDENCE-BACKED ADDITIONS
+// EXPANDED PROTOCOL COVERAGE — INDEXED-EVIDENCE-BACKED ADDITIONS
 // Protocols added for conditions with insufficient coverage
 // ══════════════════════════════════════════════════════════════════════════════
 

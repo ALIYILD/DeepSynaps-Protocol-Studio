@@ -851,7 +851,7 @@ def deeptwin_evidence(
     ]
     if snapshot_id is None:
         notes.append(
-            "Neuromodulation research bundle not found. Set DEEPSYNAPS_NEUROMODULATION_RESEARCH_BUNDLE_ROOT to enable 87k-paper evidence search."
+            "Neuromodulation research bundle not found. Set DEEPSYNAPS_NEUROMODULATION_RESEARCH_BUNDLE_ROOT to enable indexed evidence search."
         )
         return DeeptwinEvidenceResponse(
             patient_id=payload.patient_id,

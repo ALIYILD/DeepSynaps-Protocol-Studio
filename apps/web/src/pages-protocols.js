@@ -6,7 +6,7 @@ import {
   CONDITIONS, DEVICES, PROTOCOL_TYPES, GOVERNANCE_LABELS, EVIDENCE_GRADES,
   PROTOCOL_LIBRARY, searchProtocols, getProtocolsByCondition, getCondition, getDevice,
 } from './protocols-data.js';
-import { EVIDENCE_SUMMARY, CONDITION_EVIDENCE, getConditionEvidence } from './evidence-dataset.js';
+import { EVIDENCE_SUMMARY, EVIDENCE_TOTAL_PAPERS, CONDITION_EVIDENCE, getConditionEvidence } from './evidence-dataset.js';
 import { renderLiveEvidencePanel } from './live-evidence.js';
 import { renderPersonalizationWizard, bindPersonalizationActions } from './protocol-personalization-wizard.js';
 import { api } from './api.js';
@@ -255,7 +255,7 @@ export async function pgProtocolSearch(setTopbar, navigate, opts = {}) {
       results = results.filter(p => !((p.references || []).length > 0 || (String(p.notes || '').length > 0)));
     }
 
-    const _evPapers = EVIDENCE_SUMMARY?.totalPapers || 87000;
+    const _evPapers = EVIDENCE_SUMMARY?.totalPapers || EVIDENCE_TOTAL_PAPERS;
     const _evTrials = EVIDENCE_SUMMARY?.totalTrials || 0;
 
     const summaryStrip = `
@@ -265,7 +265,7 @@ export async function pgProtocolSearch(setTopbar, navigate, opts = {}) {
         <div class="prot-chip prot-chip-green"><span class="prot-chip-val">${gradeACount}</span><span class="prot-chip-lbl">Grade A</span></div>
         <div class="prot-chip prot-chip-blue"><span class="prot-chip-val">${onLabelCount}</span><span class="prot-chip-lbl">On-Label</span></div>
         <div class="prot-chip prot-chip-purple"><span class="prot-chip-val">${aiCount}</span><span class="prot-chip-lbl">AI-Personalized</span></div>
-        <div class="prot-chip" title="87K curated research papers indexed"><span class="prot-chip-val">${(_evPapers / 1000).toFixed(0)}K</span><span class="prot-chip-lbl">Papers</span></div>
+        <div class="prot-chip" title="Bundled orientation paper total — verify live counts via GET /api/v1/evidence/status"><span class="prot-chip-val">${(_evPapers / 1000).toFixed(0)}K</span><span class="prot-chip-lbl">Papers</span></div>
         <div class="prot-chip" title="Clinical trials from evidence dataset"><span class="prot-chip-val">${_evTrials.toLocaleString()}</span><span class="prot-chip-lbl">Trials</span></div>
         ${backendCount ? `<div class="prot-chip" title="Live from /api/v1/registry/protocols"><span class="prot-chip-val">${backendCount}</span><span class="prot-chip-lbl">Registry</span></div>` : ''}
       </div>`;

@@ -1,7 +1,7 @@
 """Maps Video Analyzer task families to DeepSynaps evidence-registry context.
 
 These links connect kinematic outputs to literature-backed condition axes in the
-87k-paper intelligence surface (see apps/web/src/evidence-dataset.js). They do not
+bundled evidence registry surface (see apps/web/src/evidence-dataset.js). They do not
 claim clinical validation of this pipeline — only where to find related evidence.
 """
 
@@ -11,7 +11,8 @@ from dataclasses import dataclass
 
 # Mirrors EVIDENCE_DATASET_VERSION in evidence-dataset.js
 EVIDENCE_REGISTRY_VERSION = "2026-04-24"
-EVIDENCE_REGISTRY_TOTAL_PAPERS = 87000
+# Bundled orientation headline — align with web `EVIDENCE_TOTAL_PAPERS`; live counts from API status.
+EVIDENCE_REGISTRY_TOTAL_PAPERS = 184669
 
 
 @dataclass(frozen=True)
@@ -46,7 +47,7 @@ def registry_snapshot() -> dict[str, object]:
     return {
         "registry_total_papers": EVIDENCE_REGISTRY_TOTAL_PAPERS,
         "registry_version": EVIDENCE_REGISTRY_VERSION,
-        "registry_label": "DeepSynaps evidence intelligence (87k curated papers)",
+        "registry_label": "DeepSynaps evidence intelligence (indexed corpus — verify counts via API status)",
     }
 
 

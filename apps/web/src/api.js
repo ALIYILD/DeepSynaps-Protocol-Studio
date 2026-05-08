@@ -1791,13 +1791,38 @@ export const api = {
   // Hits services/evidence-pipeline via the api's evidence_router.
   // Router returns 503 with a clear message until the evidence DB is built.
   evidenceIndications: () => apiFetch('/api/v1/evidence/indications'),
-  searchEvidencePapers: ({ q = '', indication = '', grade = '', oa_only = false, limit = 20 } = {}) => {
+  searchEvidencePapers: ({
+    q = '',
+    indication = '',
+    grade = '',
+    oa_only = false,
+    modality = '',
+    condition = '',
+    study_design = '',
+    effect_direction = '',
+    year_min = '',
+    year_max = '',
+    source = '',
+    has_abstract = undefined,
+    include_abstract = true,
+    limit = 20,
+  } = {}) => {
     const params = new URLSearchParams();
-    if (q)          params.set('q', q);
-    if (indication) params.set('indication', indication);
-    if (grade)      params.set('grade', grade);
-    if (oa_only)    params.set('oa_only', 'true');
-    if (limit)      params.set('limit', String(limit));
+    if (q)               params.set('q', q);
+    if (indication)      params.set('indication', indication);
+    if (grade)           params.set('grade', grade);
+    if (oa_only)         params.set('oa_only', 'true');
+    if (modality)        params.set('modality', modality);
+    if (condition)       params.set('condition', condition);
+    if (study_design)    params.set('study_design', study_design);
+    if (effect_direction) params.set('effect_direction', effect_direction);
+    if (year_min !== '' && year_min != null) params.set('year_min', String(year_min));
+    if (year_max !== '' && year_max != null) params.set('year_max', String(year_max));
+    if (source)          params.set('source', source);
+    if (has_abstract === true)  params.set('has_abstract', 'true');
+    if (has_abstract === false) params.set('has_abstract', 'false');
+    if (include_abstract === false) params.set('include_abstract', 'false');
+    if (limit)           params.set('limit', String(limit));
     return apiFetch(`/api/v1/evidence/papers?${params.toString()}`);
   },
   evidencePaperDetail: (id) => apiFetch(`/api/v1/evidence/papers/${encodeURIComponent(id)}`),
