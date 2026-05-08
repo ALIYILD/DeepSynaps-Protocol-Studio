@@ -15,7 +15,7 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -252,6 +252,7 @@ class AnalysisListResponse(BaseModel):
 
 
 class AIReportOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     id: str
     analysis_id: str
     report_type: str

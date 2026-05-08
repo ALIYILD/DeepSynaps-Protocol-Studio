@@ -214,6 +214,7 @@ class NonlinearFeatures(BaseModel):
 
 
 class PDLikelihood(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     score: float = Field(ge=0.0, le=1.0)
     percentile: Optional[float] = None
     drivers: list[str] = Field(default_factory=list)
@@ -222,6 +223,7 @@ class PDLikelihood(BaseModel):
 
 
 class DysarthriaScore(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     severity: float = Field(ge=0.0, le=4.0)
     subtype_hint: Optional[
         Literal["spastic", "flaccid", "ataxic", "hyperkinetic", "hypokinetic", "mixed"]
@@ -312,6 +314,7 @@ class LinguisticFeatures(BaseModel):
 class CognitiveSpeechRiskScore(BaseModel):
     """Research/wellness cognitive-speech risk envelope — not a clinical diagnosis."""
 
+    model_config = ConfigDict(protected_namespaces=())
     score: float = Field(ge=0.0, le=1.0, description="Continuous risk indicator (0–1).")
     model_name: str
     model_version: str
@@ -324,6 +327,7 @@ class CognitiveSpeechRiskScore(BaseModel):
 
 
 class MCIRisk(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     score: float = Field(ge=0.0, le=1.0)
     percentile: Optional[float] = None
     drivers: list[str] = Field(default_factory=list)
@@ -355,6 +359,7 @@ class BreathStats(BaseModel):
 
 
 class RespRisk(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     score: float = Field(ge=0.0, le=1.0)
     drivers: list[str] = Field(default_factory=list)
     confidence: float
@@ -393,6 +398,7 @@ class RespiratoryFeatures(BaseModel):
 class RespiratoryRiskScore(BaseModel):
     """Research/wellness respiratory acoustic risk envelope — not a clinical diagnosis."""
 
+    model_config = ConfigDict(protected_namespaces=())
     score: float = Field(ge=0.0, le=1.0, description="Continuous risk indicator (0–1), e.g. COPD-style screening context.")
     model_name: str
     model_version: str
@@ -440,6 +446,7 @@ class Citation(BaseModel):
 
 
 class ReportBundle(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     session_id: UUID
     json_payload: dict[str, Any]
     html_path: Optional[str] = None
@@ -480,6 +487,7 @@ class VoiceQualityIndices(BaseModel):
 class PDVoiceRiskScore(BaseModel):
     """Parkinson's-voice screening-style score for session reports (research/wellness)."""
 
+    model_config = ConfigDict(protected_namespaces=())
     score: float = Field(ge=0.0, le=1.0, json_schema_extra={"unit": "1", "label": "PD voice risk"})
     model_name: str
     model_version: str
@@ -494,6 +502,7 @@ class PDVoiceRiskScore(BaseModel):
 class DysarthriaSeverityScore(BaseModel):
     """Dysarthria severity envelope for session reports."""
 
+    model_config = ConfigDict(protected_namespaces=())
     severity: float = Field(ge=0.0, le=4.0, json_schema_extra={"unit": "1", "label": "Dysarthria severity"})
     model_name: str
     model_version: str
