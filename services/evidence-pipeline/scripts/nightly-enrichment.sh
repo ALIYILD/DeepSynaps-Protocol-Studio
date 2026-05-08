@@ -68,17 +68,24 @@ cd "$PIPELINE_DIR"
 
 echo "[$(ts)] enrichment cycle start  db=$EVIDENCE_DB_PATH  batch=$ENRICH_BATCH  top=$ROUTE_TOP"
 
-# 1. enrich the next batch
-echo "[$(ts)] step 1/3 enrich_abstracts.py --limit $ENRICH_BATCH"
+# 1. enrich the next batch via EuropePMC.
+echo "[$(ts)] step 1/4 enrich_abstracts.py --limit $ENRICH_BATCH"
 python3 enrich_abstracts.py --limit "$ENRICH_BATCH"
 
-# 2. re-route paper_indications (clears existing rows for each slug + reroutes)
-echo "[$(ts)] step 2/3 route_indications.py --clear --top $ROUTE_TOP"
+# 2. retry rows EuropePMC couldn't find against PubMed E-utilities efetch.
+#    PubMed has broader MEDLINE coverage (older / non-PMC papers). Each
+#    paper that PubMed also misses gets marked 'pubmed:not_found' and is
+#    not retried again.
+echo "[$(ts)] step 2/4 enrich_abstracts.py --retry-not-found --limit $ENRICH_BATCH"
+python3 enrich_abstracts.py --retry-not-found --limit "$ENRICH_BATCH"
+
+# 3. re-route paper_indications (clears existing rows for each slug + reroutes)
+echo "[$(ts)] step 3/4 route_indications.py --clear --top $ROUTE_TOP"
 python3 route_indications.py --clear --top "$ROUTE_TOP"
 
-# 3. re-extract paper-derived protocols. Trial extraction is a no-op
+# 4. re-extract paper-derived protocols. Trial extraction is a no-op
 #    here — interventions_json doesn't change between runs.
-echo "[$(ts)] step 3/3 extract_protocols.py --source papers"
+echo "[$(ts)] step 4/4 extract_protocols.py --source papers"
 python3 extract_protocols.py --source papers
 
 # Health summary
