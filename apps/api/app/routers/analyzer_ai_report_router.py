@@ -54,6 +54,7 @@ router = APIRouter(prefix="/api/v1/analyzer-reports", tags=["analyzer-reports"])
 # ── Models ───────────────────────────────────────────────────────────────────
 
 
+# core-schema-exempt: AI report request body — only consumed by /api/v1/analyzers/ai-report POST handler
 class AIReportRequest(BaseModel):
     """Request body for the AI report endpoint."""
 
@@ -64,6 +65,7 @@ class AIReportRequest(BaseModel):
     )
 
 
+# core-schema-exempt: literature-ref projection used only inside AIReportOut envelope on this router
 class LiteratureRef(BaseModel):
     pmid: str = ""
     doi: str = ""
@@ -73,6 +75,7 @@ class LiteratureRef(BaseModel):
     journal: str = ""
 
 
+# core-schema-exempt: AI report key-finding leaf type; only nested inside DecisionSupportData
 class KeyFinding(BaseModel):
     title: str = ""
     observation: str = ""
@@ -80,6 +83,7 @@ class KeyFinding(BaseModel):
     confidence: float = 0.0
 
 
+# core-schema-exempt: structured AI-report payload shape; nested inside AIReportOut on this router only
 class DecisionSupportData(BaseModel):
     executive_summary: str = ""
     key_findings: list[KeyFinding] = Field(default_factory=list)
@@ -91,6 +95,7 @@ class DecisionSupportData(BaseModel):
     confidence_overall: str = "moderate"
 
 
+# core-schema-exempt: AI report response envelope; only emitted from /analyzers/ai-report endpoints on this router
 class AIReportOut(BaseModel):
     model_config = {"protected_namespaces": ()}
 
@@ -107,6 +112,7 @@ class AIReportOut(BaseModel):
     generated_at: str
 
 
+# core-schema-exempt: trivial analyzer-type list response; lives only on this router's /analyzers GET
 class AnalyzersOut(BaseModel):
     analyzer_types: list[str]
 
