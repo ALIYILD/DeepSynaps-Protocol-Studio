@@ -101,6 +101,7 @@ from app.routers.voice_engine_router import router as voice_engine_router
 from app.routers.protocols_saved_router import router as protocols_saved_router
 from app.routers.protocols_generate_router import router as protocols_generate_router
 from app.routers.protocol_studio_router import router as protocol_studio_router
+from app.routers.brainmap_router import router as brainmap_router
 from app.routers.leads_reception_router import router as leads_reception_router
 from app.routers.onboarding_router import router as onboarding_router
 from app.routers.symptom_journal_router import router as symptom_journal_router
@@ -496,6 +497,7 @@ app.include_router(voice_engine_router, prefix="/api/v1")
 app.include_router(protocols_saved_router)
 app.include_router(protocols_generate_router)
 app.include_router(protocol_studio_router)
+app.include_router(brainmap_router)
 app.include_router(leads_reception_router)
 app.include_router(onboarding_router)
 app.include_router(symptom_journal_router)
