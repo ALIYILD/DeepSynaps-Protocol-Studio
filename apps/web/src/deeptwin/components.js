@@ -820,3 +820,16 @@ export function renderClinicianNotesPanel({ notes = [] }) {
     </section>
   `;
 }
+
+/**
+ * Check if a simulation scenario has renderable output (trajectory data).
+ * Returns true if the scenario has trajectory JSON or is marked as complete/successful.
+ */
+export function simulationHasRenderableOutput(scenario) {
+  if (!scenario) return false;
+  // Scenario has renderable output if it has trajectory data or completed successfully
+  return !!(
+    scenario.trajectory_json
+    || (scenario.state && scenario.state.kind !== 'unavailable' && scenario.state.kind !== 'error')
+  );
+}
