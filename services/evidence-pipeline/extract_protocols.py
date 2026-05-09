@@ -398,14 +398,190 @@ def _extract_from_papers(conn, limit: int | None, dry: bool, min_confidence: str
     return n
 
 
-def _extract_from_devices(conn, limit: int | None, dry: bool) -> int:
-    # FDA PMA summaries aren't in this table directly (raw_json is the PMA
-    # metadata); real label text usually needs device/udi endpoint or PDFs.
-    # Skip for now — emit a count of zero and log. Follow-up: scrape
-    # https://www.accessdata.fda.gov/cdrh_docs/pdf*/*S*.pdf per PMA number.
-    if dry:
-        print("  (FDA label extraction not yet implemented — requires PDF pull from accessdata.fda.gov)")
-    return 0
+# ── FDA decision-summary PDF extraction ────────────────────────────────────
+#
+# The FDA hosts 510(k) summary statements + PMA decision summaries on a CDN
+# at accessdata.fda.gov. URLs follow `/cdrh_docs/pdfYY/<NUMBER>.pdf` where YY
+# is the 2-digit decision year (no year directory for pre-2002 records).
+# openFDA exposes a `summary_statement_url` field but it's sparsely
+# populated, so we ALSO try the year-derived guess as a fallback.
+#
+# Yield expectation is modest (10-30%): most 510(k) summaries are about
+# substantial equivalence to a predicate, not new parameters. PMAs are
+# richer but rarer in our corpus. Honest-empty-state friendly.
+
+import shutil as _shutil
+import subprocess as _subprocess
+import time as _time
+import urllib.error as _urlerr
+import urllib.request as _urlreq
+
+_FDA_CDN_BASE = "https://www.accessdata.fda.gov/cdrh_docs"
+_FDA_OPENFDA_510K = "https://api.fda.gov/device/510k.json?search=k_number:"
+_FDA_OPENFDA_PMA = "https://api.fda.gov/device/pma.json?search=pma_number:"
+_FDA_USER_AGENT = (
+    "DeepSynaps-Studio-evidence-pipeline/1.0 (mailto:dr.aliyildirim123@gmail.com)"
+)
+_FDA_INTER_REQ_SLEEP = 1.5  # polite — accessdata CDN is sluggish
+_FDA_REQUEST_TIMEOUT = 30
+
+
+def _fda_cache_dir() -> Path:
+    p = Path(__file__).parent / ".fda_summaries"
+    p.mkdir(exist_ok=True)
+    return p
+
+
+def _decision_year_dir(decision_date: str | None) -> str | None:
+    """Return the FDA CDN year directory ('pdf22' for 2022) or None."""
+    if not decision_date or len(decision_date) < 4:
+        return None
+    try:
+        yyyy = int(decision_date[:4])
+    except ValueError:
+        return None
+    if yyyy < 2002:
+        return "pdf"  # pre-2002 records live in /cdrh_docs/pdf/ with no year suffix
+    return f"pdf{yyyy % 100}"
+
+
+def _candidate_pdf_urls(number: str, kind: str, decision_date: str | None) -> list[str]:
+    urls: list[str] = []
+    year_dir = _decision_year_dir(decision_date)
+    if year_dir:
+        urls.append(f"{_FDA_CDN_BASE}/{year_dir}/{number}.pdf")
+    # Fallback to no-year directory.
+    if year_dir != "pdf":
+        urls.append(f"{_FDA_CDN_BASE}/pdf/{number}.pdf")
+    return urls
+
+
+def _http_get(url: str) -> bytes | None:
+    """GET url with the polite User-Agent. Returns body bytes or None on HTTP error."""
+    req = _urlreq.Request(url, headers={"User-Agent": _FDA_USER_AGENT})
+    try:
+        with _urlreq.urlopen(req, timeout=_FDA_REQUEST_TIMEOUT) as resp:
+            return resp.read()
+    except (_urlerr.HTTPError, _urlerr.URLError):
+        return None
+
+
+def _pdf_to_text(pdf_bytes: bytes) -> str | None:
+    """Use pdftotext (poppler) to extract text. Returns None if pdftotext missing or extraction fails."""
+    if not _shutil.which("pdftotext"):
+        return None
+    try:
+        proc = _subprocess.run(
+            ["pdftotext", "-layout", "-", "-"],
+            input=pdf_bytes,
+            capture_output=True,
+            timeout=30,
+        )
+    except _subprocess.TimeoutExpired:
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.decode("utf-8", errors="replace")
+
+
+def _extract_from_devices(conn, limit: int | None, dry: bool, fda_limit: int = 50) -> int:
+    """Pull FDA decision-summary PDFs for accepted devices and parse stim params.
+
+    `fda_limit` caps fresh network fetches per run so a 2h cron tick stays
+    bounded; cached PDFs (under .fda_summaries/) are still parsed beyond
+    that. The cache makes re-runs essentially free.
+    """
+    if not _shutil.which("pdftotext"):
+        print(
+            "  pdftotext not found on PATH (install: `brew install poppler`). "
+            "Skipping FDA PDF extraction."
+        )
+        return 0
+
+    # Honor curation_status only if the column exists; older DBs don't have it.
+    have_curation = "curation_status" in {
+        row[1] for row in conn.execute("PRAGMA table_info(devices)")
+    }
+    where = "WHERE curation_status='accept'" if have_curation else ""
+    sql = f"""
+        SELECT id, kind, number, applicant, trade_name, product_code, decision_date
+        FROM devices
+        {where}
+        ORDER BY decision_date DESC
+        {f'LIMIT {limit}' if limit else ''}
+    """
+    rows = conn.execute(sql).fetchall()
+
+    cache = _fda_cache_dir()
+    fetches = 0
+    parsed = 0
+    no_pdf = 0
+    no_params = 0
+
+    for r in rows:
+        number = r["number"]
+        kind = (r["kind"] or "").lower() or "510k"
+        decision_date = r["decision_date"]
+        cache_path = cache / f"{number}.pdf"
+
+        # 1. Try cache first.
+        pdf_bytes: bytes | None = None
+        if cache_path.exists() and cache_path.stat().st_size > 0:
+            pdf_bytes = cache_path.read_bytes()
+        elif fetches < fda_limit:
+            for url in _candidate_pdf_urls(number, kind, decision_date):
+                if dry:
+                    print(f"  fda dry: would GET {url}")
+                    break
+                body = _http_get(url)
+                fetches += 1
+                if body and body[:4] == b"%PDF":
+                    cache_path.write_bytes(body)
+                    pdf_bytes = body
+                    break
+                _time.sleep(_FDA_INTER_REQ_SLEEP)
+            if pdf_bytes is None:
+                no_pdf += 1
+                continue
+        else:
+            # Cap reached, no cache — skip.
+            continue
+
+        if dry:
+            continue
+
+        text = _pdf_to_text(pdf_bytes)
+        if not text or len(text) < 200:
+            no_pdf += 1
+            continue
+
+        # Use the device's product_code / trade_name to seed modality where the
+        # text doesn't say 'rTMS' explicitly (FDA PDFs often use full names).
+        seed_text = f"{r['trade_name'] or ''} {r['product_code'] or ''} {text[:5000]}"
+        modality = _infer_modality(seed_text)
+
+        rec = _parse_block(text[:20000], modality)  # cap to keep regex fast
+        if not rec:
+            no_params += 1
+            continue
+
+        # Try to link to an indication via device_indications.
+        indication_id_row = conn.execute(
+            "SELECT indication_id FROM device_indications WHERE device_id = ? LIMIT 1",
+            (r["id"],),
+        ).fetchone()
+        rec["indication_id"] = indication_id_row[0] if indication_id_row else None
+        rec["source_type"] = f"fda_{kind}"
+        rec["source_id"] = number
+        rec["arm_label"] = "label_text"
+        _upsert(conn, rec)
+        parsed += 1
+
+    print(
+        f"  fda devices: rows={len(rows)} fetches={fetches} "
+        f"parsed={parsed} no_pdf={no_pdf} no_params={no_params}"
+    )
+    return parsed
 
 
 def _upsert(conn, rec: dict) -> None:
@@ -428,8 +604,11 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry", action="store_true", help="Parse + print, don't write.")
     ap.add_argument("--limit", type=int, default=None)
-    ap.add_argument("--source", choices=["trials", "papers", "all"], default="all",
+    ap.add_argument("--source", choices=["trials", "papers", "devices", "all"], default="all",
                     help="Which corpus to extract from (default: all).")
+    ap.add_argument("--fda-limit", type=int, default=50,
+                    help="Cap on fresh accessdata.fda.gov fetches per run "
+                         "(cached PDFs in .fda_summaries/ still parse). Default 50.")
     ap.add_argument("--min-confidence", choices=["low", "medium", "high"], default="medium",
                     help="Minimum confidence for paper-derived rows (default: medium). "
                          "Trials are unaffected — they use the raw _parse_block confidence.")
@@ -452,8 +631,8 @@ def main() -> None:
         n_trials = _extract_from_trials(conn, args.limit, args.dry, args.all_trials)
     if args.source in ("papers", "all"):
         n_papers = _extract_from_papers(conn, args.limit, args.dry, args.min_confidence)
-    if args.source == "all":
-        n_fda = _extract_from_devices(conn, args.limit, args.dry)
+    if args.source in ("devices", "all"):
+        n_fda = _extract_from_devices(conn, args.limit, args.dry, args.fda_limit)
     print(
         f"extracted {n_trials} trial · {n_papers} paper · {n_fda} FDA "
         f"protocols ({'dry' if args.dry else 'written'})"
