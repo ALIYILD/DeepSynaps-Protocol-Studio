@@ -2477,6 +2477,14 @@ export const api = {
     return apiFetch(`/api/v1/clinic/day-queue${q}`);
   },
 
+  // ── Clinic day-queue ────────────────────────────────────────────────────────
+  // Replaces ds_today_queue localStorage. Backend derives queue from
+  // ClinicalSession rows scheduled for the date. Reference: audit 2026-05-08 #4.
+  getClinicDayQueue: (dateISO = null) => {
+    const q = dateISO ? `?date=${encodeURIComponent(dateISO)}` : '';
+    return apiFetch(`/api/v1/clinic/day-queue${q}`);
+  },
+
   // ── Phenotype assignments ─────────────────────────────────────────────────
   assignPhenotype: (data) =>
     apiFetch('/api/v1/phenotype-assignments', { method: 'POST', body: JSON.stringify(data) }),
