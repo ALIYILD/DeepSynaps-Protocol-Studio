@@ -213,6 +213,7 @@ from app.routers.dashboard_router import router as dashboard_router
 from app.routers.schedules_router import router as schedules_router
 from app.routers.device_sync_router import router as device_sync_router
 from app.routers.bio_router import router as bio_router
+from app.routers.founder_dash_router import router as founder_dash_router
 try:
     from app.routers.qa_router import router as qa_router
     _HAS_QA_ROUTER = True
@@ -669,6 +670,7 @@ app.include_router(citation_validator_router)
 app.include_router(ai_health_router)
 app.include_router(agent_brain_router)
 app.include_router(command_center_router)
+app.include_router(founder_dash_router)
 app.include_router(schedules_router)
 app.include_router(dashboard_router)
 app.include_router(device_sync_router)
