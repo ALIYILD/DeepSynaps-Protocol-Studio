@@ -9,7 +9,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
 import { api } from './api.js';
-import { mountAgentBrainStatus } from './agent-brain-status.js';
+import { mountAgentBrainStatus, ensureAgentBrainStatus } from './agent-brain-status.js';
 
 describe('Agent Brain API client', () => {
   it('exposes the four client methods', () => {
@@ -129,6 +129,47 @@ describe('mountAgentBrainStatus banner', () => {
     const result = await mountAgentBrainStatus('#agent-brain-status');
     assert.ok(result?.host?.innerHTML?.includes('Status unavailable'));
     assert.ok(result?.host?.innerHTML?.includes('Decision-support only'));
+  });
+
+  it('ensureAgentBrainStatus creates the host if missing and mounts', async () => {
+    globalThis.fetch = () =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            service: 'clinical_agent_brain',
+            providers_total: 13,
+            providers_configured: 6,
+            providers_mvp: [],
+            safety_mode: 'strict_clinical',
+            providers: [],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    const insertedNodes = [];
+    const created = { id: '', innerHTML: '' };
+    const parent = {
+      querySelector: () => null,
+      insertBefore: (node) => {
+        insertedNodes.push(node);
+      },
+      firstChild: null,
+    };
+    const savedDoc = globalThis.document;
+    globalThis.document = {
+      ...savedDoc,
+      createElement: (tag) =>
+        tag === 'style' ? { id: '', textContent: '' } : created,
+      querySelector: () => null,
+    };
+    try {
+      const result = await ensureAgentBrainStatus(parent);
+      assert.ok(result?.host, 'ensureAgentBrainStatus returned a host');
+      assert.strictEqual(insertedNodes[0]?.id, 'agent-brain-status');
+      assert.ok(result.host.innerHTML.includes('Decision-support only'));
+    } finally {
+      globalThis.document = savedDoc;
+    }
   });
 
   it('renders a banner with provider counts when status returns ok', async () => {

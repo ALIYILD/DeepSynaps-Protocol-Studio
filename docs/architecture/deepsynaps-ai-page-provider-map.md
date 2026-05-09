@@ -60,6 +60,22 @@ if (resp.status === 'not_configured' || resp.status === 'unavailable') {
 }
 ```
 
+## Mount adoption status (PR #680)
+
+| Page file | Banner mounted |
+| --- | --- |
+| `pages-deeptwin.js` | ✓ |
+| `pages-qeeg-analysis.js` | ✓ |
+| `pages-mri-analysis.js` | ✓ (incl. feature-flag-disabled path) |
+| `pages-protocols.js` (Protocol Studio) | ✓ |
+| `pages-video-assessments.js` | ✓ |
+| `pages-voice-analyzer.js` | ✓ (incl. role-restricted card) |
+| `pages-text-analyzer.js` | ✓ (incl. role-restricted card) |
+| `pages-biomarkers.js` | ✓ |
+| `pages-patient-analytics.js` | ✓ (cohort + per-patient detail) |
+| `pages-handbooks.js` (Report Generator) | ✓ (incl. patient-restricted card) |
+| `pages-research-evidence.js` (Evidence Research) | deferred — concurrent-session WIP stash held the file at PR-time; mount lands in a follow-up PR after the stash is reconciled |
+
 ## Status snapshot (this PR)
 
 After this PR lands, calling `GET /api/v1/agent-brain/status` returns:
