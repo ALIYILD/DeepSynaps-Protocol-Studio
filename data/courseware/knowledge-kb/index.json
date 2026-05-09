@@ -1,0 +1,20 @@
+{
+  "generated_at": "2026-04-30T06:09:59.618768+00:00",
+  "resources": [
+    {
+      "resource_slug": "qeeg-certificate-course",
+      "resource_name": "qEEG Certificate Course Bundle",
+      "path": "data/courseware/knowledge-kb/qeeg-certificate-course.json"
+    },
+    {
+      "resource_slug": "qeeg-germany-session-library",
+      "resource_name": "qEEG Germany Session Library",
+      "path": "data/courseware/knowledge-kb/qeeg-germany-session-library.json"
+    },
+    {
+      "resource_slug": "qeeg-course-research-library",
+      "resource_name": "qEEG Course Research Library",
+      "path": "data/courseware/knowledge-kb/qeeg-course-research-library.json"
+    }
+  ]
+}

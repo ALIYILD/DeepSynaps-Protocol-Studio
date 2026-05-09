@@ -1,0 +1,336 @@
+{
+  "schema_version": "1.0.0",
+  "resource_slug": "qeeg-certificate-course",
+  "resource_name": "qEEG Certificate Course Bundle",
+  "generated_at": "2026-04-30T06:09:41.751306+00:00",
+  "source_bundle_date": "2026-04-30",
+  "course_provider": "USA qEEG Course Import",
+  "program_name": "USA COURSES / QEEG COURSE",
+  "material_count": 10,
+  "source_assets": [
+    {
+      "asset_id": "asset-bf2d98e18756",
+      "label": "eeg-frequencies-waveforms",
+      "kind": "course_pdf",
+      "relative_path": "eeg-frequencies-waveforms.pdf",
+      "hydrated": true,
+      "pages": 33,
+      "bytes": 1663190,
+      "note": "Readable local file. Source file: EEGFrequenciesandTypicalWaveformspptx1-221205-175643 - Copy.pdf"
+    },
+    {
+      "asset_id": "asset-84c628c237f2",
+      "label": "psychopharmacology-part-1",
+      "kind": "course_pdf",
+      "relative_path": "psychopharmacology-part-1.pdf",
+      "hydrated": true,
+      "pages": 34,
+      "bytes": 1629359,
+      "note": "Readable local file. Source file: PsychopharmacologicalPart1pptx1-221219-123334.pdf"
+    },
+    {
+      "asset_id": "asset-6f93054c2740",
+      "label": "psychopharmacology-part-2",
+      "kind": "course_pdf",
+      "relative_path": "psychopharmacology-part-2.pdf",
+      "hydrated": true,
+      "pages": 29,
+      "bytes": 2780370,
+      "note": "Readable local file. Source file: PsychopharmacologicalPart2pptx1-221219-123600.pdf"
+    },
+    {
+      "asset_id": "asset-c789bfb8b951",
+      "label": "artifact-reduction",
+      "kind": "course_pdf",
+      "relative_path": "artifact-reduction.pdf",
+      "hydrated": true,
+      "pages": 52,
+      "bytes": 5409960,
+      "note": "Readable local file. Source file: IdentifyingandReducingArtifactspptx2-230218-132213.pdf"
+    },
+    {
+      "asset_id": "asset-275fa88556b3",
+      "label": "topographic-maps",
+      "kind": "course_pdf",
+      "relative_path": "topographic-maps.pdf",
+      "hydrated": true,
+      "pages": 40,
+      "bytes": 732932,
+      "note": "Readable local file. Source file: InterpretingqEEGTopographicMapsHeadMapspptx21-230220-091407.pdf"
+    },
+    {
+      "asset_id": "asset-e766c98c07d3",
+      "label": "qeeg-report-writing",
+      "kind": "course_pdf",
+      "relative_path": "qeeg-report-writing.pdf",
+      "hydrated": true,
+      "pages": 27,
+      "bytes": 1909449,
+      "note": "Readable local file. Source file: QEEGAnalysisHowtoWriteaReportpptx3-230218-131958.pdf"
+    },
+    {
+      "asset_id": "asset-042bcfdf747a",
+      "label": "ethics-part-1",
+      "kind": "course_pdf",
+      "relative_path": "ethics-part-1.pdf",
+      "hydrated": true,
+      "pages": 35,
+      "bytes": 4445915,
+      "note": "Readable local file. Source file: QEEGEthicsandProfessionalConductPart1pptx2-221219-124605.pdf"
+    },
+    {
+      "asset_id": "asset-a8bebd4ea4ba",
+      "label": "ethics-part-2",
+      "kind": "course_pdf",
+      "relative_path": "ethics-part-2.pdf",
+      "hydrated": true,
+      "pages": 41,
+      "bytes": 5019577,
+      "note": "Readable local file. Source file: QEEGEthicsandProfessionalConductPart2pptx21-221219-124711.pdf"
+    },
+    {
+      "asset_id": "asset-7d43f526f464",
+      "label": "efficacy-criteria",
+      "kind": "course_pdf",
+      "relative_path": "efficacy-criteria.pdf",
+      "hydrated": true,
+      "pages": 10,
+      "bytes": 1297256,
+      "note": "Readable local file. Source file: EfficacyCriteriaforqEEGpptx1-221219-124229.pdf"
+    },
+    {
+      "asset_id": "asset-48065f28ed1d",
+      "label": "abnormal-eeg-patterns",
+      "kind": "course_pdf",
+      "relative_path": "abnormal-eeg-patterns.pdf",
+      "hydrated": true,
+      "pages": 25,
+      "bytes": 4317611,
+      "note": "Readable local file. Source file: AbnormalEEGPatternspptx1-221205-181144 - Copy.pdf"
+    }
+  ],
+  "teaching_modules": [
+    {
+      "module_id": "eeg-frequencies-waveforms",
+      "title": "EEG frequencies and typical waveforms",
+      "status": "extracted",
+      "pages": 33,
+      "learning_goals": [
+        "Identify canonical EEG bands and relate waveform shape to frequency class.",
+        "Use waveform morphology as the base layer for downstream qEEG interpretation.",
+        "Anchor delta, theta, alpha, beta, and mu terminology to actual trace appearance."
+      ],
+      "topic_outline": [
+        "EEG FREQUENCIES &TYPICAL WAVEFORMS",
+        "Created by:",
+        "Heather Ingram, Psy D, BCB, BCN",
+        "Manuel D. Halter, Ph.D., J.D., M.A.,",
+        "BCN, QEEGD",
+        "Image courtesy of: https://image.freepik.com/free-vector/abstract-connection-wave-line-technology-background_7505-450.jpg",
+        "FREQUENCIES",
+        "Raw EEG",
+        "◦Raw EEG data is unfiltered brain wave",
+        "signals",
+        "◦The raw EEG data collected from electrodes",
+        "is compressed over long periods of time to",
+        "obtain a tracing called an amplitude-integrated",
+        "EEG (Zhang & Ding, 2013, p. 885)"
+      ],
+      "clinical_use": {
+        "analyzer": "Use for band-level interpretation guardrails before describing spectral findings in clinical language.",
+        "raw_workbench": "Use when counting oscillations manually, distinguishing band classes, and aligning raw waveform shape with qEEG outputs."
+      }
+    },
+    {
+      "module_id": "psychopharmacology-part-1",
+      "title": "Psychopharmacology part 1: clinical presentation confounds",
+      "status": "extracted",
+      "pages": 34,
+      "learning_goals": [
+        "Account for prescribed and non-prescribed substances before interpreting EEG-driven clinical presentation.",
+        "Identify caffeine and nicotine as practical qEEG confounds that alter arousal and training readiness."
+      ],
+      "topic_outline": [
+        "PSYCHOPHARMACOLOGICAL PART 1",
+        "Created by:",
+        "Heather Ingram, Psy D, BCB, BCN",
+        "Image courtesy of: PowerPoint",
+        "Image courtesy of: https://img-aws.ehowcdn.com/877x500/photos.demandstudios.com/getty/article/121/201/dv316002.jpg",
+        "POTENTIAL EFFECTS OF PRESCRIBED AND NON-PRESCRIBED DRUGS ON CLINICAL PRESENTATION",
+        "Effects of Drugs on",
+        "Clinical Presentations",
+        "(Thompson & Thompson, 2015, p. 344)",
+        "The effects from drugs/alcohol can",
+        "influence the technicians’",
+        "interpretation of the interview and",
+        "treatment plan.",
+        "To ensure an unaltered EEG"
+      ],
+      "clinical_use": {
+        "analyzer": "Use before interpreting arousal or symptom-linked qEEG findings when caffeine, nicotine, or medication exposure may be present.",
+        "raw_workbench": "Use as a prescan checklist so activated or dysregulated raw EEG is not misread without substance context."
+      }
+    },
+    {
+      "module_id": "psychopharmacology-part-2",
+      "title": "Psychopharmacology part 2: EEG measure confounds",
+      "status": "extracted",
+      "pages": 29,
+      "learning_goals": [
+        "Map stimulants and illicit substances to likely alpha, theta, and beta changes on EEG.",
+        "Treat drug-related band shifts as confounds before assigning pathology labels."
+      ],
+      "topic_outline": [
+        "PSYCHOPHARMACOLOGICALPART 2",
+        "Created by:",
+        "Heather Ingram, Psy D, BCB, BCN",
+        "Image courtesy of: PowerPoint",
+        "Image courtesy of:",
+        "https://www.universiteitleiden.nl/binaries/content/gallery/student-recruitment-sites/fwn/mst/mst---shutterstock_227631739.jpg",
+        "POTENTIAL EFFECTS OF PRESCRIBED AND NON-PRESCRIBED DRUGS ON EEG MEASURES",
+        "Continued…",
+        "Impact on EEG Measurements:",
+        "Amphetamines",
+        "(Thompson & Thompson, 2015, pp. 346)",
+        "◦Amphetamines decrease alpha & theta activity and increase",
+        "beta in the 12-26Hz range",
+        "◦People with high beta type ADHD often suffer from"
+      ],
+      "clinical_use": {
+        "analyzer": "Use when a profile shows beta excess, alpha suppression, or reduced theta that may be medication-driven.",
+        "raw_workbench": "Use when generalized fast activity or altered posterior alpha may reflect stimulant exposure rather than intrinsic dysfunction."
+      }
+    },
+    {
+      "module_id": "artifact-reduction",
+      "title": "Identifying and reducing artifacts",
+      "status": "extracted",
+      "pages": 52,
+      "learning_goals": [
+        "Recognize common recording artifacts before editing or reporting qEEG abnormalities.",
+        "Reduce false positives during manual raw review."
+      ],
+      "topic_outline": [
+        "IDENTIFYING AND REDUCING ARTIFACTSPresented by:",
+        "Manuel D. Halter, PhD, JD, MA,",
+        "BCB, BCN, QEEGD",
+        "&",
+        "Santiago Brand, BCB, BSP , BCN",
+        "Created by:",
+        "Heather Ingram, PsyD, BCB, BCN",
+        "Image courtesy of: https://image.freepik.com/free-vector/abstract-connection-wave-line-technology-background_7505-450.jpg",
+        "Image Courtesy of: https://fineartamerica.com/featured/wavelength-diane-parnell.html",
+        "What are Artifacts?",
+        "◦Artifacts in EEG are any non-brain related electrical activity",
+        "or interfering electrical potentials that can be mistaken for",
+        "the actual EEG activity (Schwartz & Andrasik, 2003, p. 93",
+        "& 96)."
+      ],
+      "clinical_use": {
+        "analyzer": "Use as a guardrail before treating outlier power or asymmetry as brain-based.",
+        "raw_workbench": "Use directly during channel-by-channel artifact review and segment rejection."
+      }
+    },
+    {
+      "module_id": "topographic-maps-and-reporting",
+      "title": "Topographic maps and qEEG report writing",
+      "status": "extracted",
+      "pages": 67,
+      "learning_goals": [
+        "Interpret qEEG head maps without separating them from raw EEG and clinical context.",
+        "Translate findings into report language appropriate for clinicians and treatment planning."
+      ],
+      "topic_outline": [
+        "INTERPRETINGQEEGTOPOGRAPHIC MAPS(HEAD MAPS)",
+        "Presented by:",
+        "Manuel D. Halter, PhD, JD, MA,",
+        "BCB, BCN, QEEGD",
+        "&",
+        "Santiago Brand, BCB, BSP , BCN",
+        "Created by:",
+        "Heather Ingram, Psy D, BCB, BCN",
+        "Image courtesy of:",
+        "https://www.google.com/url?sa=i&url=https%3A%2F%2Fwww.iphotography.com%2Fblog%2Fwhat-is-abstract-photography%2F&psig=AOv",
+        "Vaw0DbpTVaF3g-AzNfBAXI9Pf&ust=1632597510422000&source=images&cd=vfe&ved=0CAkQjRxqFwoTCMDQz8qpmPMCFQAAAAAd",
+        "AAAAABAD",
+        "HOW TO READ A TOPOGRAPHIC MAP (HEAD MAP)",
+        "Reading"
+      ],
+      "clinical_use": {
+        "analyzer": "Use when summarizing map-based deviations into clinician-facing interpretations.",
+        "raw_workbench": "Use after raw validation so report statements stay grounded in reviewed signal quality."
+      }
+    },
+    {
+      "module_id": "ethics-and-efficacy",
+      "title": "Ethics, professional conduct, and efficacy criteria",
+      "status": "extracted",
+      "pages": 86,
+      "learning_goals": [
+        "Apply ethical and professional limits to qEEG communication and treatment claims.",
+        "Separate evidence-supported use cases from overreach."
+      ],
+      "topic_outline": [
+        "QEEG Ethics and Professional Conduct Part 1",
+        "Image courtesy",
+        "of: https://www.hannahprewitt.com/blog/how-to-take-abstract-ocean-photographs",
+        "Created By:",
+        "Heather Ingram, Psy D, BCB,",
+        "BCN",
+        "Preamble",
+        "(International QEEG Certification Board, 2021)",
+        "◦“IQCB is committed to the",
+        "highest professional standards of",
+        "practice and the protection of",
+        "human rights. We encourage",
+        "certificants to strive to maintain",
+        "the dignity and worth of the"
+      ],
+      "clinical_use": {
+        "analyzer": "Use when framing uncertainty, limitations, and strength of inference in AI-facing qEEG narratives.",
+        "raw_workbench": "Use as a reporting boundary so technical observations are not overstated clinically."
+      }
+    },
+    {
+      "module_id": "abnormal-patterns",
+      "title": "Abnormal EEG patterns",
+      "status": "extracted",
+      "pages": 25,
+      "learning_goals": [
+        "Recognize non-benign EEG patterns that require escalation beyond routine qEEG coaching.",
+        "Distinguish signal quality issues from clinically meaningful abnormal morphology."
+      ],
+      "topic_outline": [
+        "ABNORMAL EEG PATTERNS",
+        "Created by:",
+        "Heather Ingram, Psy D, BCB, BCN",
+        "Manuel D. Halter, Ph.D., J.D., M.A.,",
+        "BCN, QEEGD",
+        "Image courtesy of: https://image.freepik.com/free-vector/abstract-connection-wave-line-technology-background_7505-450.jpg",
+        "Image Courtesy of: https://wallpapersafari.com/w/Jg2Ev3",
+        "Common",
+        "EEG",
+        "Acronyms",
+        "◦Rhythmic & Periodic Patterns of Epileptiform",
+        "Activity",
+        "◦LPDs: lateralized periodic discharges",
+        "◦ PLEDs: periodic lateralized"
+      ],
+      "clinical_use": {
+        "analyzer": "Use as a caution layer before benignly summarizing patterns that may warrant formal EEG review.",
+        "raw_workbench": "Use during manual review when spikes, slowing, or unusual morphology need escalation."
+      }
+    }
+  ],
+  "course_signals": {
+    "psychopharmacology_detected": true,
+    "artifact_training_detected": true,
+    "reporting_training_detected": true,
+    "ethics_training_detected": true
+  },
+  "integration_notes": [
+    "This bundle is intended for DeepSynaps qEEG analyzer and raw-workbench grounding, not as a replacement for clinical judgment.",
+    "Local qEEG courseware is listed ahead of external learning links so the product can rely on repo-native knowledge first.",
+    "Psychopharmacology content now comes from the actual local lesson PDFs rather than only certificate metadata."
+  ]
+}
