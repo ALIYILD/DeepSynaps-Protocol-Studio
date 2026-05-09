@@ -77,6 +77,27 @@ function renderError(host, error) {
 }
 
 /**
+ * Ensure a `#agent-brain-status` host element exists at the top of `parent`,
+ * creating one if missing, then mount the banner. Idempotent — safe to call
+ * after every re-render. Use this from AI page modules so they don't have to
+ * thread the host div into their existing HTML template.
+ *
+ * @param {HTMLElement} parent - the element whose innerHTML was just set
+ *   (typically the page's `#content` host).
+ * @returns {Promise<{host: HTMLElement, payload: object}|null>}
+ */
+export async function ensureAgentBrainStatus(parent) {
+  if (typeof document === 'undefined' || !parent) return null;
+  let host = parent.querySelector?.('#agent-brain-status');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'agent-brain-status';
+    parent.insertBefore(host, parent.firstChild);
+  }
+  return mountAgentBrainStatus(host);
+}
+
+/**
  * Mount the agent-brain status banner into a host element.
  * @param {string|HTMLElement} target - selector or element. Default: `#agent-brain-status`.
  * @returns {Promise<{host: HTMLElement, payload: object}|null>}
