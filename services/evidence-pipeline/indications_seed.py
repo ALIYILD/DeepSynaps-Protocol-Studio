@@ -259,6 +259,52 @@ SEED = [
         "trial_q": 'tDCS depression',
         "fda_applicants": ["Flow Neuroscience", "Soterix"],
     },
+    # A1: tDCS for Autism Spectrum Disorder — investigational, Grade C.
+    # Evidence base: sparse RCTs (n < 200 total). No FDA clearance for ASD.
+    # Class II tDCS devices (e.g. Soterix, Neuroelectrics) cleared for other indications.
+    # Regulatory note must be shown on UI whenever this indication is surfaced.
+    {
+        "slug": "tdcs_asd",
+        "label": "tDCS for autism spectrum disorder (investigational)",
+        "modality": "tDCS",
+        "condition": "Autism spectrum disorder",
+        "grade": "C",
+        "regulatory": (
+            "Investigational. No FDA clearance for ASD. Class II tDCS devices exist "
+            "for other indications (CE-marked in EU). Clinical use is research-only."
+        ),
+        "pubmed_q": (
+            '(tDCS[Title/Abstract] OR "transcranial direct current stimulation"[Title/Abstract])'
+            ' AND (autism[Title/Abstract] OR ASD[Title/Abstract]'
+            ' OR "autism spectrum"[Title/Abstract])'
+        ),
+        "broad_q": '"transcranial direct current stimulation" autism',
+        "trial_q": "tDCS autism",
+        "fda_applicants": [],
+    },
+    # A2: TPS for chronic pain — experimental, Grade D.
+    # Storz Neurolith CE-marked for Alzheimer's/MCI only (2018). No FDA clearance for
+    # chronic pain. Literature is very limited (< 5 small pilot studies as of 2024).
+    # Evidence grade D = experimental; should NOT be presented as established treatment.
+    {
+        "slug": "tps_chronic_pain",
+        "label": "Transcranial pulse stimulation for chronic pain (experimental)",
+        "modality": "TPS",
+        "condition": "Chronic pain (neuropathic, fibromyalgia)",
+        "grade": "D",
+        "regulatory": (
+            "Investigational. Storz Neurolith CE-marked for Alzheimer's/MCI only (2018). "
+            "No FDA clearance for chronic pain. Evidence limited to pilot studies."
+        ),
+        "pubmed_q": (
+            '("transcranial pulse stimulation"[Title/Abstract] OR TPS[Title/Abstract])'
+            ' AND ("chronic pain"[Title/Abstract] OR neuropathic[Title/Abstract]'
+            ' OR fibromyalgia[Title/Abstract])'
+        ),
+        "broad_q": '"transcranial pulse stimulation" "chronic pain"',
+        "trial_q": "transcranial pulse stimulation pain",
+        "fda_applicants": [],
+    },
     {
         "slug": "mrgfus_essential_tremor",
         "label": "MRgFUS thalamotomy for essential tremor",
