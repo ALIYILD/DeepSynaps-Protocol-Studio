@@ -69,6 +69,17 @@ function _resDemoBuild() {
   }
 }
 
+/** Clinical disclaimer — mandated on Evidence Research page at mount (Class A requirement) */
+function _resClinicalDisclaimerBanner() {
+  return (
+    '<div class="ch-card" role="region" aria-label="Clinical disclaimer" style="margin-bottom:14px;border-left:3px solid var(--rose);background:rgba(244,63,94,0.08);padding:12px 14px">' +
+    '<div style="font-size:12px;line-height:1.55;color:var(--text-secondary)">' +
+    '<strong style="color:var(--rose)">Clinical disclaimer.</strong> ' +
+    'This page supports clinical review and decision support only. It does not diagnose, prescribe, or replace clinician judgment.' +
+    '</div></div>'
+  );
+}
+
 /** Governance + safety framing — shown on key tabs */
 function _resGovernanceBanner() {
   return (
@@ -148,6 +159,7 @@ function _resSourceStrip(stats) {
 /** Shared header: governance + degraded notice + source strip; optional module shortcuts */
 function _resWorkspaceHeader(liveEvidence, { shortcuts = false } = {}) {
   return (
+    _resClinicalDisclaimerBanner() +
     _resGovernanceBanner() +
     _resBundledDegradedBanner(liveEvidence) +
     _resSourceStrip(liveEvidence) +
