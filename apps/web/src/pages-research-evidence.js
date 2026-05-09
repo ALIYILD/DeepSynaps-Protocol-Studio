@@ -2798,7 +2798,7 @@ async function renderNeedsReview(body) {
   const totalVerify     = rows.filter(r => r.hasVerify).length;
   const gradeABHighPri  = rows.filter(r => r.isUnreviewed && ['A','B'].includes(String(r.p.evidenceGrade || '').toUpperCase())).length;
   const pendingPapers   = _litQueue.length;
-  const _totalEvPapers  = _liveEvidenceUiStats?.totalPapers || EVIDENCE_SUMMARY?.totalPapers || 87000;
+  const _totalEvPapers  = _liveEvidenceUiStats?.totalPapers || EVIDENCE_SUMMARY?.totalPapers || 0;
   const _totalProtocols = liveRows.length || _protosAll.length;
   const reviewCaption = liveRows.length
     ? 'Live protocol coverage and safety triage from the neuromodulation evidence bundle'

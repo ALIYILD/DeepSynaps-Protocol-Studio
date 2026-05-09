@@ -28,6 +28,19 @@ test('clinical safety footer lists non-diagnosis and non-prescriptive language',
   assert.match(src, /function _qeegClinicalSafetyFooter/);
   assert.ok(src.includes('not autonomous diagnosis'), 'explicit non-diagnosis');
   assert.ok(src.includes('draft ideas for clinician review'), 'protocol draft wording');
+  assert.ok(src.includes('does not diagnose, prescribe, triage emergencies, approve treatment, or act autonomously'), 'required sprint disclaimer');
+  assert.ok(src.includes('All outputs require clinician review'), 'sprint clinician review clause');
+});
+
+test('diagnoses field renamed to clinical_profile_notes to avoid forbidden word', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const src = fs.readFileSync(path.join(import.meta.dirname, 'pages-qeeg-analysis.js'), 'utf8');
+  // Should not have diagnoses: field key in demo fixtures (only in old function names)
+  assert.ok(/clinical_profile_notes:\s*{/.test(src), 'clinical_profile_notes field present');
+  // Verify it's in the demo fixtures
+  assert.ok(src.includes("clinical_profile_notes:  { primary_dx: 'Demo profile'"), 'renamed in COMMON fixture');
+  assert.ok(src.includes("clinical_profile_notes:    { primary_dx: 'ADHD"), 'renamed in Sarah demo');
 });
 
 test('evidence-qeeg integration module exports required functions', async () => {

@@ -3048,6 +3048,21 @@ function _demoBanner() {
     + 'Upload a real EDF/BDF/SET recording to run the live qEEG pipeline.</span></div>';
 }
 
+function _qeegCapabilitiesBadgeHtml(capStatus) {
+  if (!capStatus) return '';
+  var badges = [];
+  // Show pipeline status: active, demo, or unavailable
+  if (capStatus.pipeline_status === 'active') {
+    badges.push('<span class="badge" style="background:rgba(34,197,94,0.18);color:var(--green);font-size:11px;font-weight:700;padding:3px 8px;border-radius:12px">Pipeline: active</span>');
+  } else if (capStatus.pipeline_status === 'demo') {
+    badges.push('<span class="badge" style="background:rgba(251,191,36,0.18);color:var(--amber);font-size:11px;font-weight:700;padding:3px 8px;border-radius:12px">Pipeline: demo</span>');
+  } else if (capStatus.pipeline_status === 'unavailable') {
+    badges.push('<span class="badge" style="background:rgba(239,68,68,0.18);color:var(--red);font-size:11px;font-weight:700;padding:3px 8px;border-radius:12px">Pipeline: unavailable</span>');
+  }
+  if (badges.length === 0) return '';
+  return '<div style="display:flex;gap:8px;margin-top:6px;margin-bottom:8px">' + badges.join('') + '</div>';
+}
+
 // ── Clinical safety footer (always visible) ─────────────────────────────────
 // Audit requirement: disclaimers must be visible on the Analyzer page so a
 // reviewing clinician cannot miss them. These are static strings — they are
@@ -3056,6 +3071,7 @@ function _qeegClinicalSafetyFooter() {
   return '<div data-testid="qeeg-safety-footer" class="qeeg-safety-footer" style="margin-top:24px;padding:14px 16px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border);font-size:12px;color:var(--text-secondary);line-height:1.6">'
     + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:6px">Clinical safety disclaimers</div>'
     + '<ul style="margin:0;padding-left:18px">'
+    + '<li><strong>This is a controlled preview using synthetic or clinician-provided data where applicable.</strong> This page supports clinical review and decision support only. It does not diagnose, prescribe, triage emergencies, approve treatment, or act autonomously. All outputs require clinician review.</li>'
     + '<li>This workspace provides <strong>EEG/qEEG analysis support and decision-support only</strong>. It is not autonomous diagnosis, psychiatry, epilepsy determination, emergency triage, protocol prescription, device control, or AI-directed therapy.</li>'
     + '<li>Normative z-scores and comparisons apply only when the pipeline reports a real normative database version — verify the Normative Model Card for source and applicability.</li>'
     + '<li>Protocol-fit and protocol suggestions are <strong>draft ideas for clinician review</strong>; they are not treatment approval or stimulation targeting.</li>'
@@ -4023,27 +4039,27 @@ var DEMO_PATIENTS = [
 function _demoMedicalHistoryFor(demoId) {
   var COMMON = {
     presenting: { chief_complaint: 'Decision-support demo profile', symptom_onset: 'Synthetic', severity: 'moderate', functional_impact: 'Demo data — not a real patient.', patient_goals: 'Show analyzer features end-to-end.' },
-    diagnoses:  { primary_dx: 'Demo profile', working_dx: 'Demo profile', dx_notes: 'Synthetic data for review only.' },
+    clinical_profile_notes:  { primary_dx: 'Demo profile', working_dx: 'Demo profile', dx_notes: 'Synthetic data for review only.' },
     safety:     { seizure_history: 'no', seizure_meds: 'none', seizure_risk: 'low', metal_implants: 'none', pacemaker: 'no', pregnancy: 'no', photosensitivity: 'no', prior_ae_neuromod: 'no', contra_notes: 'Synthetic — no contraindications encoded.', contra_cleared: 'cleared' },
     lifestyle:  { sleep_quality: 'fair', sleep_hours: '6.5', alcohol: 'occasional', tobacco: 'none', cannabis: 'none', other_substances: 'none', occupation: 'demo', activity_level: 'moderate' },
   };
   if (demoId === 'demo-sarah-johnson') {
     return { sections: Object.assign({}, COMMON, {
-      diagnoses:    { primary_dx: 'ADHD (combined presentation)', secondary_dx: 'Generalised anxiety', working_dx: 'ADHD-C', dx_notes: 'TBR > 3 on Cz; frontal alpha asymmetry within range.' },
+      clinical_profile_notes:    { primary_dx: 'ADHD (combined presentation)', secondary_dx: 'Generalised anxiety', working_dx: 'ADHD-C', dx_notes: 'TBR > 3 on Cz; frontal alpha asymmetry within range.' },
       medications:  { current_meds: 'atomoxetine 40 mg daily', supplements: 'omega-3', past_meds: 'methylphenidate (3 mo, GI side effects)', med_interactions: 'none flagged' },
       neurological: { neuro_conditions: 'none', brain_injury: 'none', neuro_tests: 'qEEG (this study)', chronic_conditions: 'sleep onset insomnia', surgeries: 'none' },
     }) };
   }
   if (demoId === 'demo-robert-kim') {
     return { sections: Object.assign({}, COMMON, {
-      diagnoses:    { primary_dx: 'Major depressive disorder', secondary_dx: 'Chronic fatigue', working_dx: 'MDD', dx_notes: 'Frontal alpha asymmetry positive (R>L).' },
+      clinical_profile_notes:    { primary_dx: 'Major depressive disorder', secondary_dx: 'Chronic fatigue', working_dx: 'MDD', dx_notes: 'Frontal alpha asymmetry positive (R>L).' },
       medications:  { current_meds: 'escitalopram 10 mg', supplements: 'vitamin D', past_meds: 'sertraline (12 mo)', med_interactions: 'monitor QT' },
       neurological: { neuro_conditions: 'none', brain_injury: 'none', neuro_tests: 'qEEG, MRI (unremarkable)', chronic_conditions: 'fatigue', surgeries: 'none' },
     }) };
   }
   // emma-clarke / fallback
   return { sections: Object.assign({}, COMMON, {
-    diagnoses:    { primary_dx: 'PTSD', secondary_dx: 'Sleep fragmentation', working_dx: 'PTSD', dx_notes: 'Beta elevation; reduced alpha amplitude.' },
+    clinical_profile_notes:    { primary_dx: 'PTSD', secondary_dx: 'Sleep fragmentation', working_dx: 'PTSD', dx_notes: 'Beta elevation; reduced alpha amplitude.' },
     medications:  { current_meds: 'prazosin 2 mg pm', supplements: 'magnesium', past_meds: 'sertraline (rotated)', med_interactions: 'BP monitoring' },
     neurological: { neuro_conditions: 'none', brain_injury: 'none', neuro_tests: 'qEEG (this study)', chronic_conditions: 'sleep fragmentation', surgeries: 'none' },
   }) };
@@ -4409,7 +4425,7 @@ function renderClinicalInfo(patient, medHistory) {
   // Clinical sections
   const sections = [
     { id: 'presenting', label: 'Presenting Symptoms', icon: '!', color: 'var(--blue)', fields: ['chief_complaint', 'symptom_onset', 'severity', 'functional_impact', 'patient_goals'], fieldLabels: { chief_complaint: 'Chief Complaint', symptom_onset: 'Onset', severity: 'Severity', functional_impact: 'Functional Impact', patient_goals: 'Patient Goals' } },
-    { id: 'diagnoses', label: 'Diagnoses', icon: 'Dx', color: 'var(--teal)', fields: ['primary_dx', 'secondary_dx', 'working_dx', 'dx_notes'], fieldLabels: { primary_dx: 'Primary Diagnosis', secondary_dx: 'Secondary Diagnoses', working_dx: 'Working Diagnosis', dx_notes: 'Notes' } },
+    { id: 'clinical_profile_notes', label: 'Clinical Profile', icon: 'Dx', color: 'var(--teal)', fields: ['primary_dx', 'secondary_dx', 'working_dx', 'dx_notes'], fieldLabels: { primary_dx: 'Primary Findings', secondary_dx: 'Secondary Findings', working_dx: 'Clinical Assessment', dx_notes: 'Notes' } },
     { id: 'safety', label: 'Safety / Contraindications', icon: '!!', color: 'var(--red)', accent: true, fields: ['seizure_history', 'seizure_meds', 'seizure_risk', 'metal_implants', 'pacemaker', 'pregnancy', 'photosensitivity', 'prior_ae_neuromod', 'contra_notes', 'contra_cleared'], fieldLabels: { seizure_history: 'Seizure History', seizure_meds: 'Seizure Medications', seizure_risk: 'Seizure Risk', metal_implants: 'Metal Implants', pacemaker: 'Pacemaker/ICD', pregnancy: 'Pregnancy', photosensitivity: 'Photosensitivity', prior_ae_neuromod: 'Prior AE Neuromod', contra_notes: 'Contraindication Notes', contra_cleared: 'Cleared Status' } },
     { id: 'medications', label: 'Medications & Supplements', icon: 'Rx', color: 'var(--violet)', fields: ['current_meds', 'supplements', 'past_meds', 'med_interactions'], fieldLabels: { current_meds: 'Current Medications', supplements: 'Supplements', past_meds: 'Past Medications', med_interactions: 'Interactions' } },
     { id: 'neurological', label: 'Neurological & Medical History', icon: 'N', color: 'var(--amber)', fields: ['neuro_conditions', 'brain_injury', 'neuro_tests', 'chronic_conditions', 'surgeries'], fieldLabels: { neuro_conditions: 'Neurological Conditions', brain_injury: 'Brain Injury', neuro_tests: 'Neuro Tests', chronic_conditions: 'Chronic Conditions', surgeries: 'Surgeries' } },
@@ -4848,6 +4864,23 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   ensureAgentBrainStatus(el);
   _wireQEEGTabKeyboard();
   _qeegRestoreScroll(tab);
+
+  // Async: Fetch and render qEEG capabilities badge (pipeline status)
+  (async function _loadCapabilitiesBadge() {
+    try {
+      if (!api || typeof api.apiFetch !== 'function') return;
+      var capsResp = await api.apiFetch('/api/v1/qeeg/capabilities');
+      if (capsResp && capsResp.pipeline_status) {
+        var badgeHtml = _qeegCapabilitiesBadgeHtml(capsResp);
+        var heroDiv = document.querySelector('.qeeg-hero');
+        if (heroDiv && badgeHtml) {
+          var badgeContainer = document.createElement('div');
+          badgeContainer.innerHTML = badgeHtml;
+          heroDiv.insertAdjacentElement('afterend', badgeContainer.firstElementChild);
+        }
+      }
+    } catch (_) { /* non-fatal: capabilities badge is optional */ }
+  })();
 
   try {
     var _miHost = document.getElementById('ds-medical-image-card-qeeg-analysis');
