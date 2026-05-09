@@ -2370,7 +2370,7 @@ async function _pgPatientAssessmentsImpl() {
     if (subText) subText.textContent = syncedToClinic
       ? 'Your clinic can review this check-in in the patient portal.'
       : 'Saved in this browser only until clinic sync is available.';
-    _toast(syncedToClinic ? 'Check-in synced · 5/5' : 'Check-in saved locally · 5/5');
+    _toast(syncedToClinic ? 'Check-in uploaded for processing · 5/5' : 'Check-in saved locally · 5/5');
   }
 
   window._asDailyReset = function() {
@@ -2507,7 +2507,7 @@ async function _pgPatientAssessmentsImpl() {
       }
       setSelfAssessmentLastFiled(key, new Date().toISOString());
       clearSelfAssessmentDraft(key);
-      _toast(savedToBackend ? (survey.shortTitle + ' check-in saved') : (survey.shortTitle + ' saved locally'));
+      _toast(savedToBackend ? (survey.shortTitle + ' check-in submitted for processing') : (survey.shortTitle + ' saved locally'));
       // Refresh the card grid
       const grid = document.getElementById('as-selfassess-grid');
       if (grid) {
@@ -4318,7 +4318,7 @@ export async function pgPatientMessages() {
       if (status) {
         status.removeAttribute('hidden');
         status.className = 'ptmsg-send-status ptmsg-send-ok';
-        status.textContent = 'Call request recorded. Response timing depends on portal workflow.';
+        status.textContent = 'Call request submitted. Response timing depends on portal workflow.';
       }
       if (btn) { btn.disabled = true; btn.textContent = 'Recorded'; }
       window._ptmsgPendingCallTier = null;
@@ -5961,7 +5961,7 @@ async function _pgPatientCareTeamImpl() {
     _toast('Opening Virtual Care assistant…');
     setTimeout(() => window._navPatient && window._navPatient('patient-virtualcare'), 400);
   };
-  window._ctAIPrefs      = function() { _toast('AI preferences saved'); };
+  window._ctAIPrefs      = function() { _toast('AI preferences saved in this browser'); };
   window._ctCrisisCall   = function() { window.location.href = 'tel:988'; };
   window._ctUrgentCall   = function() { window.location.href = 'tel:+16175550143'; };
   window._ctDownload     = function(title) {
@@ -6062,7 +6062,7 @@ async function _pgPatientCareTeamImpl() {
               note: 'pt-careteam revoke',
               using_demo_data: !!_isDemo,
             });
-            _toast('Grant revoked');
+            _toast('Revocation submitted');
             await _ccLoadGrants();
           } catch (err) {
             console.error('[caregiver-consent] revoke failed:', err);
@@ -7839,7 +7839,7 @@ function _wireSettingsPageLegacy() {
         st.querySelectorAll('[data-st-toggle]').forEach(t => { prefs[t.dataset.stToggle] = t.classList.contains('on'); });
         await api.updatePatientPreferences(prefs);
       }
-      stToast('Settings saved');
+      stToast('Settings saved in this browser');
     } catch (err) {
       stToast('Save failed — try again');
       console.error('[settings] save failed', err);
@@ -7905,7 +7905,7 @@ function _wireSettingsPageLegacy() {
     b.addEventListener('click', () => {
       const row = b.closest('.st-sess-row');
       if (row) row.style.display = 'none';
-      stToast('Session revoked');
+      stToast('Session revocation submitted');
     });
   });
 
@@ -9157,7 +9157,7 @@ function _wireSettingsPage() {
         st.querySelectorAll('[data-st-toggle]').forEach(t => { prefs[t.dataset.stToggle] = t.classList.contains('on'); });
         await api.updatePatientPreferences(prefs);
       }
-      stToast('Settings saved');
+      stToast('Settings saved in this browser');
     } catch (err) {
       stToast('Save failed \u2014 try again');
       console.error('[settings] save failed', err);
@@ -11501,7 +11501,7 @@ export async function pgHomeworkBuilder(setTopbarFn) {
     renderSavedPlansList();
     const statusEl = document.getElementById('hw-assign-status');
     if (statusEl) {
-      statusEl.textContent = 'Plan saved!';
+      statusEl.textContent = 'Plan saved in this browser';
       statusEl.style.display = '';
       setTimeout(function() { if (statusEl) statusEl.style.display = 'none'; }, 2500);
     }
@@ -14083,7 +14083,7 @@ window._pgpSaSubmit = async function(key) {
     setSelfAssessmentLastFiled(key, new Date().toISOString());
     clearSelfAssessmentDraft(key);
     window._showNotifToast && window._showNotifToast({
-      title: savedToBackend ? 'Check-in saved' : 'Check-in saved locally',
+      title: savedToBackend ? 'Check-in submitted' : 'Check-in saved in this browser',
       body: savedToBackend ? survey.title + ' submitted.' : survey.title + ' was stored in this browser only.',
       severity: savedToBackend ? 'success' : 'warning'
     });
@@ -14462,7 +14462,7 @@ export async function pgPatientTickets() {
     if (!savedToBackend) saveLocalTickets(tickets);
     _renderTickets();
     window._showNotifToast && window._showNotifToast({
-      title: savedToBackend ? 'Reply recorded' : 'Reply saved locally',
+      title: savedToBackend ? 'Reply submitted' : 'Reply saved in this browser',
       body: savedToBackend ? 'This reply was accepted by the support workflow.' : 'This reply is stored on this device only.',
       severity: savedToBackend ? 'success' : 'warning'
     });
@@ -14521,7 +14521,7 @@ export async function pgPatientTickets() {
     if (m) m.remove();
     _renderTickets();
     window._showNotifToast && window._showNotifToast({
-      title: savedToBackend ? 'Request recorded' : 'Request saved locally',
+      title: savedToBackend ? 'Request submitted' : 'Request saved in this browser',
       body: savedToBackend ? 'This request was accepted by the support workflow.' : 'This request is stored on this device only.',
       severity: savedToBackend ? 'success' : 'warning'
     });
