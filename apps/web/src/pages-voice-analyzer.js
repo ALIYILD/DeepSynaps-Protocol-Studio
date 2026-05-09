@@ -60,7 +60,8 @@ export function esc(s) {
     .replace(/"/g, '&quot;');
 }
 
-const DISCLAIMER = VOICE_DECISION_SUPPORT_FULL;
+// Full clinical disclaimer required on all AI/analyzer pages per overnight sprint 2026-05-08
+const DISCLAIMER = 'This is a controlled preview using synthetic or clinician-provided data where applicable. This page supports clinical review and decision support only. It does not diagnose, prescribe, triage emergencies, approve treatment, or act autonomously. All outputs require clinician review.';
 
 export function voiceAnalyzerAllowsLiveRole(role) {
   return CLINICAL_VOICE_ANALYZER_ROLES.has(String(role || '').trim().toLowerCase());
@@ -590,7 +591,7 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
           </select>
           <button type="button" class="btn btn-outline btn-sm" id="va-patient-clear">Clear</button>
         </div>
-        <label style="display:block;margin-bottom:6px;font-size:12px" for="va-patient-id-override">Patient ID (demo-only override)</label>
+        <label style="display:block;margin-bottom:6px;font-size:12px;font-weight:600" for="va-patient-id-override">Patient ID (demo-only override — UUID format, optional for linking to patient record)</label>
         <input id="va-patient-id-override" class="form-control" style="max-width:420px;margin-bottom:8px" placeholder="UUID — optional if patient selected above" autocomplete="off" />
         <p style="font-size:11px;color:var(--text-tertiary);margin:0">Live uploads must be bound from the clinic patient list. Free-form patient ID entry is disabled outside demo workflows.</p>
       </section>
@@ -601,7 +602,9 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
           Supported uploads: WAV, MP3, WebM, OGG, FLAC, M4A when the browser reports <span class="font-mono">audio/*</span> and the API confirms bytes (server-side validation).
           Browser recording uses MediaRecorder when available — clips stay in this browser tab until you run analysis (local-only; not an EHR save by itself).
         </p>
-        <div style="display:grid;gap:14px;margin-bottom:14px">
+        <div style="padding:10px 12px;border-radius:10px;border:1px solid rgba(246,178,60,.28);background:rgba(246,178,60,.08);margin-bottom:14px;font-size:11px;line-height:1.5;color:var(--text-secondary)" role="note">
+          <strong style="color:var(--text-primary)">Data retention notice:</strong> Audio may be processed by a transcription service if enabled on your clinic's deployment. Always refer to your organisation's data retention and privacy policies before uploading identifiable recordings. Ensure patient consent covers audio processing where required.
+        </div>
           <div>
             <span style="font-size:12px;font-weight:600;display:block;margin-bottom:8px">Record in browser</span>
             <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
@@ -630,7 +633,7 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
         </select>
         <label style="display:block;margin-bottom:6px;font-size:12px;font-weight:600" for="va-transcript">Transcript (optional — clinician-entered or imported text)</label>
         <p style="font-size:11px;color:var(--text-tertiary);margin:0 0 6px">Optional linguistic features use text you provide. This field is <strong>not</strong> automatic speech recognition.</p>
-        <textarea id="va-transcript" class="form-control" rows="2" style="margin-bottom:14px" placeholder="Paste transcript text if available for cognitive/linguistic feature extraction"></textarea>
+        <textarea id="va-transcript" class="form-control" rows="2" style="margin-bottom:14px" placeholder="Paste session transcript (optional). Used for linguistic feature extraction only — not autonomous speech analysis."></textarea>
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
           <button type="button" class="btn btn-primary" id="va-run" aria-label="Run voice analysis on selected audio">Run Voice Analyzer</button>
           <span id="va-status" style="font-size:12px;color:var(--text-tertiary)" role="status"></span>
