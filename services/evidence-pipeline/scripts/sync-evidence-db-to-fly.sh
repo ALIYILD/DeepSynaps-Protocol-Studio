@@ -34,9 +34,14 @@ set -euo pipefail
 
 FLY_APP="${FLY_APP:-deepsynaps-studio}"
 FLY_VOLUME_NAME="${FLY_VOLUME_NAME:-deepsynaps_data}"
-PIPELINE_DIR="${PIPELINE_DIR:-$HOME/DeepSynaps-Protocol-Studio/services/evidence-pipeline}"
-EVIDENCE_DB_PATH="${EVIDENCE_DB_PATH:-$PIPELINE_DIR/neuromodulation_evidence_2026-04-29_v4.db}"
+# Cron-pinned worktree (independent of the volatile primary checkout).
+CRON_WORKTREE="${CRON_WORKTREE:-$HOME/.deepsynaps-cron}"
+PIPELINE_DIR="${PIPELINE_DIR:-$CRON_WORKTREE/services/evidence-pipeline}"
+# DB file lives outside the worktree on purpose so `git checkout` can't move it.
+EVIDENCE_DB_PATH="${EVIDENCE_DB_PATH:-$HOME/DeepSynaps-Protocol-Studio/services/evidence-pipeline/neuromodulation_evidence_2026-04-29_v4.db}"
 FLY_REMOTE_DB_PATH="${FLY_REMOTE_DB_PATH:-/data/evidence.db}"
+SSL_CERT_FILE="${SSL_CERT_FILE:-/etc/ssl/cert.pem}"
+export SSL_CERT_FILE
 
 DRY_RUN=0
 case "${1:-}" in
