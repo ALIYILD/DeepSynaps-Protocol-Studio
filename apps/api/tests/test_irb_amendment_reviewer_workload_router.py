@@ -73,6 +73,7 @@ def test_suggest_reviewer_returns_shape(client: TestClient, auth_headers: dict) 
     assert r.status_code == 200
     body = r.json()
     assert body["amendment_id"] == "amd-nonexistent"
+    # No amendments in DB → suggested_reviewer_user_id is None
     assert "suggested_reviewer_user_id" in body
 
 
