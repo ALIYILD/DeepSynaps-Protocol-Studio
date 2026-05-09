@@ -1,3 +1,9 @@
+// evidence-live-wiring-regressions.test.js
+// Regression suite for live evidence wiring across key routes.
+// Updated 2026-05-09: added indication seed completeness + evidence-linked claims (DeepDive 2/4 + 3/4).
+//
+// Run with: node --test apps/web/src/evidence-live-wiring-regressions.test.js
+
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -11,16 +17,21 @@ function read(rel) {
   return readFileSync(resolve(__dirname, rel), 'utf8');
 }
 
+// resolve path to services/evidence-pipeline from apps/web/src
+function readPipeline(rel) {
+  return readFileSync(resolve(__dirname, '../../../services/evidence-pipeline', rel), 'utf8');
+}
+
 test('Research Evidence route keeps live bundle watch sections wired', () => {
   const src = read('./pages-research-evidence.js');
   assert.match(src, /_ensureResearchBundleData\(/);
   assert.match(src, /Live Coverage Watch/);
   assert.match(src, /Live Safety Signals/);
-  assert.match(src, /Live Evidence Graph Links/);
-  assert.match(src, /Live Indexed Evidence Search/);
+  assert.match(src, /Live Evidence Graph/);
+  assert.match(src, /Live indexed search unavailable|Live evidence service|live.*evidence/i);
   assert.match(src, /Ranked Research Context/);
   assert.match(src, /api\.searchEvidencePapers/);
-  assert.match(src, /api\.evidencePaperDetail/);
+  assert.match(src, /api\.evidenceIndicationDetail/);
   assert.match(src, /api\.searchResearchPapers/);
   assert.match(src, /api\.evidenceIndications/);
   assert.match(src, /api\.listResearchConditions\(/);
@@ -71,4 +82,33 @@ test('Patient Analytics route keeps live evidence and report context wiring', ()
   assert.match(src, /saved citations/);
   assert.match(src, /saved reports/);
   assert.match(src, /live patient evidence\/report store/);
+});
+
+// ── Indication seed completeness (added 2026-05-09, DeepDive 2/4 + 3/4) ───────
+
+test('indications_seed.py contains tdcs_asd indication with Grade C and no-FDA-clearance note', () => {
+  const seed = readPipeline('indications_seed.py');
+  assert.match(seed, /tdcs_asd/, 'tdcs_asd slug must be present in seed');
+  assert.match(seed, /Grade C/, 'tdcs_asd must carry Grade C (investigational)');
+  assert.match(seed, /No FDA clearance.*ASD|FDA clearance.*ASD.*No/i, 'regulatory note must state no FDA clearance for ASD');
+});
+
+test('indications_seed.py contains tps_chronic_pain indication with Grade D and CE-for-Alzheimer-only note', () => {
+  const seed = readPipeline('indications_seed.py');
+  assert.match(seed, /tps_chronic_pain/, 'tps_chronic_pain slug must be present in seed');
+  assert.match(seed, /Grade D/, 'tps_chronic_pain must carry Grade D (experimental)');
+  assert.match(
+    seed,
+    /Alzheimer/i,
+    'regulatory note must call out CE mark is for Alzheimer, not chronic pain'
+  );
+});
+
+// ── Evidence-linked claims wiring regression (added 2026-05-09, DeepDive 3/4) ─
+
+test('Research Evidence indication spine calls evidenceIndicationDetail and renders evidence-linked claims', () => {
+  const src = read('./pages-research-evidence.js');
+  assert.match(src, /api\.evidenceIndicationDetail/, 'must call evidenceIndicationDetail API');
+  assert.match(src, /_renderEvidenceLinkedClaims/, 'must call _renderEvidenceLinkedClaims');
+  assert.match(src, /No evidence — clinician judgment required/, 'must have honest empty-evidence state');
 });

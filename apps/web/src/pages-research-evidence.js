@@ -3020,10 +3020,28 @@ function _renderPaperRow(paper) {
   const cites = paper.cited_by_count != null ? `${fmt(paper.cited_by_count)} cites` : '';
   const oa = paper.is_oa ? '<span style="font-size:10px;color:#2dd4bf;font-weight:700">OPEN</span>' : '';
   const meta = [journal, year, cites, oa].filter(Boolean).join(' · ');
+  // Evidence-linked identifier chips (PMID / DOI hyperlinks — only shown when present)
+  const pmid = paper.pmid ? String(paper.pmid).trim() : '';
+  const doi  = paper.doi  ? String(paper.doi).trim()  : '';
+  const idChips = [];
+  if (pmid) idChips.push(
+    `<a href="https://pubmed.ncbi.nlm.nih.gov/${esc(pmid)}/" target="_blank" rel="noopener noreferrer" ` +
+    `style="font-size:10px;color:var(--teal);text-decoration:none;padding:1px 5px;border-radius:3px;border:1px solid rgba(45,212,191,0.4)">` +
+    `PMID ${esc(pmid)}</a>`
+  );
+  if (doi) idChips.push(
+    `<a href="https://doi.org/${esc(doi)}" target="_blank" rel="noopener noreferrer" ` +
+    `style="font-size:10px;color:var(--teal);text-decoration:none;padding:1px 5px;border-radius:3px;border:1px solid rgba(45,212,191,0.4)">` +
+    `DOI ↗</a>`
+  );
+  const idRow = idChips.length
+    ? `<div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">${idChips.join('')}</div>`
+    : `<div style="margin-top:4px;font-size:10px;color:var(--text-tertiary);font-style:italic">No direct identifier — clinician judgment required for source verification.</div>`;
   return (
     '<div style="padding:10px 12px;border-bottom:1px solid var(--border)">' +
     `<div style="margin-bottom:4px">${titleHtml}</div>` +
     `<div style="font-size:11px;color:var(--text-tertiary)">${meta}</div>` +
+    idRow +
     '</div>'
   );
 }
@@ -3119,6 +3137,60 @@ function _renderSpineSidebar(rows, selectedSlug) {
         '</button>'
       );
     }).join('') +
+    '</div>'
+  );
+}
+
+/**
+ * Evidence-linked claims strip for indication detail.
+ * Shows top PMID/DOI hyperlinks from curated papers.
+ * When no papers are linked, renders an honest "no evidence — clinician judgment required" notice.
+ * This function never fabricates identifiers.
+ */
+function _renderEvidenceLinkedClaims(papers, slug) {
+  // Collect up to 5 papers that have at least one citable identifier (PMID or DOI)
+  const linked = [];
+  for (const p of papers) {
+    if (linked.length >= 5) break;
+    const pmid = p.pmid ? String(p.pmid).trim() : '';
+    const doi  = p.doi  ? String(p.doi).trim()  : '';
+    if (pmid || doi) linked.push({ title: p.title || '(untitled)', pmid, doi });
+  }
+  if (linked.length === 0) {
+    return (
+      '<div class="ch-card" role="note" aria-label="Evidence-linked claims" ' +
+      'style="padding:10px 14px;margin-bottom:12px;border-left:3px solid var(--text-tertiary);background:rgba(148,163,184,0.06)">' +
+      '<div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Evidence-linked claims</div>' +
+      '<div style="font-size:12px;color:var(--text-secondary);line-height:1.55">' +
+      '<strong style="color:var(--text-secondary)">No evidence — clinician judgment required.</strong> ' +
+      `No papers with citable PMID or DOI are currently linked to <code>${esc(slug)}</code> in the curated evidence DB. ` +
+      'Clinicians must independently retrieve and appraise primary literature before any clinical decision.' +
+      '</div></div>'
+    );
+  }
+  const chips = linked.map((p) => {
+    const idParts = [];
+    if (p.pmid) idParts.push(
+      `<a href="https://pubmed.ncbi.nlm.nih.gov/${esc(p.pmid)}/" target="_blank" rel="noopener noreferrer" ` +
+      `style="font-size:10px;color:var(--teal);text-decoration:none;padding:1px 5px;border-radius:3px;border:1px solid rgba(45,212,191,0.4)">PMID ${esc(p.pmid)}</a>`
+    );
+    if (p.doi) idParts.push(
+      `<a href="https://doi.org/${esc(p.doi)}" target="_blank" rel="noopener noreferrer" ` +
+      `style="font-size:10px;color:var(--teal);text-decoration:none;padding:1px 5px;border-radius:3px;border:1px solid rgba(45,212,191,0.4)">DOI ↗</a>`
+    );
+    return (
+      '<div style="margin-bottom:4px">' +
+      `<span style="font-size:11.5px;color:var(--text-secondary)">${esc(p.title.slice(0, 80))}${p.title.length > 80 ? '…' : ''}</span> ` +
+      idParts.join(' ') +
+      '</div>'
+    );
+  }).join('');
+  return (
+    '<div class="ch-card" role="note" aria-label="Evidence-linked claims" ' +
+    'style="padding:10px 14px;margin-bottom:12px;border-left:3px solid rgba(45,212,191,0.5);background:rgba(45,212,191,0.04)">' +
+    '<div style="font-size:11px;font-weight:600;color:var(--teal);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">Evidence-linked claims</div>' +
+    '<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:6px">Top cited papers with verifiable identifiers (PMID / DOI). These are pointers to primary literature — clinician review required.</div>' +
+    chips +
     '</div>'
   );
 }
@@ -3252,16 +3324,21 @@ async function renderIndicationsSpine(body) {
     '</div>'
   );
 
+  // Evidence-linked claims strip — top PMID/DOI from curated papers; honest empty if none
+  const evidenceLinkedClaimsHtml = _renderEvidenceLinkedClaims(detail.papers || [], selectedSlug);
+
   const fallbackBanner = detail.fts_fallback
     ? (
         '<div class="ch-card" role="status" aria-live="polite" style="padding:10px 14px;margin-bottom:12px;border-left:3px solid var(--amber);background:rgba(245,158,11,0.06)">' +
         '<div style="font-size:12.5px;color:var(--text-secondary);line-height:1.55">' +
-        '<strong style="color:var(--amber)">No curated papers yet for this indication.</strong> ' +
-        `The <code>paper_indications</code> junction is empty for <code>${esc(selectedSlug)}</code>; ` +
-        'the curation pipeline has not yet linked any of the 184k indexed papers to this slug. ' +
+        '<strong style="color:var(--amber)">No evidence — clinician judgment required.</strong> ' +
+        `No curated papers have been linked to <code>${esc(selectedSlug)}</code> in the evidence DB yet. ` +
+        'The <code>paper_indications</code> junction is empty for this indication; ' +
+        'the curation pipeline has not run for this slug. ' +
+        'Clinician judgment and independent primary literature retrieval are required before any clinical action. ' +
         '<button type="button" class="btn btn-ghost btn-xs" ' +
         `onclick="window._resEvidenceTab='search';window._nav('research-evidence')">` +
-        'Fall back to FTS search</button>' +
+        'Search indexed corpus instead</button>' +
         '</div></div>'
       )
     : '';
@@ -3295,7 +3372,7 @@ async function renderIndicationsSpine(body) {
     detail.protocols ? detail.protocols.length : 0,
   );
 
-  detailEl.innerHTML = headerHtml + fallbackBanner + papersHtml + trialsHtml + devicesHtml + protocolsHtml;
+  detailEl.innerHTML = headerHtml + evidenceLinkedClaimsHtml + fallbackBanner + papersHtml + trialsHtml + devicesHtml + protocolsHtml;
 }
 
 export { renderEvidenceResultCard, _reExpandEvidenceSearchQuery, _reDedupeKey, renderIndicationsSpine };
