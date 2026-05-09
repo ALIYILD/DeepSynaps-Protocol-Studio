@@ -194,9 +194,13 @@ SEED = [
         "condition": "Painful diabetic neuropathy",
         "grade": "A",
         "regulatory": "FDA-approved 2021",
-        "pubmed_q": '("spinal cord stimulation"[Title/Abstract] OR SCS[Title/Abstract]) AND ("diabetic neuropathy"[Title/Abstract] OR PDN[Title/Abstract])',
-        "broad_q": '"spinal cord stimulation" "diabetic neuropathy"',
-        "trial_q": '"spinal cord stimulation" "diabetic neuropathy"',
+        # Broadened 2026-05-09: original query (just "spinal cord stimulation" +
+        # "diabetic neuropathy") found 121 papers in PubMed; the refined version
+        # finds 238 by adding 10kHz / HF10 / "high-frequency stimulation" as
+        # alternate terms for the SCS device family and PDN as a synonym.
+        "pubmed_q": '("spinal cord stimulation"[TIAB] OR SCS[TIAB] OR HF10[TIAB] OR "10 kHz"[TIAB] OR "high-frequency stimulation"[TIAB]) AND ("diabetic neuropathy"[TIAB] OR PDN[TIAB] OR "diabetic peripheral neuropathy"[TIAB])',
+        "broad_q": '"spinal cord stimulation" "diabetic neuropathy" OR HF10 PDN',
+        "trial_q": '"spinal cord stimulation" "diabetic peripheral neuropathy"',
         "fda_applicants": ["Nevro"],
     },
     {
