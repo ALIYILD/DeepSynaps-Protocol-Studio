@@ -15,7 +15,7 @@ Buckets:
   - ``clinical.py`` — 33 classes
   - ``devices.py`` — 16 classes
   - ``media.py`` — 9 classes
-  - ``mri.py`` — 6 classes
+  - ``mri.py`` — 7 classes
   - ``ops.py`` — 13 classes
   - ``patient.py`` — 9 classes
   - ``qeeg.py`` — 16 classes
@@ -187,6 +187,7 @@ from .mri import (
     MriTargetPlan,
     MriTimelineEvent,
     MriUpload,
+    MriViewerState,
 )
 from .ops import (
     Clinic,
@@ -377,6 +378,7 @@ __all__ = [
     "MriTargetPlan",
     "MriTimelineEvent",
     "MriUpload",
+    "MriViewerState",
     "OnboardingEvent",
     "OnboardingState",
     "OncallPage",

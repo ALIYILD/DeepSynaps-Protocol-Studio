@@ -1896,3 +1896,261 @@ def get_mri_phi_audit(
     from app.services.mri_phi_audit import compute_phi_audit
 
     return compute_phi_audit(analysis)
+
+
+# ── Phase 2 (DeepDive): Viewer State Persistence ────────────────────────────
+
+
+class _ViewerStateIn(BaseModel):
+    """Viewer state input schema (Phase 2 feature).
+
+    Captures UI state for resumable MRI analysis viewing sessions:
+    slice position, ROI visibility, overlay alpha, active modality, etc.
+    """
+    state: dict[str, Any] = Field(
+        ...,
+        description="Viewer state payload (slice_index, roi_visibility, overlay_alpha, etc.)",
+        example={
+            "slice_index": {"x": 100, "y": 100, "z": 50},
+            "roi_visibility": {"atlas": True, "custom_roi": False},
+            "overlay_alpha": 0.7,
+            "active_modality": "structural",
+            "crosshair_enabled": True,
+        },
+    )
+
+
+class _ViewerStateOut(BaseModel):
+    """Viewer state output schema."""
+    analysis_id: str
+    user_id: str
+    state: Optional[dict[str, Any]] = None
+    updated_at: str
+
+
+@router.post("/{analysis_id}/viewer-state")
+def save_viewer_state(
+    analysis_id: str,
+    payload: _ViewerStateIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> _ViewerStateOut:
+    """Save viewer state for a user × analysis pair (Phase 2).
+
+    Enables resumable MRI analysis viewing: slice position, ROI visibility,
+    overlay alpha, active modality, etc. are persisted per user.
+
+    Parameters
+    ----------
+    analysis_id : str
+        MRI analysis UUID.
+    payload : _ViewerStateIn
+        Viewer state dict.
+    actor : AuthenticatedActor
+        Authenticated user (from token).
+    db : Session
+        Database session.
+
+    Returns
+    -------
+    _ViewerStateOut
+        Saved state record.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    from app.services.mri_viewer_state import save_viewer_state as save_state
+
+    row = save_state(db, analysis_id, actor.user_id, payload.state)
+    db.commit()
+
+    return _ViewerStateOut(
+        analysis_id=row.analysis_id,
+        user_id=row.user_id,
+        state=json.loads(row.state_json) if row.state_json else None,
+        updated_at=row.updated_at.isoformat(),
+    )
+
+
+@router.get("/{analysis_id}/viewer-state")
+def get_viewer_state(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> _ViewerStateOut:
+    """Retrieve saved viewer state for a user × analysis pair (Phase 2).
+
+    Parameters
+    ----------
+    analysis_id : str
+        MRI analysis UUID.
+    actor : AuthenticatedActor
+        Authenticated user (from token).
+    db : Session
+        Database session.
+
+    Returns
+    -------
+    _ViewerStateOut
+        Saved state record, or empty state dict if not found.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    from app.services.mri_viewer_state import get_viewer_state as get_state
+
+    state = get_state(db, analysis_id, actor.user_id)
+
+    return _ViewerStateOut(
+        analysis_id=analysis_id,
+        user_id=actor.user_id,
+        state=state or {},
+        updated_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+class _CapabilitiesOut(BaseModel):
+    """MRI pipeline capabilities response (Phase 2 feature).
+
+    Exposes pipeline module availability, tool versions, GPU status.
+    """
+    status: str = Field(
+        ...,
+        description="Capability status: ok, unavailable, degraded",
+        example="ok",
+    )
+    pipeline_version: Optional[str] = Field(None, description="Pipeline module version")
+    modules: dict[str, Any] = Field(
+        ...,
+        description="Per-module availability + metadata",
+        example={
+            "structural": {"available": True, "engine": "FastSurfer", "gpu": False},
+            "fmri": {"available": True, "networks_count": 17},
+            "dmri": {"available": False, "tracking_method": None},
+            "registration": {"available": True, "tool": "antspyx", "version": "0.3.24"},
+            "targeting": {"available": True, "conditions_supported": ["mdd", "ptsd"]},
+        },
+    )
+    warnings: list[str] = Field(default_factory=list, description="Non-critical warnings")
+    last_checked_at: str = Field(
+        ...,
+        description="ISO timestamp of last capability check",
+    )
+
+
+@router.get("/capabilities", response_model=_CapabilitiesOut)
+def get_mri_capabilities(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> _CapabilitiesOut:
+    """Query MRI pipeline capabilities (Phase 2).
+
+    Exposes module availability, tool versions, GPU status. Clients can use
+    this before attempting analysis to gracefully degrade UI.
+
+    Parameters
+    ----------
+    actor : AuthenticatedActor
+        Authenticated user (from token).
+
+    Returns
+    -------
+    _CapabilitiesOut
+        Capabilities summary.
+    """
+    require_minimum_role(actor, "clinician")
+
+    # Probe pipeline availability
+    from app.services import mri_pipeline as mri_facade
+
+    warnings = []
+    modules = {}
+
+    # Check HAS_MRI_PIPELINE guard
+    if not mri_facade.HAS_MRI_PIPELINE:
+        warnings.append("MRI pipeline package not installed")
+        return _CapabilitiesOut(
+            status="unavailable",
+            pipeline_version=None,
+            modules={},
+            warnings=warnings,
+            last_checked_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    # Try to infer module availability from imports
+    try:
+        from deepsynaps_mri import __version__ as pipeline_version  # type: ignore[import-not-found]
+    except ImportError:
+        pipeline_version = None
+
+    # Basic structural availability (nibabel presence)
+    try:
+        import nibabel  # type: ignore[import-not-found]
+        modules["structural"] = {
+            "available": True,
+            "engine": "FastSurfer",
+            "gpu": False,
+            "nibabel_version": nibabel.__version__,
+        }
+    except ImportError:
+        modules["structural"] = {"available": False}
+        warnings.append("nibabel not installed (required for structural analysis)")
+
+    # fMRI availability (nilearn presence)
+    try:
+        import nilearn  # type: ignore[import-not-found]
+        modules["fmri"] = {
+            "available": True,
+            "networks_count": 17,
+            "nilearn_version": nilearn.__version__,
+        }
+    except ImportError:
+        modules["fmri"] = {"available": False}
+        warnings.append("nilearn not installed (required for fMRI analysis)")
+
+    # DTI/dMRI availability (dipy presence)
+    try:
+        import dipy  # type: ignore[import-not-found]
+        modules["dmri"] = {
+            "available": True,
+            "tracking_method": "deterministic",
+            "dipy_version": dipy.__version__,
+        }
+    except ImportError:
+        modules["dmri"] = {"available": False}
+        warnings.append("dipy not installed (required for dMRI analysis)")
+
+    # Registration availability (antspyx presence)
+    try:
+        import ants  # type: ignore[import-not-found]
+        modules["registration"] = {
+            "available": True,
+            "tool": "antspyx",
+            "version": ants.__version__,
+        }
+    except ImportError:
+        modules["registration"] = {"available": False}
+        warnings.append("antspyx not installed (required for registration)")
+
+    # Targeting availability (always available if pipeline available)
+    modules["targeting"] = {
+        "available": True,
+        "conditions_supported": ["mdd", "ptsd", "ocd", "chronic_pain"],
+    }
+
+    status = "ok" if not warnings else "degraded"
+
+    return _CapabilitiesOut(
+        status=status,
+        pipeline_version=pipeline_version,
+        modules=modules,
+        warnings=warnings,
+        last_checked_at=datetime.now(timezone.utc).isoformat(),
+    )

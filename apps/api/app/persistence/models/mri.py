@@ -220,3 +220,37 @@ class MedicalImageAsset(Base):
         DateTime(), default=lambda: datetime.now(timezone.utc), index=True
     )
     processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+
+
+class MriViewerState(Base):
+    """Per-user viewer state persistence for MRI analyses (Phase 2 feature).
+
+    Stores UI state (slice position, ROI visibility, overlay alpha, etc.) per
+    user × analysis combination, enabling resumable viewing sessions.
+
+    Added 2026-05-09 as part of MRI DeepDive Phase 2/4 (Backend + DB).
+    """
+
+    __tablename__ = "mri_viewer_states"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    analysis_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("mri_analyses.analysis_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    # Viewer state as JSON: {
+    #   "slice_index": {"x": 100, "y": 100, "z": 50},
+    #   "roi_visibility": {"atlas": true, "custom_roi": false},
+    #   "overlay_alpha": 0.7,
+    #   "active_modality": "structural",
+    #   "crosshair_enabled": true
+    # }
+    state_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    __table_args__ = (UniqueConstraint("analysis_id", "user_id", name="uq_mri_viewer_state"),)
