@@ -11295,7 +11295,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     };
   }
 
-  el.innerHTML =
+  document.getElementById('content').innerHTML =
     '<div class="dv2-hub-shell reports-v2-workspace" style="padding:20px;display:flex;flex-direction:column;gap:12px">' +
     MODULE_STRIP_HTML +
     REPORTS_V2_SAFETY_HTML +
