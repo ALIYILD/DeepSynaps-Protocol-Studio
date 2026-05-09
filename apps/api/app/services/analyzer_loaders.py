@@ -801,6 +801,173 @@ appropriate but never name specific parameter changes.
 """
 
 
+# ── Biometrics ───────────────────────────────────────────────────────────────
+
+
+def load_biometrics(analysis_id: str, db: Any) -> Optional[AnalyzerPayload]:
+    """analysis_id is patient_id."""
+    from app.persistence.models import BiometricsSnapshot
+
+    rows = (
+        db.query(BiometricsSnapshot)
+        .filter_by(patient_id=analysis_id)
+        .order_by(BiometricsSnapshot.recorded_at.desc())
+        .limit(60)
+        .all()
+    )
+    if not rows:
+        return None
+
+    def _avg(name: str) -> Optional[float]:
+        vals = [getattr(r, name) for r in rows if getattr(r, name) is not None]
+        if not vals:
+            return None
+        return round(sum(vals) / len(vals), 2)
+
+    features = {
+        "snapshot_count": len(rows),
+        "averages": {
+            "heart_rate_bpm": _avg("heart_rate_bpm"),
+            "hrv_ms": _avg("hrv_ms"),
+            "spo2_pct": _avg("spo2_pct"),
+            "stress_score": _avg("stress_score"),
+            "sleep_hours_last_night": _avg("sleep_hours_last_night"),
+            "steps_today": _avg("steps_today"),
+        },
+        "recent_snapshots": [
+            {
+                "recorded_at": r.recorded_at.isoformat() if r.recorded_at else None,
+                "source": r.source,
+                "hr_bpm": r.heart_rate_bpm,
+                "hrv_ms": r.hrv_ms,
+                "spo2": r.spo2_pct,
+                "bp": (
+                    f"{r.blood_pressure_sys}/{r.blood_pressure_dia}"
+                    if r.blood_pressure_sys and r.blood_pressure_dia
+                    else None
+                ),
+                "stress": r.stress_score,
+                "sleep_hours": r.sleep_hours_last_night,
+                "steps": r.steps_today,
+            }
+            for r in rows[:14]
+        ],
+    }
+    # Also expose a sparkline-friendly array of HR samples for the PDF chart.
+    hr_series = [r.heart_rate_bpm for r in reversed(rows) if r.heart_rate_bpm is not None]
+    charts: list[dict[str, Any]] = []
+    if hr_series:
+        charts.append(
+            {
+                "kind": "sparkline",
+                "label": "Heart rate (bpm) — chronological",
+                "data": hr_series[-30:],
+            }
+        )
+    return AnalyzerPayload(
+        patient_id=analysis_id,
+        analyzer_type="biometrics",
+        analysis_id=analysis_id,
+        title="Biometrics Decision Support",
+        summary_features=features,
+        flagged_conditions=[],
+        charts=charts,
+        metadata={"snapshot_count": len(rows)},
+    )
+
+
+BIOMETRICS_PROMPT = DECISION_SUPPORT_PREAMBLE + """
+DOMAIN: Wearable / vital-sign biometrics review (heart rate, HRV, SpO2,
+blood pressure, stress score, sleep, steps). Cover: trend direction,
+abnormal-value flags (resting HR > 100 / < 50, SpO2 < 94, BP > 140/90,
+HRV collapse, sleep < 6 h sustained), data-coverage caveats. Note that
+wearable data is research-grade, not medical-device-grade unless the
+device is explicitly marked as such.
+"""
+
+
+# ── Medication ───────────────────────────────────────────────────────────────
+
+
+def load_medication(analysis_id: str, db: Any) -> Optional[AnalyzerPayload]:
+    """analysis_id is patient_id."""
+    from app.persistence.models import (
+        PatientMedication,
+        MedicationInteractionLog,
+    )
+
+    meds = (
+        db.query(PatientMedication)
+        .filter_by(patient_id=analysis_id)
+        .order_by(PatientMedication.created_at.desc())
+        .limit(40)
+        .all()
+    )
+    interactions = (
+        db.query(MedicationInteractionLog)
+        .filter_by(patient_id=analysis_id)
+        .order_by(MedicationInteractionLog.created_at.desc())
+        .limit(5)
+        .all()
+    )
+    if not meds and not interactions:
+        return None
+
+    active = [m for m in meds if m.active]
+    inactive = [m for m in meds if not m.active]
+
+    features = {
+        "active_count": len(active),
+        "inactive_count": len(inactive),
+        "active_medications": [
+            {
+                "name": m.name,
+                "generic_name": m.generic_name,
+                "drug_class": m.drug_class,
+                "dose": m.dose,
+                "frequency": m.frequency,
+                "route": m.route,
+                "indication": m.indication,
+                "started_at": m.started_at,
+                "notes": _safe_str(m.notes, 200),
+            }
+            for m in active[:20]
+        ],
+        "recent_interaction_logs": [
+            {
+                "severity_summary": il.severity_summary,
+                "checked_at": il.created_at.isoformat() if il.created_at else None,
+                "interactions": _maybe_json(il.interactions_found_json) or [],
+            }
+            for il in interactions
+        ],
+    }
+    flagged = []
+    for il in interactions:
+        if (il.severity_summary or "").lower() in {"moderate", "severe"}:
+            flagged.append(f"interaction:{il.severity_summary}")
+    return AnalyzerPayload(
+        patient_id=analysis_id,
+        analyzer_type="medication",
+        analysis_id=analysis_id,
+        title="Medication Decision Support",
+        summary_features=features,
+        flagged_conditions=flagged,
+        charts=[],
+        metadata={"active_count": len(active), "inactive_count": len(inactive)},
+    )
+
+
+MEDICATION_PROMPT = DECISION_SUPPORT_PREAMBLE + """
+DOMAIN: Medication review for neuropsychiatric care. Cover: current
+regimen complexity, drug-drug interactions, anticholinergic burden,
+serotonergic-load risk, contraindications with planned neuromodulation
+(e.g., bupropion + TMS seizure-threshold lowering). Flag any moderate /
+severe interaction logs as key findings. NEVER suggest a specific dose
+change — only "consider clinical review of <regimen aspect>".
+"""
+
+
 # ── Registration ─────────────────────────────────────────────────────────────
 
 
@@ -864,6 +1031,18 @@ def register_all(register: Any) -> None:
         "deeptwin",
         loader=load_deeptwin,
         system_prompt=DEEPTWIN_PROMPT,
+        rag_modalities=[],
+    )
+    register(
+        "biometrics",
+        loader=load_biometrics,
+        system_prompt=BIOMETRICS_PROMPT,
+        rag_modalities=[],
+    )
+    register(
+        "medication",
+        loader=load_medication,
+        system_prompt=MEDICATION_PROMPT,
         rag_modalities=[],
     )
     register(

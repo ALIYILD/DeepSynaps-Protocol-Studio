@@ -35,15 +35,41 @@
 
 set -euo pipefail
 
-PIPELINE_DIR="${PIPELINE_DIR:-$HOME/DeepSynaps-Protocol-Studio/services/evidence-pipeline}"
-EVIDENCE_DB_PATH="${EVIDENCE_DB_PATH:-$PIPELINE_DIR/neuromodulation_evidence_2026-04-29_v4.db}"
+# CRON_WORKTREE is the dedicated repo checkout the LaunchAgent invokes from.
+# Pinned to origin/main so concurrent sessions in the primary repo checkout
+# can't break the cron by switching branches. Local DB lives outside the
+# worktree (see EVIDENCE_DB_PATH below) so it survives `git checkout`.
+CRON_WORKTREE="${CRON_WORKTREE:-$HOME/.deepsynaps-cron}"
+PIPELINE_DIR="${PIPELINE_DIR:-$CRON_WORKTREE/services/evidence-pipeline}"
+EVIDENCE_DB_PATH="${EVIDENCE_DB_PATH:-$HOME/DeepSynaps-Protocol-Studio/services/evidence-pipeline/neuromodulation_evidence_2026-04-29_v4.db}"
 ENRICH_BATCH="${ENRICH_BATCH:-10000}"
 ROUTE_TOP="${ROUTE_TOP:-1000}"
 LOCK_DIR="${LOCK_DIR:-${TMPDIR:-/tmp}/deepsynaps-evidence-enrichment.lock}"
+# macOS keychain trust roots (corporate MITM that intercepts CTGOV/EuropePMC
+# at certain hours rejected default certifi at 01:04 BST 2026-05-09; system
+# keychain has the org root pre-installed).
+SSL_CERT_FILE="${SSL_CERT_FILE:-/etc/ssl/cert.pem}"
 
-export EVIDENCE_DB_PATH
+export EVIDENCE_DB_PATH SSL_CERT_FILE
 
 ts() { date +"%Y-%m-%dT%H:%M:%S%z"; }
+
+# ---------------------------------------------------------------------------
+# Refresh the pinned worktree to the latest origin/main BEFORE the lockfile
+# guard. If origin/main has new wrapper / script changes, this picks them up
+# without anyone touching the LaunchAgent.
+#
+# Why an explicit HTTPS URL instead of `origin`: a concurrent session in
+# the primary checkout can switch the remote to git@github.com:... (SSH).
+# launchd jobs run without ssh-agent so SSH auth fails. Hardcoding the
+# read-only HTTPS URL bypasses that — public repo, fetch-only, no creds.
+# ---------------------------------------------------------------------------
+CRON_HTTPS_URL="${CRON_HTTPS_URL:-https://github.com/ALIYILD/DeepSynaps-Protocol-Studio.git}"
+if [[ -d "$CRON_WORKTREE/.git" || -f "$CRON_WORKTREE/.git" ]]; then
+    git -C "$CRON_WORKTREE" fetch "$CRON_HTTPS_URL" main:refs/remotes/origin/main --quiet || true
+    # Detached-HEAD checkout — no branch state to clash with concurrent sessions.
+    git -C "$CRON_WORKTREE" checkout --quiet origin/main || true
+fi
 
 # ---------------------------------------------------------------------------
 # Atomic single-instance guard. mkdir is the macOS-portable atomic op.
@@ -148,39 +174,39 @@ trap 'rmdir "$LOCK_DIR" 2>/dev/null || true; [[ -n "${CAFFEINATE_PID:-}" ]] && k
 
 # 1. EuropePMC main pass
 CURRENT_STEP="europepmc-enrich"
-echo "[$(ts)] step 1/9 enrich_abstracts.py --limit $ENRICH_BATCH (europepmc)"
+echo "[$(ts)] step 1/10 enrich_abstracts.py --limit $ENRICH_BATCH (europepmc)"
 python3 enrich_abstracts.py --limit "$ENRICH_BATCH"
 
 # 2. PubMed retry of europepmc:not_found
 CURRENT_STEP="pubmed-retry"
-echo "[$(ts)] step 2/9 enrich_abstracts.py --retry-not-found (pubmed)"
+echo "[$(ts)] step 2/10 enrich_abstracts.py --retry-not-found (pubmed)"
 python3 enrich_abstracts.py --retry-not-found --limit "$ENRICH_BATCH"
 
 # 3. CrossRef retry of pubmed:not_found
 CURRENT_STEP="crossref-retry"
-echo "[$(ts)] step 3/9 enrich_abstracts.py --retry-with-crossref"
+echo "[$(ts)] step 3/10 enrich_abstracts.py --retry-with-crossref"
 python3 enrich_abstracts.py --retry-with-crossref --limit "$ENRICH_BATCH"
 
 # 4. OpenAlex retry of crossref:not_found
 CURRENT_STEP="openalex-retry"
-echo "[$(ts)] step 4/9 enrich_abstracts.py --retry-with-openalex"
+echo "[$(ts)] step 4/10 enrich_abstracts.py --retry-with-openalex"
 python3 enrich_abstracts.py --retry-with-openalex --limit "$ENRICH_BATCH"
 
 # 5. re-route paper_indications (clears existing rows for each slug + reroutes)
 CURRENT_STEP="route-indications"
-echo "[$(ts)] step 5/9 route_indications.py --clear --top $ROUTE_TOP"
+echo "[$(ts)] step 5/10 route_indications.py --clear --top $ROUTE_TOP"
 python3 route_indications.py --clear --top "$ROUTE_TOP"
 
 # 6. re-extract paper-derived protocols. Trial extraction is a no-op
 #    here — interventions_json doesn't change between runs.
 CURRENT_STEP="extract-paper-protocols"
-echo "[$(ts)] step 6/9 extract_protocols.py --source papers"
+echo "[$(ts)] step 6/10 extract_protocols.py --source papers"
 python3 extract_protocols.py --source papers
 
 # 7. scan paper abstracts for NCT IDs and bridge papers ↔ trials.
 #    Idempotent (PRIMARY KEY on paper_id, nct_id) so re-runs are cheap.
 CURRENT_STEP="link-papers-to-trials"
-echo "[$(ts)] step 7/9 link_papers_to_trials.py"
+echo "[$(ts)] step 7/10 link_papers_to_trials.py"
 python3 link_papers_to_trials.py
 
 # 8. self-heal unresolved links: fetch the actual CTGOV records for any
@@ -188,14 +214,21 @@ python3 link_papers_to_trials.py
 #    new trial typically resolves 2-3 paper edges (papers often cite the
 #    same trial). Capped per cycle so a 2h tick stays bounded.
 CURRENT_STEP="ingest-missing-trials"
-echo "[$(ts)] step 8/9 ingest_missing_trials.py --limit 100"
+echo "[$(ts)] step 8/10 ingest_missing_trials.py --limit 100"
 python3 ingest_missing_trials.py --limit 100
 
 # 9. re-extract trial-derived protocols now that step 8 may have added
 #    new trials with rich interventions_json.
 CURRENT_STEP="extract-trial-protocols"
-echo "[$(ts)] step 9/9 extract_protocols.py --source trials --all-trials"
+echo "[$(ts)] step 9/10 extract_protocols.py --source trials --all-trials"
 python3 extract_protocols.py --source trials --all-trials
+
+# 10. recompute dynamic evidence grades from junction-table counts.
+#     Runs AFTER routing (step 5) so paper_indications is current.
+#     Single SQL pass -- cheap even on 9k+ junction rows.
+CURRENT_STEP="compute-indication-grades"
+echo "[$(ts)] step 10/10 compute_indication_grades.py"
+python3 compute_indication_grades.py
 
 CURRENT_STEP="health-summary"
 
@@ -214,6 +247,20 @@ SELECT
   (SELECT COUNT(*) FROM protocols)                                             AS protocols_total,
   (SELECT COUNT(*) FROM protocols WHERE source_type='paper')                   AS protocols_from_papers,
   (SELECT COUNT(*) FROM protocols WHERE confidence='high')                     AS protocols_high_conf;
+SQL
+
+# Grade distribution summary
+echo "[$(ts)] GRADE DISTRIBUTION"
+sqlite3 "$EVIDENCE_DB_PATH" <<'SQL'
+.mode column
+.headers on
+SELECT
+  COALESCE(computed_evidence_grade, 'null') AS grade,
+  COUNT(*)                                  AS indications,
+  GROUP_CONCAT(slug, ', ')                  AS slugs
+FROM indications
+GROUP BY computed_evidence_grade
+ORDER BY grade;
 SQL
 
 echo "[$(ts)] enrichment cycle done"

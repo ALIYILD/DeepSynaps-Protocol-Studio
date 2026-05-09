@@ -185,6 +185,7 @@ from app.routers.team_router import router as team_router
 from app.routers.preferences_router import router as preferences_router
 from app.routers.data_privacy_router import router as data_privacy_router
 from app.routers.risk_stratification_router import router as risk_stratification_router
+from app.routers.risk_analyzer_router import router as risk_analyzer_router
 from app.routers.qeeg_analysis_router import router as qeeg_analysis_router
 from app.routers.analyzer_ai_report_router import router as analyzer_ai_report_router
 from app.routers.qeeg_live_router import router as qeeg_live_router
@@ -206,6 +207,7 @@ from app.routers.deeptwin_neuroai_lab_router import router as deeptwin_neuroai_l
 from app.routers.feature_store_router import router as feature_store_router
 from app.routers.citation_validator_router import router as citation_validator_router
 from app.routers.ai_health_router import router as ai_health_router
+from app.routers.agent_brain_router import router as agent_brain_router
 from app.routers.command_center_router import router as command_center_router
 from app.routers.dashboard_router import router as dashboard_router
 from app.routers.schedules_router import router as schedules_router
@@ -639,6 +641,7 @@ app.include_router(team_router)
 app.include_router(preferences_router)
 app.include_router(data_privacy_router)
 app.include_router(risk_stratification_router)
+app.include_router(risk_analyzer_router)
 app.include_router(qeeg_analysis_router)
 app.include_router(analyzer_ai_report_router)
 app.include_router(qeeg_live_router)
@@ -664,6 +667,7 @@ app.include_router(admin_pgvector_router)
 app.include_router(feature_store_router)
 app.include_router(citation_validator_router)
 app.include_router(ai_health_router)
+app.include_router(agent_brain_router)
 app.include_router(command_center_router)
 app.include_router(schedules_router)
 app.include_router(dashboard_router)
