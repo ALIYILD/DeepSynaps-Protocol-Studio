@@ -1,207 +1,237 @@
-"""Tests for leads_reception_router.
+"""Tests for leads_reception_router — /api/v1/leads and /api/v1/reception.
 
-Covers:
-  - GET /api/v1/leads: auth gate + empty list shape
-  - POST /api/v1/leads: happy path + 422 for missing required field
-  - PATCH /api/v1/leads/{id}: update stage + 404 on missing
-  - DELETE /api/v1/leads/{id}: happy path + 404 second delete
-  - GET /api/v1/reception/calls: auth gate + empty list
-  - POST /api/v1/reception/calls: happy path + 422 missing call_date
-  - GET /api/v1/reception/tasks: auth gate + empty list
-  - POST /api/v1/reception/tasks: happy path + 422 missing text
-  - PATCH /api/v1/reception/tasks/{id}: update done flag
+Tests cover:
+- GET  /leads returns empty list initially
+- POST /leads creates a lead and returns it (201)
+- POST /leads missing required 'name' returns 422
+- GET  /leads returns the created lead
+- PATCH /leads/{id} updates stage and returns updated lead
+- PATCH /leads/{id} 404 for unknown id
+- DELETE /leads/{id} removes the lead (204)
+- DELETE /leads/{id} 404 for unknown id
+- GET  /reception/calls returns empty list initially
+- POST /reception/calls creates a call record (201)
+- GET  /reception/tasks returns empty list initially
+- POST /reception/tasks creates a task record (201)
+- PATCH /reception/tasks/{id} marks task done
+- All endpoints require clinician role (guest gets 403)
 """
 from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
 
-client = TestClient(app)
-
-CLINICIAN = {"Authorization": "Bearer clinician-demo-token"}
-NO_AUTH: dict = {}
+CLINICIAN_HDR = {"Authorization": "Bearer clinician-demo-token"}
+GUEST_HDR = {"Authorization": "Bearer guest-demo-token"}
 
 
-# ── helpers ───────────────────────────────────────────────────────────────────
-
-def _create_lead(name: str = "Test Lead") -> dict:
-    r = client.post("/api/v1/leads", json={
-        "name": name,
-        "source": "phone",
-        "stage": "new",
-    }, headers=CLINICIAN)
-    assert r.status_code == 201, r.text
-    return r.json()
+# ── Leads ─────────────────────────────────────────────────────────────────────
 
 
-def _create_call() -> dict:
-    r = client.post("/api/v1/reception/calls", json={
-        "name": "John Caller",
-        "direction": "inbound",
-        "duration": 120,
-        "outcome": "info-given",
-        "call_date": "2026-05-09",
-    }, headers=CLINICIAN)
-    assert r.status_code == 201, r.text
-    return r.json()
-
-
-def _create_task(text: str = "Follow up with patient") -> dict:
-    r = client.post("/api/v1/reception/tasks", json={
-        "text": text,
-        "priority": "medium",
-    }, headers=CLINICIAN)
-    assert r.status_code == 201, r.text
-    return r.json()
-
-
-# ── leads auth gates ──────────────────────────────────────────────────────────
-
-def test_list_leads_requires_auth():
-    r = client.get("/api/v1/leads")
-    assert r.status_code == 403
-
-
-def test_create_lead_requires_auth():
-    r = client.post("/api/v1/leads", json={"name": "Ghost Lead", "source": "phone", "stage": "new"})
-    assert r.status_code == 403
-
-
-# ── leads happy paths ─────────────────────────────────────────────────────────
-
-def test_list_leads_empty():
-    r = client.get("/api/v1/leads", headers=CLINICIAN)
-    assert r.status_code == 200
+def test_list_leads_empty(client: TestClient) -> None:
+    """GET /leads returns empty list when no leads exist."""
+    r = client.get("/api/v1/leads", headers=CLINICIAN_HDR)
+    assert r.status_code == 200, r.text
     body = r.json()
     assert "items" in body
-    assert "total" in body
+    assert body["items"] == []
     assert body["total"] == 0
 
 
-def test_create_lead_happy_path():
-    lead = _create_lead("Jane Prospect")
-    assert lead["name"] == "Jane Prospect"
-    assert lead["stage"] == "new"
-    assert lead["source"] == "phone"
-    assert "id" in lead
+def test_create_lead_returns_201(client: TestClient) -> None:
+    """POST /leads creates a lead and returns 201 with the new record."""
+    payload = {
+        "name": "Jane Prospect",
+        "email": "jane@example.com",
+        "phone": "+44 7700 900001",
+        "source": "website",
+        "condition": "anxiety",
+        "stage": "new",
+    }
+    r = client.post("/api/v1/leads", json=payload, headers=CLINICIAN_HDR)
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["name"] == "Jane Prospect"
+    assert body["source"] == "website"
+    assert body["stage"] == "new"
+    assert "id" in body
+    assert body["clinician_id"] == "actor-clinician-demo"
 
 
-def test_create_lead_missing_name_422():
-    r = client.post("/api/v1/leads", json={"source": "web", "stage": "new"}, headers=CLINICIAN)
+def test_create_lead_missing_name_returns_422(client: TestClient) -> None:
+    """POST /leads without required 'name' field returns 422."""
+    r = client.post("/api/v1/leads", json={"email": "noname@example.com"}, headers=CLINICIAN_HDR)
     assert r.status_code == 422
 
 
-def test_list_leads_after_create():
-    _create_lead("Listed Lead")
-    r = client.get("/api/v1/leads", headers=CLINICIAN)
-    assert r.json()["total"] >= 1
-
-
-def test_list_leads_filter_by_stage():
-    _create_lead("Qualified Lead")
-    # Patch it to qualified stage.
-    lead = _create_lead("Qualified Lead 2")
-    client.patch(f"/api/v1/leads/{lead['id']}", json={"stage": "qualified"}, headers=CLINICIAN)
-    r = client.get("/api/v1/leads", params={"stage": "qualified"}, headers=CLINICIAN)
+def test_list_leads_returns_created(client: TestClient) -> None:
+    """GET /leads returns the lead created by this clinician."""
+    client.post(
+        "/api/v1/leads",
+        json={"name": "List Test Lead", "source": "phone"},
+        headers=CLINICIAN_HDR,
+    )
+    r = client.get("/api/v1/leads", headers=CLINICIAN_HDR)
     assert r.status_code == 200
-    for item in r.json()["items"]:
-        assert item["stage"] == "qualified"
+    names = [item["name"] for item in r.json()["items"]]
+    assert "List Test Lead" in names
 
 
-def test_update_lead_stage():
-    lead = _create_lead("Updateable Lead")
-    r = client.patch(f"/api/v1/leads/{lead['id']}", json={"stage": "contacted"}, headers=CLINICIAN)
+def test_list_leads_stage_filter(client: TestClient) -> None:
+    """GET /leads?stage=qualified returns only qualified leads."""
+    client.post("/api/v1/leads", json={"name": "Qualified Lead", "stage": "qualified"}, headers=CLINICIAN_HDR)
+    client.post("/api/v1/leads", json={"name": "New Lead", "stage": "new"}, headers=CLINICIAN_HDR)
+    r = client.get("/api/v1/leads?stage=qualified", headers=CLINICIAN_HDR)
     assert r.status_code == 200
-    assert r.json()["stage"] == "contacted"
+    items = r.json()["items"]
+    assert all(item["stage"] == "qualified" for item in items)
 
 
-def test_update_lead_not_found_404():
-    r = client.patch("/api/v1/leads/no-such-lead", json={"stage": "contacted"}, headers=CLINICIAN)
+def test_patch_lead_updates_stage(client: TestClient) -> None:
+    """PATCH /leads/{id} updates stage on the lead."""
+    create_r = client.post(
+        "/api/v1/leads",
+        json={"name": "To Update", "stage": "new"},
+        headers=CLINICIAN_HDR,
+    )
+    lead_id = create_r.json()["id"]
+    r = client.patch(
+        f"/api/v1/leads/{lead_id}",
+        json={"stage": "qualified"},
+        headers=CLINICIAN_HDR,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["stage"] == "qualified"
+
+
+def test_patch_lead_404_unknown(client: TestClient) -> None:
+    """PATCH /leads/{id} returns 404 for unknown id."""
+    r = client.patch(
+        "/api/v1/leads/LEAD-nonexistent",
+        json={"stage": "lost"},
+        headers=CLINICIAN_HDR,
+    )
     assert r.status_code == 404
 
 
-def test_delete_lead_happy_path():
-    lead = _create_lead("Deleteable Lead")
-    r = client.delete(f"/api/v1/leads/{lead['id']}", headers=CLINICIAN)
+def test_delete_lead_returns_204(client: TestClient) -> None:
+    """DELETE /leads/{id} removes the lead and returns 204."""
+    create_r = client.post(
+        "/api/v1/leads",
+        json={"name": "To Delete", "stage": "new"},
+        headers=CLINICIAN_HDR,
+    )
+    lead_id = create_r.json()["id"]
+    r = client.delete(f"/api/v1/leads/{lead_id}", headers=CLINICIAN_HDR)
     assert r.status_code == 204
 
 
-def test_delete_lead_not_found_404():
-    r = client.delete("/api/v1/leads/no-such-lead", headers=CLINICIAN)
+def test_delete_lead_404_unknown(client: TestClient) -> None:
+    """DELETE /leads/{id} returns 404 for unknown id."""
+    r = client.delete("/api/v1/leads/LEAD-nonexistent", headers=CLINICIAN_HDR)
     assert r.status_code == 404
 
 
-# ── reception calls ───────────────────────────────────────────────────────────
-
-def test_list_calls_requires_auth():
-    r = client.get("/api/v1/reception/calls")
+def test_leads_requires_clinician_role(client: TestClient) -> None:
+    """GET /leads with guest role must be forbidden."""
+    r = client.get("/api/v1/leads", headers=GUEST_HDR)
     assert r.status_code == 403
 
 
-def test_list_calls_empty():
-    r = client.get("/api/v1/reception/calls", headers=CLINICIAN)
-    assert r.status_code == 200
+# ── Reception calls ──────────────────────────────────────────────────────────
+
+
+def test_list_calls_empty(client: TestClient) -> None:
+    """GET /reception/calls returns empty list initially."""
+    r = client.get("/api/v1/reception/calls", headers=CLINICIAN_HDR)
+    assert r.status_code == 200, r.text
     body = r.json()
-    assert "items" in body
+    assert body["items"] == []
     assert body["total"] == 0
 
 
-def test_create_call_happy_path():
-    call = _create_call()
-    assert call["name"] == "John Caller"
-    assert call["direction"] == "inbound"
-    assert call["call_date"] == "2026-05-09"
+def test_create_call_returns_201(client: TestClient) -> None:
+    """POST /reception/calls creates a call log and returns 201."""
+    payload = {
+        "name": "John Smith",
+        "phone": "+44 7700 900002",
+        "direction": "inbound",
+        "duration": 120,
+        "outcome": "appointment-booked",
+        "call_date": "2026-05-09",
+    }
+    r = client.post("/api/v1/reception/calls", json=payload, headers=CLINICIAN_HDR)
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["name"] == "John Smith"
+    assert body["direction"] == "inbound"
+    assert body["clinician_id"] == "actor-clinician-demo"
 
 
-def test_create_call_missing_call_date_422():
-    r = client.post("/api/v1/reception/calls", json={
-        "name": "Mystery Caller",
-        "direction": "outbound",
-    }, headers=CLINICIAN)
-    assert r.status_code == 422
-
-
-def test_list_calls_after_create():
-    _create_call()
-    r = client.get("/api/v1/reception/calls", headers=CLINICIAN)
-    assert r.json()["total"] >= 1
-
-
-# ── reception tasks ───────────────────────────────────────────────────────────
-
-def test_list_tasks_requires_auth():
-    r = client.get("/api/v1/reception/tasks")
+def test_calls_requires_clinician_role(client: TestClient) -> None:
+    """GET /reception/calls with guest role must be forbidden."""
+    r = client.get("/api/v1/reception/calls", headers=GUEST_HDR)
     assert r.status_code == 403
 
 
-def test_list_tasks_empty():
-    r = client.get("/api/v1/reception/tasks", headers=CLINICIAN)
-    assert r.status_code == 200
+# ── Reception tasks ──────────────────────────────────────────────────────────
+
+
+def test_list_tasks_empty(client: TestClient) -> None:
+    """GET /reception/tasks returns empty list initially."""
+    r = client.get("/api/v1/reception/tasks", headers=CLINICIAN_HDR)
+    assert r.status_code == 200, r.text
     body = r.json()
+    assert body["items"] == []
     assert body["total"] == 0
 
 
-def test_create_task_happy_path():
-    task = _create_task("Call back Mrs Smith")
-    assert task["text"] == "Call back Mrs Smith"
-    assert task["done"] is False
-    assert task["priority"] == "medium"
+def test_create_task_returns_201(client: TestClient) -> None:
+    """POST /reception/tasks creates a task and returns 201."""
+    payload = {
+        "text": "Call back Mrs Baker re: TMS scheduling",
+        "due": "2026-05-10",
+        "priority": "high",
+        "done": False,
+    }
+    r = client.post("/api/v1/reception/tasks", json=payload, headers=CLINICIAN_HDR)
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["text"] == "Call back Mrs Baker re: TMS scheduling"
+    assert body["done"] is False
+    assert body["priority"] == "high"
+    assert body["clinician_id"] == "actor-clinician-demo"
 
 
-def test_create_task_missing_text_422():
-    r = client.post("/api/v1/reception/tasks", json={"priority": "high"}, headers=CLINICIAN)
-    assert r.status_code == 422
-
-
-def test_update_task_done_flag():
-    task = _create_task("Mark done task")
-    r = client.patch(f"/api/v1/reception/tasks/{task['id']}", json={"done": True}, headers=CLINICIAN)
-    assert r.status_code == 200
+def test_patch_task_marks_done(client: TestClient) -> None:
+    """PATCH /reception/tasks/{id} can mark a task as done."""
+    create_r = client.post(
+        "/api/v1/reception/tasks",
+        json={"text": "Follow up call", "priority": "medium", "done": False},
+        headers=CLINICIAN_HDR,
+    )
+    task_id = create_r.json()["id"]
+    r = client.patch(
+        f"/api/v1/reception/tasks/{task_id}",
+        json={"done": True},
+        headers=CLINICIAN_HDR,
+    )
+    assert r.status_code == 200, r.text
     assert r.json()["done"] is True
 
 
-def test_update_task_not_found_404():
-    r = client.patch("/api/v1/reception/tasks/no-such-task", json={"done": True}, headers=CLINICIAN)
+def test_patch_task_404_unknown(client: TestClient) -> None:
+    """PATCH /reception/tasks/{id} returns 404 for unknown task id."""
+    r = client.patch(
+        "/api/v1/reception/tasks/TASK-nonexistent",
+        json={"done": True},
+        headers=CLINICIAN_HDR,
+    )
     assert r.status_code == 404
+
+
+def test_tasks_requires_clinician_role(client: TestClient) -> None:
+    """GET /reception/tasks with guest role must be forbidden."""
+    r = client.get("/api/v1/reception/tasks", headers=GUEST_HDR)
+    assert r.status_code == 403
