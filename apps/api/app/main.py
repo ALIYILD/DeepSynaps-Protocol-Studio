@@ -271,6 +271,7 @@ from app.services.brain_targets import (
     list_brain_targets,
 )
 from app.services.agent_scheduler import shutdown_scheduler, start_scheduler
+from app.services.demo_clinic_seed import seed_demo_clinic
 from app.workers.auto_page_worker import (
     shutdown_worker as shutdown_auto_page_worker,
     start_worker_if_enabled as start_auto_page_worker,
