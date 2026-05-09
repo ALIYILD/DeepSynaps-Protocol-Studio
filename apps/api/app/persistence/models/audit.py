@@ -42,10 +42,10 @@ class AuditEventRecord(Base):
     __tablename__ = "audit_events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    event_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    event_id: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     target_id: Mapped[str] = mapped_column(String(64), index=True)
     target_type: Mapped[str] = mapped_column(String(32), index=True)
-    action: Mapped[str] = mapped_column(String(32), index=True)
+    action: Mapped[str] = mapped_column(String(255), index=True)
     role: Mapped[str] = mapped_column(String(32), index=True)
     actor_id: Mapped[str] = mapped_column(String(64), index=True)
     note: Mapped[str] = mapped_column(Text())

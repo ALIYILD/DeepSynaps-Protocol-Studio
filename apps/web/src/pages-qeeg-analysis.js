@@ -8,6 +8,7 @@
 //   4. Compare          — pre/post comparison
 // ─────────────────────────────────────────────────────────────────────────────
 import { api, downloadBlob, API_BASE } from './api.js';
+import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { renderBrainMap10_20, renderTopoHeatmap, renderConnectivityMatrix, renderConnectivityBrainMap, renderConnectivityChordLite, renderICAComponents, renderWaveletHeatmap, renderChannelQualityMap, renderAsymmetryMap, renderPowerBarChart, renderTBRBarChart, renderSignalDeviationChart, renderBiomarkerGauges, renderBrodmannTable, render3DBrainMap, render3DBrainMapMini } from './brain-map-svg.js';
 import { emptyState, showToast, spark } from './helpers.js';
 import { DK_LOBES, groupROIsByLobe, formatDKLabel } from './qeeg-dk-atlas.js';
@@ -4860,6 +4861,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   pageHtml += _qeegClinicalSafetyFooter();
   pageHtml += '</div>';
   el.innerHTML = pageHtml;
+  ensureAgentBrainStatus(el);
   _wireQEEGTabKeyboard();
   _qeegRestoreScroll(tab);
 
