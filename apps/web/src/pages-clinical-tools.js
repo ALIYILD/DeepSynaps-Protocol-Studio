@@ -9337,7 +9337,32 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
       ? (BMP_PROTO_LABELS[bmpState.protoId] || bmpState.protoId)
       : (bmpState.region || 'custom');
     try {
-      const res = await api.saveProtocol({
+      // Build the plan artifact (structured format for new brain_map_plans API)
+      const artifact = _bmpBuildPlanArtifact();
+      
+      // Try new brain map plans API first (Phase 3 backend).
+      let res;
+      try {
+        const apiObj = window._api || window.api;
+        if (apiObj && typeof apiObj.createBrainMapPlan === 'function') {
+          res = await apiObj.createBrainMapPlan(artifact);
+          if (res?.id) {
+            try { localStorage.setItem('ds_bmp_saved_id', String(res.id)); } catch (_) {}
+            window._showNotifToast?.({
+              title:'Brain map plan saved',
+              body:'Plan saved to backend (ID: ' + res.id.slice(0, 8) + '). Clinician review required.',
+              severity:'success',
+            });
+            _bmpAudit('plan_save_success', { plan_id: res.id, demo: !!artifact.demo_stamp });
+            return;
+          }
+        }
+      } catch (apiErr) {
+        console.warn('[brainmap] createBrainMapPlan API not available or failed; falling back to saveProtocol:', apiErr?.message);
+      }
+      
+      // Fallback: use existing saveProtocol (governance-gated protocol)
+      res = await api.saveProtocol({
         patient_id: patientId,
         name: 'Planner · ' + (BMP_PROTO_LABELS[bmpState.protoId] || bmpState.region || bmpState.selectedSite || 'custom montage'),
         condition: conditionId,
@@ -9359,12 +9384,14 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
         body:'Planner draft saved as governed protocol record for patient ' + patientId + ' — clinician review still required.',
         severity:'success',
       });
+      _bmpAudit('plan_save_success', { method: 'saveProtocol', id: res?.id });
     } catch (e) {
       window._showNotifToast?.({
         title:'Save failed',
         body:(e?.message || 'backend offline') + ' — local plan preserved.',
         severity:'warn',
       });
+      _bmpAudit('plan_save_failed', { error: e?.message });
     }
   };
 
