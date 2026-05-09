@@ -6247,6 +6247,34 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body || {}),
     }),
+
+  // ── Brain Map Planner (Phase 3/4 frontend wiring) ──────────────────────────
+  // 6 methods for CRUD + audit + protocol suggestion on brain map plans.
+  // Backend routes on /api/v1/brain-map/plans* per Phase 2 implementation.
+  // All methods use standard token auth + demo-mode short-circuit.
+  createBrainMapPlan: (artifact) =>
+    apiFetch('/api/v1/brain-map/plans', {
+      method: 'POST',
+      body: JSON.stringify(artifact || {}),
+    }),
+  getBrainMapPlan: (planId) =>
+    apiFetch(`/api/v1/brain-map/plans/${encodeURIComponent(planId)}`),
+  listBrainMapPlans: (patientId, limit = 50) =>
+    apiFetch(
+      `/api/v1/brain-map/plans?patient_id=${encodeURIComponent(patientId)}&limit=${encodeURIComponent(limit)}`,
+    ),
+  updateBrainMapPlanStatus: (planId, status, notes) =>
+    apiFetch(`/api/v1/brain-map/plans/${encodeURIComponent(planId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, notes: notes || null }),
+    }),
+  getBrainMapPlanAudit: (planId) =>
+    apiFetch(`/api/v1/brain-map/plans/${encodeURIComponent(planId)}/audit`),
+  suggestProtocolsFromQEEGReport: (report) =>
+    apiFetch('/api/v1/qeeg/suggest-protocols', {
+      method: 'POST',
+      body: JSON.stringify(report || {}),
+    }),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).
