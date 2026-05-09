@@ -51,6 +51,55 @@ class SalesInquiry(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), index=True)
 
 
+class FounderDashTask(Base):
+    """Founder-command task routed across personal, company, product, and governance boards."""
+
+    __tablename__ = "founder_dash_tasks"
+    __table_args__ = (
+        Index("ix_founder_dash_tasks_actor_board_updated", "actor_id", "board", "updated_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    actor_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_role: Mapped[str] = mapped_column(String(32), nullable=False, default="clinician")
+    board: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    system: Mapped[str] = mapped_column(String(64), nullable=False)
+    owner: Mapped[str] = mapped_column(String(128), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="dash", index=True)
+    priority: Mapped[str] = mapped_column(String(16), nullable=False, default="routine", index=True)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="todo", index=True)
+    route_reason: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+
+
+class FounderDashSystemEvent(Base):
+    """Bridge events from Hermes, OpenClaw, Paperclip, and Telegram ingress."""
+
+    __tablename__ = "founder_dash_system_events"
+    __table_args__ = (
+        Index("ix_founder_dash_system_events_actor_created", "actor_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    actor_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    source_system: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    event_kind: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    board: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, index=True)
+    owner: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    detail: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    related_task_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), index=True)
+
+
 # ── Leads & Reception Models ─────────────────────────────────────────────────
 
 class ClinicLead(Base):
