@@ -92,4 +92,54 @@ py-modules = []
 [dependency-groups]
 dev = [
     "pytest-asyncio>=1.3.0",
+    "pytest-cov>=5.0.0",
+    "pytest-timeout>=2.3.0",
 ]
+
+# ────────────────────────────────────────────────────────────────────────────
+# Coverage config (pytest-cov / coverage.py).
+#
+# Run with:
+#   cd apps/api && python -m pytest --cov --cov-report=term-missing \
+#       --cov-report=xml --cov-report=html
+#
+# Or via Make:
+#   make test-coverage-api
+#
+# `fail_under` starts at the measured baseline + 5 (Phase 1) and is lifted
+# toward 90 in Phase 7 once Backend API Coverage Agent (Phase 3) has shipped.
+# Do NOT lower this to mask regressions — investigate the regression instead.
+# See docs/test-coverage-plan.md for the full lift schedule.
+# ────────────────────────────────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["app"]
+branch = true
+parallel = true
+omit = [
+    "app/__main__.py",
+    "tests/*",
+    "alembic/*",
+    "**/__pycache__/*",
+    # Demo data seed scripts are exercised by integration tests, not unit
+    # tests; the data files themselves are static.
+    "app/data/seeds/*.json",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+# Phase 1 baseline gate. Raise per Phase 7 of docs/test-coverage-plan.md.
+fail_under = 60
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "raise AssertionError",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+[tool.coverage.xml]
+output = "coverage.xml"

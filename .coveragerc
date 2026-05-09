@@ -1,0 +1,39 @@
+# Shared coverage.py config used by all Python packages and apps.
+#
+# Used via:
+#   pytest --cov=<pkg> --cov-config=<repo_root>/.coveragerc ...
+#
+# Per-app local config (apps/api/pyproject.toml, apps/worker/pyproject.toml)
+# overrides this. This file is the default for packages/* runs that don't
+# define their own coverage block.
+
+[run]
+branch = true
+parallel = true
+omit =
+    tests/*
+    **/__pycache__/*
+    **/_gen_*.py
+    setup.py
+    conftest.py
+    */alembic/*
+    */migrations/*
+
+[report]
+show_missing = True
+skip_covered = False
+exclude_lines =
+    pragma: no cover
+    raise NotImplementedError
+    if TYPE_CHECKING:
+    if __name__ == .__main__.:
+    raise AssertionError
+
+# Phase 1 baseline gate — see docs/test-coverage-plan.md for the lift schedule.
+fail_under = 60
+
+[html]
+directory = htmlcov
+
+[xml]
+output = coverage.xml

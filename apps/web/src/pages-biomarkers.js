@@ -3,6 +3,7 @@
  * patient-linked biomarker workspace. Two tabs: Reference and Patient Workspace.
  */
 import { api } from './api.js';
+import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 import { NEURO_BIOMARKER_REFERENCE } from './neuro-biomarker-data.js';
@@ -585,6 +586,7 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
         <div style="padding:28px;text-align:center;color:var(--text-tertiary)">Loading...</div>
       </div>
     </div>`;
+  ensureAgentBrainStatus(el);
 
   // ── Patient workspace state ──
   let patients = [];

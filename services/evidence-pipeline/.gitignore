@@ -8,5 +8,8 @@ neuromodulation_evidence_*.db-wal
 neuromodulation_evidence_*.db-shm
 ingest.log
 
+# FDA decision-summary PDF cache (extract_protocols.py --source devices)
+.fda_summaries/
+
 # Local env overrides
 .env

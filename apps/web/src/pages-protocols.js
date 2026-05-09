@@ -11,6 +11,7 @@ import { renderLiveEvidencePanel } from './live-evidence.js';
 import { renderPersonalizationWizard, bindPersonalizationActions } from './protocol-personalization-wizard.js';
 import { mountMedicalImageCard } from './medical-image-card.js';
 import { api } from './api.js';
+import { ensureAgentBrainStatus } from './agent-brain-status.js';
 
 // Normalise a /api/v1/registry/protocols row into the shape pgProtocolSearch
 // renders (matches PROTOCOL_LIBRARY entries). Keeps the backend as the
@@ -458,6 +459,7 @@ export async function pgProtocolSearch(setTopbar, navigate, opts = {}) {
           </div>
         </div>
       </div>`;
+    ensureAgentBrainStatus(el);
 
     // Live evidence panel — queries services/evidence-pipeline. Scoped to the
     // current search query so doctors see the same keywords surface real

@@ -50,6 +50,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
@@ -76,6 +77,36 @@ DEFAULT_LIMIT = 10_000      # top-N papers to target
 DEFAULT_SLEEP = 1.0         # seconds between batch requests
 MAX_CONSECUTIVE_429 = 3     # abort after this many back-to-back rate-limits
 REQUEST_TIMEOUT = 40        # seconds
+
+# ---------------------------------------------------------------------------
+# PubMed E-utilities efetch (fallback for EuropePMC misses)
+# ---------------------------------------------------------------------------
+# Without an API key, NCBI allows ~3 req/sec. We sleep 0.4s between batches.
+# Batch size is intentionally smaller than EuropePMC because efetch returns
+# a richer XML payload per PMID — paying for both bandwidth and parse time.
+PUBMED_EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+PUBMED_BATCH = 50
+PUBMED_SLEEP = 0.4
+
+# ---------------------------------------------------------------------------
+# CrossRef + OpenAlex (3rd / 4th tier fallbacks, DOI-keyed)
+# ---------------------------------------------------------------------------
+# Both APIs are per-record (no batch endpoint), so the inner loop calls them
+# one DOI at a time. Polite-pool conventions:
+#   - mailto in User-Agent → CrossRef puts the request in the polite pool;
+#     OpenAlex bumps it to a higher rate limit.
+#   - 0.1s sleep between requests = ~10 req/sec, well within both APIs'
+#     polite limits even without a registered token.
+#
+# CrossRef returns abstracts as JATS XML embedded in the JSON `abstract` field.
+# OpenAlex returns `abstract_inverted_index`: a {word: [positions]} map that we
+# reconstruct back to a flat string.
+CROSSREF_WORK_URL = "https://api.crossref.org/works/"      # + DOI
+OPENALEX_WORK_URL = "https://api.openalex.org/works/doi:"   # + DOI
+DOI_API_SLEEP = 0.1
+DOI_API_USER_AGENT = (
+    "DeepSynaps-Studio-evidence-pipeline/1.0 (mailto:dr.aliyildirim123@gmail.com)"
+)
 
 
 def _europepmc_batch(pmids: list[str]) -> dict[str, str]:
@@ -115,6 +146,138 @@ def _europepmc_batch(pmids: list[str]) -> dict[str, str]:
     return out
 
 
+def _pubmed_efetch_batch(pmids: list[str]) -> dict[str, str]:
+    """Query NCBI E-utilities efetch for a batch of PMIDs. Returns {pmid: abstract}.
+
+    Used as the second-tier fallback for papers that EuropePMC marked
+    'europepmc:not_found'. PubMed has broader MEDLINE coverage than the
+    EuropePMC mirror — particularly for older / non-PMC papers.
+
+    Returns only PMIDs that resolved AND had a non-empty AbstractText.
+    Multi-section abstracts are joined with ' | ' to preserve the structure
+    (Background / Methods / Results / Conclusion) in a single TEXT field.
+    """
+    if not pmids:
+        return {}
+
+    params = urllib.parse.urlencode(
+        {
+            "db": "pubmed",
+            "id": ",".join(pmids),
+            "rettype": "abstract",
+            "retmode": "xml",
+        }
+    )
+    url = f"{PUBMED_EFETCH_URL}?{params}"
+
+    with urllib.request.urlopen(url, timeout=REQUEST_TIMEOUT) as resp:
+        body = resp.read()
+
+    out: dict[str, str] = {}
+    try:
+        root = ET.fromstring(body)
+    except ET.ParseError as exc:
+        log.warning("pubmed efetch: XML parse error: %s", exc)
+        return out
+
+    for article in root.iter("PubmedArticle"):
+        pmid_el = article.find(".//PMID")
+        if pmid_el is None or not (pmid_el.text or "").strip():
+            continue
+        pmid = pmid_el.text.strip()
+        # AbstractText may be split into Background / Methods / Results sections.
+        sections: list[str] = []
+        for at in article.iter("AbstractText"):
+            label = (at.get("Label") or "").strip()
+            text = "".join(at.itertext()).strip()
+            if not text:
+                continue
+            sections.append(f"{label}: {text}" if label else text)
+        if sections:
+            out[pmid] = " | ".join(sections)
+    return out
+
+
+_JATS_TAG_RE = None  # lazy compile
+
+
+def _strip_jats_tags(text: str) -> str:
+    """CrossRef returns abstracts as JATS XML; strip the tags to plain text."""
+    global _JATS_TAG_RE
+    if _JATS_TAG_RE is None:
+        import re as _re
+        _JATS_TAG_RE = _re.compile(r"<[^>]+>")
+    cleaned = _JATS_TAG_RE.sub(" ", text)
+    return " ".join(cleaned.split()).strip()
+
+
+def _crossref_one(doi: str) -> str | None:
+    """Fetch one abstract from CrossRef by DOI. Returns plain text or None."""
+    url = CROSSREF_WORK_URL + urllib.parse.quote(doi, safe="")
+    req = urllib.request.Request(url, headers={"User-Agent": DOI_API_USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
+        return None
+    abstract = (payload.get("message", {}) or {}).get("abstract")
+    if not abstract:
+        return None
+    cleaned = _strip_jats_tags(abstract)
+    return cleaned or None
+
+
+def _openalex_one(doi: str) -> str | None:
+    """Fetch one abstract from OpenAlex by DOI. Reconstructs from inverted index."""
+    url = OPENALEX_WORK_URL + urllib.parse.quote(doi, safe="")
+    req = urllib.request.Request(url, headers={"User-Agent": DOI_API_USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
+        return None
+    inv = payload.get("abstract_inverted_index")
+    if not inv:
+        return None
+    # inv is {word: [positions]}; reconstruct to a flat string by position.
+    pos_to_word: dict[int, str] = {}
+    for word, positions in inv.items():
+        for p in positions:
+            pos_to_word[p] = word
+    if not pos_to_word:
+        return None
+    text = " ".join(pos_to_word[i] for i in sorted(pos_to_word))
+    return text.strip() or None
+
+
+def _crossref_batch(dois: list[str]) -> dict[str, str]:
+    """Per-record CrossRef calls with polite sleep. Returns {doi: abstract}."""
+    out: dict[str, str] = {}
+    for i, doi in enumerate(dois):
+        if not doi:
+            continue
+        text = _crossref_one(doi)
+        if text:
+            out[doi] = text
+        if i + 1 < len(dois):
+            time.sleep(DOI_API_SLEEP)
+    return out
+
+
+def _openalex_batch(dois: list[str]) -> dict[str, str]:
+    """Per-record OpenAlex calls with polite sleep. Returns {doi: abstract}."""
+    out: dict[str, str] = {}
+    for i, doi in enumerate(dois):
+        if not doi:
+            continue
+        text = _openalex_one(doi)
+        if text:
+            out[doi] = text
+        if i + 1 < len(dois):
+            time.sleep(DOI_API_SLEEP)
+    return out
+
+
 def _ensure_abstract_source_column(conn) -> None:
     """Add abstract_source column if the migration has not been applied yet."""
     cols = {row[1] for row in conn.execute("PRAGMA table_info(papers)")}
@@ -147,6 +310,50 @@ def select_candidates(conn, limit: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def select_not_found_candidates(conn, limit: int) -> list[dict]:
+    """Rows that EuropePMC couldn't find — retry against PubMed efetch.
+
+    Targets `abstract_source = 'europepmc:not_found'`, ordered by citation
+    count so the most-impactful papers are tried first.
+    """
+    rows = conn.execute(
+        """
+        SELECT id, pmid, doi, cited_by_count
+        FROM   papers
+        WHERE  (abstract IS NULL OR abstract = '')
+          AND  abstract_source = 'europepmc:not_found'
+          AND  pmid IS NOT NULL
+        ORDER BY cited_by_count DESC NULLS LAST
+        LIMIT  ?
+        """,
+        (limit,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def select_by_source_marker(conn, marker: str, limit: int, require_doi: bool = False) -> list[dict]:
+    """Generic selector for papers tagged with a specific not-found marker.
+
+    Used for the DOI-keyed 3rd/4th tier passes:
+      marker='pubmed:not_found'   → CrossRef pass
+      marker='crossref:not_found' → OpenAlex pass
+    """
+    extra = "AND doi IS NOT NULL AND doi != ''" if require_doi else ""
+    rows = conn.execute(
+        f"""
+        SELECT id, pmid, doi, cited_by_count
+        FROM   papers
+        WHERE  (abstract IS NULL OR abstract = '')
+          AND  abstract_source = ?
+          {extra}
+        ORDER BY cited_by_count DESC NULLS LAST
+        LIMIT  ?
+        """,
+        (marker, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def select_curated_candidates(conn) -> list[dict]:
     """Return all paper_indications-linked papers with no abstract (not yet attempted).
 
@@ -174,12 +381,26 @@ def _run_enrichment_loop(
     batch_size: int,
     sleep_seconds: float,
     label: str = "batch",
+    fetch_fn=None,
+    source: str = "europepmc",
+    id_field: str = "pmid",
 ) -> dict[str, Any]:
     """Shared inner loop — processes `candidates` and writes results to DB.
+
+    `fetch_fn` defaults to `_europepmc_batch`. Pass alternatives:
+      - `_pubmed_efetch_batch` (id_field='pmid', source='pubmed')
+      - `_crossref_batch`      (id_field='doi',  source='crossref')
+      - `_openalex_batch`      (id_field='doi',  source='openalex')
+
+    `source` is the value written into papers.abstract_source on success;
+    the not-found marker becomes f"{source}:not_found". `id_field` selects
+    'pmid' or 'doi' as the lookup key in the candidate row dicts.
 
     Returns a summary dict with keys: targeted, enriched, not_found, errors,
     fill_rate_pct, stopped_early (bool).
     """
+    if fetch_fn is None:
+        fetch_fn = _europepmc_batch
     total = len(candidates)
     enriched = 0
     not_found = 0
@@ -191,22 +412,23 @@ def _run_enrichment_loop(
 
     for offset in range(0, total, batch_size):
         chunk = candidates[offset : offset + batch_size]
-        pmids = [str(r["pmid"]) for r in chunk]
-        pmid_to_id = {str(r["pmid"]): r["id"] for r in chunk}
+        ids = [str(r[id_field]) for r in chunk if r.get(id_field)]
+        id_to_paper_id = {str(r[id_field]): r["id"] for r in chunk if r.get(id_field)}
 
         batch_num += 1
         log.info(
-            "[%s] Batch %d/%d  papers %d-%d  (pmids: %d)",
+            "[%s] Batch %d/%d  papers %d-%d  (%ss: %d)",
             label,
             batch_num,
             total_batches,
             offset + 1,
             min(offset + batch_size, total),
-            len(pmids),
+            id_field,
+            len(ids),
         )
 
         try:
-            abstracts = _europepmc_batch(pmids)
+            abstracts = fetch_fn(ids)
             consecutive_429 = 0  # reset on success
         except urllib.error.HTTPError as exc:
             if exc.code == 429:
@@ -245,31 +467,31 @@ def _run_enrichment_loop(
             continue
 
         # Write results
-        for pmid in pmids:
-            paper_id = pmid_to_id[pmid]
-            abstract_text = abstracts.get(pmid)
+        for ident in ids:
+            paper_id = id_to_paper_id[ident]
+            abstract_text = abstracts.get(ident)
             if abstract_text:
                 conn.execute(
                     "UPDATE papers SET abstract = ?, abstract_source = ?, "
                     "last_ingested = datetime('now') WHERE id = ?",
-                    (abstract_text, "europepmc", paper_id),
+                    (abstract_text, source, paper_id),
                 )
                 enriched += 1
             else:
                 # Mark as attempted so a future re-run with a different source
                 # can target these; leave abstract NULL.
                 conn.execute(
-                    "UPDATE papers SET abstract_source = 'europepmc:not_found', "
+                    "UPDATE papers SET abstract_source = ?, "
                     "last_ingested = datetime('now') "
                     "WHERE id = ? AND (abstract IS NULL OR abstract = '')",
-                    (paper_id,),
+                    (f"{source}:not_found", paper_id),
                 )
                 not_found += 1
 
         log.info(
             "  -> found: %d / %d  (running: enriched=%d not_found=%d errors=%d)",
             len(abstracts),
-            len(pmids),
+            len(ids),
             enriched,
             not_found,
             errors,
@@ -500,6 +722,34 @@ def main() -> None:
         action="store_true",
         help="Print fill-rate report and sample rows without running enrichment.",
     )
+    ap.add_argument(
+        "--retry-not-found",
+        action="store_true",
+        help=(
+            "Retry papers EuropePMC marked 'not_found' against PubMed efetch. "
+            "PubMed has broader MEDLINE coverage (older / non-PMC papers). "
+            "Targets up to --limit rows; idempotent — papers that PubMed also "
+            "misses get marked 'pubmed:not_found' and won't be retried again."
+        ),
+    )
+    ap.add_argument(
+        "--retry-with-crossref",
+        action="store_true",
+        help=(
+            "Retry papers marked 'pubmed:not_found' against CrossRef (DOI-keyed). "
+            "Some publishers send abstracts to CrossRef but not EuropePMC/PubMed. "
+            "Marks the residual as 'crossref:not_found'."
+        ),
+    )
+    ap.add_argument(
+        "--retry-with-openalex",
+        action="store_true",
+        help=(
+            "Retry papers marked 'crossref:not_found' against OpenAlex. "
+            "OpenAlex stores abstracts as inverted indices that we reconstruct. "
+            "Marks the residual as 'openalex:not_found' — bottom of the funnel."
+        ),
+    )
     args = ap.parse_args()
 
     db_path = _db.resolve_db_path(args.db)
@@ -536,13 +786,95 @@ def main() -> None:
 
     # --- Enrich
     t0 = time.monotonic()
-    summary = enrich(
-        db_path,
-        limit=args.limit,
-        batch_size=args.batch,
-        sleep_seconds=args.sleep,
-        curated_first=args.curated_first,
-    )
+    if args.retry_not_found:
+        # PubMed efetch fallback for europepmc:not_found rows.
+        conn = _db.connect(db_path)
+        candidates = select_not_found_candidates(conn, args.limit)
+        log.info(
+            "PubMed fallback: %d papers marked 'europepmc:not_found' to retry "
+            "(--limit cap=%d).",
+            len(candidates),
+            args.limit,
+        )
+        if candidates:
+            summary = _run_enrichment_loop(
+                conn,
+                candidates,
+                batch_size=PUBMED_BATCH,
+                sleep_seconds=PUBMED_SLEEP,
+                label="pubmed-fallback",
+                fetch_fn=_pubmed_efetch_batch,
+                source="pubmed",
+            )
+        else:
+            summary = {"targeted": 0, "enriched": 0, "not_found": 0, "errors": 0,
+                       "fill_rate_pct": 0.0, "stopped_early": False}
+            log.info("PubMed fallback: nothing to do — no 'europepmc:not_found' rows.")
+        conn.close()
+    elif args.retry_with_crossref:
+        # CrossRef fallback for pubmed:not_found rows.
+        conn = _db.connect(db_path)
+        candidates = select_by_source_marker(
+            conn, marker="pubmed:not_found", limit=args.limit, require_doi=True
+        )
+        log.info(
+            "CrossRef fallback: %d papers marked 'pubmed:not_found' (with DOI) "
+            "to retry (--limit cap=%d).",
+            len(candidates),
+            args.limit,
+        )
+        if candidates:
+            summary = _run_enrichment_loop(
+                conn,
+                candidates,
+                batch_size=50,
+                sleep_seconds=DOI_API_SLEEP,
+                label="crossref-fallback",
+                fetch_fn=_crossref_batch,
+                source="crossref",
+                id_field="doi",
+            )
+        else:
+            summary = {"targeted": 0, "enriched": 0, "not_found": 0, "errors": 0,
+                       "fill_rate_pct": 0.0, "stopped_early": False}
+            log.info("CrossRef fallback: nothing to do.")
+        conn.close()
+    elif args.retry_with_openalex:
+        # OpenAlex fallback for crossref:not_found rows.
+        conn = _db.connect(db_path)
+        candidates = select_by_source_marker(
+            conn, marker="crossref:not_found", limit=args.limit, require_doi=True
+        )
+        log.info(
+            "OpenAlex fallback: %d papers marked 'crossref:not_found' (with DOI) "
+            "to retry (--limit cap=%d).",
+            len(candidates),
+            args.limit,
+        )
+        if candidates:
+            summary = _run_enrichment_loop(
+                conn,
+                candidates,
+                batch_size=50,
+                sleep_seconds=DOI_API_SLEEP,
+                label="openalex-fallback",
+                fetch_fn=_openalex_batch,
+                source="openalex",
+                id_field="doi",
+            )
+        else:
+            summary = {"targeted": 0, "enriched": 0, "not_found": 0, "errors": 0,
+                       "fill_rate_pct": 0.0, "stopped_early": False}
+            log.info("OpenAlex fallback: nothing to do.")
+        conn.close()
+    else:
+        summary = enrich(
+            db_path,
+            limit=args.limit,
+            batch_size=args.batch,
+            sleep_seconds=args.sleep,
+            curated_first=args.curated_first,
+        )
     elapsed = time.monotonic() - t0
     log.info("Enrichment complete in %.1f s: %s", elapsed, summary)
 

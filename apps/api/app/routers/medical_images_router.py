@@ -420,6 +420,49 @@ async def create_preview(
     }
     _write_sidecar(image_id, sidecar)
 
+    # Dual-write: persist a DB row alongside the sidecar (migration 098).
+    # Failure here is non-fatal — the sidecar is still on disk and the
+    # legacy file-based reader keeps working. The DB row is the fast
+    # indexed path for the report-context layer.
+    try:
+        from app.repositories.medical_images import upsert_medical_image_asset
+
+        clinic_id = None
+        if patient_id:
+            try:
+                exists, resolved_clinic_id = resolve_patient_clinic_id(db, patient_id)
+                if exists:
+                    clinic_id = resolved_clinic_id
+            except Exception:  # pragma: no cover — defensive
+                _log.exception("clinic-id resolve failed for patient %s", patient_id)
+
+        upsert_medical_image_asset(
+            db,
+            image_id=image_id,
+            patient_id=patient_id,
+            upload_id=upload_id,
+            filename=filename,
+            file_format=fmt,
+            storage_path=str(original_path),
+            status=preview.status,
+            error=preview.error,
+            metadata=preview.metadata.as_dict(),
+            preview_paths=sidecar["preview"],
+            warning_flags=list(preview.metadata.warnings or []),
+            clinician_imaging_note=None,
+            created_by=actor.actor_id,
+            created_by_role=actor.role,
+            clinic_id=clinic_id,
+            created_at=sidecar["created_at"],
+            processed_at=sidecar["processed_at"],
+        )
+    except Exception:  # pragma: no cover — never block on DB write
+        _log.exception(
+            "medical_image_asset DB upsert failed for %s; sidecar is the "
+            "authoritative record until backfill",
+            image_id,
+        )
+
     return _payload_from_sidecar(sidecar)
 
 
