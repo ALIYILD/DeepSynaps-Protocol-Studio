@@ -7,6 +7,7 @@
 
 import { DEMO_PATIENT_ROSTER, demoPtFromRoster } from './patient-dashboard-helpers.js';
 import { api } from './api.js';
+import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import {
   EvidenceChip,
   PatientEvidenceTab,
@@ -891,6 +892,7 @@ export async function pgPatientAnalyticsCohort(setTopbar) {
       </div>
     </div>
   </div>`;
+  ensureAgentBrainStatus(el);
 
   // wire row clicks
   el.querySelectorAll('.pa-cohort-row').forEach(row => {
@@ -953,6 +955,7 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
       <span class="pa-foot-live"><span class="pa-foot-dot"></span> ${evidenceContext.live ? 'Telemetry preview · evidence context live' : 'Demo preview'}</span>
     </footer>
   </div>`;
+  ensureAgentBrainStatus(el);
 
   initEvidenceDrawer({ patientId: id, onOpenFullTab: () => {
     window._paActiveTab = 'evidence';

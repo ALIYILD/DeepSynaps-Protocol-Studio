@@ -37,6 +37,7 @@ import {
 } from './deeptwin/components.js';
 import { decisionSupportBanner } from './deeptwin/safety.js';
 import { isDemoSession } from './demo-session.js';
+import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { VOICE_DEEPTWIN_DOMAIN_NOTE } from './voice-decision-support.js';
 import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
 import { buildReport, reportToMarkdown, reportToJSONString, downloadBlob, renderReportPreview } from './deeptwin/reports.js';
@@ -135,7 +136,10 @@ function _setMain(html) {
   // this app render to either #content or #main-content depending on
   // which router pass landed first. We try both.
   const el = document.getElementById('content') || document.getElementById('main-content');
-  if (el) el.innerHTML = html;
+  if (el) {
+    el.innerHTML = html;
+    ensureAgentBrainStatus(el);
+  }
   return el;
 }
 

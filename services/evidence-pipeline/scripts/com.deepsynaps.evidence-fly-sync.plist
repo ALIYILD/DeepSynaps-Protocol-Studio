@@ -35,13 +35,15 @@
     <array>
         <string>/bin/bash</string>
         <string>-c</string>
-        <string>$HOME/DeepSynaps-Protocol-Studio/services/evidence-pipeline/scripts/sync-evidence-db-to-fly.sh</string>
+        <string>$HOME/.deepsynaps-cron/services/evidence-pipeline/scripts/sync-evidence-db-to-fly.sh</string>
     </array>
 
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/Users/aliyildirim/.fly/bin</string>
+        <key>SSL_CERT_FILE</key>
+        <string>/etc/ssl/cert.pem</string>
     </dict>
 
     <key>StartCalendarInterval</key>
