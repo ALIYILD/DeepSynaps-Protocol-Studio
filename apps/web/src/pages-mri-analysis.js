@@ -15,6 +15,7 @@
 // the Fly API being online.
 // ─────────────────────────────────────────────────────────────────────────────
 import { api, downloadBlob, API_BASE } from './api.js';
+import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { emptyState, showToast } from './helpers.js';
 import { EvidenceChip, createEvidenceQueryForTarget, initEvidenceDrawer, openEvidenceDrawer, wireEvidenceChips } from './evidence-intelligence.js';
 import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
@@ -3487,6 +3488,7 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
         + '<div><div class="qeeg-hero__title">MRI analysis workspace</div>'
         + '<div class="qeeg-hero__sub">Disabled by feature flag.</div></div></div>'
         + renderRegulatoryFooter() + '</div>';
+      ensureAgentBrainStatus(el);
     }
     return;
   }
@@ -3551,6 +3553,7 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
       patientId: pid || (_report && _report.patient && _report.patient.patient_id) || null,
       patientAnalyses: patientAnalyses,
     });
+    ensureAgentBrainStatus(el);
     // Mount the shared analyzer AI report strip (decision support).
     // Row key: _mriAnalysisId (the canonical "current MRI analysis_id" used by
     // _dsExportFhir / exportFHIRBundle elsewhere in this file).

@@ -180,6 +180,7 @@ from .media import (
 )
 from .labs import LabsAnalyzerAudit, PatientLabResult
 from .mri import (
+    MedicalImageAsset,
     MriAnalysis,
     MriReportAudit,
     MriReportFinding,
