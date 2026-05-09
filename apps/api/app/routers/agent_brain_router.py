@@ -46,6 +46,7 @@ router = APIRouter(prefix="/api/v1/agent-brain", tags=["agent-brain"])
 _log = logging.getLogger(__name__)
 
 
+# core-schema-exempt: router-local response shape, never reused outside this module.
 class StatusResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
     service: str
@@ -57,6 +58,7 @@ class StatusResponse(BaseModel):
     providers: list[dict[str, Any]]
 
 
+# core-schema-exempt: router-local response shape, never reused outside this module.
 class ProvidersResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     items: list[ProviderManifest]
@@ -64,6 +66,8 @@ class ProvidersResponse(BaseModel):
     mvp: list[str] = Field(default_factory=lambda: list(MVP_PROVIDER_NAMES))
 
 
+# core-schema-exempt: router-local request shape; the canonical envelope is
+# `app.services.agent_brain.schemas.ProviderResponse`.
 class MemoryWriteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     note: str
