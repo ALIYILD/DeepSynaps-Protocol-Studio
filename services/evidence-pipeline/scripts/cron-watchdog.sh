@@ -29,9 +29,11 @@ export EVIDENCE_DB_PATH
 ts() { date +"%Y-%m-%dT%H:%M:%S%z"; }
 
 # Refresh the worktree (same as the enrichment wrapper) so cron-status.py is
-# always the latest version on origin/main.
+# always the latest version on origin/main. Explicit HTTPS URL — see
+# nightly-enrichment.sh for rationale (avoids SSH auth under launchd).
+CRON_HTTPS_URL="${CRON_HTTPS_URL:-https://github.com/ALIYILD/DeepSynaps-Protocol-Studio.git}"
 if [[ -d "$CRON_WORKTREE/.git" || -f "$CRON_WORKTREE/.git" ]]; then
-    git -C "$CRON_WORKTREE" fetch origin --quiet || true
+    git -C "$CRON_WORKTREE" fetch "$CRON_HTTPS_URL" main:refs/remotes/origin/main --quiet || true
     git -C "$CRON_WORKTREE" checkout --quiet origin/main || true
 fi
 

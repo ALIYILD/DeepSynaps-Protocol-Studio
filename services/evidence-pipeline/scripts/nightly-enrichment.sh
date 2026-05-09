@@ -58,9 +58,15 @@ ts() { date +"%Y-%m-%dT%H:%M:%S%z"; }
 # Refresh the pinned worktree to the latest origin/main BEFORE the lockfile
 # guard. If origin/main has new wrapper / script changes, this picks them up
 # without anyone touching the LaunchAgent.
+#
+# Why an explicit HTTPS URL instead of `origin`: a concurrent session in
+# the primary checkout can switch the remote to git@github.com:... (SSH).
+# launchd jobs run without ssh-agent so SSH auth fails. Hardcoding the
+# read-only HTTPS URL bypasses that — public repo, fetch-only, no creds.
 # ---------------------------------------------------------------------------
+CRON_HTTPS_URL="${CRON_HTTPS_URL:-https://github.com/ALIYILD/DeepSynaps-Protocol-Studio.git}"
 if [[ -d "$CRON_WORKTREE/.git" || -f "$CRON_WORKTREE/.git" ]]; then
-    git -C "$CRON_WORKTREE" fetch origin --quiet || true
+    git -C "$CRON_WORKTREE" fetch "$CRON_HTTPS_URL" main:refs/remotes/origin/main --quiet || true
     # Detached-HEAD checkout — no branch state to clash with concurrent sessions.
     git -C "$CRON_WORKTREE" checkout --quiet origin/main || true
 fi
