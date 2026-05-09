@@ -9470,6 +9470,25 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
         return '<div class="ch-empty">No documents linked to this ' + surfaceLabel.toLowerCase() + ' yet.' + surfaceHint +
           ' <button class="ch-btn-sm" style="margin-left:8px" onclick="window._docsClearDrillIn()">Clear filter</button></div>';
       }
+      if (drillInType && drillInId) {
+        const surfaceLabel = DRILL_IN_LABELS[drillInType] || drillInType;
+        let surfaceHint = '';
+        if (drillInType === 'clinical_trials') {
+          surfaceHint = ' Sponsor reports + ICFs land here once attached.';
+        } else if (drillInType === 'irb_manager') {
+          surfaceHint = ' Consent versions + protocol artefacts land here once attached.';
+        } else if (drillInType === 'quality_assurance') {
+          surfaceHint = ' QA finding artefacts land here once attached.';
+        } else if (drillInType === 'course_detail') {
+          surfaceHint = ' In-course session documents land here once attached.';
+        } else if (drillInType === 'adverse_events') {
+          surfaceHint = ' SAE narratives land here once attached.';
+        } else if (drillInType === 'reports_hub') {
+          surfaceHint = ' Supporting documents land here once attached.';
+        }
+        return '<div class="ch-empty">No documents linked to this ' + surfaceLabel.toLowerCase() + ' yet.' + surfaceHint +
+          ' <button class="ch-btn-sm" style="margin-left:8px" onclick="window._docsClearDrillIn()">Clear filter</button></div>';
+      }
       return '<div class="ch-empty">No documents yet. Upload the first one.</div>';
     }
     const esc = s => String(s==null?'':s).replace(/'/g,"\\'");
