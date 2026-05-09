@@ -302,11 +302,14 @@ SEED = [
         "modality": "BAT",
         "condition": "Heart failure (HFrEF)",
         "grade": "B",
-        "regulatory": "FDA-approved 2019",
+        "regulatory": "FDA-approved 2019 (P180050)",
         "pubmed_q": '(barostim[Title/Abstract] OR "baroreflex activation"[Title/Abstract]) AND ("heart failure"[Title/Abstract])',
-        "broad_q": '"baroreflex activation therapy"',
+        "broad_q": '"baroreflex activation therapy" "heart failure"',
         "trial_q": '"baroreflex activation"',
-        "fda_applicants": ["CVRx", "Barostim"],
+        "fda_applicants": ["CVRx"],
+        # DSR = "Stimulator, Carotid Sinus Nerve" (CVRx Barostim NEO / NEO2,
+        # P180050 + supplements). Class III. Verified 2026-05-09.
+        "product_codes": ["DSR"],
     },
     {
         "slug": "phrenic_central_apnea",
@@ -314,11 +317,15 @@ SEED = [
         "modality": "PNS",
         "condition": "Central sleep apnea",
         "grade": "A",
-        "regulatory": "FDA-approved 2017",
-        "pubmed_q": '("phrenic nerve stimulation"[Title/Abstract] OR Remede[Title/Abstract]) AND "central sleep"[Title/Abstract]',
-        "broad_q": '"phrenic nerve stimulation" "central sleep"',
-        "trial_q": '"phrenic nerve stimulation"',
+        "regulatory": "FDA-approved 2017 (P160039)",
+        "pubmed_q": '("phrenic nerve stimulation"[Title/Abstract] OR Remede[Title/Abstract] OR "transvenous phrenic"[Title/Abstract]) AND ("central sleep"[Title/Abstract] OR apnea[Title/Abstract])',
+        "broad_q": '"phrenic nerve stimulation" "central sleep apnea" Remede',
+        "trial_q": '"phrenic nerve stimulation" OR Remede',
         "fda_applicants": ["Respicardia", "ZOLL"],
+        # PSR = "Implanted Phrenic Nerve Stimulator For Central Sleep Apnea"
+        # (Respicardia / ZOLL Remede System, P160039). Class III.
+        # Verified 2026-05-09.
+        "product_codes": ["PSR"],
     },
     {
         "slug": "nerivio_migraine",
