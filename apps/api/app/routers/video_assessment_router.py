@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role, require_patient_owner
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.persistence.models import AuditEventRecord
 from app.repositories.video_assessments import Patient, User, VideoAssessmentSession
 from app.repositories.audit import (
     create_audit_event,
