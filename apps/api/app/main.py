@@ -643,6 +643,13 @@ app.include_router(clinical_trials_router)
 # (DEEPSYNAPS_CAREGIVER_DIGEST_ENABLED=1) honours a 24h per-caregiver
 # cooldown.
 app.include_router(caregiver_email_digest_router)
+# Audit Trail launch-audit (2026-04-30) — was previously included via
+# legacy main.py routes. The router carries its own filters, summary,
+# CSV / NDJSON exports, single-event detail, and audits its own reads.
+# A concurrent session reverted this include during PR #386's merge
+# storm; restoring it here so audit-trail surface tests pass and the
+# regulator transcript surface is reachable.
+app.include_router(audit_trail_router)
 # Settings API (scaffolded 024_settings_schema) — stubs; endpoints arrive in
 # follow-up subagents. Grouped together for discoverability.
 app.include_router(profile_router)
