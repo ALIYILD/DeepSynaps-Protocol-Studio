@@ -109,6 +109,13 @@ function stubGlobals() {
   global.fetch = async () => new Response(JSON.stringify({ items: [] }), {
     status: 200, headers: { 'Content-Type': 'application/json' },
   });
+  // pgProtocolHub fires _renderConditions() as a fire-and-forget async task.
+  // _renderConditions checks `document.getElementById('ps-tab-content')` and
+  // returns immediately when it is null.  Override getElementById so that any
+  // tab-content look-up returns null (bailing the async work early) while
+  // the 'content' element still exists so pgProtocolHub itself doesn't bail.
+  const _savedGetEl = global.document.getElementById.bind(global.document);
+  global.document.getElementById = (id) => (id === 'content' ? _savedGetEl(id) : null);
 }
 
 // ── Test suite ────────────────────────────────────────────────────────────────

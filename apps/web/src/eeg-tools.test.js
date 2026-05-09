@@ -25,10 +25,17 @@ before(() => {
     head: { appendChild() {} },
   };
 
-  // Patch navigator.clipboard if accessible; otherwise skip silently
+  // Patch navigator.clipboard if accessible; otherwise install a minimal stub.
+  // Node 20 does not define `navigator` at all; bare `navigator` in source code
+  // throws ReferenceError unless we add it to globalThis first.
   try {
     savedClipboard = globalThis.navigator?.clipboard;
-    if (globalThis.navigator && !globalThis.navigator.clipboard) {
+    if (!globalThis.navigator) {
+      // Node 20: navigator is completely absent — install a minimal stub so that
+      // `if (navigator.clipboard && navigator.clipboard.writeText)` in the
+      // production source doesn't throw ReferenceError.
+      globalThis.navigator = { clipboard: { writeText: () => Promise.resolve() } };
+    } else if (!globalThis.navigator.clipboard) {
       Object.defineProperty(globalThis.navigator, 'clipboard', {
         value: { writeText: () => Promise.resolve() },
         configurable: true,
@@ -50,9 +57,12 @@ before(() => {
 
 after(() => {
   globalThis.document = savedDocument;
-  // Restore clipboard if we patched it
+  // Restore navigator: if we installed a full stub, remove it; otherwise restore clipboard only.
   try {
-    if (globalThis.navigator && savedClipboard !== undefined) {
+    if (savedClipboard === undefined && globalThis.navigator && globalThis.navigator.clipboard) {
+      // We injected the entire navigator object — remove it
+      delete globalThis.navigator;
+    } else if (globalThis.navigator && savedClipboard !== undefined) {
       Object.defineProperty(globalThis.navigator, 'clipboard', {
         value: savedClipboard,
         configurable: true,
