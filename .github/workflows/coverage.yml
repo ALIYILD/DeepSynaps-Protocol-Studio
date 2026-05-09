@@ -241,7 +241,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-asyncio pytest-cov pytest-timeout
+          # celery is needed by mri-pipeline tests/test_worker_celery.py;
+          # mri-pipeline declares it under [api] extras but the matrix step
+          # installs without extras, so add it to the base test deps here.
+          pip install pytest pytest-asyncio pytest-cov pytest-timeout celery
           # Install all in-repo deepsynaps-* packages first so pip can resolve
           # intra-repo dependencies (e.g. generation-engine → render-engine,
           # safety-engine) from local checkouts rather than failing to find
