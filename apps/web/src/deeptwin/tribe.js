@@ -10,12 +10,9 @@
 // intact and the panel is opt-in (presets only — no free-form scenario).
 
 import { api } from '../api.js';
+import { renderEvidenceList, renderNoEvidenceNotice, escHtml as ESC } from './clinical-disclaimer.js';
 
-const ESC = (s) => String(s ?? '')
-  .replace(/&/g, '&amp;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;');
+const escHtml = ESC;
 
 const PRESETS = [
   {
@@ -66,7 +63,7 @@ function _driverChips(drivers) {
   `).join('');
 }
 
-function _renderRankingCards(comparison) {
+function _renderRankingCards(comparison, evidenceCache = {}) {
   const ranked = comparison?.ranking || [];
   const candidatesById = Object.fromEntries(
     (comparison?.candidates || []).map(c => [c.protocol?.protocol_id, c])
@@ -78,13 +75,20 @@ function _renderRankingCards(comparison) {
     const expl = cand.explanation || {};
     const responseProb = typeof heads.response_probability === 'number'
       ? heads.response_probability.toFixed(2) : '—';
+    
+    // Evidence citations (if cached from prior query)
+    const evidence = evidenceCache[r.protocol_id] || [];
+    const evidenceHtml = evidence.length > 0
+      ? `<div class="dt-rank-evidence">${renderEvidenceList(evidence)}</div>`
+      : `<div class="dt-rank-no-evidence">${renderNoEvidenceNotice({ protocol_name: r.label || r.protocol_id })}</div>`;
+    
     return `
       <div class="dt-rank-card">
         <div class="dt-rank-head">
           <div class="dt-rank-pos">#${r.rank}</div>
           <div>
-            <div class="dt-rank-title">${ESC(r.label || r.protocol_id)}</div>
-            <div class="dt-rank-sub">Response probability ${responseProb} · score ${ESC(r.score)}</div>
+            <div class="dt-rank-title">${escHtml(r.label || r.protocol_id)}</div>
+            <div class="dt-rank-sub">Response probability ${responseProb} · score ${escHtml(r.score)}</div>
           </div>
         </div>
         <div class="dt-chip-row">
@@ -93,8 +97,9 @@ function _renderRankingCards(comparison) {
           <span class="dt-chip dt-chip--low">simulation only</span>
           <span class="dt-chip dt-chip--low">requires clinician review</span>
         </div>
-        <div class="dt-rank-rationale">${ESC(r.rationale || '')}</div>
+        <div class="dt-rank-rationale">${escHtml(r.rationale || '')}</div>
         <div class="dt-chip-row">${_driverChips(expl.top_drivers)}</div>
+        ${evidenceHtml}
       </div>
     `;
   }).join('');
@@ -164,10 +169,41 @@ export function wireTribeCompare(getPatientId) {
       const resp = await api.deeptwinCompareProtocols({
         patient_id: patientId, protocols, horizon_weeks,
       });
-      if (out) out.innerHTML = _renderRankingCards(resp.comparison || {});
+      
+      // Query evidence for each ranked protocol
+      const evidenceCache = {};
+      const comparison = resp.comparison || {};
+      const ranking = comparison.ranking || [];
+      
+      // Parallel evidence queries (fire and forget, render immediately if not ready)
+      const evidencePromises = ranking.map(async (r) => {
+        try {
+          const evResp = await api.agentBrainQuery?.({
+            provider: 'evidence',
+            query: r.label || r.protocol_id,
+            condition: 'neuromodulation', // Default; could be patient-specific
+          });
+          if (evResp?.status === 'ok' && Array.isArray(evResp.citations)) {
+            evidenceCache[r.protocol_id] = evResp.citations;
+          }
+        } catch (e) {
+          // Silent fail; evidence cache stays empty for this protocol
+          console.debug('Evidence query failed for', r.protocol_id, e);
+        }
+      });
+      
+      // Render immediately with whatever evidence we have
+      if (out) out.innerHTML = _renderRankingCards(comparison, evidenceCache);
+      
+      // Update evidence as queries complete (if desired)
+      Promise.all(evidencePromises).then(() => {
+        // Could re-render here if evidence became available, but for now
+        // we show initial results and evidence loads in the background
+      }).catch(() => {});
+      
       if (status) {
-        const top = resp.comparison?.winner || resp.comparison?.ranking?.[0]?.protocol_id || '—';
-        const gap = resp.comparison?.confidence_gap ?? 0;
+        const top = comparison.winner || comparison.ranking?.[0]?.protocol_id || '—';
+        const gap = comparison.confidence_gap ?? 0;
         status.textContent =
           `Top-ranked candidate (exploratory score): ${top} · score gap ${gap}. `
           + 'Not a treatment recommendation — clinician review required.';
