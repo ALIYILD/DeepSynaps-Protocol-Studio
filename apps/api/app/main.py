@@ -570,6 +570,13 @@ app.include_router(clinician_digest_router)
 # enable via escalation_chains.auto_page_enabled; process-wide enable
 # via DEEPSYNAPS_AUTO_PAGE_ENABLED=1 env var.
 app.include_router(auto_page_worker_router)
+# Channel Misconfiguration Detector launch-audit (2026-05-01). Closes
+# section I rec from the Clinic Caregiver Channel Override (#387).
+# Nightly scan that walks every CaregiverDigestPreference row, evaluates
+# adapter_available per row, and emits HIGH-priority audit rows so the
+# Clinician Inbox aggregator surfaces channel misconfigs without the
+# admin having to manually open the "Caregiver channels" tab.
+app.include_router(channel_misconfiguration_detector_router)
 # Escalation Policy Editor (2026-05-01) — admin-only configurable
 # dispatch order + per-surface override matrix + per-user contact mapping.
 # Replaces the hard-coded DEFAULT_ADAPTER_ORDER and contact_handle path
