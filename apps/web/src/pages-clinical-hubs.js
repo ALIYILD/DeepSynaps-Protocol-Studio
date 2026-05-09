@@ -5270,6 +5270,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     const r = _schedRole();
     return ['clinician', 'admin', 'superadmin'].includes(r);
   }
+  const schedCanMutate = _schedCanMutate();
 
   function sessionToEvent(s) {
     const scheduledAt = s.scheduled_at || (s.date && s.time ? (s.date + 'T' + s.time) : '');
