@@ -10,6 +10,7 @@ import {
 } from './video-assessment-protocol.js';
 import { showToast } from './helpers.js';
 import { api } from './api.js';
+import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { isDemoSession } from './demo-session.js';
 import { currentUser } from './auth.js';
 import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
@@ -2116,6 +2117,7 @@ function _render() {
     ${esc(DISCLAIMER)}
   </div></div>
 </div>`;
+  ensureAgentBrainStatus(el);
 
   // Mount the shared analyzer AI report strip (decision support).
   // Row key: _vaSession.id — the canonical VideoAssessmentSession.id used by
