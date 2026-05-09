@@ -81,6 +81,34 @@ if [[ "$INTEGRITY" != "ok" ]]; then
     exit 1
 fi
 
+# ── Coherent snapshot ─────────────────────────────────────────────────────
+# 2026-05-09 incident: a previous sync produced a corrupted staging file on
+# prod ("*** in database main ***" from PRAGMA integrity_check) because the
+# sftp uploaded the live .db while another process (compute_indication_grades.py)
+# was writing to it. The page snapshot was inconsistent across sftp's read.
+#
+# Fix: take a coherent point-in-time copy via sqlite3's `.backup` (uses the
+# online backup API, which is safe under concurrent writers — it holds the
+# correct locks per-page). The snapshot is what we sftp; the live DB stays
+# untouched. Trap guarantees the snapshot is removed even on early exit.
+SNAPSHOT_PATH="${EVIDENCE_DB_PATH}.sync-snapshot"
+log "creating coherent snapshot at $SNAPSHOT_PATH (immune to concurrent writes)..."
+rm -f "$SNAPSHOT_PATH"
+trap 'rm -f "$SNAPSHOT_PATH"' EXIT INT TERM
+sqlite3 "$EVIDENCE_DB_PATH" ".backup '$SNAPSHOT_PATH'" 2>&1
+if [[ ! -f "$SNAPSHOT_PATH" ]]; then
+    log "ERROR: snapshot creation failed — $SNAPSHOT_PATH not produced"
+    exit 1
+fi
+SNAPSHOT_INTEGRITY="$(sqlite3 "$SNAPSHOT_PATH" 'PRAGMA integrity_check;' | head -1 | tr -d '[:space:]')"
+if [[ "$SNAPSHOT_INTEGRITY" != "ok" ]]; then
+    log "ERROR: snapshot integrity_check returned: $SNAPSHOT_INTEGRITY"
+    exit 1
+fi
+EVIDENCE_DB_PATH="$SNAPSHOT_PATH"
+LOCAL_BYTES="$(stat -f %z "$EVIDENCE_DB_PATH" 2>/dev/null || stat -c %s "$EVIDENCE_DB_PATH")"
+log "snapshot ready: $LOCAL_BYTES bytes, integrity=ok"
+
 LOCAL_PAPERS="$(sqlite3 "$EVIDENCE_DB_PATH" 'SELECT COUNT(*) FROM papers;')"
 LOCAL_INDICATIONS="$(sqlite3 "$EVIDENCE_DB_PATH" 'SELECT COUNT(*) FROM indications;')"
 LOCAL_PI="$(sqlite3 "$EVIDENCE_DB_PATH" 'SELECT COUNT(*) FROM paper_indications;')"
