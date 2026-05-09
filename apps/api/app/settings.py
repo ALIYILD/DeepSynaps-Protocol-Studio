@@ -121,6 +121,9 @@ class AppSettings(BaseModel):
     telegram_bot_username_patient: str = Field(default="")
     telegram_bot_username_clinician: str = Field(default="")
     telegram_sales_chat_id: str = Field(default="")
+    founder_dash_bridge_key: str = Field(default="")
+    founder_dash_bridge_actor_id: str = Field(default="")
+    founder_dash_bridge_actor_role: str = Field(default="admin")
 
     # Sentry
     sentry_dsn: str = Field(default="")
@@ -350,6 +353,9 @@ def load_settings() -> AppSettings:
                 "telegram_bot_username_patient": os.getenv("TELEGRAM_BOT_USERNAME_PATIENT", ""),
                 "telegram_bot_username_clinician": os.getenv("TELEGRAM_BOT_USERNAME_CLINICIAN", ""),
                 "telegram_sales_chat_id": os.getenv("TELEGRAM_SALES_CHAT_ID", ""),
+                "founder_dash_bridge_key": os.getenv("FOUNDER_DASH_BRIDGE_KEY", ""),
+                "founder_dash_bridge_actor_id": os.getenv("FOUNDER_DASH_BRIDGE_ACTOR_ID", ""),
+                "founder_dash_bridge_actor_role": os.getenv("FOUNDER_DASH_BRIDGE_ACTOR_ROLE", "admin"),
                 # Sentry
                 "sentry_dsn": os.getenv("SENTRY_DSN", ""),
                 # Anthropic
