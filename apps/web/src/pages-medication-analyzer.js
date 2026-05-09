@@ -6,6 +6,7 @@
  */
 
 import { api } from './api.js';
+import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 import { crossCheckMedNeuromod } from './medication-neuromod-rules.js';
@@ -585,6 +586,18 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
       <div id="ma-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px;flex-wrap:wrap"></div>
       <div id="ma-body"></div>
     </div>`;
+
+  if (!el.querySelector('[data-aar-strip="medication"]')) {
+    const _aarHost = document.createElement('div');
+    _aarHost.dataset.aarStrip = 'medication';
+    el.prepend(_aarHost);
+    mountAnalyzerAIReportStrip({
+      container: _aarHost,
+      analyzerType: 'medication',
+      getAnalysisId: () => activePatientId,
+      label: 'AI Decision Support',
+    });
+  }
 
   const $ = (id) => document.getElementById(id);
 

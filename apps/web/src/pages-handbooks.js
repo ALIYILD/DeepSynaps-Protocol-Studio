@@ -7,6 +7,7 @@
 import { HANDBOOK_DATA } from './handbooks-data.js';
 import { CONDITION_REGISTRY, PROTOCOL_REGISTRY, DEVICE_REGISTRY } from './registries.js';
 import { api } from './api.js';
+import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { currentUser } from './auth.js';
 
 // ── AI Handbook generator: state, mappings, helpers ──────────────────────────
@@ -1540,6 +1541,7 @@ function render() {
         ${renderRightRailV2(entry, sections)}
       </div>
     </div>`;
+  ensureAgentBrainStatus(_el);
 
   // Wire scroll-spy on the reading pane to highlight active TOC item
   const pane = document.getElementById('hb-reading-pane');
@@ -1582,6 +1584,7 @@ export async function pgHandbooks(setTopbar /*, navigate */) {
         <p style="line-height:1.6;margin:0 0 16px">Protocol and clinician handbook drafting is limited to clinical staff. For materials intended for you, use <strong style="color:${T.text1}">Documents</strong> or ask your care team.</p>
         <button type="button" class="btn btn-primary" onclick="window._navPatient('patient-portal')">Back to portal</button>
       </div>`;
+    ensureAgentBrainStatus(_el);
     return;
   }
 

@@ -47,13 +47,17 @@ MODALITY_PRODUCT_CODES = {
     "rTMS":   ["OBP"],
     "dTMS":   ["OBP"],
 
-    # MRgFUS (brain-only) — OYJ = "Stereotactic Ablation System, MR-Image Guided",
-    # QBV = "System, Image-Guided Neurosurgical Lesioning". Without this filter,
-    # an Insightec applicant search pulls in their pelvic / breast / prostate
-    # ultrasound systems (codes PLP, MOS) which are NOT neuromodulation.
-    "MRgFUS": ["OYJ", "QBV"],
+    # MRgFUS — codes pending manual verification at accessdata.fda.gov.
+    # The earlier OYJ/QBV mapping was wrong: openFDA classifies OYJ as
+    # "COLLECTION, ORAL FLUID" (DNA Genotek / Ancestry saliva kits) and QBV
+    # as "SYSTEM, PLATELET-RICH PLASMA" (Miracell bone-marrow concentration)
+    # — neither is MRgFUS Neuro. Until the correct Insightec Exablate Neuro
+    # product code is confirmed (P130002 / P130003 supplements), MRgFUS is
+    # treated as unverified so ingest.py skips applicant→FDA lookups.
+    # Cleanup history: fda_curation_log_2026-05-09.md +
+    # fda_curation_oyj_qbv_cleanup.sql.
 
-    # Unverified: RNS, DRG, SNM, PNS, tDCS, BAT, REN.
+    # Unverified: MRgFUS, RNS, DRG, SNM, PNS, tDCS, BAT, REN.
     # ingest.py skips FDA lookup for these until codes are confirmed.
 }
 

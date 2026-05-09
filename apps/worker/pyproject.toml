@@ -17,3 +17,40 @@ dependencies = [
 
 [tool.setuptools]
 py-modules = []
+
+[dependency-groups]
+dev = [
+    "pytest-cov>=5.0.0",
+    "pytest-timeout>=2.3.0",
+]
+
+# Worker tests must run in a SEPARATE pytest process from API tests because
+# both apps share the `app` Python package name. Coverage config is local to
+# this pyproject so `cd apps/worker && pytest --cov` produces a worker-only
+# report. Combined reports are stitched together by the CI workflow, not by
+# pytest itself.
+[tool.coverage.run]
+source = ["app"]
+branch = true
+parallel = true
+omit = [
+    "tests/*",
+    "**/__pycache__/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 60   # baseline; lifted in Phase 7
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+[tool.coverage.xml]
+output = "coverage.xml"

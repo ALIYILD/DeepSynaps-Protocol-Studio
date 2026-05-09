@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Cron staleness watchdog for the DeepSynaps evidence pipeline.
+
+  Fires every 30 minutes, calls cron-watchdog.sh, which calls
+  cron-status.py --json. If the enrichment cron hasn't had a successful
+  cycle in the last 4 hours (the default STALE_AFTER_HOURS), the watchdog
+  fires a macOS Notification Center alert via `osascript`.
+
+  Spam guard: only re-fires if 2h have passed since the last alert
+  (state file at $TMPDIR/deepsynaps-cron-watchdog.last-alert).
+
+  Install:
+    cp services/evidence-pipeline/scripts/com.deepsynaps.evidence-cron-watchdog.plist \
+       ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.deepsynaps.evidence-cron-watchdog.plist
+
+  Inspect:
+    launchctl list | grep deepsynaps
+    tail -50 ~/Library/Logs/deepsynaps-evidence-cron-watchdog.log
+
+  Stop:
+    launchctl unload ~/Library/LaunchAgents/com.deepsynaps.evidence-cron-watchdog.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.deepsynaps.evidence-cron-watchdog</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>$HOME/.deepsynaps-cron/services/evidence-pipeline/scripts/cron-watchdog.sh</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>SSL_CERT_FILE</key>
+        <string>/etc/ssl/cert.pem</string>
+    </dict>
+
+    <!-- Every 30 minutes. Cheap (one SQL read + osascript at most). -->
+    <key>StartInterval</key>
+    <integer>1800</integer>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/aliyildirim/Library/Logs/deepsynaps-evidence-cron-watchdog.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/aliyildirim/Library/Logs/deepsynaps-evidence-cron-watchdog.log</string>
+
+    <key>AbandonProcessGroup</key>
+    <false/>
+</dict>
+</plist>
