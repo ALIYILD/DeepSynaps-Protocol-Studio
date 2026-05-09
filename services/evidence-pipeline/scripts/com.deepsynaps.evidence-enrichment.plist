@@ -39,13 +39,18 @@
     <array>
         <string>/bin/bash</string>
         <string>-c</string>
-        <string>$HOME/DeepSynaps-Protocol-Studio/services/evidence-pipeline/scripts/nightly-enrichment.sh</string>
+        <string>$HOME/.deepsynaps-cron/services/evidence-pipeline/scripts/nightly-enrichment.sh</string>
     </array>
 
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <!-- macOS keychain trust roots so corporate-MITM rewrites of CTGOV /
+             EuropePMC certs don't fail SSL verification (saw this hit on
+             2026-05-09 at 01:04 BST when corporate VPN intercepted). -->
+        <key>SSL_CERT_FILE</key>
+        <string>/etc/ssl/cert.pem</string>
     </dict>
 
     <!--
