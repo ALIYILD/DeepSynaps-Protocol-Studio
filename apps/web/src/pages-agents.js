@@ -1255,7 +1255,7 @@ function _renderAgentDetailDrawer() {
           <h3 style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em;margin:0 0 6px">What this agent will NOT do</h3>
           <ul style="list-style:disc;padding-left:18px;margin:0;font-size:12px;color:var(--text-secondary);line-height:1.5">
             <li>Take any clinical action without your explicit confirmation</li>
-            <li>Diagnose, prescribe, or change a treatment plan on its own</li>
+            <li><strong>Cannot:</strong> Diagnose, prescribe, or change a treatment plan on its own</li>
             <li>Send messages or schedule events without surfacing a draft to you first</li>
             <li>Access patient data outside your clinic</li>
           </ul>
