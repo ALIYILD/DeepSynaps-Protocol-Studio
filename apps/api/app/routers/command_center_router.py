@@ -344,7 +344,7 @@ def _build_command_center(patient_id: str, db: Session) -> dict:
     # Sessions
     sessions = db.query(M["ClinicalSession"]).filter(
         M["ClinicalSession"].patient_id == patient_id
-    ).order_by(M["ClinicalSession"].scheduled_date.desc()).limit(100).all()
+    ).order_by(M["ClinicalSession"].scheduled_at.desc()).limit(100).all()
 
     completed = [s for s in sessions if s.status == "completed"]
     scheduled = [s for s in sessions if s.status in ("scheduled", "confirmed")]
@@ -520,7 +520,7 @@ def _build_command_center(patient_id: str, db: Session) -> dict:
             cancelled=len(cancelled),
             progress_pct=progress_pct,
             recent=[
-                {"date": s.scheduled_date.isoformat() if s.scheduled_date else "",
+                {"date": s.scheduled_at or "",
                  "status": s.status,
                  "protocol": getattr(s, "protocol_name", None) or "",
                  "duration_min": getattr(s, "duration_min", None) or 0}

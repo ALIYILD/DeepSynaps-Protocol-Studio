@@ -2342,6 +2342,7 @@ class IndicationSummaryOut(BaseModel):
     modality: str
     condition: str
     evidence_grade: Optional[str] = None
+    computed_evidence_grade: Optional[str] = None
     regulatory: Optional[str] = None
     paper_count: int = 0
     trial_count: int = 0
@@ -2431,6 +2432,7 @@ def _indication_row_with_counts(conn: sqlite3.Connection, row: sqlite3.Row,
         modality=row["modality"],
         condition=row["condition"],
         evidence_grade=row["evidence_grade"],
+        computed_evidence_grade=row["computed_evidence_grade"],
         regulatory=row["regulatory"],
         paper_count=int(paper_count or 0),
         trial_count=int(trial_count or 0),
@@ -2462,7 +2464,7 @@ def list_indications_with_counts(
     conn = _evidence_conn()
     try:
         rows = conn.execute(
-            "SELECT id, slug, label, modality, condition, evidence_grade, regulatory "
+            "SELECT id, slug, label, modality, condition, evidence_grade, computed_evidence_grade, regulatory "
             "FROM indications ORDER BY modality, slug"
         ).fetchall()
         has_protocols = _has_protocols_table(conn)
@@ -2477,7 +2479,7 @@ def list_indications_with_counts(
 
 def _resolve_indication(conn: sqlite3.Connection, slug: str) -> sqlite3.Row:
     row = conn.execute(
-        "SELECT id, slug, label, modality, condition, evidence_grade, regulatory "
+        "SELECT id, slug, label, modality, condition, evidence_grade, computed_evidence_grade, regulatory "
         "FROM indications WHERE slug = ?",
         (slug,),
     ).fetchone()

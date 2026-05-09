@@ -797,7 +797,11 @@ def patient_assessment_summary(
         )
 
         attach_medical_image_context_to_payload(
-            payload, patient_id=patient_id, db=session
+            payload,
+            patient_id=patient_id,
+            db=session,
+            actor=actor,
+            surface="assessment_summary",
         )
     except Exception:  # pragma: no cover — never block the summary
         _log.exception("medical_image_context attach failed for patient %s", patient_id)
