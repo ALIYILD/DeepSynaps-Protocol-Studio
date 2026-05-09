@@ -442,23 +442,22 @@ def test_digital_phenotyping_manual_observation_trims_notes_payload(
     payload = listing.json()["items"][0]["payload"]
     assert payload["notes"] == "clinician note"
 
-@pytest.mark.skip(
-    reason=(
-        "Test fixture creates patient via POST /api/v1/patients which doesn't "
-        "scope the patient to a clinic; the cross-clinic gate (added by main) "
-        "then 403s. Needs the Clinic/User/Patient seed pattern used by "
-        "test_movement_analyzer_router.py — left for follow-up to keep this PR's "
-        "scope tight."
-    )
-)
 def test_digital_phenotyping_consent_persisted(
     client: TestClient,
-    clinician_headers: dict[str, str],
-    patient_id: str,
+    seeded: dict,
+    dp_router_scope: dict,
 ) -> None:
-    """POST consent merges domains; GET reflects withheld domains."""
-    h = clinician_headers
-    pid = patient_id
+    """POST consent merges domains; GET reflects withheld domains.
+
+    Switched from ``clinician_headers``/``patient_id`` (which create a
+    user via POST /api/v1/auth/register with clinic_id=NULL, leaving
+    the patient orphaned and 403-ing under the cross-clinic gate) to
+    the ``seeded``/``dp_router_scope`` fixtures already in this file
+    — same Clinic/User/Patient seed pattern used by
+    test_movement_analyzer_router.py.
+    """
+    h = _auth(dp_router_scope["token_a"])
+    pid = dp_router_scope["patient_id"]
 
     res = client.post(
         f"/api/v1/digital-phenotyping/analyzer/patient/{pid}/consent",
@@ -487,19 +486,19 @@ def test_digital_phenotyping_consent_persisted(
         db.close()
 
 
-@pytest.mark.skip(
-    reason=(
-        "Same fixture/clinic-scope issue as test_digital_phenotyping_consent_persisted "
-        "— see that test for context. Left for follow-up."
-    )
-)
 def test_manual_observation_merges_into_payload(
     client: TestClient,
-    clinician_headers: dict[str, str],
-    patient_id: str,
+    seeded: dict,
+    dp_router_scope: dict,
 ) -> None:
-    h = clinician_headers
-    pid = patient_id
+    """Manual observation POST records the data and surfaces in the
+    snapshot payload.
+
+    Switched fixtures for the same reason as
+    ``test_digital_phenotyping_consent_persisted`` above.
+    """
+    h = _auth(dp_router_scope["token_a"])
+    pid = dp_router_scope["patient_id"]
 
     r2 = client.post(
         f"/api/v1/digital-phenotyping/analyzer/patient/{pid}/observations/manual",

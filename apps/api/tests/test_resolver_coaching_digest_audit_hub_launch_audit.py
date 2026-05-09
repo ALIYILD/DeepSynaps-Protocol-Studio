@@ -629,7 +629,7 @@ def test_trajectory_shrinking_detected(
     # Last 4 buckets (newest 4 weeks): 1 wrong-fp each (4 total).
     # Medians: first4=2, last4=1 → shrinking.
     old_age = 56.0  # ~8 weeks ago — first bucket
-    new_age = 7.0   # ~1 week ago — last bucket
+    _new_age = 7.0   # ~1 week ago — last bucket (kept for documentation)
     _seed_wrong_fp(caregiver_user_id=CG_A, resolver_user_id=RESOLVER_Y, res_age_days=old_age, flag_age_days=old_age - 1)
     _seed_wrong_fp(caregiver_user_id=CG_B, resolver_user_id=RESOLVER_Y, res_age_days=old_age - 7, flag_age_days=old_age - 8)
     _seed_wrong_fp(caregiver_user_id=CG_C, resolver_user_id=RESOLVER_Y, res_age_days=old_age - 14, flag_age_days=old_age - 15)

@@ -38,7 +38,6 @@ Create Date: 2026-04-28
 """
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timezone
 
 import sqlalchemy as sa
@@ -205,7 +204,7 @@ def upgrade() -> None:
                 "processed",
                 sa.Boolean(),
                 nullable=False,
-                server_default=sa.text("1"),
+                server_default=sa.text("true"),
             ),
         )
         op.create_index(
@@ -229,7 +228,7 @@ def upgrade() -> None:
                 "enabled",
                 sa.Boolean(),
                 nullable=False,
-                server_default=sa.text("1"),
+                server_default=sa.text("true"),
                 index=True,
             ),
             sa.Column("created_at", sa.DateTime(), nullable=False),

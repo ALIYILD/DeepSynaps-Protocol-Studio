@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
-from app.persistence.models import AgentSubscription, Clinic, User
+from app.persistence.models import AgentSubscription, Clinic
 from app.services import stripe_skus
 from app.services.agents.registry import AGENT_REGISTRY
 

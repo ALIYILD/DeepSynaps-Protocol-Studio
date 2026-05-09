@@ -1,4 +1,4 @@
-import { api } from './api.js';
+import { api, API_BASE } from './api.js';
 // Demo migration of the typed API client (ROI #4). The legacy `api.health()`
 // call below is intentionally left untouched and remains the source of
 // truth; the typed client runs in a non-blocking shadow call so we can
@@ -246,7 +246,6 @@ let _notifCount = 0;
 // duplicate toasts/badge increments after reconnects that replay events.
 const _seenNotifIds = new Set();
 
-const _API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 
 // ── Global error handlers ─────────────────────────────────────────────────────
 window.addEventListener('unhandledrejection', (e) => {
@@ -548,29 +547,50 @@ const NAV = [
   { id: 'handbooks-v2',       label: 'Handbooks',         icon: '📚' },
   { id: 'research-evidence',  label: 'Research Evidence', icon: '🔬', ai: true },
 
-  // ── ANALYZERS — single canonical entry point for every signal modality.
-  // Clinicians run analyzers when building / reviewing a protocol. The
-  // duplicate per-modality entries that used to live under Clinical /
-  // Protocol have been removed so each analyzer has exactly one place to
-  // live. Backed by analyzer routers in `apps/api/app/routers/`.
-  { section: 'Analyzers', sectionId: 'analyzers', collapsed: false },
-  { id: 'deeptwin',           label: 'DeepTwin',          icon: 'BT', ai: true },
-  { id: 'mri-analysis',       label: 'MRI',          icon: '🧠', ai: true },
-  { id: 'qeeg-launcher',      label: 'qEEG',         icon: '📊', ai: true },
-  { id: 'voice-analyzer',     label: 'Voice',        icon: '🎙️', ai: true },
-  { id: 'video-assessments',  label: 'Video',        icon: '🎥', ai: true },
-  { id: 'text-analyzer',      label: 'Text',         icon: '📝', ai: true },
-  { id: 'wearables',          label: 'Biometrics',   icon: '⌚', ai: true },
-  { id: 'risk-analyzer',      label: 'Risk',         icon: '🛡️', ai: true },
-  { id: 'medication-analyzer', label: 'Medication',  icon: '💊', ai: true },
-  { id: 'bio-database',       label: 'Bio Database', icon: '🧪', ai: true },
-  { id: 'treatment-sessions-analyzer', label: 'Sessions', icon: '🗓️', ai: true },
+  // ── ANALYZERS — grouped by clinical question, not input modality.
+  // A clinician thinks "is this patient at risk?" or "what subtype?",
+  // not "I have audio". Section headers surface the clinical question;
+  // modalities are the data sources that feed the answer. Routes are
+  // unchanged — only grouping and labels. Backed by analyzer routers
+  // in `apps/api/app/routers/`.
+
+  // Risk & Safety — first stop for triage ("anything I need to act on now?").
+  { section: 'Risk & Safety', sectionId: 'analyzers-risk', collapsed: false },
+  { id: 'risk-analyzer',      label: 'Risk Triage',       icon: '🛡️', ai: true },
+
+  // Mood & Speech — depression, anxiety, communication change.
+  { section: 'Mood & Speech', sectionId: 'analyzers-mood', collapsed: false },
+  { id: 'voice-analyzer',     label: 'Voice',             icon: '🎙️', ai: true },
+  { id: 'text-analyzer',      label: 'Text',              icon: '📝', ai: true },
+  { id: 'video-assessments',  label: 'Video Assessments', icon: '🎥', ai: true },
+
+  // Behaviour & Motor — motor signs, behavioural drift, daily-life signals.
+  { section: 'Behaviour & Motor', sectionId: 'analyzers-behaviour', collapsed: true },
+  { id: 'movement-analyzer',            label: 'Movement',            icon: '🏃', ai: true },
+  { id: 'digital-phenotyping-analyzer', label: 'Digital Phenotyping', icon: '📱', ai: true },
+  { id: 'behaviour',                    label: 'Behaviour Workspace', icon: '🧩', ai: true },
+
+  // Subtype & Trajectory — "what subtype is this patient, are they deteriorating?"
+  { section: 'Subtype & Trajectory', sectionId: 'analyzers-subtype', collapsed: true },
   { id: 'phenotype-analyzer', label: 'Phenotype', icon: '🧬', ai: true },
-  { id: 'movement-analyzer', label: 'Movement', icon: '🏃', ai: true },
-  { id: 'labs-analyzer',     label: 'Labs',      icon: '🧪', ai: true },
-  { id: 'nutrition-analyzer', label: 'Nutrition', icon: '🥗', ai: true },
-  { id: 'behaviour', label: 'Behaviour', icon: '📝', ai: true },
-  { id: 'digital-phenotyping-analyzer', label: 'Behavior', icon: '📱', ai: true },
+
+  // Biomarkers — labs, nutrition, biometric streams, bio reference data.
+  { section: 'Biomarkers', sectionId: 'analyzers-biomarkers', collapsed: true },
+  { id: 'wearables',          label: 'Biometrics',   icon: '⌚', ai: true },
+  { id: 'labs-analyzer',      label: 'Labs',         icon: '🧪', ai: true },
+  { id: 'nutrition-analyzer', label: 'Nutrition',    icon: '🥗', ai: true },
+  { id: 'bio-database',       label: 'Bio Database', icon: '🗂️', ai: true },
+
+  // Adherence & Meds — treatment adherence + interactions/contraindications.
+  { section: 'Adherence & Meds', sectionId: 'analyzers-adherence', collapsed: true },
+  { id: 'treatment-sessions-analyzer', label: 'Sessions',   icon: '🗓️', ai: true },
+  { id: 'medication-analyzer',         label: 'Medication', icon: '💊', ai: true },
+
+  // Brain & Imaging — patient brain workups (DeepTwin, MRI, qEEG).
+  { section: 'Brain & Imaging', sectionId: 'analyzers-imaging', collapsed: true },
+  { id: 'deeptwin',      label: 'DeepTwin', icon: 'BT', ai: true },
+  { id: 'mri-analysis',  label: 'MRI',      icon: '🧠', ai: true },
+  { id: 'qeeg-launcher', label: 'qEEG',     icon: '📊', ai: true },
 
   // ── MARKETPLACE — devices, agents, apps & learning ──────────────────────────
   { section: 'Marketplace', sectionId: 'marketplace-section', collapsed: false },
@@ -904,7 +924,10 @@ function renderNav() {
       if (n.id === 'admin' && currentUser?.role !== 'admin') return;
       if (hiddenForRole.includes(n.id)) return;
 
-      const isAnalyzerSection = sectionId === 'analyzers';
+      // Analyzer sections are now split by clinical question — match the
+      // shared `analyzers-*` prefix so the RES badge still renders on every
+      // analyzer item regardless of which subsection it lives in.
+      const isAnalyzerSection = !!sectionId && sectionId.startsWith('analyzers');
       const badge = n.badge != null
         ? (String(n.badge).startsWith('!')
             ? `<span class="nav-badge" style="background:rgba(255,107,107,0.2);color:var(--red);border-color:rgba(255,107,107,0.3)">${String(n.badge).slice(1)}</span>`
@@ -1264,6 +1287,7 @@ async function renderPatientPage() {
     case 'patient-homework':    await m.pgPatientHomework();              break;
     case 'patient-assessments': await m.pgPatientAssessments();           break;
     case 'patient-reports':     await m.pgPatientReports();               break;
+    case 'patient-health-reports': await m.pgPatientHealthReports();      break;
     case 'patient-brainmap':    await m.pgPatientBrainMap();              break;
     case 'patient-messages':   await m.pgPatientMessages();               break;
     case 'patient-wearables':  await m.pgPatientWearables();               break;
@@ -1754,7 +1778,10 @@ async function renderPage() {
     case 'telehealth-recorder': { const m = await loadPractice(); await m.pgTelehealthRecorder(setTopbar); break; }
     case 'monitoring': { window._devicesPresetTab = 'live'; navigate('monitor'); break; }
     case 'wearables':  { window._devicesPresetTab = 'biometrics'; navigate('monitor'); break; }
-    case 'library-hub':    { window._resEvidenceTab = 'search'; window._nav('research-evidence'); break; }
+    // library-hub now lands on the live Indications spine (was 'search').
+    // Indications tab calls /api/v1/evidence/indications/summary + /detail
+    // and is the new default for the library/registry deep links.
+    case 'library-hub':    { window._resEvidenceTab = 'indications'; window._nav('research-evidence'); break; }
     case 'adjunct-evidence':
     case 'research-adjunct': { window._resEvidenceTab = 'adjunct'; window._nav('research-evidence'); break; }
     case 'monitor-hub':    { const { pgMonitorHub }    = await loadClinicalHubs(); await pgMonitorHub(setTopbar, navigate);    break; }
@@ -2289,7 +2316,7 @@ window._testNotif = function() {
   // Dispatch via backend so the notification flows through the SSE stream
   const token = api.getToken();
   if (token) {
-    fetch(`${_API_BASE}/api/v1/notifications/test?token=${encodeURIComponent(token)}`, { method: 'POST' })
+    fetch(`${API_BASE}/api/v1/notifications/test?token=${encodeURIComponent(token)}`, { method: 'POST' })
       .catch(() => {});
   }
   // Also trigger locally for instant feedback (handles case where SSE isn't up yet)
@@ -2316,7 +2343,7 @@ function connectSSE() {
     window._sseSource = null;
   }
 
-  const evtSource = new EventSource(`${_API_BASE}/api/v1/notifications/stream?token=${encodeURIComponent(token)}`);
+  const evtSource = new EventSource(`${API_BASE}/api/v1/notifications/stream?token=${encodeURIComponent(token)}`);
 
   evtSource.onopen = () => {
     _sseRetryDelay = 3000; // reset backoff on successful connection

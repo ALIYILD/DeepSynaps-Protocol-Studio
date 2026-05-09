@@ -18,10 +18,8 @@ Tests cover:
 from __future__ import annotations
 
 import io
-import os
 import uuid as _uuid
 import zipfile
-from datetime import datetime as _dt, timezone as _tz
 from typing import Optional
 
 import pytest
@@ -728,7 +726,7 @@ def test_reg_binder_zip_contains_required_files(
 ) -> None:
     _setup_clinic_a()
     proto = _seed_protocol(clinic_id=_CLINIC_A)
-    drf = _create_draft(client, auth_headers["clinician"], proto.id)
+    _create_draft(client, auth_headers["clinician"], proto.id)
     # Mark the proto's PI to be the admin demo actor so the PI gate passes.
     db = SessionLocal()
     try:

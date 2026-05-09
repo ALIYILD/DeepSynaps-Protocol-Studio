@@ -10,6 +10,12 @@ import { api } from './api.js';
 import { currentUser } from './auth.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
+import { drHero } from './helpers.js';
+import { loadPatientFlagSummary } from './dr-friendly-flags.js';
+import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
+
+const PHENOTYPE_CLINICAL_QUESTION = "What clinical phenotype labels has this patient received, and how confident are they?";
+const PHENOTYPE_HOW_TO_READ = "Phenotype hypothesis labels document clinician stratification thinking for team alignment. They are not diagnoses, eligibility decisions, protocol-selection picks, or autonomous treatment recommendations.";
 
 const CLINICAL_PHENOTYPE_ANALYZER_ROLES = new Set(['clinician', 'admin']);
 
@@ -627,7 +633,7 @@ function _renderPatientSelectOptions(patients, activeId) {
 }
 
 export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
-  try { setTopbar('Phenotype Analyzer', 'Clinician-reviewed hypothesis labels · multimodal context'); } catch {}
+  try { setTopbar('Phenotype Analyzer', PHENOTYPE_CLINICAL_QUESTION); } catch {}
 
   const el = document.getElementById('content');
   if (!el) return;
@@ -655,14 +661,56 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
   el.innerHTML = `
     <div class="ds-phenotype-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
       <div id="ph-demo-banner"></div>
+      <div id="ph-dr-hero-slot">${drHero({ question: PHENOTYPE_CLINICAL_QUESTION, howToRead: PHENOTYPE_HOW_TO_READ, flagCount: 0 })}</div>
       <div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(155,127,255,0.28);background:rgba(155,127,255,0.06);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
         <strong style="color:var(--text-primary)">Clinical decision-support — requires clinician review.</strong>
         Phenotype <em>hypothesis</em> labels document stratification thinking for team alignment. They are not diagnoses, eligibility decisions, protocol-selection picks, or autonomous treatment recommendations. Missing data does not imply clinical clearance.
+      </div>
+      <div role="region" aria-label="Related clinical workspace" style="margin-bottom:14px;padding:12px 16px;border-radius:10px;border:1px solid rgba(74,158,255,0.20);background:rgba(74,158,255,0.04);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:10px;color:var(--blue);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;margin-bottom:2px">Related workspace</div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:2px">Daily-life digital signals</div>
+          <div style="font-size:11px;color:var(--text-tertiary);line-height:1.4">Sleep, mobility, social engagement, voice-diary cues — useful when phenotype assignments need behavioural corroboration.</div>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" onclick="window._nav && window._nav('digital-phenotyping-analyzer')" style="white-space:nowrap">Open Digital Phenotyping →</button>
       </div>
       <div id="ph-toolbar" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px;font-size:12px"></div>
       <div id="ph-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px"></div>
       <div id="ph-body"></div>
     </div>`;
+
+  // ── AI decision-support strip (mounted once per page invocation) ────────
+  if (!el.querySelector('[data-aar-strip="phenotype"]')) {
+    const _aarHost = document.createElement('div');
+    _aarHost.dataset.aarStrip = 'phenotype';
+    const _shell = el.querySelector('.ds-phenotype-analyzer-shell');
+    const _bcAnchor = _shell?.querySelector('#ph-toolbar');
+    if (_bcAnchor && _bcAnchor.parentNode) {
+      _bcAnchor.parentNode.insertBefore(_aarHost, _bcAnchor);
+    } else if (_shell) {
+      _shell.prepend(_aarHost);
+    } else {
+      el.prepend(_aarHost);
+    }
+    mountAnalyzerAIReportStrip({
+      container: _aarHost,
+      analyzerType: 'phenotype',
+      getAnalysisId: () => activePatientId,
+      label: 'AI Decision Support',
+    });
+  }
+
+  async function _refreshPhDrHero(patientId) {
+    const slot = document.getElementById('ph-dr-hero-slot');
+    if (!slot) return;
+    let flagCount = 0; let flagSummary = '';
+    if (patientId) {
+      const s = await loadPatientFlagSummary(patientId);
+      flagCount = s.flagCount; flagSummary = s.flagSummary;
+    }
+    slot.innerHTML = drHero({ question: PHENOTYPE_CLINICAL_QUESTION, howToRead: PHENOTYPE_HOW_TO_READ, flagCount, flagSummary });
+  }
+  _refreshPhDrHero(activePatientId);
 
   const $ = (id) => document.getElementById(id);
 
@@ -753,6 +801,7 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
         view = 'clinic';
         selectedPhenotypeId = null;
         activePatientId = null;
+        _refreshPhDrHero(activePatientId);
         render();
       });
       _wireOpenPatientChart(tb);
@@ -772,6 +821,7 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
         view = 'clinic';
         selectedPhenotypeId = null;
         activePatientId = null;
+        _refreshPhDrHero(activePatientId);
         render();
       });
     }
@@ -779,6 +829,7 @@ export async function pgPhenotypeAnalyzer(setTopbar, navigate) {
 
   function _openPatient(pid, pname) {
     activePatientId = pid;
+    _refreshPhDrHero(activePatientId);
     activePatientName = pname || pid;
     selectedPhenotypeId = null;
     view = 'patient';

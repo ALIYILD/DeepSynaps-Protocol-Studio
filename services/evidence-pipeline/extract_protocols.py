@@ -9,10 +9,16 @@ emit multiple rows — each rooted in a single source text block.
 
 Usage:
     python3 services/evidence-pipeline/extract_protocols.py [--dry] [--limit N]
+                                                            [--csv PATH] [--all-trials]
+
+`--all-trials` runs against every trial with a non-empty interventions_json
+(falls back to text-based modality inference when trial_indications is empty,
+which is the current state on the canonical DB).
 """
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import re
 import sys
@@ -163,21 +169,111 @@ def _parse_block(text: str, modality: str | None) -> dict | None:
 
 # ── Source readers ───────────────────────────────────────────────────────────
 
-def _extract_from_trials(conn, limit: int | None, dry: bool) -> int:
-    rows = conn.execute(
-        "SELECT t.id AS tid, t.nct_id, t.interventions_json, "
-        "i.id AS iid, i.modality "
-        "FROM trials t "
-        "JOIN trial_indications ti ON ti.trial_id = t.id "
-        "JOIN indications i ON i.id = ti.indication_id "
-        + (f"LIMIT {limit}" if limit else "")
-    ).fetchall()
+# Heuristic modality inference from intervention text. Used only when a trial
+# has no entry in trial_indications (current state on the canonical DB; the
+# curated linkage is a follow-up ingest step).
+#
+# Order matters — more specific patterns should appear before generic ones
+# (e.g. taVNS before VNS, HD-tDCS before tDCS, dTMS before rTMS).
+_MODALITY_HEURISTICS = (
+    # --- TMS family (specific → generic) ---
+    ("dTMS",    re.compile(r"\b(?:deep\s*tms|dtms|h[-\s]?coil|brainsway)\b", re.IGNORECASE)),
+    ("rTMS",    re.compile(
+        r"\b(?:r[-\s]?tms|repetitive\s+transcranial(?:\s+magnetic)?(?:\s+stim\w*)?|"
+        r"transcranial\s+magnetic\s+stim\w*|magnetic\s+stimulator|"
+        r"tbs|theta\s*burst|itbs|ctbs|spaced\s*tms|saint\s+protocol|"
+        r"\btms\b)\b", re.IGNORECASE)),
+    # --- tDCS family (HD-tDCS first; HD-tACS handled under tACS) ---
+    ("HD-tDCS", re.compile(r"\b(?:hd[-\s]?t[-\s]?dcs|high[-\s]?definition\s+transcranial\s+direct)\b", re.IGNORECASE)),
+    ("tDCS",    re.compile(r"\b(?:t[-\s]?dcs|transcranial\s+direct\s+current)\b", re.IGNORECASE)),
+    ("tACS",    re.compile(r"\b(?:hd[-\s]?t[-\s]?acs|t[-\s]?acs|transcranial\s+alternating\s+current)\b", re.IGNORECASE)),
+    ("tRNS",    re.compile(r"\b(?:t[-\s]?rns|transcranial\s+random\s+noise)\b", re.IGNORECASE)),
+    # --- Temporal Interference (newer non-invasive deep-brain method) ---
+    ("tI",      re.compile(r"\b(?:temporal\s+interference(?:\s+stim\w*)?|ti[-\s]?dbs)\b", re.IGNORECASE)),
+    # --- Implantable + invasive ---
+    ("DBS",     re.compile(r"\b(?:dbs|deep\s+brain\s+stimulation)\b", re.IGNORECASE)),
+    # --- VNS family (specific → generic) ---
+    ("taVNS",   re.compile(
+        r"\b(?:tavns|tvns|t[-\s]?vns|"
+        r"transcutaneous\s+(?:auricular\s+)?vagus|"
+        r"auricular\s+vagus|"
+        r"gammacore|cymba\s+conchae|vagustim)\b", re.IGNORECASE)),
+    ("VNS",     re.compile(r"\b(?:vns|vagus\s+nerve\s+stim\w*)\b", re.IGNORECASE)),
+    # --- SCS family ---
+    ("tSCS",    re.compile(r"\b(?:tscs|transcutaneous\s+spinal\s+cord\s+stim\w*)\b", re.IGNORECASE)),
+    ("SCS",     re.compile(r"\b(?:scs|spinal\s+cord\s+stim\w*|burst[-\s]?dr|hf10|nevro)\b", re.IGNORECASE)),
+    # --- Peripheral / autonomic ---
+    ("DRG",     re.compile(r"\b(?:drg(?:\s+stim\w*)?|dorsal\s+root\s+ganglion)\b", re.IGNORECASE)),
+    ("PTNS",    re.compile(r"\b(?:ptns|ptnm|percutaneous\s+tibial\s+nerve\s+stim\w*)\b", re.IGNORECASE)),
+    ("RNS",     re.compile(r"\b(?:rns|responsive\s+neurostim\w*)\b", re.IGNORECASE)),
+    ("HNS",     re.compile(r"\b(?:hns|hypoglossal\s+nerve|inspire(?:\s+upper\s+airway)?)\b", re.IGNORECASE)),
+    ("SNM",     re.compile(r"\b(?:snm|sacral\s+(?:nerve|neuro)\w*|interstim)\b", re.IGNORECASE)),
+    # --- Focused ultrasound (MR-guided ablation + low-intensity neuromod) ---
+    ("MRgFUS",  re.compile(r"\b(?:mrgfus|exablate)\b", re.IGNORECASE)),
+    ("tFUS",    re.compile(r"\b(?:tfus|transcranial\s+focused\s+ultrasound|low[-\s]?intensity\s+focused\s+ultrasound|lifu(?:p)?)\b", re.IGNORECASE)),
+    # FUS without "transcranial" qualifier — generic, lower priority
+    ("FUS",     re.compile(r"\bfocused\s+ultrasound\b", re.IGNORECASE)),
+    # --- Energy + light ---
+    ("PBM",     re.compile(r"\b(?:pbm|photobiomodulation|low[-\s]?level\s+laser|near[-\s]?infrared(?:\s+light)?|llt)\b", re.IGNORECASE)),
+    # --- Surface stim ---
+    ("CES",     re.compile(r"\b(?:ces|cranial\s+electrotherapy\s+stim\w*|alpha-stim)\b", re.IGNORECASE)),
+    ("TENS",    re.compile(r"\b(?:tens|transcutaneous\s+electrical\s+nerve\s+stim\w*)\b", re.IGNORECASE)),
+    ("FES",     re.compile(r"\b(?:fes|functional\s+electrical\s+stim\w*)\b", re.IGNORECASE)),
+    ("GVS",     re.compile(r"\b(?:gvs|galvanic\s+vestibular\s+stim\w*)\b", re.IGNORECASE)),
+    # --- Behavioural/EEG ---
+    ("NFB",     re.compile(r"\b(?:neurofeedback|nfb|eeg\s+biofeedback)\b", re.IGNORECASE)),
+    # --- Acupuncture-adjacent (neuromod-relevant when paired with electrical current) ---
+    ("EA",      re.compile(r"\belectroacupuncture\b", re.IGNORECASE)),
+)
+
+
+def _infer_modality(text: str) -> str | None:
+    for label, rex in _MODALITY_HEURISTICS:
+        if rex.search(text):
+            return label
+    return None
+
+
+def _extract_from_trials(conn, limit: int | None, dry: bool, all_trials: bool = False) -> int:
+    """Iterate trials and emit one row per intervention arm with extractable params.
+
+    By default joins through trial_indications (uses the curated indication's
+    modality). If `all_trials` is True (or trial_indications is empty), runs
+    against every trial with a non-empty interventions_json and infers modality
+    from the intervention text.
+    """
+    has_curated_links = conn.execute(
+        "SELECT COUNT(*) FROM trial_indications"
+    ).fetchone()[0] > 0
+
+    if all_trials or not has_curated_links:
+        sql = (
+            "SELECT t.id AS tid, t.nct_id, t.interventions_json, "
+            "NULL AS iid, NULL AS modality "
+            "FROM trials t "
+            "WHERE t.interventions_json IS NOT NULL "
+            "  AND t.interventions_json != '' "
+            "  AND t.interventions_json != '[]' "
+            + (f"LIMIT {limit}" if limit else "")
+        )
+    else:
+        sql = (
+            "SELECT t.id AS tid, t.nct_id, t.interventions_json, "
+            "i.id AS iid, i.modality "
+            "FROM trials t "
+            "JOIN trial_indications ti ON ti.trial_id = t.id "
+            "JOIN indications i ON i.id = ti.indication_id "
+            + (f"LIMIT {limit}" if limit else "")
+        )
+
+    rows = conn.execute(sql).fetchall()
     n = 0
     for r in rows:
         ivs = json.loads(r["interventions_json"] or "[]")
         for idx, iv in enumerate(ivs):
             desc = (iv.get("description") or "") + " " + (iv.get("name") or "")
-            rec = _parse_block(desc, r["modality"])
+            modality = r["modality"] or _infer_modality(desc)
+            rec = _parse_block(desc, modality)
             if not rec:
                 continue
             rec["indication_id"] = r["iid"]
@@ -186,12 +282,119 @@ def _extract_from_trials(conn, limit: int | None, dry: bool) -> int:
             rec["arm_label"] = iv.get("name") or f"arm_{idx}"
             if dry:
                 print(f"  ctgov {r['nct_id']} arm={rec['arm_label'][:40]} "
+                      f"mod={rec['modality']} "
                       f"Hz={rec['frequency_hz']} pw={rec['pulse_width_us']} "
                       f"pulses={rec['pulses_per_session']} sessions={rec['total_sessions']} "
                       f"({rec['confidence']})")
             else:
                 _upsert(conn, rec)
             n += 1
+    return n
+
+
+def _export_csv(conn, path: Path, limit: int | None = None) -> int:
+    cols = [
+        "source_type", "source_id", "arm_label", "modality", "target_anatomy",
+        "frequency_hz", "frequency_hz_max", "pulse_width_us",
+        "amplitude_mA", "amplitude_V", "motor_threshold_pct",
+        "pulses_per_session", "session_duration_min", "sessions_per_week",
+        "total_sessions", "total_pulses", "confidence",
+    ]
+    sql = f"SELECT {', '.join(cols)} FROM protocols ORDER BY confidence DESC, source_id"
+    if limit:
+        sql += f" LIMIT {limit}"
+    rows = conn.execute(sql).fetchall()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(cols)
+        for r in rows:
+            w.writerow([r[c] for c in cols])
+    return len(rows)
+
+
+def _extract_from_papers(conn, limit: int | None, dry: bool, min_confidence: str = "medium") -> int:
+    """Extract structured protocols from paper abstracts.
+
+    Conservative by default — `min_confidence='medium'` skips low-confidence
+    one-field hits because abstracts contain a lot of incidental numbers
+    (sample sizes, ages, p-values) that the regex pipeline can mistake for
+    stim parameters. Re-rank on the abstract's modality hint when present
+    (`modalities_json` is populated by the EuropePMC enrichment pipeline).
+    """
+    confidence_rank = {"high": 3, "medium": 2, "low": 1}
+    threshold = confidence_rank.get(min_confidence, 2)
+
+    # Detect optional columns added by migration 004_csv_enrichment.sql so this
+    # script works against DBs where 004 was never applied (the canonical v4 DB
+    # is one such — its papers table is the v1 shape).
+    paper_cols = {
+        row[1] for row in conn.execute("PRAGMA table_info(papers)").fetchall()
+    }
+    has_modalities = "modalities_json" in paper_cols
+
+    select_cols = "id, pmid, doi, title, abstract"
+    if has_modalities:
+        select_cols += ", modalities_json"
+
+    sql = (
+        f"SELECT {select_cols} FROM papers "
+        "WHERE abstract IS NOT NULL AND length(abstract) >= 100 "
+        + (f"LIMIT {limit}" if limit else "")
+    )
+    rows = conn.execute(sql).fetchall()
+
+    n = 0
+    for r in rows:
+        text = (r["abstract"] or "") + " " + (r["title"] or "")
+
+        # If EuropePMC tagged the paper with a modality, prefer that. Otherwise
+        # fall back to the regex-based heuristic.
+        modality = None
+        if has_modalities:
+            try:
+                mods = json.loads(r["modalities_json"]) if r["modalities_json"] else []
+                if mods:
+                    first = (mods[0] or "").lower()
+                    modality = {
+                        "tms": "rTMS", "rtms": "rTMS", "dtms": "dTMS",
+                        "tdcs": "tDCS", "tacs": "tACS", "trns": "tRNS",
+                        "dbs": "DBS", "vns": "VNS", "scs": "SCS",
+                        "drg": "DRG", "rns": "RNS", "hns": "HNS", "snm": "SNM",
+                        "mrgfus": "MRgFUS", "fus": "FUS", "tfus": "tFUS",
+                        "pbm": "PBM", "nfb": "NFB", "ces": "CES",
+                        "tens": "TENS", "fes": "FES",
+                    }.get(first)
+            except Exception:
+                pass
+        if not modality:
+            modality = _infer_modality(text)
+
+        rec = _parse_block(text, modality)
+        if not rec:
+            continue
+        if confidence_rank.get(rec["confidence"], 0) < threshold:
+            continue
+
+        # Use pmid as primary, fall back to DOI; skip if neither is present.
+        sid = r["pmid"] or r["doi"]
+        if not sid:
+            continue
+
+        rec["indication_id"] = None
+        rec["source_type"] = "paper"
+        rec["source_id"] = str(sid)
+        rec["arm_label"] = "abstract"
+
+        if dry:
+            print(
+                f"  paper {sid} mod={rec['modality']} "
+                f"Hz={rec['frequency_hz']} mt={rec['motor_threshold_pct']} "
+                f"sess={rec['total_sessions']} ({rec['confidence']})"
+            )
+        else:
+            _upsert(conn, rec)
+        n += 1
     return n
 
 
@@ -225,21 +428,54 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry", action="store_true", help="Parse + print, don't write.")
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--source", choices=["trials", "papers", "all"], default="all",
+                    help="Which corpus to extract from (default: all).")
+    ap.add_argument("--min-confidence", choices=["low", "medium", "high"], default="medium",
+                    help="Minimum confidence for paper-derived rows (default: medium). "
+                         "Trials are unaffected — they use the raw _parse_block confidence.")
+    ap.add_argument("--all-trials", action="store_true",
+                    help="Skip trial_indications JOIN; run against every trial "
+                         "with interventions_json (uses text-based modality inference).")
+    ap.add_argument("--csv", type=Path, default=None,
+                    help="After extraction, write the protocols table to this CSV path.")
+    ap.add_argument("--csv-limit", type=int, default=None,
+                    help="Cap rows in the exported CSV (default: all).")
     args = ap.parse_args()
 
     conn = db.connect()
     conn.executescript(SCHEMA)
 
-    n_trials = _extract_from_trials(conn, args.limit, args.dry)
-    n_fda = _extract_from_devices(conn, args.limit, args.dry)
-    print(f"extracted {n_trials} trial protocols, {n_fda} FDA protocols ({'dry' if args.dry else 'written'})")
+    n_trials = 0
+    n_papers = 0
+    n_fda = 0
+    if args.source in ("trials", "all"):
+        n_trials = _extract_from_trials(conn, args.limit, args.dry, args.all_trials)
+    if args.source in ("papers", "all"):
+        n_papers = _extract_from_papers(conn, args.limit, args.dry, args.min_confidence)
+    if args.source == "all":
+        n_fda = _extract_from_devices(conn, args.limit, args.dry)
+    print(
+        f"extracted {n_trials} trial · {n_papers} paper · {n_fda} FDA "
+        f"protocols ({'dry' if args.dry else 'written'})"
+    )
 
     if not args.dry:
         total = conn.execute("SELECT count(*) FROM protocols").fetchone()[0]
         conf = dict(conn.execute(
             "SELECT confidence, count(*) FROM protocols GROUP BY confidence"
         ).fetchall())
+        modality_breakdown = dict(conn.execute(
+            "SELECT COALESCE(modality, 'unknown'), COUNT(*) FROM protocols GROUP BY modality"
+        ).fetchall())
         print(f"protocols in DB: {total}  |  confidence: {conf}")
+        print(f"modality breakdown: {modality_breakdown}")
+
+    if args.csv:
+        if args.dry:
+            print(f"(dry run — skipping CSV export to {args.csv})")
+        else:
+            written = _export_csv(conn, args.csv, args.csv_limit)
+            print(f"csv: wrote {written} rows to {args.csv}")
 
 
 if __name__ == "__main__":

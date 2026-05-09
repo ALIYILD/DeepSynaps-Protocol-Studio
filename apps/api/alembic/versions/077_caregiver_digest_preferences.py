@@ -58,7 +58,7 @@ def upgrade() -> None:
             "caregiver_digest_preferences",
             sa.Column("id", sa.String(64), primary_key=True),
             sa.Column("caregiver_user_id", sa.String(64), nullable=False, index=True, unique=True),
-            sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+            sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.text("false")),
             sa.Column("frequency", sa.String(16), nullable=False, server_default="daily"),
             sa.Column("time_of_day", sa.String(8), nullable=False, server_default="08:00"),
             sa.Column("last_sent_at", sa.String(64), nullable=True),

@@ -44,10 +44,6 @@ from app.persistence.models import AuditEventRecord
 from app.workers.channel_auth_health_probe_worker import (
     PROBE_CHANNELS,
     WORKER_SURFACE,
-    env_cooldown_hours,
-    env_enabled,
-    env_interval_hours,
-    env_timeout_seconds,
     get_worker,
 )
 

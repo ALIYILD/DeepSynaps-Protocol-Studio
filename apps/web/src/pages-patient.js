@@ -41,8 +41,13 @@ function _patientNav() {
     { id: 'pt-outcomes',         label: 'Progress',             icon: '📈', tone: 'green',  group: 'main' },
     { id: 'pt-digest',           label: 'My Digest',            icon: '📰', tone: 'teal',   group: 'main' },
     { id: 'patient-assessments', label: 'Assessments',          icon: '📋', tone: 'rose',   group: 'main' },
-    { id: 'patient-reports',     label: 'My Reports',           icon: '📄', tone: 'blue',   group: 'main' },
+    // patient-reports remains routable (legacy URL still works) but is
+    // hidden from the rendered nav so patients only see the new Health
+    // Reports surface. The legacy page renders an info banner pointing
+    // to the new route — see commit 6.
+    { id: 'patient-reports',     label: 'My Reports',           icon: '📄', tone: 'blue',   group: 'legacy' },
     { id: 'patient-brainmap',    label: 'My Brain Map',         icon: '🧠', tone: 'violet', group: 'main' },
+    { id: 'patient-health-reports', label: 'Health Reports',    icon: '🩺', tone: 'teal',   group: 'main' },
 
     // ── CONNECT ───────────────────────────────────────────────────────────────
     { section: 'Connect', sectionId: 'pt-connect', collapsed: false },
@@ -117,6 +122,12 @@ export function renderPatientNav(currentPage) {
       if (n.section) {
         currentSection = { entry: n, items: [] };
         sections.push(currentSection);
+      } else if (n.group === 'legacy') {
+        // legacy nav entries are routable but never appear in the rendered
+        // sidebar — added so that direct URLs to the legacy page keep
+        // working without surfacing the page to patients. See
+        // health-reports.js for the v2 surface that supersedes them.
+        return;
       } else if (n.group === 'optional') {
         optionalItems.push(n);
       } else if (n.group === 'bottom') {
@@ -445,12 +456,36 @@ import { pgDataImport } from './pages-patient/import-wizard.js';
 import { pgPatientMediaConsent, pgPatientMediaUpload, pgPatientMediaHistory } from './pages-patient/media.js';
 import { pgPatientWearables } from './pages-patient/wearables.js';
 import { pgSymptomJournal, pgPatientNotificationSettings } from './pages-patient/symptom-notifications.js';
+// Health Reports v2 — new 4-tab page that supersedes the legacy `My
+// Reports` view. Re-exported below so the central dispatcher in `app.js`
+// can call it via the same `loadPatient()` module reference.
+import { pgPatientHealthReports } from './pages-patient/health-reports.js';
+// Shared report helpers — load-bearing for the new Health Reports v2 page
+// (./pages-patient/health-reports.js). Pulling them from a single module so
+// the legacy `pgPatientReports` body and the v2 page share the SAME
+// implementation, rather than maintaining two copies which would inevitably
+// drift (see the lockstep warning in `_shared.js:9-13`).
+import {
+  DOC_PLAIN_LANG as _SHARED_DOC_PLAIN_LANG,
+  docPlainLang as _sharedDocPlainLang,
+  scoreInterpretation as _sharedScoreInterpretation,
+  categorise as _sharedCategorise,
+  CAT_META as _sharedCatMeta,
+  _ptComputeDelta as _sharedPtComputeDelta,
+  docOrigin as _sharedDocOrigin,
+  _normalizeDocs as _sharedNormalizeDocs,
+  _fetchPatientReportsBundle as _sharedFetchPatientReportsBundle,
+  docCardHTML as _sharedDocCardHTML,
+  installPatientReportsCtaHandlers as _sharedInstallPatientReportsCtaHandlers,
+  logPatientReportsAuditEvent as _sharedLogPatientReportsAuditEvent,
+} from './pages-patient/_reports-shared.js';
 // `_hdEsc` is the home-device HTML escaper. The original definition lived
 // inside the home-devices block (now extracted) but was hoisted across the
 // whole file; many other pages reference it. Import the canonical copy
 // from the shared module to keep those references working.
 import { _hdEsc } from './pages-patient/_shared.js';
 export { pgPatientCaregiver, pgPatientDigest };
+export { pgPatientHealthReports };
 export { pgPatientHomeDevices, pgPatientHomeDevice, pgPatientHomeSessionLog };
 export { pgPatientAdherenceEvents, pgPatientAdherenceHistory };
 export { pgIntake };
@@ -2498,20 +2533,10 @@ async function _pgPatientAssessmentsImpl() {
 }
 
 // \u2500\u2500 Patient Reports view-side launch-audit helper (2026-05-01) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-// Mirrors the wellness-hub / symptom-journal helper. Best-effort: never
-// throws back at the caller \u2014 audit failures must not block the UI.
-async function _patientReportsLogAuditEvent(event, extra) {
-  try {
-    if (api && typeof api.postPatientReportsAuditEvent === 'function') {
-      await api.postPatientReportsAuditEvent({
-        event,
-        report_id: (extra && extra.report_id) ? extra.report_id : null,
-        note: (extra && extra.note) ? String(extra.note).slice(0, 480) : null,
-        using_demo_data: !!(extra && extra.using_demo_data),
-      });
-    }
-  } catch (_) { /* audit failures must never block UI */ }
-}
+// Single source of truth lives in `pages-patient/_reports-shared.js` so the
+// legacy My Reports page and the v2 Health Reports page emit identically-
+// shaped audit rows. Local thin wrapper preserves the original call sites.
+const _patientReportsLogAuditEvent = _sharedLogPatientReportsAuditEvent;
 
 // \u2500\u2500 Reports \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 export async function pgPatientReports() {
@@ -2519,6 +2544,21 @@ export async function pgPatientReports() {
 
   const el = document.getElementById('patient-content');
   el.innerHTML = spinner();
+
+  // ── Moved-to-Health-Reports banner ───────────────────────────────────────
+  // Non-dismissable info banner pointing patients to the new v2 page.
+  // Rendered as the very first child of the content innerHTML in BOTH the
+  // empty-state and the populated render below, so the redirect surface is
+  // consistent regardless of whether the patient has any docs.
+  const _legacyMovedBanner = `
+    <div role="status" aria-live="polite" data-testid="pt-reports-legacy-moved"
+         style="margin-bottom:12px;padding:12px 16px;background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.25);border-radius:10px;font-size:13px;color:var(--text-primary);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <span>${t('patient.health_reports.legacy_banner')}</span>
+      <button class="btn btn-ghost btn-sm"
+              onclick="window._navPatient && window._navPatient('patient-health-reports')">
+        ${t('patient.health_reports.legacy_banner_cta')} &rarr;
+      </button>
+    </div>`;
 
   // ── Fetch in parallel ────────────────────────────────────────────────────
   // 3s timeout so a hung Fly backend can never wedge the page on a spinner.
@@ -2611,119 +2651,21 @@ export async function pgPatientReports() {
     ? { ..._emptyPatientEvidenceContext(currentUser?.patient_id || currentUser?.id || null), ...evidenceOverviewRaw, reportCount: reports.length }
     : _emptyPatientEvidenceContext(currentUser?.patient_id || currentUser?.id || null);
 
-  // ── Plain-language knowledge base ────────────────────────────────────────
-  // Extension point: clinician-approved per-patient summaries can be supplied
-  // by the backend via a `plain_language` field on the outcome object, which
-  // would override these defaults. Translate via i18n keys in a future pass.
-  const DOC_PLAIN_LANG = {
-    phq9:   { what: 'A 9-question depression screening questionnaire', why: 'Helps your clinician track changes in mood and depression over time',
-              range: [{max:4,label:'Minimal',note:'Little to no depression symptoms at this time'},{max:9,label:'Mild',note:'Mild mood changes \u2014 worth monitoring but not alarming'},{max:14,label:'Moderate',note:'Noticeable depression \u2014 treatment is likely focused here'},{max:19,label:'Moderately severe',note:'Significant symptoms \u2014 your care team is actively monitoring you'},{max:99,label:'Severe',note:'High symptom burden \u2014 your team has prioritised this in your plan'}] },
-    phq2:   { what: 'A 2-question mood check', why: 'A quick snapshot of how low mood has been recently', range: [] },
-    gad7:   { what: 'A 7-question anxiety screening questionnaire', why: 'Tracks anxiety and worry levels so your clinician can adjust treatment',
-              range: [{max:4,label:'Minimal',note:'Low anxiety levels'},{max:9,label:'Mild',note:'Mild anxiety \u2014 your team is tracking this'},{max:14,label:'Moderate',note:'Moderate anxiety \u2014 your clinician is monitoring closely'},{max:99,label:'Severe',note:'Significant anxiety \u2014 your care team is focused on this'}] },
-    gad2:   { what: 'A 2-question anxiety check', why: 'A quick snapshot of anxiety levels', range: [] },
-    pcl5:   { what: 'A PTSD symptoms checklist', why: 'Helps track trauma-related symptoms including flashbacks, avoidance, and sleep disruption', range: [] },
-    hdrs:   { what: 'A clinician-rated depression assessment', why: 'Your clinician used this structured interview to assess how depression is affecting you',
-              range: [{max:7,label:'Normal',note:'Symptoms are minimal at this point'},{max:13,label:'Mild',note:'Mild depression symptoms present'},{max:17,label:'Moderate',note:'Moderate depression \u2014 treatment is targeting this'},{max:23,label:'Severe',note:'Significant depression \u2014 your team is closely monitoring'},{max:99,label:'Very severe',note:'High symptom burden \u2014 your team is actively adjusting your plan'}] },
-    hamd:   { what: 'A clinician-rated depression assessment', why: 'Your clinician used this to assess how depression is affecting you', range: [] },
-    madrs:  { what: 'A clinician-rated depression scale', why: 'Tracks how mood and energy are responding to treatment',
-              range: [{max:6,label:'Normal',note:'No significant depression symptoms'},{max:19,label:'Mild',note:'Mild symptoms \u2014 treatment is working'},{max:34,label:'Moderate',note:'Moderate symptoms \u2014 treatment is targeted here'},{max:99,label:'Severe',note:'Significant symptom burden \u2014 your team is closely monitoring'}] },
-    bprs:   { what: 'A broad psychiatric symptom assessment', why: 'Gives your clinician a full picture of any symptoms you may be experiencing', range: [] },
-    panss:  { what: 'An assessment for psychotic symptoms', why: 'Helps track the range and intensity of symptoms across multiple areas', range: [] },
-    ybocs:  { what: 'An OCD severity assessment', why: 'Tracks obsessions and compulsions to measure how treatment is progressing', range: [] },
-    caps5:  { what: 'A structured PTSD assessment interview', why: 'A detailed check on trauma-related symptoms completed with your clinician', range: [] },
-    bdi:    { what: 'A depression inventory', why: 'Measures how depression symptoms have changed since your last assessment', range: [] },
-    bai:    { what: 'An anxiety inventory', why: 'Measures physical and cognitive anxiety symptoms', range: [] },
-    dass21: { what: 'A 21-question measure of depression, anxiety, and stress', why: 'Gives your care team a broad view of how you have been feeling across three areas', range: [] },
-    iesr:   { what: 'A trauma-related stress measure', why: 'Tracks how much a stressful event is affecting your thoughts and sleep', range: [] },
-    psqi:   { what: 'A sleep quality index', why: 'Measures how well you have been sleeping \u2014 sleep is important for treatment progress', range: [] },
-    isi:    { what: 'An insomnia severity index', why: 'Tracks how much sleep problems are affecting your daily life', range: [] },
-    moca:   { what: 'A cognitive screen', why: 'A quick check on memory, attention, and thinking clarity', range: [] },
-    mmse:   { what: 'A cognitive assessment', why: 'Assesses memory and thinking skills \u2014 important when monitoring brain health', range: [] },
-    qids:   { what: 'A quick depression inventory', why: 'A fast measure of depression severity to track weekly changes', range: [] },
-    audit:  { what: 'An alcohol use screen', why: 'Helps your care team understand how alcohol may be interacting with treatment', range: [] },
-    dast:   { what: 'A drug use screen', why: 'Helps your care team understand substance use as part of your full picture', range: [] },
-    // Session and administrative types
-    sessionsummary:  { what: 'A summary of what happened during your treatment session', why: 'Keeps a record of what was delivered and how you responded', range: [] },
-    adverseevent:    { what: 'A safety record logged by your care team', why: 'Your clinician documents any side effects or unexpected reactions to keep your treatment safe', range: [] },
-    consentform:     { what: 'A consent document you signed before treatment', why: 'Documents that you were informed about and agreed to your treatment plan', range: [] },
-    careinstructions:{ what: 'Instructions from your care team', why: 'Practical guidance to help you get the most benefit from your treatment', range: [] },
-    patientguide:    { what: 'Educational material about your condition or treatment', why: 'Helps you understand what to expect and how your treatment works', range: [] },
-    referral:        { what: 'A referral letter to another provider', why: 'Documents a request for specialist review or additional care', range: [] },
-    letter:          { what: 'A letter from your clinical team', why: 'Formal communication about your treatment or progress', range: [] },
-  };
-
-  // Extension point: backend can override per-item via `plain_language` object.
-  function docPlainLang(templateKey, override) {
-    if (override && (override.what || override.why)) return override;
-    if (!templateKey) return null;
-    const k = templateKey.toLowerCase().replace(/[-_\s]/g, '');
-    for (const [key, val] of Object.entries(DOC_PLAIN_LANG)) {
-      if (k === key.replace(/[-_\s]/g, '')) return val;
-    }
-    return null;
-  }
-
-  function scoreInterpretation(templateKey, score) {
-    if (score == null || score === '') return null;
-    const pl = docPlainLang(templateKey);
-    if (!pl || !pl.range || !pl.range.length) return null;
-    const n = Number(score);
-    if (!Number.isFinite(n)) return null;
-    for (const band of pl.range) {
-      if (n <= band.max) return { label: band.label, note: band.note };
-    }
-    return null;
-  }
-
-  // ── Delta helper: compare doc score against the most recent prior same-type doc ──
-  // Returns { delta, prevScore, prevDate } or null if no comparison is possible.
-  // Language is kept conservative — never diagnostic, never overclaiming.
-  function _ptComputeDelta(doc, allDocs) {
-    if (doc.score == null || !doc.templateKey) return null;
-    const n = Number(doc.score);
-    if (!Number.isFinite(n)) return null;
-    const prior = allDocs
-      .filter(d =>
-        d.id !== doc.id &&
-        d.templateKey === doc.templateKey &&
-        d.score != null &&
-        Number.isFinite(Number(d.score)) &&
-        new Date(d.date || 0) < new Date(doc.date || 0)
-      )
-      .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
-    if (!prior.length) return null;
-    const prev = prior[0];
-    const delta = n - Number(prev.score);
-    if (!Number.isFinite(delta)) return null;
-    return { delta, prevScore: prev.score, prevDate: prev.displayDate || '' };
-  }
-
-  // ── Document type categorisation ─────────────────────────────────────────
-  // Extension point: backend can supply a `doc_type` field to override.
-  function categorise(item) {
-    const raw = (item.doc_type || item.template_id || item.assessment_type || '').toLowerCase();
-    if (/consent/.test(raw))               return 'consent';
-    if (/care.?instruct|instruction/.test(raw)) return 'care';
-    if (/session.?summar|visit.?summar/.test(raw)) return 'session-summary';
-    if (/adverse|side.?effect/.test(raw))  return 'adverse';
-    if (/referral|letter/.test(raw))       return 'letter';
-    if (/patient.?guide|educat|leaflet/.test(raw)) return 'guide';
-    if (item._source === 'assessment')     return 'assessment';
-    return 'outcome';
-  }
-
-  const CAT_META = {
-    outcome:           { label: t('patient.reports.cat.outcome'),          icon: '&#9649;', color: 'var(--blue)',    bg: 'rgba(74,158,255,.1)'    },
-    assessment:        { label: t('patient.reports.cat.assessment'),        icon: '&#9673;', color: 'var(--teal)',    bg: 'rgba(0,212,188,.08)'   },
-    'session-summary': { label: t('patient.reports.cat.session_summary'),  icon: '&#9671;', color: '#a78bfa',        bg: 'rgba(167,139,250,.1)'  },
-    adverse:           { label: t('patient.reports.cat.adverse'),           icon: '&#9680;', color: '#fb923c',        bg: 'rgba(251,146,60,.1)'   },
-    consent:           { label: t('patient.reports.cat.consent'),           icon: '&#9643;', color: '#94a3b8',        bg: 'rgba(148,163,184,.1)'  },
-    care:              { label: t('patient.reports.cat.care'),              icon: '&#9678;', color: '#34d399',        bg: 'rgba(52,211,153,.1)'   },
-    guide:             { label: t('patient.reports.cat.guide'),             icon: '&#128218;', color: '#f59e0b',      bg: 'rgba(245,158,11,.08)'  },
-    letter:            { label: t('patient.reports.cat.letter'),            icon: '&#9672;', color: '#e2e8f0',        bg: 'rgba(226,232,240,.06)' },
-    biometrics:        { label: 'Biometrics',                               icon: '&#9829;',  color: '#f472b6',        bg: 'rgba(244,114,182,.1)' },
-  };
+  // ── Plain-language knowledge base + helpers ──────────────────────────────
+  // Source-of-truth for these helpers lives in
+  // `pages-patient/_reports-shared.js` — the v2 Health Reports page imports
+  // the same module so we never maintain two copies (see the lockstep
+  // warning in `_reports-shared.js:9-13`). The const aliases below bind the
+  // shared helpers into local names so the legacy callsites in this
+  // function body remain unchanged.
+  const DOC_PLAIN_LANG = _SHARED_DOC_PLAIN_LANG;
+  const docPlainLang = _sharedDocPlainLang;
+  const scoreInterpretation = _sharedScoreInterpretation;
+  const _ptComputeDelta = _sharedPtComputeDelta;
+  const categorise = _sharedCategorise;
+  const CAT_META = _sharedCatMeta();
+  const docOrigin = _sharedDocOrigin;
+  void [DOC_PLAIN_LANG, docPlainLang, scoreInterpretation, _ptComputeDelta, categorise, CAT_META, docOrigin];
 
   // ── Build session/course lookup maps ─────────────────────────────────────
   const sessionById = {};
@@ -2803,13 +2745,6 @@ export async function pgPatientReports() {
   // anything signed/annotated by a clinician as clinician-generated, anything
   // with `ai_generated`/`source === 'ai'`/`generated_by` markers as AI. Falls
   // back to "clinic" so existing outcomes don't get mis-grouped.
-  function docOrigin(d, raw) {
-    const rawOrigin = String(raw?.origin || raw?.source || raw?.generated_by || '').toLowerCase();
-    if (rawOrigin.includes('ai') || raw?.ai_generated === true) return 'ai';
-    if (d.clinicianNotes) return 'clinic';
-    if (rawOrigin === 'clinician' || rawOrigin === 'clinic') return 'clinic';
-    return 'clinic';
-  }
   // Re-walk raw outcomes/assessments to attach origin back onto docs (keyed by id).
   const _rawById = {};
   (outcomes || []).forEach(o => { if (o.id != null) _rawById[String(o.id)] = o; });
@@ -2916,9 +2851,24 @@ export async function pgPatientReports() {
     docs.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
   }
 
+  // ── Install shared CTA click handlers (2026-05-08) ───────────────────────
+  // Single source of truth lives in `_reports-shared.js`. Both this legacy
+  // page and the v2 `pgPatientHealthReports` call the same installer so the
+  // doc-card CTAs work regardless of which page the patient lands on first.
+  // The legacy in-closure assignments below intentionally overwrite the
+  // module-level handlers with closure-aware copies — they are kept as a
+  // belt-and-braces while the original behaviour is exercised in production.
+  _sharedInstallPatientReportsCtaHandlers({
+    docs,
+    patientReportsServerLive: _patientReportsServerLive,
+    patientReportsConsentActive: _patientReportsConsentActive,
+    patientReportsIsDemo: _patientReportsIsDemo,
+  });
+
   // ── Empty state ──────────────────────────────────────────────────────────
   if (docs.length === 0) {
     el.innerHTML = `
+      ${_legacyMovedBanner}
       <div class="pt-docs-empty">
         <div class="pt-docs-empty-icon">&#9649;</div>
         <div class="pt-docs-empty-title">${t('patient.reports.empty.title')}</div>
@@ -3427,6 +3377,7 @@ export async function pgPatientReports() {
 
   el.innerHTML = `
     <div class="pt-docs-wrap">
+      ${_legacyMovedBanner}
       ${_patientReportsDemoBanner}
       ${_patientReportsConsentBanner}
       ${_patientReportsOfflineBanner}

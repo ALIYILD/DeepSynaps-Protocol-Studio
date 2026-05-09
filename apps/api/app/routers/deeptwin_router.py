@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -1616,7 +1616,6 @@ from app.services.deeptwin_tribe import (  # noqa: E402  (intentional late impor
     ProtocolSpec as TribeProtocolSpec,
     compare_protocols as tribe_compare_protocols,
     compute_patient_latent as tribe_compute_patient_latent,
-    encode_all as tribe_encode_all,
     simulate_protocol as tribe_simulate_protocol,
     to_jsonable as tribe_to_jsonable,
 )
@@ -2026,6 +2025,7 @@ class DataSourcesOut(BaseModel):
 
 
 class AnalysisRunIn(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     analysis_type: str = Field(..., min_length=1)
     input_sources_json: dict[str, Any] | None = None
     output_summary_json: dict[str, Any] | None = None
@@ -2035,6 +2035,7 @@ class AnalysisRunIn(BaseModel):
 
 
 class AnalysisRunOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     id: str
     patient_id: str
     clinician_id: str

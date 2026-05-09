@@ -36,7 +36,9 @@ import {
   loadingBlock, errorBlock, emptyPatientBlock,
 } from './deeptwin/components.js';
 import { decisionSupportBanner } from './deeptwin/safety.js';
+import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { VOICE_DEEPTWIN_DOMAIN_NOTE } from './voice-decision-support.js';
+import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
 import { buildReport, reportToMarkdown, reportToJSONString, downloadBlob, renderReportPreview } from './deeptwin/reports.js';
 import { startHandoff } from './deeptwin/handoff.js';
 import { PRESET_SCENARIOS } from './deeptwin/mockData.js';
@@ -46,6 +48,7 @@ import {
   wireDashboard360Actions, loadDashboard360,
 } from './deeptwin/dashboard360.js';
 import { renderNeuroAiLabSection, wireNeuroAiLab } from './deeptwin/neuroai-lab.js';
+import { mountMedicalImageCard } from './medical-image-card.js';
 
 const HOST_TIMELINE = 'dt-timeline-host';
 const HOST_CORR     = 'dt-corr-host';
@@ -132,7 +135,10 @@ function _setMain(html) {
   // this app render to either #content or #main-content depending on
   // which router pass landed first. We try both.
   const el = document.getElementById('content') || document.getElementById('main-content');
-  if (el) el.innerHTML = html;
+  if (el) {
+    el.innerHTML = html;
+    ensureAgentBrainStatus(el);
+  }
   return el;
 }
 
@@ -177,6 +183,7 @@ function _renderAll() {
       ${_voiceDomainHintBanner()}
       ${renderHeader({ patientLabel, condition, summary: STATE.summary, dataSources: STATE.dataSources })}
       ${renderDataSources({ summary: STATE.summary, dataSources: STATE.dataSources })}
+      <div id="ds-medical-image-card-deeptwin" style="margin-top:16px"></div>
       ${renderSignalMatrix({ signals: STATE.signals, signalState: STATE.signalsPayload })}
       ${renderTimeline({ patientId: STATE.patientId, timeline: STATE.timelinePayload, selectedKinds: STATE.timelineFilters }, HOST_TIMELINE)}
       ${renderCorrelations({ correlations: STATE.correlations }, HOST_CORR)}
@@ -191,12 +198,31 @@ function _renderAll() {
       ${renderSafetyFooter()}
     </div>
   `;
-  _setMain(html);
+  const _aarEl = _setMain(html);
+  if (_aarEl && !_aarEl.querySelector('[data-aar-strip="deeptwin"]')) {
+    const _aarHost = document.createElement('div');
+    _aarHost.dataset.aarStrip = 'deeptwin';
+    _aarEl.prepend(_aarHost);
+    mountAnalyzerAIReportStrip({
+      container: _aarHost,
+      analyzerType: 'deeptwin',
+      getAnalysisId: () => {
+        const runs = Array.isArray(STATE.analysisRuns) ? STATE.analysisRuns : [];
+        const latest = runs[0]?.id || runs[runs.length - 1]?.id;
+        return latest || STATE.patientId;
+      },
+      label: 'AI Decision Support',
+    });
+  }
   // Mount Plotly charts after HTML is in DOM
   mountTimeline(HOST_TIMELINE, STATE.timeline, STATE.timelineFilters);
   mountCorrelations(HOST_CORR, STATE.correlations);
   mountPrediction(HOST_PRED, STATE.prediction);
   mountSimulation(HOST_SIM, STATE.scenarios);
+  try {
+    var _miHost = document.getElementById('ds-medical-image-card-deeptwin');
+    if (_miHost) mountMedicalImageCard(_miHost, { patientId: STATE.patientId, audience: 'clinician' });
+  } catch (_miErr) { /* non-fatal: medical-image card is optional */ }
   // Wire interactions
   _wireTimelineFilters();
   _wirePredictionTabs();

@@ -12,7 +12,7 @@
 // v2 viz API reports capabilities for a given analysis.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
+import { API_BASE } from './api.js';
 const TOKEN_KEY = 'ds_access_token';
 
 function _token() {

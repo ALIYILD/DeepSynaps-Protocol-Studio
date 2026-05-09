@@ -4,6 +4,7 @@
  */
 
 import { api } from './api.js';
+import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { EVIDENCE_TOTAL_PAPERS } from './evidence-dataset.js';
 import {
   VOICE_DECISION_SUPPORT_FULL,
@@ -12,6 +13,14 @@ import {
 } from './voice-decision-support.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
+import { drHero, clinicalBand, trajectoryChip } from './helpers.js';
+import { loadPatientFlagSummary } from './dr-friendly-flags.js';
+import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
+
+// Clinical question this page actually answers — surfaced in topbar + drHero
+// so a doctor lands on "what am I looking at?" instead of "upload audio".
+const VOICE_CLINICAL_QUESTION = "Has this patient's voice changed in ways that suggest mood, cognition, or motor concerns?";
+const VOICE_HOW_TO_READ = "Findings appear with severity bands (Low / Moderate / Elevated / High) where the model returns calibration-aware percentiles. Raw model scores are shown numerically when no band is calibrated. Always require clinical correlation — voice signals are adjunct to examination, not standalone diagnosis.";
 
 function _readVaAccessToken() {
   try {
@@ -370,8 +379,20 @@ function _renderBiomarkerSection(vr) {
     && (pd.jitter_local_pct != null || pd.shimmer_local_pct != null || pd.hnr_db != null || pd.f0_mean_hz != null)
     && pd.score == null && !pd.model_name;
   if (pd && typeof pd === 'object' && (pd.score != null || pd.model_name || pdLegacyMetrics)) {
+    const pdBandChip = (pd.percentile != null)
+      ? clinicalBand(pd.percentile, { kind: 'percentile', confidence: pd.confidence, helpText: 'Parkinson-style voice screening percentile vs reference distribution' })
+      : (pd.score != null ? clinicalBand(pd.score, { kind: 'score', scaleLabel: '0–1', confidence: pd.confidence, helpText: 'Raw 0–1 model output — clinical correlation required (no calibrated band)' }) : '');
+    const pdTrajectoryChip = (pd.score != null && pd.prior_score != null)
+      ? trajectoryChip(pd.score, pd.prior_score, { direction: 'lower-better', priorLabel: pd.prior_date ? `vs ${pd.prior_date}` : 'vs prior', helpText: 'Change in voice screening score vs prior measurement (lower is better — less PD-like voice)' })
+      : '';
     blocks.push(`<div style="padding:10px;border-radius:8px;border:1px solid var(--border);margin-bottom:8px;background:rgba(255,255,255,.02)">
-      <div style="font-weight:600;font-size:12px;margin-bottom:6px">Parkinson-style voice screening (research indicator)</div>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+        <div style="font-weight:600;font-size:12px">Parkinson-style voice screening (research indicator)</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          ${pdBandChip ? `<div style="display:flex;align-items:center;gap:6px"><span style="font-size:10px;color:var(--text-tertiary)">Severity</span>${pdBandChip}</div>` : ''}
+          ${pdTrajectoryChip}
+        </div>
+      </div>
       <div style="font-size:11px;color:var(--text-secondary);line-height:1.45">
         ${pd.score != null ? `Score: ${esc(Number(pd.score).toFixed(3))} (0–1 model output)` : ''}
         ${pd.confidence != null ? ` · Model confidence: ${esc(Number(pd.confidence).toFixed(2))}` : ''}
@@ -392,8 +413,20 @@ function _renderBiomarkerSection(vr) {
       const legacyDetail = legacy
         ? `Speech rate ${cog.speech_rate_wpm != null ? esc(String(cog.speech_rate_wpm)) + ' wpm' : '—'}; pause ratio ${cog.pause_ratio != null ? esc(String(cog.pause_ratio)) : '—'}; type–token ${cog.type_token_ratio != null ? esc(String(cog.type_token_ratio)) : '—'}. (Heuristic / legacy row — not a validated score.)`
         : '';
+      const cogBandChip = (cog.percentile != null)
+        ? clinicalBand(cog.percentile, { kind: 'percentile', confidence: cog.confidence, helpText: 'Cognitive speech indicator percentile vs reference distribution' })
+        : (hasScore ? clinicalBand(cog.score, { kind: 'score', scaleLabel: '0–1', confidence: cog.confidence, helpText: 'Raw cognitive speech indicator — clinical correlation required (no calibrated band)' }) : '');
+      const cogTrajectoryChip = (cog.score != null && cog.prior_score != null)
+        ? trajectoryChip(cog.score, cog.prior_score, { direction: 'lower-better', priorLabel: cog.prior_date ? `vs ${cog.prior_date}` : 'vs prior', helpText: 'Change in cognitive speech indicator vs prior measurement (lower is better — less risk-indicating)' })
+        : '';
       blocks.push(`<div style="padding:10px;border-radius:8px;border:1px solid var(--border);margin-bottom:8px;background:rgba(255,255,255,.02)">
-        <div style="font-weight:600;font-size:12px;margin-bottom:6px">Cognitive / linguistic speech metrics</div>
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+          <div style="font-weight:600;font-size:12px">Cognitive / linguistic speech metrics</div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            ${cogBandChip ? `<div style="display:flex;align-items:center;gap:6px"><span style="font-size:10px;color:var(--text-tertiary)">Severity</span>${cogBandChip}</div>` : ''}
+            ${cogTrajectoryChip}
+          </div>
+        </div>
         <div style="font-size:11px;color:var(--text-secondary);line-height:1.45">
           ${hasScore ? `Risk indicator: ${esc(Number(cog.score).toFixed(3))} · ${esc(cog.model_name || '')} ${esc(cog.model_version || '')}` : ''}
           ${legacy ? `<br/>${legacyDetail}` : ''}
@@ -473,10 +506,10 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
   try {
     setTopbar({
       title: 'Voice Analyzer',
-      subtitle: 'Clinician-reviewed acoustic voice / speech analysis workspace',
+      subtitle: VOICE_CLINICAL_QUESTION,
     });
   } catch {
-    try { setTopbar('Voice Analyzer', 'Acoustic biomarkers'); } catch (_) {}
+    try { setTopbar('Voice Analyzer', VOICE_CLINICAL_QUESTION); } catch (_) {}
   }
 
   const el = document.getElementById('content');
@@ -493,6 +526,7 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
     }
     if (!voiceAnalyzerAllowsLiveRole(actorRole)) {
       el.innerHTML = _renderVoiceAnalyzerRestrictedCard();
+      ensureAgentBrainStatus(el);
       return;
     }
   }
@@ -515,6 +549,12 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
   el.innerHTML = `
     <div class="va-shell" style="max-width:960px;margin:0 auto;padding:16px 20px 48px">
       ${voiceAnalyzerPreviewBuildBanner()}
+      <div id="va-dr-hero-slot">${drHero({
+        question: VOICE_CLINICAL_QUESTION,
+        howToRead: VOICE_HOW_TO_READ,
+        flagCount: 0,
+        flagSummary: '',
+      })}</div>
       <div style="padding:14px 16px;border-radius:12px;border:1px solid rgba(246,178,60,.35);background:rgba(246,178,60,.09);margin-bottom:18px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
         <strong style="color:var(--text-primary)">Clinical decision-support.</strong> ${DISCLAIMER}
       </div>
@@ -613,6 +653,41 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
         <p style="margin:0">Uploading or running analysis should be performed under your clinic’s policies. Server-side storage follows API persistence rules; this page does not replace signed documents or protocol approval workflows.</p>
       </section>
     </div>`;
+  ensureAgentBrainStatus(el);
+
+  // Mount the shared analyzer AI report strip (decision support).
+  // Row key: live audio analysis id, sourced from window._lastVoiceAnalysisId
+  // first (set by _persistLastAnalysisId after audioGetReport / upload), then
+  // sessionStorage VA_LAST_ANALYSIS_KEY as fallback. Both are the same id —
+  // we read them at click-time to capture the latest value.
+  if (!el.querySelector('[data-aar-strip="voice"]')) {
+    const _aarHost = document.createElement('div');
+    _aarHost.dataset.aarStrip = 'voice';
+    el.prepend(_aarHost);
+    mountAnalyzerAIReportStrip({
+      container: _aarHost,
+      analyzerType: 'voice',
+      getAnalysisId: () => {
+        try {
+          return window._lastVoiceAnalysisId
+            || sessionStorage.getItem(VA_LAST_ANALYSIS_KEY)
+            || '';
+        } catch (_) {
+          return window._lastVoiceAnalysisId || '';
+        }
+      },
+      getPatientContext: () => {
+        try {
+          return sessionStorage.getItem(VA_LAST_ANALYSIS_PATIENT_KEY)
+            || sessionStorage.getItem(VA_PATIENT_STORAGE)
+            || '';
+        } catch (_) {
+          return '';
+        }
+      },
+      label: 'AI Decision Support',
+    });
+  }
 
   const statusEl = () => document.getElementById('va-status');
   const resultEl = () => document.getElementById('va-result');
@@ -802,14 +877,37 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
     }
   }
 
+  // Re-render the drHero slot for the loaded patient — pulls flagged risk
+  // categories so the alert chip at the top of the page reflects reality
+  // instead of the calm placeholder. Failures fall back to no-flags state.
+  async function _refreshVoiceDrHero(patientId) {
+    const slot = document.getElementById('va-dr-hero-slot');
+    if (!slot) return;
+    let flagCount = 0;
+    let flagSummary = '';
+    if (patientId) {
+      const summary = await loadPatientFlagSummary(patientId);
+      flagCount = summary.flagCount;
+      flagSummary = summary.flagSummary;
+    }
+    slot.innerHTML = drHero({
+      question: VOICE_CLINICAL_QUESTION,
+      howToRead: VOICE_HOW_TO_READ,
+      flagCount,
+      flagSummary,
+    });
+  }
+
   document.getElementById('va-patient-select')?.addEventListener('change', (e) => {
     const v = e.target?.value?.trim() || '';
     _persistPatientSelection(v);
     refreshAnalysisList(v);
+    _refreshVoiceDrHero(v);
   });
 
   await refreshPatientList();
   await refreshAnalysisList(effectivePatientId().patientId);
+  _refreshVoiceDrHero(effectivePatientId().patientId);
 
   // Recording
   document.getElementById('va-rec-start')?.addEventListener('click', async () => {

@@ -2,6 +2,7 @@ import { api } from './api.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML, labsPatientProfileFor } from './demo-fixtures-analyzers.js';
 import { getEvidenceUiStats } from './evidence-ui-live.js';
+import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
 import {
   EvidenceChip, createEvidenceQueryForTarget,
   initEvidenceDrawer, openEvidenceDrawer, wireEvidenceChips,
@@ -965,6 +966,27 @@ export async function pgNutritionAnalyzer(setTopbar, navigate) {
       <div id="nu-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px"></div>
       <div id="nu-body"></div>
     </div>`;
+
+  // ── AI decision-support strip (mounted once per page invocation) ────────
+  if (!el.querySelector('[data-aar-strip="nutrition"]')) {
+    const _aarHost = document.createElement('div');
+    _aarHost.dataset.aarStrip = 'nutrition';
+    const _shell = el.querySelector('.ds-nutrition-analyzer-shell');
+    const _bcAnchor = _shell?.querySelector('#nu-breadcrumb');
+    if (_bcAnchor && _bcAnchor.parentNode) {
+      _bcAnchor.parentNode.insertBefore(_aarHost, _bcAnchor);
+    } else if (_shell) {
+      _shell.prepend(_aarHost);
+    } else {
+      el.prepend(_aarHost);
+    }
+    mountAnalyzerAIReportStrip({
+      container: _aarHost,
+      analyzerType: 'nutrition',
+      getAnalysisId: () => activePatientId,
+      label: 'AI Decision Support',
+    });
+  }
 
   const $ = (id) => document.getElementById(id);
 

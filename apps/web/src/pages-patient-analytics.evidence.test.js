@@ -14,6 +14,11 @@ function makeNode(id = '') {
     children: [],
     classList: { add() {}, remove() {}, contains() { return false; } },
     appendChild(child) { this.children.push(child); return child; },
+    insertBefore(newChild, refChild) { 
+      const idx = refChild ? this.children.indexOf(refChild) : this.children.length;
+      if (idx >= 0) this.children.splice(idx, 0, newChild);
+      return newChild;
+    },
     remove() {},
     addEventListener() {},
     querySelector() { return null; },

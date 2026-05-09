@@ -1,4 +1,4 @@
-import { api } from './api.js';
+import { api, API_BASE } from './api.js';
 
 /** Shown on AI Agent v2 — required governance copy for clinician-controlled decision support. */
 export const AI_AGENT_V2_GOVERNANCE_COPY =
@@ -555,6 +555,10 @@ let _lastSetTopbar = () => {};
 // unavailable or returns an empty/unknown shape (the demo-mode shim in api.js
 // turns every list response into `{ items: [] }`).
 let _marketplaceAgents = [];
+// Per-agent detail drawer — set to an AgentListItem when the clinician
+// clicks "Details" on a tile, cleared on close. Rendered as an overlay so
+// it stacks on top of the hub without changing layout.
+let _agentDetailDrawerAgent = null;
 let _marketplaceLoaded = false;
 let _marketplaceLoading = false;
 let _marketplaceModalAgent = null;
@@ -935,23 +939,61 @@ function _agentsOrDemo(agents) {
 // the catalog/activity panels can show an "Offline — retry" affordance.
 let _marketplaceAgentsLoadFailed = false;
 
+// Restored 2026-05-08 after a concurrent-session refactor accidentally
+// emptied the function body (broke 5+ unit tests with
+// "_marketplaceApiBase is not defined"). Mirrors the pattern used by
+// other modules: read VITE_API_BASE_URL at runtime, fall back to the
+// local dev port for unit tests where import.meta.env is unset.
 function _marketplaceApiBase() {
   try { return import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'; }
   catch { return 'http://127.0.0.1:8000'; }
+}
+
+
+function _marketplaceAuthHeaders() {
+  const headers = { 'Content-Type': 'application/json' };
+  try {
+    const t = api.getToken && api.getToken();
+    if (t) headers['Authorization'] = 'Bearer ' + t;
+  } catch {}
+  return headers;
+}
+
+// POST /api/v1/agents/{id}/hire — idempotent on the backend.
+async function _hireAgent(agentId) {
+  try {
+    const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/${encodeURIComponent(agentId)}/hire`, {
+      method: 'POST', headers: _marketplaceAuthHeaders(), credentials: 'include',
+    });
+    if (!res.ok) {
+      window._showNotifToast?.({ title: 'Could not hire agent', body: `HTTP ${res.status}`, severity: 'error' });
+      return false;
+    }
+    return true;
+  } catch (e) {
+    window._showNotifToast?.({ title: 'Could not hire agent', body: String(e && e.message || e), severity: 'error' });
+    return false;
+  }
+}
+
+// DELETE /api/v1/agents/{id}/hire — idempotent on the backend.
+async function _unhireAgent(agentId) {
+  try {
+    const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/${encodeURIComponent(agentId)}/hire`, {
+      method: 'DELETE', headers: _marketplaceAuthHeaders(), credentials: 'include',
+    });
+    return res.ok || res.status === 204;
+  } catch { return false; }
 }
 
 async function _fetchMarketplaceAgents() {
   if (_marketplaceLoading) return _marketplaceAgents;
   _marketplaceLoading = true;
   try {
-    const headers = { 'Content-Type': 'application/json' };
-    try {
-      const t = api.getToken && api.getToken();
-      if (t) headers['Authorization'] = 'Bearer ' + t;
-    } catch {}
+    const headers = _marketplaceAuthHeaders();
     let payload = null;
     try {
-      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents`, {
+      const res = await fetch(`${API_BASE}/api/v1/agents`, {
         method: 'GET', headers, credentials: 'include',
       });
       if (res.ok) payload = await res.json();
@@ -1035,7 +1077,7 @@ async function _runMarketplaceAgent(agentId, message, confirmedToolCallId = null
     if (t) headers['Authorization'] = 'Bearer ' + t;
   } catch {}
   const body = { message, confirmed_tool_call_id: confirmedToolCallId || null };
-  const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/${encodeURIComponent(agentId)}/run`, {
+  const res = await fetch(`${API_BASE}/api/v1/agents/${encodeURIComponent(agentId)}/run`, {
     method: 'POST',
     headers,
     credentials: 'include',
@@ -1099,6 +1141,143 @@ export async function pgAgentChat(setTopbar) {
 }
 
 // ── Marketplace Section ──────────────────────────────────────────────────────
+// "Your hired agents" rail — renders above the marketplace section so the
+// clinician sees their personal roster first. Empty rail → nothing
+// rendered, so a fresh clinician sees the catalogue without a "0 agents"
+// placeholder.
+function _renderHiredAgentsRail() {
+  const agents = Array.isArray(_marketplaceAgents) ? _marketplaceAgents : [];
+  const hired = agents.filter(a => a && a.hired);
+  if (!hired.length) return '';
+  const tiles = hired.map(a => {
+    const audience = _esc(a.audience || 'clinic');
+    const audPill = `<span class="ds-pill" style="font-size:10px;padding:3px 9px;border-radius:99px;background:rgba(74,158,255,0.10);color:var(--blue);font-weight:600;border:1px solid rgba(74,158,255,0.25)">${audience}</span>`;
+    const lastUsed = a.last_used_at
+      ? `<span style="font-size:10.5px;color:var(--text-tertiary)">used ${_esc(_formatRelativeTimestamp(a.last_used_at))}</span>`
+      : '<span style="font-size:10.5px;color:var(--text-tertiary)">not used yet</span>';
+    return `
+      <button class="card ds-card" onclick="window._agentMarketplaceTry('${_esc(a.id)}')" style="cursor:pointer;text-align:left;padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:200px;border-left:3px solid var(--green,#22c55e)">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">${audPill}</div>
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary)">${_esc(a.name || a.id)}</div>
+        <div style="font-size:11px;color:var(--text-secondary);line-height:1.4">${_esc(a.tagline || '')}</div>
+        ${lastUsed}
+      </button>
+    `;
+  }).join('');
+  return `
+    <div style="margin-bottom:16px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px">
+        <h3 style="font-size:13px;font-weight:700;color:var(--text-primary);margin:0">Your hired agents</h3>
+        <span style="font-size:11px;color:var(--text-tertiary)">${hired.length} on your roster</span>
+      </div>
+      <div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:4px">
+        ${tiles}
+      </div>
+    </div>
+  `;
+}
+
+function _formatRelativeTimestamp(iso) {
+  if (!iso) return '';
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return iso;
+  const delta = Date.now() - t;
+  if (delta < 60_000) return 'just now';
+  if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m ago`;
+  if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)}h ago`;
+  return `${Math.floor(delta / 86_400_000)}d ago`;
+}
+
+// Plain-English mapping for the most common tool ids the registry uses
+// so a doctor can read a clear scope instead of dotted ids. Unknown ids
+// fall back to the raw id so the UI never silently drops information.
+const TOOL_PLAIN_ENGLISH = {
+  'sessions.list': 'Sees your scheduled sessions',
+  'sessions.create': 'Books new sessions (only after you approve)',
+  'sessions.update': 'Reschedules sessions (only after you approve)',
+  'sessions.cancel': 'Cancels sessions (only after you approve)',
+  'patients.list': 'Sees your patient list',
+  'patients.read': 'Reads patient charts you already have access to',
+  'reports.create': 'Drafts reports for your review',
+  'reports.read': 'Reads existing reports',
+  'media.transcribe': 'Transcribes dictation you record',
+  'media.draft': 'Drafts clinical notes from a recording (you approve)',
+  'evidence.search': 'Searches the evidence library',
+  'protocols.suggest': 'Suggests protocols (you approve before any change)',
+  'clinic.emergency_contact': 'Surfaces emergency contacts in a crisis flow',
+};
+
+function _formatToolPlainEnglish(toolId) {
+  if (typeof toolId !== 'string' || !toolId) return '';
+  return TOOL_PLAIN_ENGLISH[toolId] || toolId;
+}
+
+// Per-agent detail drawer. Surfaces enough information for an informed
+// hire decision: scope, tools (in plain English), what the agent will
+// NOT do, billing, and a primary Hire/Pause CTA. Replaces the prior
+// `alert('Configuration coming soon')` placeholder.
+function _renderAgentDetailDrawer() {
+  if (!_agentDetailDrawerAgent) return '';
+  const a = _agentDetailDrawerAgent;
+  const audience = _esc(a.audience || 'clinic');
+  const tools = Array.isArray(a.tool_allowlist) ? a.tool_allowlist : [];
+  const toolRows = tools.length
+    ? tools.map(t => `<li style="padding:4px 0;color:var(--text-primary);font-size:12px">${_esc(_formatToolPlainEnglish(t))}</li>`).join('')
+    : '<li style="padding:4px 0;color:var(--text-tertiary);font-size:12px;font-style:italic">This agent does not have any tools — it can only respond in chat.</li>';
+  const required = Array.isArray(a.package_required) ? a.package_required : [];
+  const packageLine = required.length
+    ? `Requires the <code>${required.map(r => _esc(r)).join('</code> or <code>')}</code> package.`
+    : 'Included in your current package.';
+  const hired = !!a.hired;
+  const primaryCta = hired
+    ? `<button class="btn btn-primary" onclick="window._agentDetailDrawerOpenChat()" style="font-size:12px">Open chat</button>
+       <button class="btn btn-ghost" onclick="window._agentDetailDrawerUnhire()" style="font-size:12px">Pause</button>`
+    : `<button class="btn btn-primary" onclick="window._agentDetailDrawerHire()" style="font-size:12px">Hire</button>
+       <button class="btn btn-ghost" onclick="window._agentDetailDrawerOpenChat()" style="font-size:12px">Try once</button>`;
+  return `
+    <div onclick="window._agentDetailDrawerClose()" style="position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9000;display:flex;justify-content:flex-end" role="dialog" aria-modal="true" aria-labelledby="agent-detail-title">
+      <div onclick="event.stopPropagation()" style="width:min(440px,100%);height:100%;background:var(--surface,#10131c);border-left:1px solid var(--border);overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:16px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+          <div>
+            <div style="font-size:11px;color:var(--blue);text-transform:uppercase;letter-spacing:.06em">${audience} agent</div>
+            <h2 id="agent-detail-title" style="font-size:18px;font-weight:700;color:var(--text-primary);margin:4px 0 0">${_esc(a.name || a.id)}</h2>
+          </div>
+          <button class="btn btn-sm btn-ghost" onclick="window._agentDetailDrawerClose()" aria-label="Close" style="font-size:14px">×</button>
+        </div>
+        <p style="font-size:12.5px;color:var(--text-secondary);line-height:1.5;margin:0">${_esc(a.tagline || '')}</p>
+
+        <section>
+          <h3 style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em;margin:0 0 6px">What this agent can do</h3>
+          <ul style="list-style:none;padding-left:0;margin:0">${toolRows}</ul>
+        </section>
+
+        <section>
+          <h3 style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em;margin:0 0 6px">What this agent will NOT do</h3>
+          <ul style="list-style:disc;padding-left:18px;margin:0;font-size:12px;color:var(--text-secondary);line-height:1.5">
+            <li>Take any clinical action without your explicit confirmation</li>
+            <li>Diagnose, prescribe, or change a treatment plan on its own</li>
+            <li>Send messages or schedule events without surfacing a draft to you first</li>
+            <li>Access patient data outside your clinic</li>
+          </ul>
+        </section>
+
+        <section style="font-size:12px;color:var(--text-secondary);line-height:1.5">
+          <strong style="color:var(--text-primary)">Billing.</strong> ${packageLine}
+          ${Number.isFinite(a.monthly_price_gbp) && a.monthly_price_gbp ? ` £${_esc(String(a.monthly_price_gbp))}/mo` : ''}
+        </section>
+
+        <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5;border-top:1px dashed var(--border);padding-top:10px">
+          Decision-support only. Every output is logged in your agent audit trail and remains your responsibility to review before acting.
+        </div>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:auto">
+          ${primaryCta}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function _renderMarketplaceTabStrip() {
   const tab = (k, label) => {
     const active = _marketplaceTab === k;
@@ -1206,12 +1385,19 @@ function _renderMarketplaceSection() {
                 ${busyAttr}>${label}</button>
       `;
     } else {
-      const tryBtn = `<button class="btn btn-sm btn-primary" onclick="window._agentMarketplaceTry('${_esc(a.id)}')" style="font-size:11.5px">Try in chat</button>`;
-      const cfgBtn = `<button class="btn btn-sm btn-ghost" onclick="window._agentMarketplaceConfigure('${_esc(a.id)}')" style="font-size:11.5px;opacity:0.7" title="Configuration coming soon">Configure</button>`;
+      const hired = !!a.hired;
+      const primary = hired
+        ? `<button class="btn btn-sm btn-primary" onclick="window._agentMarketplaceTry('${_esc(a.id)}')" style="font-size:11.5px">Open chat</button>`
+        : `<button class="btn btn-sm btn-primary" onclick="window._agentMarketplaceHire('${_esc(a.id)}')" style="font-size:11.5px">Hire</button>`;
+      const ghost = hired
+        ? `<button class="btn btn-sm btn-ghost" onclick="window._agentMarketplaceUnhire('${_esc(a.id)}')" style="font-size:11.5px;opacity:0.8" title="Pause this agent — audit history is retained">Pause</button>`
+        : `<button class="btn btn-sm btn-ghost" onclick="window._agentMarketplaceTry('${_esc(a.id)}')" style="font-size:11.5px;opacity:0.85" title="Open a one-off chat without adding to your roster">Try once</button>`;
+      const detailBtn = `<button class="btn btn-sm btn-ghost" onclick="window._agentMarketplaceConfigure('${_esc(a.id)}')" style="font-size:11.5px;opacity:0.7" title="Scope, tools, and what this agent will / will not do">Details</button>`;
       actionRow = `
-        <div style="display:flex;gap:6px">
-          ${tryBtn}
-          ${cfgBtn}
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${primary}
+          ${ghost}
+          ${detailBtn}
         </div>
       `;
     }
@@ -1231,11 +1417,15 @@ function _renderMarketplaceSection() {
       `;
     }
 
+    const hiredBadge = a.hired
+      ? '<span class="ds-pill" style="font-size:10px;padding:3px 9px;border-radius:99px;background:rgba(34,197,94,0.12);color:var(--green,#22c55e);font-weight:600;border:1px solid rgba(34,197,94,0.30)">On your roster</span>'
+      : '';
     return `
       <div class="card ds-card" style="${dimStyle}padding:14px 16px;display:flex;flex-direction:column;gap:8px;min-height:170px">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           ${audPill}
           ${packageBadge}
+          ${hiredBadge}
         </div>
         <h3 style="font-size:14px;font-weight:700;color:var(--text-primary);margin:0">${_esc(a.name || a.id)}</h3>
         <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.4;flex:1">${_esc(a.tagline || '')}</div>
@@ -1256,6 +1446,7 @@ function _renderMarketplaceSection() {
       </div>
     </div>
     ${_renderMarketplaceModal()}
+    ${_renderAgentDetailDrawer()}
   `;
 }
 
@@ -1361,7 +1552,7 @@ async function _loadActivityRuns(force = false) {
     const qs = '?limit=50' + (_activityAgentFilter ? '&agent_id=' + encodeURIComponent(_activityAgentFilter) : '');
     let payload = null;
     try {
-      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/runs${qs}`, {
+      const res = await fetch(`${API_BASE}/api/v1/agents/runs${qs}`, {
         method: 'GET', headers, credentials: 'include',
       });
       if (res.ok) payload = await res.json();
@@ -1561,7 +1752,7 @@ async function _loadUsageChart(force = false) {
     const qs = '?since_days=' + encodeURIComponent(_usageChartSinceDays);
     let payload = null;
     try {
-      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/usage-chart${qs}`, {
+      const res = await fetch(`${API_BASE}/api/v1/agents/usage-chart${qs}`, {
         method: 'GET', headers, credentials: 'include',
       });
       if (res.ok) payload = await res.json();
@@ -1745,7 +1936,7 @@ async function _fetchPatientActivations() {
     } catch {}
     let payload = null;
     try {
-      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agent-admin/patient-activations`, {
+      const res = await fetch(`${API_BASE}/api/v1/agent-admin/patient-activations`, {
         method: 'GET', headers, credentials: 'include',
       });
       if (res.ok) payload = await res.json();
@@ -1881,7 +2072,7 @@ async function _fetchOpsRuns() {
     const qs = '?' + params.join('&');
     let payload = null;
     try {
-      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/ops/runs${qs}`, {
+      const res = await fetch(`${API_BASE}/api/v1/agents/ops/runs${qs}`, {
         method: 'GET', headers, credentials: 'include',
       });
       if (res.ok) payload = await res.json();
@@ -1918,7 +2109,7 @@ async function _fetchOpsSla() {
     const hours = _opsSlaApiHours(_opsSlaWindowHours);
     let payload = null;
     try {
-      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/ops/sla?since_hours=${encodeURIComponent(hours)}`, {
+      const res = await fetch(`${API_BASE}/api/v1/agents/ops/sla?since_hours=${encodeURIComponent(hours)}`, {
         method: 'GET', headers, credentials: 'include',
       });
       if (res.ok) payload = await res.json();
@@ -1954,7 +2145,7 @@ async function _fetchOpsAbuse() {
     } catch {}
     let payload = null;
     try {
-      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/ops/abuse-signals?window_minutes=60`, {
+      const res = await fetch(`${API_BASE}/api/v1/agents/ops/abuse-signals?window_minutes=60`, {
         method: 'GET', headers, credentials: 'include',
       });
       if (res.ok) payload = await res.json();
@@ -2312,7 +2503,7 @@ async function _fetchOnboardingFunnel(days) {
     } catch {}
     let payload = null;
     try {
-      const res = await fetch(`${_marketplaceApiBase()}/api/v1/onboarding/funnel?days=${encodeURIComponent(n)}`, {
+      const res = await fetch(`${API_BASE}/api/v1/onboarding/funnel?days=${encodeURIComponent(n)}`, {
         method: 'GET', headers, credentials: 'include',
       });
       if (res.ok) payload = await res.json();
@@ -2491,7 +2682,7 @@ async function _fetchPromptOverrides() {
     } catch {}
     let payload = null;
     try {
-      const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/admin/prompt-overrides`, {
+      const res = await fetch(`${API_BASE}/api/v1/agents/admin/prompt-overrides`, {
         method: 'GET', headers, credentials: 'include',
       });
       if (res.ok) payload = await res.json();
@@ -2551,7 +2742,7 @@ async function _fetchPromptHistory(agentId) {
     } catch {}
     let payload = null;
     try {
-      const url = `${_marketplaceApiBase()}/api/v1/agents/admin/prompt-overrides/${encodeURIComponent(agentId)}/history?limit=20`;
+      const url = `${API_BASE}/api/v1/agents/admin/prompt-overrides/${encodeURIComponent(agentId)}/history?limit=20`;
       const res = await fetch(url, { method: 'GET', headers, credentials: 'include' });
       if (res.ok) payload = await res.json();
       else if (res.status === 403) _promptHistoryError = 'This action requires super-admin privileges.';
@@ -2844,6 +3035,36 @@ function _renderToolCancelledCard() {
   `;
 }
 
+// Crisis escalation card. Backend (agents_router.py) attaches a deterministic
+// payload whenever the patient.crisis agent runs so emergency contacts are
+// surfaced regardless of what the LLM produced. This card MUST render above
+// the chat reply when present.
+function _renderCrisisCard(card) {
+  if (!card) return '';
+  const contacts = Array.isArray(card.contacts) ? card.contacts : [];
+  const contactRows = contacts.map(function (c) {
+    const label = _esc(c.label || '');
+    const value = _esc(c.value || '');
+    const href = String(c.href || '');
+    const safeHref = (href.startsWith('tel:') || href.startsWith('https://')) ? href : '';
+    const valueNode = safeHref
+      ? `<a href="${_esc(safeHref)}" style="color:#fee2e2;font-weight:700;text-decoration:underline">${value}</a>`
+      : `<span style="color:#fee2e2;font-weight:700">${value}</span>`;
+    return `<li style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid rgba(239,68,68,0.18)">
+      <span style="color:#fecaca">${label}</span>
+      ${valueNode}
+    </li>`;
+  }).join('');
+  return `
+    <div role="alert" aria-live="assertive" style="margin-bottom:12px;padding:14px 16px;border-radius:10px;background:rgba(239,68,68,0.12);border:2px solid rgba(239,68,68,0.55);color:#fecaca;font-size:13px;line-height:1.55">
+      <div style="font-weight:700;font-size:14px;color:#fee2e2;margin-bottom:6px">${_esc(card.title || 'If you are in immediate danger, contact emergency services now.')}</div>
+      ${card.body ? `<p style="margin:0 0 10px;color:#fecaca">${_esc(card.body)}</p>` : ''}
+      <ul style="list-style:none;padding:0;margin:0 0 8px">${contactRows}</ul>
+      ${card.footer ? `<div style="font-size:11px;color:#fca5a5;font-style:italic;margin-top:8px">${_esc(card.footer)}</div>` : ''}
+    </div>
+  `;
+}
+
 function _renderMarketplaceModal() {
   if (!_marketplaceModalAgent) return '';
   const a = _marketplaceModalAgent;
@@ -2864,8 +3085,11 @@ function _renderMarketplaceModal() {
       : _marketplaceModalCancelled
         ? _renderToolCancelledCard()
         : '';
+  const crisisBlock = (_marketplaceModalReply && _marketplaceModalReply.crisis_escalation)
+    ? _renderCrisisCard(_marketplaceModalReply.crisis_escalation)
+    : '';
   const replyBlock = _marketplaceModalReply
-    ? `<div style="margin-top:12px;padding:12px;border-radius:8px;background:rgba(255,255,255,0.04);border:1px solid var(--border);font-size:12px;color:var(--text-primary);line-height:1.55;white-space:pre-wrap">${_formatAgentText(_marketplaceModalReply.reply || '(empty reply)')}
+    ? `${crisisBlock}<div style="margin-top:12px;padding:12px;border-radius:8px;background:rgba(255,255,255,0.04);border:1px solid var(--border);font-size:12px;color:var(--text-primary);line-height:1.55;white-space:pre-wrap">${_formatAgentText(_marketplaceModalReply.reply || '(empty reply)')}
         ${groundedBlock}
         ${toolBlock}
         <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:10.5px;color:var(--text-tertiary);font-style:italic">${_esc(_marketplaceModalReply.safety_footer || 'Decision-support, not autonomous diagnosis.')}</div>
@@ -2984,6 +3208,11 @@ function _renderHub(setTopbar) {
         </div>
       </div>
     </div>
+
+    <!-- Your hired agents rail — only renders when the clinician has hired
+         at least one agent. Sourced from /api/v1/agents (hired flag folded
+         into each tile) so no extra round-trip is needed. -->
+    ${_renderHiredAgentsRail()}
 
     <!-- Agent Marketplace (above existing clinician/patient launch cards) -->
     ${_renderMarketplaceSection()}
@@ -3607,9 +3836,81 @@ window._agentMarketplaceTry = function(agentId) {
   setTimeout(() => document.getElementById('agent-marketplace-input')?.focus(), 50);
 };
 
-window._agentMarketplaceConfigure = function(/* agentId */) {
-  // Placeholder per spec — full configuration UI lands in a follow-up PR.
-  alert('Configuration coming soon');
+// Hire CTA — adds the agent to the clinician's active roster. Backend is
+// idempotent so a double-click is harmless. Optimistically flips the
+// hired flag in the local cache and re-renders so the rail picks up the
+// new entry without a /agents round-trip.
+window._agentMarketplaceHire = async function(agentId) {
+  if (!agentId) return;
+  const ok = await _hireAgent(agentId);
+  if (!ok) return;
+  if (Array.isArray(_marketplaceAgents)) {
+    const idx = _marketplaceAgents.findIndex(x => x && x.id === agentId);
+    if (idx >= 0) _marketplaceAgents[idx] = { ..._marketplaceAgents[idx], hired: true };
+  }
+  window._showNotifToast?.({
+    title: 'Agent hired',
+    body: 'Added to your active roster — you can launch it any time from the rail at the top of the hub.',
+    severity: 'success',
+  });
+  pgAgentChat(_lastSetTopbar);
+};
+
+// Unhire CTA — pauses the hire (audit history retained server-side).
+window._agentMarketplaceUnhire = async function(agentId) {
+  if (!agentId) return;
+  const ok = await _unhireAgent(agentId);
+  if (!ok) return;
+  if (Array.isArray(_marketplaceAgents)) {
+    const idx = _marketplaceAgents.findIndex(x => x && x.id === agentId);
+    if (idx >= 0) _marketplaceAgents[idx] = { ..._marketplaceAgents[idx], hired: false };
+  }
+  pgAgentChat(_lastSetTopbar);
+};
+
+// Per-agent detail drawer — replaces the prior `alert('Configuration
+// coming soon')` placeholder. Surfaces scope, tools (in plain English),
+// what this agent will NOT do, billing, and a Hire/Pause CTA. No new
+// round-trip — everything is on the AgentListItem already.
+window._agentMarketplaceConfigure = function(agentId) {
+  const agent = (Array.isArray(_marketplaceAgents) && _marketplaceAgents.find(x => x && x.id === agentId)) || null;
+  if (!agent) return;
+  _agentDetailDrawerAgent = agent;
+  pgAgentChat(_lastSetTopbar);
+};
+
+window._agentDetailDrawerClose = function() {
+  _agentDetailDrawerAgent = null;
+  pgAgentChat(_lastSetTopbar);
+};
+
+window._agentDetailDrawerHire = async function() {
+  const agent = _agentDetailDrawerAgent;
+  if (!agent) return;
+  await window._agentMarketplaceHire(agent.id);
+  if (Array.isArray(_marketplaceAgents)) {
+    const refreshed = _marketplaceAgents.find(x => x && x.id === agent.id);
+    if (refreshed) _agentDetailDrawerAgent = refreshed;
+  }
+  pgAgentChat(_lastSetTopbar);
+};
+
+window._agentDetailDrawerUnhire = async function() {
+  const agent = _agentDetailDrawerAgent;
+  if (!agent) return;
+  await window._agentMarketplaceUnhire(agent.id);
+  if (Array.isArray(_marketplaceAgents)) {
+    const refreshed = _marketplaceAgents.find(x => x && x.id === agent.id);
+    if (refreshed) _agentDetailDrawerAgent = refreshed;
+  }
+  pgAgentChat(_lastSetTopbar);
+};
+
+window._agentDetailDrawerOpenChat = function() {
+  const agent = _agentDetailDrawerAgent;
+  if (!agent) return;
+  _agentDetailDrawerAgent = null;
+  window._agentMarketplaceTry(agent.id);
 };
 
 // Locked-tile CTA — kicks off Stripe checkout via the agent-billing service
@@ -3671,7 +3972,7 @@ window._agentMarketplaceUpgrade = async function(agentId) {
   };
 
   try {
-    const res = await fetch(`${_marketplaceApiBase()}/api/v1/agent-billing/checkout/${encodeURIComponent(agentId)}`, {
+    const res = await fetch(`${API_BASE}/api/v1/agent-billing/checkout/${encodeURIComponent(agentId)}`, {
       method: 'POST',
       headers,
       credentials: 'include',
@@ -3972,7 +4273,7 @@ window._agentActivationSubmit = async function() {
   } catch {}
 
   try {
-    const res = await fetch(`${_marketplaceApiBase()}/api/v1/agent-admin/patient-activations`, {
+    const res = await fetch(`${API_BASE}/api/v1/agent-admin/patient-activations`, {
       method: 'POST',
       headers,
       credentials: 'include',
@@ -4029,7 +4330,7 @@ window._agentActivationDeactivate = async function(clinicId, agentId) {
   } catch {}
 
   try {
-    const res = await fetch(`${_marketplaceApiBase()}/api/v1/agent-admin/patient-activations/${encodeURIComponent(clinicId)}/${encodeURIComponent(agentId)}`, {
+    const res = await fetch(`${API_BASE}/api/v1/agent-admin/patient-activations/${encodeURIComponent(clinicId)}/${encodeURIComponent(agentId)}`, {
       method: 'DELETE',
       headers,
       credentials: 'include',
@@ -4155,7 +4456,7 @@ window._agentOpsWebhookReplaySubmit = async function() {
   } catch {}
 
   try {
-    const res = await fetch(`${_marketplaceApiBase()}/api/v1/agent-billing/admin/webhook-replay`, {
+    const res = await fetch(`${API_BASE}/api/v1/agent-billing/admin/webhook-replay`, {
       method: 'POST',
       headers,
       credentials: 'include',
@@ -4241,7 +4542,7 @@ window._agentActivityExportCsv = function() {
     if (_activityAgentFilter) {
       params.push('agent_id=' + encodeURIComponent(_activityAgentFilter));
     }
-    const url = `${_marketplaceApiBase()}/api/v1/agents/runs.csv?${params.join('&')}`;
+    const url = `${API_BASE}/api/v1/agents/runs.csv?${params.join('&')}`;
     window.location = url;
   } catch (err) {
     // Surface the failure inline rather than silently no-op'ing.
@@ -4347,7 +4648,7 @@ window._agentPromptOverrideSave = async function(agentId) {
   } catch {}
 
   try {
-    const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/admin/prompt-overrides`, {
+    const res = await fetch(`${API_BASE}/api/v1/agents/admin/prompt-overrides`, {
       method: 'POST',
       headers,
       credentials: 'include',
@@ -4423,7 +4724,7 @@ window._agentPromptOverrideReset = async function(agentId) {
   } catch {}
 
   try {
-    const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/admin/prompt-overrides/${encodeURIComponent(active.id)}`, {
+    const res = await fetch(`${API_BASE}/api/v1/agents/admin/prompt-overrides/${encodeURIComponent(active.id)}`, {
       method: 'DELETE',
       headers,
       credentials: 'include',
@@ -4488,6 +4789,40 @@ window._agentPromptHistoryDiffToggle = function(agentId, version) {
   else _promptHistoryDiffOpen = key;
   if (_agentView === 'hub') pgAgentChat(_lastSetTopbar);
 };
+
+// ── Hire flow — Test surface ─────────────────────────────────────────────────
+// Internal exports used by `pages-agents-hire-flow.test.js`. Not part of the
+// public API; nothing in product code imports this. The seam lets tests
+// exercise the rail rendering and the optimistic local-state flip without
+// having to drive the full DOM-attached hub.
+export const __hireFlowTestApi__ = {
+  reset() {
+    _marketplaceAgents = [];
+    _agentDetailDrawerAgent = null;
+  },
+  setAgents(list) {
+    _marketplaceAgents = Array.isArray(list) ? list.slice() : [];
+  },
+  getAgents() {
+    return _marketplaceAgents.slice();
+  },
+  renderHiredRail() {
+    return _renderHiredAgentsRail();
+  },
+  renderDetailDrawer() {
+    return _renderAgentDetailDrawer();
+  },
+  setDrawerAgent(agent) {
+    _agentDetailDrawerAgent = agent;
+  },
+  formatToolPlainEnglish(toolId) {
+    return _formatToolPlainEnglish(toolId);
+  },
+  formatRelativeTimestamp(iso) {
+    return _formatRelativeTimestamp(iso);
+  },
+};
+
 
 // ── AI Agent v2 — Test surface ────────────────────────────────────────────────
 export const __aiAgentV2TestApi__ = {

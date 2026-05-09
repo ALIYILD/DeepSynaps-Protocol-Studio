@@ -21,12 +21,10 @@ from __future__ import annotations
 import io
 import json
 import zipfile
-from datetime import datetime, timezone
 from unittest import mock
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 
@@ -261,7 +259,7 @@ class TestQEEGWorkflowSmoke:
 
     def test_patient_facing_report_blocked_before_approval(self, client: TestClient, clinician_token: str) -> None:
         """Patient-facing report must be blocked until report is approved."""
-        from app.persistence.models import Clinic, Patient, QEEGAnalysis, QEEGAIReport, User
+        from app.persistence.models import Clinic, Patient, QEEGAIReport, User
 
         db = SessionLocal()
         clinic = Clinic(id="test_clinic_1", name="Test Clinic")

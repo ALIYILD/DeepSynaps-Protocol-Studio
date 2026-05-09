@@ -213,6 +213,10 @@ await test('AI Review tab declares the threshold-slider testid in source', () =>
     'qwb-threshold-slider testid present in source');
   assert.ok(WORKBENCH_SRC.includes('Confidence threshold'),
     'Confidence threshold label present');
+  assert.ok(WORKBENCH_SRC.includes('Acceptance rate'),
+    'acceptance rate metric present');
+  assert.ok(WORKBENCH_SRC.includes('Review coverage'),
+    'review coverage metric present');
 });
 
 await test('ICA panel declares the 12-cell grid testid + Brain/Eye/Muscle/Mixed badges', () => {
@@ -298,6 +302,14 @@ await test('AI Assistant panel shows safety wording in source', async () => {
   assert.ok(WORKBENCH_SRC.includes('AI Review Queue'), 'AI tab heading present in source');
   assert.ok(WORKBENCH_SRC.includes('AI-assisted suggestion only'), 'AI safety banner present');
   assert.ok(WORKBENCH_SRC.includes('Clinician confirmation required'), 'AI confirmation requirement present');
+  assert.ok(WORKBENCH_SRC.includes('qwb-ai-section-'), 'assistant section cards present');
+  assert.ok(WORKBENCH_SRC.includes('qwb-ai-decision-state'), 'decision state summary present');
+  assert.ok(WORKBENCH_SRC.includes('Compare snapshot'), 'compare snapshot card present');
+  assert.ok(WORKBENCH_SRC.includes('qwb-compare-promote'), 'compare promote action present');
+  assert.ok(WORKBENCH_SRC.includes('data-ai-action="accept"'), 'AI accept action wired');
+  assert.ok(WORKBENCH_SRC.includes('data-ai-action="reject"'), 'AI reject action wired');
+  assert.ok(WORKBENCH_SRC.includes('data-ai-action="inspect"'), 'AI inspect action wired');
+  assert.ok(WORKBENCH_SRC.includes('getQEEGCopilotAssistBundle'), 'copilot bundle loader present');
 });
 
 await test('Examples panel covers all canonical artefact archetypes', async () => {

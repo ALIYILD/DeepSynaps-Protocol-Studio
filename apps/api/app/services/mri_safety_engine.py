@@ -39,12 +39,18 @@ def compute_mri_safety_cockpit(analysis: MriAnalysis) -> dict[str, Any]:
     # 3. Scan type detection
     modalities = _json_loads(analysis.modalities_present_json) or {}
     detected = []
-    if modalities.get("t1"): detected.append("T1")
-    if modalities.get("t2"): detected.append("T2")
-    if modalities.get("flair"): detected.append("FLAIR")
-    if modalities.get("dwi"): detected.append("DWI")
-    if modalities.get("dti"): detected.append("DTI")
-    if modalities.get("fmri"): detected.append("fMRI")
+    if modalities.get("t1"):
+        detected.append("T1")
+    if modalities.get("t2"):
+        detected.append("T2")
+    if modalities.get("flair"):
+        detected.append("FLAIR")
+    if modalities.get("dwi"):
+        detected.append("DWI")
+    if modalities.get("dti"):
+        detected.append("DTI")
+    if modalities.get("fmri"):
+        detected.append("fMRI")
     if detected:
         checks.append({"label": "Scan type", "status": "pass", "detail": ", ".join(detected)})
     else:

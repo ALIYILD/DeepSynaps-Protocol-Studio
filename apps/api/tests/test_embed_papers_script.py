@@ -10,7 +10,6 @@ requires a multi-GB model download. Instead we verify:
 """
 from __future__ import annotations
 
-import importlib
 import sys
 from pathlib import Path
 

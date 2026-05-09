@@ -9,7 +9,9 @@ import {
 import { EVIDENCE_SUMMARY, EVIDENCE_TOTAL_PAPERS, CONDITION_EVIDENCE, getConditionEvidence } from './evidence-dataset.js';
 import { renderLiveEvidencePanel } from './live-evidence.js';
 import { renderPersonalizationWizard, bindPersonalizationActions } from './protocol-personalization-wizard.js';
+import { mountMedicalImageCard } from './medical-image-card.js';
 import { api } from './api.js';
+import { ensureAgentBrainStatus } from './agent-brain-status.js';
 
 // Normalise a /api/v1/registry/protocols row into the shape pgProtocolSearch
 // renders (matches PROTOCOL_LIBRARY entries). Keeps the backend as the
@@ -457,6 +459,7 @@ export async function pgProtocolSearch(setTopbar, navigate, opts = {}) {
           </div>
         </div>
       </div>`;
+    ensureAgentBrainStatus(el);
 
     // Live evidence panel — queries services/evidence-pipeline. Scoped to the
     // current search query so doctors see the same keywords surface real
@@ -1391,9 +1394,15 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
 
             ${_b.saved ? `<div class="prot-b-success">\u2713 ${_b.saveSyncState === 'backend' ? 'Draft saved and synced to backend' : 'Draft saved in this browser only'}</div>` : ''}
             ${_b.submitted ? `<div class="prot-b-success">\u2713 ${_b.submitSyncState === 'backend' ? 'Submitted to backend review queue' : 'Saved locally — backend review was not started'}</div>` : ''}
+            <div id="ds-medical-image-card-protocols" style="margin-top:16px"></div>
           </div>
         </div>
       </div>`;
+
+    try {
+      var _miHost = document.getElementById('ds-medical-image-card-protocols');
+      if (_miHost && window._builderPatientId) mountMedicalImageCard(_miHost, { patientId: window._builderPatientId, audience: 'clinician' });
+    } catch (_miErr) { /* non-fatal: medical-image card is optional */ }
 
     // ── Evidence basis — async populate after render ──────────────────────
     // Fires only when condition + device are both selected.

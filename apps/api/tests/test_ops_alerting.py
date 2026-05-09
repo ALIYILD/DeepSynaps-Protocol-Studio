@@ -13,8 +13,7 @@ Covers
 """
 from __future__ import annotations
 
-import json as _json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from unittest.mock import patch, MagicMock
 
 import httpx

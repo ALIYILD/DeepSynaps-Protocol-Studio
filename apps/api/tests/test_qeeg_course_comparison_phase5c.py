@@ -6,9 +6,7 @@ Verifies the lobe-Δ helper in treatment_courses_router that derives a
 from __future__ import annotations
 
 import json
-from typing import Optional
 
-import pytest
 
 from app.routers.treatment_courses_router import _compute_course_lobe_delta
 

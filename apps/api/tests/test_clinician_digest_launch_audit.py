@@ -25,13 +25,11 @@ from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
 from app.persistence.models import (
-    AdverseEvent,
     AuditEventRecord,
     Clinic,
     Patient,
     PatientAdherenceEvent,
     User,
-    WearableAlertFlag,
     WellnessCheckin,
 )
 from app.services.demo_clinic_seed import seed_demo_clinic_digest

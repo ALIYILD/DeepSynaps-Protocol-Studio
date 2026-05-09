@@ -73,7 +73,7 @@ def upgrade() -> None:
             "is_demo",
             sa.Boolean(),
             nullable=False,
-            server_default=sa.text("0"),
+            server_default=sa.text("false"),
         ),
         sa.Column("shared_at", sa.DateTime(), nullable=True),
         sa.Column("shared_with", sa.String(255), nullable=True),

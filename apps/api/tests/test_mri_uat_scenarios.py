@@ -8,13 +8,11 @@ from __future__ import annotations
 import io
 import json
 import zipfile
-from datetime import datetime, timezone
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
-from app.persistence.models import MriAnalysis, MriReportAudit, Patient
+from app.persistence.models import MriAnalysis, Patient
 
 
 def _seed_analysis(
@@ -441,7 +439,7 @@ def test_phi_scrutury_timeline_no_patient_name(
     auth_headers: dict,
 ) -> None:
     """Timeline events must reference patient_id only, never patient name."""
-    analysis_id = _seed_analysis(
+    _seed_analysis(
         client,
         auth_headers,
         structural_json={},

@@ -68,7 +68,7 @@ def upgrade() -> None:
             sa.Column("start_time", sa.String(8), nullable=True),    # HH:MM
             sa.Column("end_time", sa.String(8), nullable=True),
             sa.Column("role", sa.String(32), nullable=True),
-            sa.Column("is_on_call", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+            sa.Column("is_on_call", sa.Boolean(), nullable=False, server_default=sa.text("false")),
             sa.Column("surface", sa.String(64), nullable=True),       # NULL = generic shift
             sa.Column("contact_channel", sa.String(32), nullable=True),  # phone|sms|slack|email|pager
             sa.Column("contact_handle", sa.String(255), nullable=True),
@@ -114,7 +114,7 @@ def upgrade() -> None:
             sa.Column("primary_user_id", sa.String(64), nullable=True),
             sa.Column("backup_user_id", sa.String(64), nullable=True),
             sa.Column("director_user_id", sa.String(64), nullable=True),
-            sa.Column("auto_page_enabled", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+            sa.Column("auto_page_enabled", sa.Boolean(), nullable=False, server_default=sa.text("false")),
             sa.Column("note", sa.Text(), nullable=True),
             sa.Column("updated_by", sa.String(64), nullable=True),
             sa.Column("created_at", sa.String(64), nullable=False),

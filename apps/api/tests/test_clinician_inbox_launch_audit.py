@@ -425,7 +425,7 @@ class TestFilters:
             surface="adherence_events",
             event="side_effect_to_clinician",
             target_id="actor-clinician-demo",
-            note=f"priority=high; event=ev-x; patient=patient-other-fictional",
+            note="priority=high; event=ev-x; patient=patient-other-fictional",
         )
         r = client.get(
             f"/api/v1/clinician-inbox/items?patient_id={home_clinic_patient.id}",
@@ -734,7 +734,7 @@ class TestExport:
             event="side_effect_to_clinician",
             target_id="actor-clinician-real-inbox",
             actor_id="actor-clinician-real-inbox",
-            note=f"priority=high; event=ev-real; patient=patient-real-inbox",
+            note="priority=high; event=ev-real; patient=patient-real-inbox",
         )
         # Use admin so cross-clinic visibility is granted.
         r = client.get(

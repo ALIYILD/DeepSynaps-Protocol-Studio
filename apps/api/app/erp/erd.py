@@ -15,7 +15,6 @@ def erd_percent_timecourse(
     baseline_tmax: float,
 ) -> dict[str, Any]:
     """Band-power time course per channel, baseline-normalized (A−R)/R × 100."""
-    import mne
     from scipy import signal as scipy_signal
 
     sfreq = float(epochs.info["sfreq"])

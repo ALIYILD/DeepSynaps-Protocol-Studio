@@ -41,7 +41,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.persistence.models import AutoCleanRun, CleaningDecision
+from app.persistence.models import AutoCleanRun, CleaningDecision, QeegCleaningAnnotation
 
 _log = logging.getLogger(__name__)
 
@@ -208,6 +208,169 @@ def _load_analysis_meta(analysis_id: str, db: Session) -> dict[str, Any]:
         "channel_count": int(row.channel_count or 0),
         "eyes_condition": row.eyes_condition,
         "channels_json": row.channels_json,
+    }
+
+
+def _load_cleaning_snapshot(analysis_id: str, db: Session) -> dict[str, Any]:
+    """Return a compact summary of the current cleaning state, if any."""
+    from app.persistence.models import QEEGAnalysis, QeegCleaningVersion
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if analysis is None:
+        return {}
+
+    versions = (
+        db.query(QeegCleaningVersion)
+        .filter(QeegCleaningVersion.analysis_id == analysis_id)
+        .order_by(QeegCleaningVersion.version_number.desc())
+        .all()
+    )
+    latest = versions[0] if versions else None
+
+    config: dict[str, Any] = {}
+    try:
+        raw_cfg = json.loads(analysis.cleaning_config_json or "{}")
+        if isinstance(raw_cfg, dict):
+            config = raw_cfg
+    except (TypeError, ValueError):
+        config = {}
+
+    bad_channels = [c for c in config.get("bad_channels", []) if isinstance(c, str)]
+    bad_segments = [s for s in config.get("bad_segments", []) if isinstance(s, dict)]
+    excluded_ica = [int(x) for x in config.get("excluded_ica_components", []) if isinstance(x, int) or str(x).isdigit()]
+
+    retained_pct = max(
+        0.0,
+        100.0 - min(
+            100.0,
+            float(len(bad_channels)) * 3.5 + float(len(bad_segments)) * 2.0 + float(len(excluded_ica)) * 1.5,
+        ),
+    )
+    return {
+        "has_cleaning_version": bool(latest),
+        "latest_version_number": int(latest.version_number) if latest else None,
+        "latest_version_id": getattr(latest, "id", None),
+        "review_status": getattr(latest, "review_status", None),
+        "bad_channels": bad_channels,
+        "bad_segments_count": len(bad_segments),
+        "excluded_ica_count": len(excluded_ica),
+        "retained_data_pct": round(retained_pct, 1),
+        "change_summary": {
+            "bad_channels": len(bad_channels),
+            "bad_segments": len(bad_segments),
+            "excluded_ica_components": len(excluded_ica),
+        },
+        "notice": (
+            "Compare raw vs cleaned to verify what changed before re-running. "
+            "Original raw EEG remains untouched."
+        ),
+    }
+
+
+def _normalize_decision_status(value: Any) -> str:
+    status = str(value or "").strip().lower()
+    if status in {"accepted", "rejected", "suggested", "needs_review"}:
+        return status
+    if status in {"review", "needs review", "needs-review"}:
+        return "needs_review"
+    if status in {"accept", "approve"}:
+        return "accepted"
+    if status in {"reject", "dismiss", "discard"}:
+        return "rejected"
+    return "suggested"
+
+
+def _accepted_flag_from_status(status: str) -> bool | None:
+    """Derive a tri-state accepted flag from ``decision_status``.
+
+    ``QeegCleaningAnnotation`` has no ``accepted_by_user`` column (that
+    column lives on the audit-only ``CleaningDecision`` table). The user
+    accept/reject signal is encoded in ``decision_status`` instead, so we
+    project it here:
+
+    * ``"accepted"`` → ``True``
+    * ``"rejected"`` → ``False``
+    * anything else  → ``None`` (still pending / needs review)
+    """
+    if status == "accepted":
+        return True
+    if status == "rejected":
+        return False
+    return None
+
+
+def _ai_suggestion_key(row: QeegCleaningAnnotation) -> str:
+    """Stable de-dup key for an AI suggestion annotation row.
+
+    ``QeegCleaningAnnotation`` does not carry a ``payload_json`` blob —
+    its first-class fields (``ai_label`` etc.) are the source of truth —
+    so the key is derived from those columns directly.
+    """
+    ai_label = getattr(row, "ai_label", None)
+    if ai_label:
+        return str(ai_label)
+    parts = [
+        getattr(row, "analysis_id", "") or "",
+        getattr(row, "kind", "") or "",
+        getattr(row, "channel", "") or "",
+        f"{getattr(row, 'start_sec', None)}",
+        f"{getattr(row, 'end_sec', None)}",
+    ]
+    return "|".join(parts)
+
+
+def load_ai_suggestion_decision_state(analysis_id: str, db: Session) -> dict[str, Any]:
+    """Group AI suggestion annotations into accepted/rejected/pending buckets."""
+    rows = (
+        db.query(QeegCleaningAnnotation)
+        .filter(
+            QeegCleaningAnnotation.analysis_id == analysis_id,
+            QeegCleaningAnnotation.kind == "ai_suggestion",
+        )
+        .order_by(QeegCleaningAnnotation.created_at.asc())
+        .all()
+    )
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        key = _ai_suggestion_key(row)
+        status = _normalize_decision_status(row.decision_status)
+        accepted_flag = _accepted_flag_from_status(status)
+        item = grouped.setdefault(
+            key,
+            {
+                "suggestion_key": key,
+                "ai_label": row.ai_label or "suggestion",
+                "channel": row.channel,
+                "start_sec": row.start_sec,
+                "end_sec": row.end_sec,
+                "decision_status": status,
+                "accepted_by_user": accepted_flag,
+                "latest_note": row.note,
+            },
+        )
+        item["decision_status"] = status
+        item["accepted_by_user"] = accepted_flag
+        item["latest_note"] = row.note or item.get("latest_note")
+
+    items = list(grouped.values())
+    decision_counts = {"suggested": 0, "accepted": 0, "rejected": 0}
+    for item in items:
+        status = _normalize_decision_status(item.get("decision_status"))
+        if status in decision_counts:
+            decision_counts[status] += 1
+    total = len(items)
+    accepted_count = decision_counts["accepted"]
+    rejected_count = decision_counts["rejected"]
+    pending_count = max(0, total - accepted_count - rejected_count)
+    return {
+        "analysis_id": analysis_id,
+        "total_suggestions": total,
+        "decision_counts": decision_counts,
+        "pending_count": pending_count,
+        "accepted_count": accepted_count,
+        "rejected_count": rejected_count,
+        "decisions_logged": len(rows),
+        "items": items,
     }
 
 
@@ -905,6 +1068,7 @@ def copilot_assist_bundle(analysis_id: str, db: Session) -> dict[str, Any]:
     scan = _scan_or_empty(analysis_id, db)
     ica = _ica_or_empty(analysis_id, db)
     meta = _load_analysis_meta(analysis_id, db)
+    compare = _load_cleaning_snapshot(analysis_id, db)
 
     bad_chs: list[dict[str, Any]] = list(scan.get("bad_channels") or [])
     bad_segs: list[dict[str, Any]] = list(scan.get("bad_segments") or [])
@@ -999,17 +1163,72 @@ def copilot_assist_bundle(analysis_id: str, db: Session) -> dict[str, Any]:
     else:
         readiness_label = "needs_review"
 
+    triage_cards = [
+        {
+            "id": "review_readiness",
+            "title": "Triage first",
+            "status": readiness_label,
+            "summary": (
+                f"Composite quality {composite}/100 with {len(bad_chs)} flagged channels "
+                f"and {len(bad_segs)} flagged segments."
+            ),
+            "evidence": [
+                {"label": "Retained data", "value": f"{round(100.0 - min(100.0, (excluded_sec / duration_sec) * 100.0), 1)}%"},
+                {"label": "ICA components", "value": str(len(ica.get("components") or []))},
+                {"label": "ICLabel", "value": "available" if ica.get("iclabel_available") else "unavailable"},
+            ],
+            "items": suggested_next_actions[:3],
+        },
+        {
+            "id": "manual_review",
+            "title": "Manual review",
+            "status": "review_required",
+            "summary": (
+                "Inspect the highest-confidence channel and segment flags before accepting any AI suggestion."
+            ),
+            "evidence": channel_quality_rank[:5],
+            "items": suspicious_segments[:5],
+        },
+        {
+            "id": "compare_cleaning",
+            "title": "Compare raw vs cleaned",
+            "status": "compare_ready" if compare.get("has_cleaning_version") else "compare_pending",
+            "summary": (
+                "Use the compare view to confirm that the saved cleaning version matches the review decisions."
+            ),
+            "evidence": [
+                {"label": "Latest version", "value": str(compare.get("latest_version_number") or "Draft")},
+                {"label": "Retained data", "value": f"{compare.get('retained_data_pct', 0)}%"},
+                {"label": "Rejected segments", "value": str(compare.get("bad_segments_count", 0))},
+            ],
+            "items": [
+                {
+                    "label": "Open compare view",
+                    "rationale": compare.get("notice") or "Verify the final cleaning delta before re-running.",
+                    "requires_confirmation": False,
+                }
+            ],
+        },
+    ]
+
     result: dict[str, Any] = {
         "assist_engine": "rules_heuristic_v1",
         "assist_scope": (
             "Human-in-the-loop assist only. Does not modify EEG. "
             "Confirm each cleaning action."
         ),
+        "provenance": {
+            "source": "deterministic_scanner_v1",
+            "ica_labeling": bool(ica.get("iclabel_available")),
+            "compare_snapshot": bool(compare.get("has_cleaning_version")),
+        },
         "quality_composite": composite,
         "subscores": subscores,
         "suspicious_segments": suspicious_segments,
         "channel_quality_rank": channel_quality_rank[:32],
         "suggested_next_actions": suggested_next_actions[:12],
+        "assistant_sections": triage_cards,
+        "compare_summary": compare,
         "preanalysis_readiness": {
             "score": composite,
             "label": readiness_label,
@@ -1027,6 +1246,7 @@ def copilot_assist_bundle(analysis_id: str, db: Session) -> dict[str, Any]:
         "n_bad_segments": len(bad_segs),
         "duration_sec": round(duration_sec, 2),
         "channel_count": n_chs_total,
+        "has_cleaning_version": bool(compare.get("has_cleaning_version")),
     }
 
     user_prompt = (
@@ -1066,6 +1286,7 @@ def copilot_assist_bundle(analysis_id: str, db: Session) -> dict[str, Any]:
 
 
 __all__ = [
+    "load_ai_suggestion_decision_state",
     "quality_score",
     "auto_clean_propose",
     "explain_bad_channel",

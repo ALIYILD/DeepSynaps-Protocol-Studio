@@ -15,7 +15,7 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -35,9 +35,7 @@ from app.persistence.models import (
     QEEGComparison,
     QEEGProtocolFit,
     QEEGRecord,
-    QEEGReportAudit,
     QEEGReportFinding,
-    QEEGTimelineEvent,
 )
 from app.repositories.patients import resolve_patient_clinic_id
 from app.services.evidence_intelligence import list_saved_citations
@@ -254,6 +252,7 @@ class AnalysisListResponse(BaseModel):
 
 
 class AIReportOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     id: str
     analysis_id: str
     report_type: str
@@ -3050,6 +3049,18 @@ def _load_features_for_ai(analysis: QEEGAnalysis) -> dict:
     }
 
 
+def _persist_envelope_data_with_stub(envelope: dict) -> str:
+    """Serialise a bridge envelope's ``data`` dict for JSON-column persistence
+    with the envelope-level ``is_stub`` flag folded into the payload, so the
+    frontend can render a "MODEL NOT AVAILABLE — DO NOT CLINICALLY USE" badge
+    without a separate column. Reference: AI go-live audit 2026-05-08 (#9).
+    """
+    data = envelope.get("data")
+    if not isinstance(data, dict):
+        return json.dumps(data)
+    return json.dumps({**data, "is_stub": bool(envelope.get("is_stub", False))})
+
+
 def _build_upgrade_response(
     analysis: QEEGAnalysis,
     envelope: dict,
@@ -3142,7 +3153,7 @@ def predict_brain_age_endpoint(
             deterministic_seed=hash(analysis.id) & 0xFFFFFFFF,
         )
         if envelope.get("success") and isinstance(envelope.get("data"), dict):
-            analysis.brain_age_json = json.dumps(envelope["data"])
+            analysis.brain_age_json = _persist_envelope_data_with_stub(envelope)
             db.commit()
             db.refresh(analysis)
     except Exception as exc:  # pragma: no cover
@@ -3176,7 +3187,7 @@ def score_conditions_endpoint(
         features = _load_features_for_ai(analysis)
         envelope = qeeg_ai_bridge.run_score_conditions_safe(features)
         if envelope.get("success") and isinstance(envelope.get("data"), dict):
-            analysis.risk_scores_json = json.dumps(envelope["data"])
+            analysis.risk_scores_json = _persist_envelope_data_with_stub(envelope)
             db.commit()
             db.refresh(analysis)
     except Exception as exc:  # pragma: no cover
@@ -3210,7 +3221,7 @@ def fit_centiles_endpoint(
         features = _load_features_for_ai(analysis)
         envelope = qeeg_ai_bridge.run_fit_centiles_safe(features)
         if envelope.get("success") and isinstance(envelope.get("data"), dict):
-            analysis.centiles_json = json.dumps(envelope["data"])
+            analysis.centiles_json = _persist_envelope_data_with_stub(envelope)
             db.commit()
             db.refresh(analysis)
     except Exception as exc:  # pragma: no cover
@@ -3245,7 +3256,7 @@ def explain_endpoint(
         risk_scores = _maybe_json_loads(analysis.risk_scores_json) or {}
         envelope = qeeg_ai_bridge.run_explain_safe(features, risk_scores)
         if envelope.get("success") and isinstance(envelope.get("data"), dict):
-            analysis.explainability_json = json.dumps(envelope["data"])
+            analysis.explainability_json = _persist_envelope_data_with_stub(envelope)
             db.commit()
             db.refresh(analysis)
     except Exception as exc:  # pragma: no cover

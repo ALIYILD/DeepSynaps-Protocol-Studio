@@ -44,7 +44,6 @@ from app.persistence.models import (
     Clinic,
     EscalationPolicy,
     User,
-    UserContactMapping,
 )
 
 

@@ -299,7 +299,6 @@ def test_create_fusion_case_blocked_by_red_flags():
         quality_metrics_json=json.dumps({"bad_channels": []}),
         analyzed_at=datetime.now(timezone.utc),
     )
-    mri = None
 
     # Mock query chain for _latest_qeeg_analysis
     db.query.return_value.filter.return_value.order_by.return_value.first.return_value = qeeg

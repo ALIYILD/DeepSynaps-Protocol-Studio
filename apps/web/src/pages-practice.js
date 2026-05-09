@@ -1,5 +1,5 @@
 import { cardWrap, fr, pillSt, tag, initials, spinner } from './helpers.js';
-import { api } from './api.js';
+import { api, API_BASE } from './api.js';
 import { LOCALES, setLocale, getLocale } from './i18n.js';
 import {
   ACADEMY_GOVERNANCE_DISCLAIMER,
@@ -9032,8 +9032,6 @@ export async function pgReminderAutomation(setTopbar) {
 //   GET  /api/v1/media/analysis/{id}             — fetch full analysis result
 //   POST /api/v1/media/analysis/{id}/approve     — approve AI draft for clinical use → status clinician_reviewed
 //   GET  /api/v1/media/file/{file_ref:path}      — authenticated audio file serving
-
-const _MQ_BASE = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
 
 async function _mqFetch(path, opts = {}) {
   const token   = api.getToken();

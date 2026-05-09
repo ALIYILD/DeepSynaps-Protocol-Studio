@@ -56,7 +56,7 @@ def upgrade() -> None:
             sa.Column("enrollment_target", sa.Integer(), nullable=True),
             sa.Column("enrolled_count", sa.Integer(), nullable=False, server_default=sa.text("0")),
             sa.Column("consent_version", sa.String(length=40), nullable=True),
-            sa.Column("is_demo", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+            sa.Column("is_demo", sa.Boolean(), nullable=False, server_default=sa.text("false")),
             sa.Column("created_at", sa.DateTime(), nullable=True),
             sa.Column("updated_at", sa.DateTime(), nullable=True),
             sa.Column("closed_at", sa.DateTime(), nullable=True),

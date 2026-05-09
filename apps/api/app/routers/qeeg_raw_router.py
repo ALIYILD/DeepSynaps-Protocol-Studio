@@ -19,7 +19,6 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from datetime import datetime, timezone
 
 from app.auth import (
     AuthenticatedActor,
@@ -38,6 +37,7 @@ from app.persistence.models import (
     QeegCleaningVersion,
 )
 from app.repositories.patients import resolve_patient_clinic_id
+from app.services.raw_ai import load_ai_suggestion_decision_state
 
 _log = logging.getLogger(__name__)
 
@@ -72,6 +72,10 @@ class CleaningLogItem(BaseModel):
     action_type: str
     target: Optional[str] = None
     accepted_by_user: Optional[bool] = None
+    decision_status: Optional[str] = None
+    source: Optional[str] = None
+    ai_label: Optional[str] = None
+    suggestion_key: Optional[str] = None
     confidence: Optional[float] = None
     created_at: Optional[str] = None
 
@@ -80,6 +84,7 @@ class CleaningLogItem(BaseModel):
 class CleaningLogResponse(BaseModel):
     analysis_id: str
     items: list[CleaningLogItem] = Field(default_factory=list)
+    suggestion_state: dict[str, Any] = Field(default_factory=dict)
 
 
 # core-schema-exempt: workbench-only header block; PHI fields are
@@ -409,6 +414,27 @@ def _require_mne() -> None:
             message="EEG signal service unavailable",
             status_code=503,
         )
+
+
+def _audit_event_decision_payload(row: QeegCleaningAuditEvent) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    try:
+        raw = json.loads(row.new_value_json or "{}")
+        if isinstance(raw, dict):
+            payload = raw
+    except (TypeError, ValueError):
+        payload = {}
+    status = str(payload.get("decision_status") or "").strip().lower()
+    if not status and row.action_type == "ai_suggestion:generated":
+        status = "suggested"
+    if status not in {"accepted", "rejected", "suggested"}:
+        status = "suggested"
+    return {
+        "decision_status": status,
+        "source": payload.get("source") or row.source,
+        "ai_label": payload.get("ai_label"),
+        "suggestion_key": payload.get("suggestion_key") or payload.get("suggestion_id"),
+    }
 
 
 # ── Endpoint 0: Lightweight metadata (no MNE) ──────────────────────────────
@@ -823,10 +849,50 @@ def get_raw_vs_cleaned_summary(
     require_minimum_role(actor, "clinician")
     analysis = _load_analysis(analysis_id, db, actor)
     channels = _parse_channels_json(getattr(analysis, "channels_json", None))
+    latest_version = (
+        db.query(QeegCleaningVersion)
+        .filter(QeegCleaningVersion.analysis_id == analysis_id)
+        .order_by(QeegCleaningVersion.version_number.desc())
+        .first()
+    )
+    cleaning_cfg: dict[str, Any] = {}
+    try:
+        if getattr(analysis, "cleaning_config_json", None):
+            raw_cfg = json.loads(analysis.cleaning_config_json)
+            if isinstance(raw_cfg, dict):
+                cleaning_cfg = raw_cfg
+    except (TypeError, ValueError):
+        cleaning_cfg = {}
+    if not cleaning_cfg and latest_version is not None:
+        try:
+            cleaning_cfg = {
+                "bad_channels": json.loads(latest_version.bad_channels_json or "[]"),
+                "bad_segments": json.loads(latest_version.rejected_segments_json or "[]"),
+                "excluded_ica_components": json.loads(latest_version.rejected_ica_components_json or "[]"),
+            }
+        except (TypeError, ValueError):
+            cleaning_cfg = {}
+    bad_channels = [c for c in (cleaning_cfg.get("bad_channels") or []) if isinstance(c, str)]
+    bad_segments = [s for s in (cleaning_cfg.get("bad_segments") or []) if isinstance(s, dict)]
+    excluded_ica = [x for x in (cleaning_cfg.get("excluded_ica_components") or []) if isinstance(x, int)]
     return {
         "analysis_id": analysis_id,
         "channel_count": len(channels) or getattr(analysis, "channel_count", 0) or 0,
         "duration_sec": float(getattr(analysis, "recording_duration_sec", 0.0) or 0.0),
+        "cleaning_version": {
+            "id": getattr(latest_version, "id", None),
+            "version_number": getattr(latest_version, "version_number", None),
+            "review_status": getattr(latest_version, "review_status", None),
+        },
+        "compare_snapshot": {
+            "bad_channels": bad_channels,
+            "bad_segments_count": len(bad_segments),
+            "excluded_ica_count": len(excluded_ica),
+            "retained_data_pct": max(
+                0.0,
+                100.0 - min(100.0, len(bad_channels) * 3.5 + len(bad_segments) * 2.0 + len(excluded_ica) * 1.5),
+            ),
+        },
         "notice": _workbench_notice(),
     }
 
@@ -851,22 +917,39 @@ def get_cleaning_log(
         .order_by(QeegCleaningAuditEvent.created_at.desc())
         .all()
     )
-    items = [
-        CleaningLogItem(
-            id=r.id,
-            actor_id=r.actor_id or "unknown",
-            action_type=r.action_type,
-            target=(
-                r.channel
-                or (f"{r.start_sec}-{r.end_sec}" if r.start_sec is not None or r.end_sec is not None else None)
-            ),
-            accepted_by_user=None,
-            confidence=None,
-            created_at=r.created_at.isoformat() if r.created_at else None,
+    items: list[CleaningLogItem] = []
+    for r in rows:
+        payload = _audit_event_decision_payload(r)
+        decision_status = payload["decision_status"]
+        items.append(
+            CleaningLogItem(
+                id=r.id,
+                actor_id=r.actor_id or "unknown",
+                action_type=r.action_type,
+                target=(
+                    r.channel
+                    or (
+                        f"{r.start_sec}-{r.end_sec}"
+                        if r.start_sec is not None or r.end_sec is not None
+                        else None
+                    )
+                ),
+                accepted_by_user=(
+                    True if decision_status == "accepted" else False if decision_status == "rejected" else None
+                ),
+                decision_status=decision_status,
+                source=payload["source"],
+                ai_label=payload["ai_label"],
+                suggestion_key=payload["suggestion_key"],
+                confidence=None,
+                created_at=r.created_at.isoformat() if r.created_at else None,
+            )
         )
-        for r in rows
-    ]
-    return CleaningLogResponse(analysis_id=analysis_id, items=items)
+    return CleaningLogResponse(
+        analysis_id=analysis_id,
+        items=items,
+        suggestion_state=load_ai_suggestion_decision_state(analysis_id, db),
+    )
 
 
 # ── Endpoint 1: Channel Info ────────────────────────────────────────────────

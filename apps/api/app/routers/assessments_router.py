@@ -22,7 +22,6 @@ from deepsynaps_core_schema import (
     AssessmentUpdate,
     BulkAssignRequest,
     BulkAssignResponse,
-    BulkAssignmentItem,
     CsvExportResponseV2,
     LicensingInfo,
     ScaleCatalogEntry,
@@ -789,7 +788,24 @@ def patient_assessment_summary(
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, patient_id, session)
     snapshot = get_patient_assessment_summary(session, patient_id, clinician_id=actor.actor_id)
-    return snapshot.to_dict()
+    payload = snapshot.to_dict()
+    # Additive, non-diagnostic MRI context — see
+    # app.services.medical_image_report_context. No-op when no imaging exists.
+    try:
+        from app.services.medical_image_report_context import (
+            attach_medical_image_context_to_payload,
+        )
+
+        attach_medical_image_context_to_payload(
+            payload,
+            patient_id=patient_id,
+            db=session,
+            actor=actor,
+            surface="assessment_summary",
+        )
+    except Exception:  # pragma: no cover — never block the summary
+        _log.exception("medical_image_context attach failed for patient %s", patient_id)
+    return payload
 
 
 @router.get("/ai-context/{patient_id}")

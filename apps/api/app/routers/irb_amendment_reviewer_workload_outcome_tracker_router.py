@@ -55,7 +55,6 @@ from app.services.irb_reviewer_sla_outcome_pairing import (
     OUTCOME_PENDING,
     OUTCOME_STILL_PENDING,
     SURFACE,
-    ReviewerSLAOutcomeRecord,
     compute_reviewer_calibration,
     median_days_to_next_decision,
     pair_breaches_with_decisions,

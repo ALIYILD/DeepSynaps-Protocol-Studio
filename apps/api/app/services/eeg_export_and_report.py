@@ -36,12 +36,10 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from app.persistence.models import (
-    AutoCleanRun,
     CleaningDecision,
     Clinic,
     Patient,
     QEEGAnalysis,
-    User,
 )
 
 _log = logging.getLogger(__name__)

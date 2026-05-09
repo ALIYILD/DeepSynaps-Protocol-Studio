@@ -7,9 +7,15 @@
  */
 
 import { api } from './api.js';
+import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { currentUser } from './auth.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
+import { drHero } from './helpers.js';
+import { loadPatientFlagSummary } from './dr-friendly-flags.js';
+
+const TEXT_CLINICAL_QUESTION = "What does this patient's writing or transcript reveal about mood, cognitive function, or symptom change?";
+const TEXT_HOW_TO_READ = "Extracted entities and indicators are decision-support drafts. Clinical correlation with examination, history, and assessments is required — text alone does not diagnose.";
 
 const CLINICAL_TEXT_ANALYZER_ROLES = new Set(['clinician', 'admin']);
 
@@ -371,7 +377,7 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
   try {
     setTopbar({
       title: 'Text Analyzer',
-      subtitle: 'Clinical text · extraction · de-identification · decision support',
+      subtitle: TEXT_CLINICAL_QUESTION,
     });
   } catch {
     try { setTopbar('Text Analyzer', 'Clinical text · decision support'); } catch {}
@@ -383,12 +389,14 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
   const actorRole = String(currentUser?.role || '').trim().toLowerCase();
   if (!canUseTextAnalyzerWorkspace(actorRole, { allowUnknown: demoMode })) {
     el.innerHTML = _renderTextAnalyzerRestrictedCard();
+    ensureAgentBrainStatus(el);
     return;
   }
 
   el.innerHTML = `
     <div class="ds-text-analyzer-shell" style="max-width:980px;margin:0 auto;padding:16px 20px 48px">
       ${_demoBuildBanner()}
+      <div id="ta-dr-hero-slot">${drHero({ question: TEXT_CLINICAL_QUESTION, howToRead: TEXT_HOW_TO_READ, flagCount: 0 })}</div>
       <div style="padding:14px 16px;border-radius:12px;border:1px solid rgba(246,178,60,.35);background:rgba(246,178,60,.09);margin-bottom:18px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
         <strong style="color:var(--text-primary)">Clinical decision-support.</strong> ${esc(DISCLAIMER)}
       </div>
@@ -487,6 +495,19 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
 
       <div id="ta-result" data-testid="text-analyzer-results"></div>
     </div>`;
+  ensureAgentBrainStatus(el);
+
+  async function _refreshTaDrHero(patientId) {
+    const slot = document.getElementById('ta-dr-hero-slot');
+    if (!slot) return;
+    let flagCount = 0; let flagSummary = '';
+    if (patientId) {
+      const s = await loadPatientFlagSummary(patientId);
+      flagCount = s.flagCount; flagSummary = s.flagSummary;
+    }
+    slot.innerHTML = drHero({ question: TEXT_CLINICAL_QUESTION, howToRead: TEXT_HOW_TO_READ, flagCount, flagSummary });
+  }
+  _refreshTaDrHero(resolveTextAnalyzerPatientId());
 
   const $ = (id) => document.getElementById(id);
   const status = (msg) => { const s = $('ta-status'); if (s) s.textContent = msg || ''; };

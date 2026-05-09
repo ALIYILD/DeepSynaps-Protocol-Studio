@@ -429,7 +429,7 @@ class TestFiltersAndSummary:
         self, client: TestClient, auth_headers: dict, proto_id: str
     ) -> None:
         a = _create(client, auth_headers["clinician"], title="a", irb_protocol_id=proto_id, phase="ii")
-        b = _create(client, auth_headers["clinician"], title="b", irb_protocol_id=proto_id, phase="iii")
+        _create(client, auth_headers["clinician"], title="b", irb_protocol_id=proto_id, phase="iii")
         client.post(
             f"/api/v1/clinical-trials/trials/{a['id']}/close",
             json={"note": "completed"},

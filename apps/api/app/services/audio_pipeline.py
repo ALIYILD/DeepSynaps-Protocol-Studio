@@ -9,7 +9,7 @@ Consumers should check :data:`HAS_AUDIO_PIPELINE` before assuming real analysis 
 from __future__ import annotations
 
 import logging
-from typing import Any, Mapping, Optional
+from typing import Any, Optional
 
 _log = logging.getLogger(__name__)
 

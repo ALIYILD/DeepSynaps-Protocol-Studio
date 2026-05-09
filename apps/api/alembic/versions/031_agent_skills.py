@@ -42,7 +42,7 @@ def upgrade() -> None:
         sa.Column("description", sa.Text(), nullable=False, server_default=""),
         sa.Column("icon", sa.String(16), nullable=False, server_default=""),
         sa.Column("run_payload_json", sa.Text(), nullable=False, server_default="{}"),
-        sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("sort_order", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),

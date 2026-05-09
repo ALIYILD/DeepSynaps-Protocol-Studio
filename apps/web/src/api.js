@@ -11,7 +11,7 @@ import {
   demoSimulation,
 } from './deeptwin/mockData.js';
 
-const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
+export const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const TOKEN_KEY = 'ds_access_token';
 const REFRESH_KEY = 'ds_refresh_token';
 
@@ -1888,6 +1888,51 @@ export const api = {
   // Public counts + last_updated timestamp (no auth required).
   evidenceStatus: () => apiFetch('/api/v1/evidence/status'),
 
+  // ── Live Indications Spine (added 2026-05-08) ───────────────────────────
+  // Read-only views over the curated evidence DB junction tables. Each
+  // endpoint enforces clinician role server-side; the UI surfaces honest
+  // empty states when paper_indications / trial_indications are unpopulated
+  // for a slug.
+  evidenceIndicationsSummary: () =>
+    apiFetch('/api/v1/evidence/indications/summary'),
+  evidenceIndicationDetail: (slug, { paperLimit = 10, trialLimit = 5, protocolLimit = 5 } = {}) => {
+    const params = new URLSearchParams();
+    if (paperLimit)    params.set('paper_limit', String(paperLimit));
+    if (trialLimit)    params.set('trial_limit', String(trialLimit));
+    if (protocolLimit) params.set('protocol_limit', String(protocolLimit));
+    const qs = params.toString();
+    return apiFetch(`/api/v1/evidence/indications/${encodeURIComponent(slug)}/detail${qs ? '?' + qs : ''}`);
+  },
+  evidenceIndicationPapers: (slug, { limit = 20, includeAbstract = false } = {}) => {
+    const params = new URLSearchParams();
+    if (limit)            params.set('limit', String(limit));
+    if (includeAbstract)  params.set('include_abstract', 'true');
+    return apiFetch(`/api/v1/evidence/indications/${encodeURIComponent(slug)}/papers?${params.toString()}`);
+  },
+  evidenceIndicationTrials: (slug, { limit = 20 } = {}) => {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    return apiFetch(`/api/v1/evidence/indications/${encodeURIComponent(slug)}/trials?${params.toString()}`);
+  },
+  evidenceIndicationDevices: (slug, { limit = 50 } = {}) => {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    return apiFetch(`/api/v1/evidence/indications/${encodeURIComponent(slug)}/devices?${params.toString()}`);
+  },
+  evidenceIndicationProtocols: (slug, { confidence = '', limit = 20 } = {}) => {
+    const params = new URLSearchParams();
+    if (confidence) params.set('confidence', confidence);
+    if (limit)      params.set('limit', String(limit));
+    return apiFetch(`/api/v1/evidence/indications/${encodeURIComponent(slug)}/protocols?${params.toString()}`);
+  },
+  evidenceFTSSearch: ({ q = '', limit = 20, includeAbstract = false } = {}) => {
+    const params = new URLSearchParams();
+    params.set('q', q);
+    if (limit)            params.set('limit', String(limit));
+    if (includeAbstract)  params.set('include_abstract', 'true');
+    return apiFetch(`/api/v1/evidence/search?${params.toString()}`);
+  },
+
   // Admin-only: trigger / inspect a full evidence refresh.
   adminRefreshEvidence: () =>
     apiFetch('/api/v1/evidence/admin/refresh', { method: 'POST' }),
@@ -2418,6 +2463,19 @@ export const api = {
   getClinicianNote: (noteId) => apiFetch(`/api/v1/media/clinician/note/${encodeURIComponent(noteId)}`),
   approveClinicianDraft: (draftId, data = {}) =>
     apiFetch(`/api/v1/media/clinician/draft/${encodeURIComponent(draftId)}/approve`, { method: 'POST', body: JSON.stringify(data) }),
+  rejectClinicianDraft: (draftId, rationale = null) =>
+    apiFetch(`/api/v1/media/clinician/draft/${encodeURIComponent(draftId)}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ rationale: rationale || null }),
+    }),
+
+  // ── Clinic day-queue ────────────────────────────────────────────────────────
+  // Replaces ds_today_queue localStorage. Backend derives queue from
+  // ClinicalSession rows scheduled for the date. Reference: audit 2026-05-08 #4.
+  getClinicDayQueue: (dateISO = null) => {
+    const q = dateISO ? `?date=${encodeURIComponent(dateISO)}` : '';
+    return apiFetch(`/api/v1/clinic/day-queue${q}`);
+  },
 
   // ── Phenotype assignments ─────────────────────────────────────────────────
   assignPhenotype: (data) =>
@@ -2499,6 +2557,27 @@ export const api = {
   },
   generateQEEGAIReport: (analysisId, body = {}) =>
     apiFetch(`/api/v1/qeeg-analysis/${analysisId}/ai-report`, { method: 'POST', body: JSON.stringify(body) }),
+
+  // ── Unified Analyzer AI Report (decision-support) ──────────────────────
+  // Single endpoint family that powers "Generate AI Report" + "Download PDF"
+  // on every analyzer page (mri, voice, video_assessment, movement, phenotype,
+  // labs, nutrition, risk, digital_phenotyping, deeptwin, treatment_sessions).
+  // For per-patient analyzers the analysisId argument is the patient_id.
+  listAnalyzerReportTypes: () =>
+    apiFetch('/api/v1/analyzer-reports'),
+  generateAnalyzerAIReport: (analyzerType, analysisId, body = {}) =>
+    apiFetch(
+      `/api/v1/analyzer-reports/${encodeURIComponent(analyzerType)}/${encodeURIComponent(analysisId)}/ai-report`,
+      { method: 'POST', body: JSON.stringify(body || {}) },
+    ),
+  downloadAnalyzerReportPDF: (analyzerType, analysisId, opts = {}) => {
+    const qs = opts && opts.patientContext
+      ? '?patient_context=' + encodeURIComponent(opts.patientContext)
+      : '';
+    return apiFetchBinary(
+      `/api/v1/analyzer-reports/${encodeURIComponent(analyzerType)}/${encodeURIComponent(analysisId)}/pdf${qs}`,
+    );
+  },
   listQEEGAnalysisReports: (analysisId) =>
     apiFetch(`/api/v1/qeeg-analysis/${analysisId}/reports`),
   amendQEEGReport: (reportId, body) =>
@@ -2613,6 +2692,32 @@ export const api = {
       return Promise.resolve(null);
     }
   },
+
+  // ── Medical Image Preview (MIQ-inspired Quick Look surface) ─────────────
+  // Lightweight, non-diagnostic preview alongside the heavy MRI Analyzer.
+  // Backend: app.routers.medical_images_router. Service:
+  // app.services.medical_image_preview.
+  listSupportedMedicalImageFormats: () =>
+    apiFetch('/api/v1/medical-images/supported-formats'),
+  // file: File, patient_id (optional), upload_id (optional).
+  previewMedicalImage: ({ file, patient_id, upload_id } = {}) => {
+    const fd = new FormData();
+    if (file) fd.append('file', file);
+    if (patient_id) fd.append('patient_id', String(patient_id));
+    if (upload_id) fd.append('upload_id', String(upload_id));
+    return apiFetch('/api/v1/medical-images/preview', { method: 'POST', body: fd });
+  },
+  getMedicalImage: (imageId) =>
+    apiFetch(`/api/v1/medical-images/${encodeURIComponent(imageId)}`),
+  // POST so the clinician note can be supplied without leaking through query
+  // params. Passing an empty body re-fetches the existing safe context.
+  getMedicalImageReportContext: (imageId, { clinician_imaging_note } = {}) =>
+    apiFetch(`/api/v1/medical-images/${encodeURIComponent(imageId)}/report-context`, {
+      method: 'POST',
+      body: JSON.stringify({ clinician_imaging_note: clinician_imaging_note ?? null }),
+    }),
+  listPatientMedicalImages: (patientId) =>
+    apiFetch(`/api/v1/medical-images/patients/${encodeURIComponent(patientId)}/index`),
 
   // ── MRI Analyzer (packages/mri-pipeline; see portal_integration/api_contract.md)
   // Multipart upload (.zip DICOM or .nii.gz NIfTI). FormData must include
@@ -4235,6 +4340,8 @@ export const api = {
     apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/ica-components`),
   getQEEGICATimecourse: (analysisId, idx) =>
     apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/ica-timecourse/${idx}`),
+  getQEEGCopilotAssistBundle: (analysisId) =>
+    apiFetch(`/api/v1/qeeg-ai/${encodeURIComponent(analysisId)}/copilot_assist_bundle`),
   saveQEEGCleaningConfig: (analysisId, config) =>
     apiFetch(`/api/v1/qeeg-raw/${encodeURIComponent(analysisId)}/cleaning-config`, { method: 'POST', body: JSON.stringify(config) }),
   getQEEGCleaningConfig: (analysisId) =>
@@ -6122,6 +6229,24 @@ export const api = {
         body: JSON.stringify(data || {}),
       },
     ),
+
+  // ── Clinical Agent Brain ──────────────────────────────────────────────────
+  // Scout-inspired context layer. AI surfaces use these calls to introspect
+  // which providers are wired and to fetch grounded, role-gated, auditable
+  // context BEFORE producing any clinical recommendation. See
+  // docs/architecture/deepsynaps-clinical-agent-brain.md.
+  getAgentBrainStatus: () => apiFetch('/api/v1/agent-brain/status'),
+  getAgentBrainProviders: () => apiFetch('/api/v1/agent-brain/providers'),
+  queryAgentBrain: (body) =>
+    apiFetch('/api/v1/agent-brain/query', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  writeAgentBrainMemory: (body) =>
+    apiFetch('/api/v1/agent-brain/memory', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).

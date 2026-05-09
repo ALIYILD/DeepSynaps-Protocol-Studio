@@ -228,7 +228,15 @@ def test_embed_query_text_and_rerank_flags_do_not_break_sqlite_retrieval():
     assert result.supporting_papers
     md = result.provenance.ranking_metadata
     assert md.get("ann_retrieval") is True
-    assert md.get("cross_encoder_rerank") is False  # optional dep absent in CI
+    # cross_encoder_rerank actually fires only when sentence-transformers is
+    # installed. CI runs without it; local dev environments typically have it.
+    # Make the assertion env-aware so both states are green.
+    try:
+        import sentence_transformers  # noqa: F401
+        _has_rerank = True
+    except ImportError:
+        _has_rerank = False
+    assert md.get("cross_encoder_rerank") is _has_rerank
 
 
 def test_evidence_api_happy_path_save_and_overview(client: TestClient, auth_headers: dict):

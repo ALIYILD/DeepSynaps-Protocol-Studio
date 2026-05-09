@@ -4,16 +4,16 @@
 // behavioural change: code below is the verbatim media block from the
 // original file, with imports rewired.
 //
-// `_MEDIA_BASE` and `_mediaFetch` are local to this module — no other
+// `API_BASE` and `_mediaFetch` are local to this module — no other
 // patient page references them.
 import { api } from '../api.js';
 import { currentUser } from '../auth.js';
 import { t } from '../i18n.js';
 import { setTopbar, spinner, fmtDate, _hdEsc } from './_shared.js';
+import { API_BASE } from '../api.js';
 
 // ── Shared fetch helper for media endpoints (not yet in api.js) ──────────────
 // Mirrors the API_BASE logic from api.js
-const _MEDIA_BASE = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
 async function _mediaFetch(path, opts = {}) {
   const isForm = opts.body instanceof FormData;
 
@@ -25,7 +25,7 @@ async function _mediaFetch(path, opts = {}) {
   }
 
   async function _doFetch(token) {
-    return fetch(`${_MEDIA_BASE}${path}`, { ...opts, headers: _buildHeaders(token) });
+    return fetch(`${API_BASE}${path}`, { ...opts, headers: _buildHeaders(token) });
   }
 
   let res = await _doFetch(api.getToken());
@@ -35,7 +35,7 @@ async function _mediaFetch(path, opts = {}) {
     try {
       const storedRefresh = localStorage.getItem('ds_refresh_token');
       if (storedRefresh) {
-        const refreshRes = await fetch(`${_MEDIA_BASE}/api/v1/auth/refresh`, {
+        const refreshRes = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ refresh_token: storedRefresh }),

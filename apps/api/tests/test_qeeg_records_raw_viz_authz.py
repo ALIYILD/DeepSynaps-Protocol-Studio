@@ -30,7 +30,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
-from app.persistence.models import Clinic, Patient, QEEGAnalysis, QEEGRecord, User
+from app.persistence.models import Clinic, Patient, QEEGAnalysis, User
 from app.services.auth_service import create_access_token
 
 

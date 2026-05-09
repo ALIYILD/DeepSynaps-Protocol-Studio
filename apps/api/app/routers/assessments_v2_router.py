@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -534,13 +534,6 @@ def score_assignment(
         )
 
     # Compute canonical score if item responses exist.
-    items: Any = None
-    try:
-        # items_json is stored as JSON; repository converters handle this, but
-        # we keep it simple by relying on update/create to store JSON already.
-        items = existing.items_json
-    except Exception:
-        items = None
     # We rely on stored items via update endpoint; if absent, we cannot score.
     if not existing.items_json and existing.score_numeric is None:
         raise ApiServiceError(

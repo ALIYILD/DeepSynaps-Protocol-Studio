@@ -35,7 +35,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
-from app.persistence.models import AuditEventRecord, User
+from app.persistence.models import AuditEventRecord
 
 
 os.environ.pop("CHANNEL_AUTH_HEALTH_PROBE_ENABLED", None)
@@ -280,7 +280,7 @@ class TestMarkRotated:
             )
             assert row is not None
             note = row.note or ""
-            assert f"clinic_id=clinic-demo-default" in note
+            assert "clinic_id=clinic-demo-default" in note
             assert "channel=slack" in note
             assert "rotation_method=manual" in note
             assert f"source_drift_event_id={drift_eid}" in note
@@ -707,7 +707,7 @@ class TestAuditEvents:
         self, client: TestClient, auth_headers: dict
     ) -> None:
         r = client.get(
-            f"/api/v1/channel-auth-drift-resolution/audit-events?limit=5&offset=0",
+            "/api/v1/channel-auth-drift-resolution/audit-events?limit=5&offset=0",
             headers=auth_headers["admin"],
         )
         assert r.status_code == 200, r.text

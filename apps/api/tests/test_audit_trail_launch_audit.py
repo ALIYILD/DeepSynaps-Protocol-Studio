@@ -16,11 +16,10 @@ import io
 import csv
 import json
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
-from app.persistence.models import AuditEventRecord, Clinic, User
+from app.persistence.models import AuditEventRecord
 
 
 def _seed_audit_event(
@@ -316,11 +315,11 @@ class TestNdjsonExport:
         assert resp.status_code == 200
         assert resp.headers["content-type"].startswith("application/x-ndjson")
         assert "audit_trail.ndjson" in resp.headers["content-disposition"]
-        lines = [l for l in resp.text.split("\n") if l.strip()]
-        assert any(json.loads(l)["event_id"] == "evt-nd-1" for l in lines)
+        lines = [ln for ln in resp.text.split("\n") if ln.strip()]
+        assert any(json.loads(ln)["event_id"] == "evt-nd-1" for ln in lines)
         # Each line must be valid JSON with surface + payload_hash.
-        for l in lines:
-            parsed = json.loads(l)
+        for ln in lines:
+            parsed = json.loads(ln)
             assert "surface" in parsed
             assert "payload_hash" in parsed
 

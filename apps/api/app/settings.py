@@ -177,6 +177,14 @@ class AppSettings(BaseModel):
         ),
     )
 
+    # qEEG indicators without regulatory clearance (alpha_reactivity,
+    # brain_balance, ai_brain_age). Default OFF — compute_indicators returns
+    # None for these fields so they cannot reach clinician- or patient-facing
+    # report renderers. Reference: deepsynaps-qeeg-evidence-gaps.md.
+    # Set DEEPSYNAPS_QEEG_UNEVIDENCED_INDICATORS=1 to surface them for
+    # internal research / validation work only.
+    qeeg_unevidenced_indicators_enabled: bool = Field(default=False)
+
     # SlowAPI rate-limiter storage backend. Empty (default) uses in-memory
     # storage — fine for dev/test and single-process deploys, but on a
     # horizontally-scaled Fly app each machine keeps its own counters and
@@ -279,7 +287,7 @@ def load_settings() -> AppSettings:
         ]
 
     try:
-        return AppSettings.model_validate(
+        _settings = AppSettings.model_validate(
             {
                 "app_env": _app_env,
                 "api_title": os.getenv("DEEPSYNAPS_API_TITLE", "DeepSynaps Protocol Studio API"),
@@ -378,10 +386,31 @@ def load_settings() -> AppSettings:
                     app_env=_app_env,
                     raw_env=os.getenv("DEEPSYNAPS_ENABLE_DEEPTWIN_SIMULATION"),
                 ),
+                # qEEG unevidenced-indicator gate (alpha_reactivity,
+                # brain_balance, ai_brain_age). Default OFF.
+                "qeeg_unevidenced_indicators_enabled": _truthy_env(
+                    os.getenv("DEEPSYNAPS_QEEG_UNEVIDENCED_INDICATORS")
+                ),
             }
         )
     except ValidationError as exc:
         raise RuntimeError(f"Invalid DeepSynaps environment configuration: {exc}") from exc
+
+    if _app_env in ("production", "staging"):
+        if not (
+            os.getenv("ANTHROPIC_API_KEY", "")
+            or os.getenv("OPENAI_API_KEY", "")
+            or os.getenv("GLM_API_KEY", "")
+            or os.getenv("OPENROUTER_API_KEY", "")
+        ):
+            import logging
+
+            logging.getLogger("app.settings").warning(
+                "No LLM API keys configured (ANTHROPIC_API_KEY, OPENAI_API_KEY, GLM_API_KEY). "
+                "AI chat and summarization features will return deterministic fallbacks."
+            )
+
+    return _settings
 
 
 @lru_cache(maxsize=1)

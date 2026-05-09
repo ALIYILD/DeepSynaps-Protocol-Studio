@@ -245,7 +245,6 @@ def test_mri_sse_stream_emits_terminal_snapshot(
 
 # ── Fusion Workbench endpoints (Migration 054) ───────────────────────────────
 
-from app.persistence.models import FusionCase, FusionCaseAudit
 
 
 def _seed_qeeg_and_mri(

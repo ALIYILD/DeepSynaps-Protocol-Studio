@@ -16,6 +16,12 @@ import { api } from './api.js';
 import { isDemoSession } from './demo-session.js';
 import { currentUser } from './auth.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
+import { drHero } from './helpers.js';
+import { loadPatientFlagSummary } from './dr-friendly-flags.js';
+import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
+
+const RISK_CLINICAL_QUESTION = "What's this patient's risk profile right now — anything that needs action?";
+const RISK_HOW_TO_READ = "Risks are stratified into Low / Moderate / Elevated / High bands across safety, deterioration, adherence, and engagement. Bands reflect rule-based / model-assisted indices over chart data — clinician review is required before operational decisions.";
 
 const CLINICAL_RISK_ANALYZER_ROLES = new Set(['clinician', 'admin']);
 
@@ -136,6 +142,45 @@ export function formatFactorLine(ref, opts = {}) {
   return t;
 }
 
+/**
+ * Render compact modality-source chips for a risk category — addresses the
+ * "modality-opaque" audit gap. A clinician scanning the card sees at-a-glance
+ * which inputs fed the band ("from: voice · assessments"), instead of having
+ * to parse the factor text to guess.
+ */
+function _sourceChips(cat) {
+  const raw = [];
+  const dataSources = Array.isArray(cat?.data_sources) ? cat.data_sources : [];
+  for (const s of dataSources) {
+    const label = typeof s === 'string'
+      ? s
+      : (s && typeof s === 'object' ? (s.modality || s.source || s.label || s.id) : null);
+    if (label) raw.push(String(label));
+  }
+  // Refs sometimes carry their own modality / source field — pull those too.
+  const refs = Array.isArray(cat?.evidence_refs) ? cat.evidence_refs : [];
+  for (const r of refs) {
+    const label = r && typeof r === 'object' ? (r.modality || r.source) : null;
+    if (label) raw.push(String(label));
+  }
+  // Normalise + dedupe + drop placeholder values.
+  const seen = new Set();
+  const chips = [];
+  for (const v of raw) {
+    const key = v.replace(/_/g, ' ').toLowerCase().trim();
+    if (!key || key === 'demo fixture' || seen.has(key)) continue;
+    seen.add(key);
+    chips.push(key);
+  }
+  if (!chips.length) return '';
+  const tip = `Modalities feeding this band: ${chips.join(', ')}`;
+  const chipHtml = chips.slice(0, 5).map((c) => `<span style="display:inline-block;font-size:10px;font-weight:600;padding:2px 7px;border-radius:999px;background:rgba(74,158,255,0.10);color:var(--blue);border:1px solid rgba(74,158,255,0.22)">${esc(c)}</span>`).join(' ');
+  const overflow = chips.length > 5 ? `<span style="font-size:10px;color:var(--text-tertiary)">+${chips.length - 5}</span>` : '';
+  return `<div title="${esc(tip)}" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px">
+    <span>From</span>${chipHtml}${overflow}
+  </div>`;
+}
+
 function _topContributingFactors(cat, demoMode) {
   const refs = Array.isArray(cat.evidence_refs) ? cat.evidence_refs : [];
   const sources = Array.isArray(cat.data_sources) ? cat.data_sources : [];
@@ -202,7 +247,11 @@ function _renderClinicTable(summary, sortKey) {
     patients.sort((a, b) => {
       const al = (a.categories || []).find((c) => c.category === sortKey)?.level;
       const bl = (b.categories || []).find((c) => c.category === sortKey)?.level;
-      return rank(bl) - rank(al);
+      const primary = rank(bl) - rank(al);
+      if (primary !== 0) return primary;
+      // Tiebreaker: fall back to worst aggregate so safety-critical patients
+      // who tie on the chosen category still surface above quieter ones.
+      return rank(b.worst_level) - rank(a.worst_level);
     });
   }
 
@@ -241,11 +290,13 @@ function _renderCategoryCard(cat, demoMode) {
   const method = cat.provenance?.engine || cat.provenance?.source
     ? `<span style="font-size:10px;color:var(--text-tertiary)">${esc(cat.provenance?.engine || cat.provenance?.source || '')}</span>`
     : '';
+  const sourcesHtml = _sourceChips(cat);
   return `<div data-category="${esc(cat.category)}" style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;min-height:200px">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
       <div style="font-weight:600;font-size:13px">${esc(_labelFor(cat.category, cat.label))}</div>
       <div>${_pillFor(cat.level)}</div>
     </div>
+    ${sourcesHtml}
     <div style="font-size:11px;color:var(--text-secondary)">
       Model level: ${esc(cat.computed_level || '—')}${overridden ? ` <span style="color:var(--amber)">• clinician override applied</span>` : ''}
       ${method ? `<span style="display:block;margin-top:4px">${method}</span>` : ''}
@@ -507,7 +558,7 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
   try {
     setTopbar({
       title: 'Risk Analyzer',
-      subtitle: 'Clinician risk review • decision-support only',
+      subtitle: RISK_CLINICAL_QUESTION,
     });
   } catch {
     try { setTopbar('Risk Analyzer', 'Risk stratification'); } catch {}
@@ -532,7 +583,11 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
 
   let view = 'clinic';
   let summaryCache = null;
-  let sortKey = 'worst';
+  // Default sort puts safety-critical patients at the top — Audit 3 fix.
+  // The previous 'worst' default treated safety equal to adherence, which a
+  // busy clinician scanning a clinic doesn't want. The "Worst" column header
+  // is still clickable for users who prefer the aggregate view.
+  let sortKey = 'safety';
   let activePatientId = null;
   let activePatientName = '';
   let usingFixtures = false;
@@ -542,6 +597,7 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
     if (handoff && String(handoff).trim()) {
       activePatientId = String(handoff).trim();
       activePatientName = 'Patient';
+      _refreshRaDrHero(activePatientId);
       view = 'patient';
       window._riskAnalyzerPatientId = null;
     }
@@ -550,6 +606,7 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
   el.innerHTML = `
     <div class="ds-risk-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
       <div id="ra-demo-banner"></div>
+      <div id="ra-dr-hero-slot">${drHero({ question: RISK_CLINICAL_QUESTION, howToRead: RISK_HOW_TO_READ, flagCount: 0 })}</div>
       <div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(155,127,255,0.28);background:rgba(155,127,255,0.06);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
         <strong style="color:var(--text-primary)">Clinical decision-support.</strong>
         Outputs are rule-based / model-assisted indices linked to chart data where available. They are not diagnoses, emergency determinations, prescriptions, or autonomous safeguarding actions. Clinician review is required before operational decisions.
@@ -557,6 +614,42 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
       <div id="ra-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px"></div>
       <div id="ra-body"></div>
     </div>`;
+
+  // ── AI decision-support strip (mounted once per page invocation) ────────
+  if (!el.querySelector('[data-aar-strip="risk"]')) {
+    const _aarHost = document.createElement('div');
+    _aarHost.dataset.aarStrip = 'risk';
+    const _shell = el.querySelector('.ds-risk-analyzer-shell');
+    const _bcAnchor = _shell?.querySelector('#ra-breadcrumb');
+    if (_bcAnchor && _bcAnchor.parentNode) {
+      _bcAnchor.parentNode.insertBefore(_aarHost, _bcAnchor);
+    } else if (_shell) {
+      _shell.prepend(_aarHost);
+    } else {
+      el.prepend(_aarHost);
+    }
+    mountAnalyzerAIReportStrip({
+      container: _aarHost,
+      analyzerType: 'risk',
+      getAnalysisId: () => activePatientId,
+      label: 'AI Decision Support',
+    });
+  }
+
+  // Refresh the drHero alert chip with the loaded patient's flagged risk
+  // categories so the at-a-glance answer ("anything to act on?") sits at
+  // the top of the page. Failures keep the calm placeholder.
+  async function _refreshRaDrHero(patientId) {
+    const slot = document.getElementById('ra-dr-hero-slot');
+    if (!slot) return;
+    let flagCount = 0; let flagSummary = '';
+    if (patientId) {
+      const s = await loadPatientFlagSummary(patientId);
+      flagCount = s.flagCount; flagSummary = s.flagSummary;
+    }
+    slot.innerHTML = drHero({ question: RISK_CLINICAL_QUESTION, howToRead: RISK_HOW_TO_READ, flagCount, flagSummary });
+  }
+  _refreshRaDrHero(activePatientId);
 
   const $ = (id) => document.getElementById(id);
 
@@ -636,6 +729,7 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
       const pid = tr.getAttribute('data-patient-id');
       const open = () => {
         activePatientId = pid;
+        _refreshRaDrHero(activePatientId);
         const p = (summaryCache?.patients || []).find((x) => x.patient_id === pid);
         activePatientName = p?.patient_name || 'Patient';
         try {

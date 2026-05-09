@@ -6,10 +6,31 @@ consume without modification.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
+from pathlib import Path
 
-from scripts.seed_demo import _demo_brain_map_payload
+import pytest
+
+# Load apps/api/scripts/seed_demo.py directly: an unrelated `scripts` package
+# may exist on sys.path (e.g. a site-packages namespace package), which would
+# shadow the local module under a normal `from scripts.seed_demo import ...`.
+_SEED_DEMO_PATH = (
+    Path(__file__).resolve().parents[1] / "scripts" / "seed_demo.py"
+)
+if not _SEED_DEMO_PATH.is_file():
+    pytest.skip(
+        f"seed_demo.py not present at {_SEED_DEMO_PATH}",
+        allow_module_level=True,
+    )
+_spec = importlib.util.spec_from_file_location(
+    "_local_seed_demo_for_phase5d_tests", _SEED_DEMO_PATH
+)
+_seed_demo = importlib.util.module_from_spec(_spec)
+assert _spec.loader is not None  # for type-checkers
+_spec.loader.exec_module(_seed_demo)
+_demo_brain_map_payload = _seed_demo._demo_brain_map_payload
 
 
 def test_demo_payload_has_all_contract_sections():

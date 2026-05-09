@@ -11235,14 +11235,22 @@ export async function pgAINoteAssistant(setTopbar) {
   let _aiPhraseTab = 'S';
   let _qualityDebounce = null;
 
-  // Mock sessions (fallback when no real data)
-  const MOCK_SESSIONS = [
-    { id: 'mock-1', patientName: 'Alice Thornton', modality: 'Neurofeedback', duration: 40, amplitude: 60, frequency: 10, notes: 'Patient reports improved sleep.', outcome: 'Positive', condition: 'anxiety' },
-    { id: 'mock-2', patientName: 'Bob Osei', modality: 'tDCS', duration: 30, amplitude: 1.5, frequency: 0, notes: 'No complaints this session.', outcome: 'Stable', condition: 'depression' },
-    { id: 'mock-3', patientName: 'Carol Martinez', modality: 'Neurofeedback', duration: 45, amplitude: 70, frequency: 12, notes: 'Slight headache at end of session.', outcome: 'Partial', condition: 'adhd' },
-    { id: 'mock-4', patientName: 'David Chen', modality: 'tACS', duration: 20, amplitude: 2.0, frequency: 40, notes: 'Session completed without issues.', outcome: 'Positive', condition: 'default' },
-    { id: 'mock-5', patientName: 'Emma Walsh', modality: 'Neurofeedback', duration: 35, amplitude: 55, frequency: 8, notes: 'Patient very engaged today.', outcome: 'Positive', condition: 'anxiety' },
-  ];
+  // Demo-only fixture sessions. Surfaced ONLY when VITE_ENABLE_DEMO is set
+  // (Netlify preview / landing-page demo buttons) so a clinician's first
+  // login on a real clinic never sees fictional patient names. In production
+  // builds the demo block compiles away and getRecentSessions() returns []
+  // when localStorage is empty — the renderer surfaces an honest empty state.
+  // Reference: AI go-live audit 2026-05-08 (#6).
+  const _IS_DEMO = (() => {
+    try { return Boolean(import.meta.env?.VITE_ENABLE_DEMO); } catch { return false; }
+  })();
+  const DEMO_SESSIONS = _IS_DEMO ? [
+    { id: 'demo-1', patientName: 'Alice Thornton (demo)', modality: 'Neurofeedback', duration: 40, amplitude: 60, frequency: 10, notes: 'Patient reports improved sleep.', outcome: 'Positive', condition: 'anxiety' },
+    { id: 'demo-2', patientName: 'Bob Osei (demo)', modality: 'tDCS', duration: 30, amplitude: 1.5, frequency: 0, notes: 'No complaints this session.', outcome: 'Stable', condition: 'depression' },
+    { id: 'demo-3', patientName: 'Carol Martinez (demo)', modality: 'Neurofeedback', duration: 45, amplitude: 70, frequency: 12, notes: 'Slight headache at end of session.', outcome: 'Partial', condition: 'adhd' },
+    { id: 'demo-4', patientName: 'David Chen (demo)', modality: 'tACS', duration: 20, amplitude: 2.0, frequency: 40, notes: 'Session completed without issues.', outcome: 'Positive', condition: 'default' },
+    { id: 'demo-5', patientName: 'Emma Walsh (demo)', modality: 'Neurofeedback', duration: 35, amplitude: 55, frequency: 8, notes: 'Patient very engaged today.', outcome: 'Positive', condition: 'anxiety' },
+  ] : [];
 
   function getRecentSessions() {
     try {
@@ -11252,7 +11260,7 @@ export async function pgAINoteAssistant(setTopbar) {
         if (Array.isArray(parsed) && parsed.length > 0) return parsed.slice(-5).reverse();
       }
     } catch { /* ignore */ }
-    return MOCK_SESSIONS;
+    return DEMO_SESSIONS;
   }
 
   function countWords(text) {
@@ -11466,17 +11474,28 @@ export async function pgAINoteAssistant(setTopbar) {
     const sessions = getRecentSessions();
     const list = document.getElementById('ai-session-list');
     if (list) {
-      list.innerHTML = sessions.map((s, i) => `
-        <div style="padding:12px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;cursor:pointer;transition:background 0.15s"
-          onmouseover="this.style.background='var(--hover-bg,rgba(255,255,255,0.05))'"
-          onmouseout="this.style.background=''"
-          onclick="window._aiSelectSession(${i})">
-          <div style="font-weight:600;font-size:0.875rem">${_esc(s.patientName || 'Unknown Patient')}</div>
-          <div style="font-size:0.78rem;color:var(--text-secondary);margin-top:2px">
-            ${_esc(s.modality || 'Neurofeedback')} · ${s.duration || 30}min · ${_esc(s.condition || 'General')}
-          </div>
-          <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:2px;font-style:italic">${_esc(s.notes || 'No notes')}</div>
-        </div>`).join('');
+      if (!sessions.length) {
+        // Honest empty state — no fictional patient names. Surfaces when a
+        // clinician's localStorage is fresh and demo mode is off.
+        list.innerHTML = `
+          <div style="padding:24px 16px;text-align:center;border:1px dashed var(--border);border-radius:8px;color:var(--text-secondary)">
+            <div style="font-weight:600;font-size:0.875rem;margin-bottom:6px;color:var(--text-primary)">No completed sessions yet</div>
+            <div style="font-size:0.8rem;margin-bottom:12px">Run a treatment session from the Course detail view; once it completes, it will appear here for AI note generation.</div>
+            <a href="#course-detail" onclick="window._nav&&window._nav('course-detail');return false;" style="font-size:0.78rem;color:var(--accent,#4a9eff);text-decoration:underline">Go to a course →</a>
+          </div>`;
+      } else {
+        list.innerHTML = sessions.map((s, i) => `
+          <div style="padding:12px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;cursor:pointer;transition:background 0.15s"
+            onmouseover="this.style.background='var(--hover-bg,rgba(255,255,255,0.05))'"
+            onmouseout="this.style.background=''"
+            onclick="window._aiSelectSession(${i})">
+            <div style="font-weight:600;font-size:0.875rem">${_esc(s.patientName || 'Unknown Patient')}</div>
+            <div style="font-size:0.78rem;color:var(--text-secondary);margin-top:2px">
+              ${_esc(s.modality || 'Neurofeedback')} · ${s.duration || 30}min · ${_esc(s.condition || 'General')}
+            </div>
+            <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:2px;font-style:italic">${_esc(s.notes || 'No notes')}</div>
+          </div>`).join('');
+      }
     }
     document.getElementById('ai-session-modal').style.display = 'flex';
     window._aiSessionData = sessions;

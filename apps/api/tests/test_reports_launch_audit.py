@@ -19,7 +19,6 @@ Cross-cutting: clinic-isolation (clinician sees only own), role gate
 """
 from __future__ import annotations
 
-import json
 
 from fastapi.testclient import TestClient
 

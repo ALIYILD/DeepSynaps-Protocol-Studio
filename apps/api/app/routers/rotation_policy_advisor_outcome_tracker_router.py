@@ -61,7 +61,6 @@ from app.services.advisor_outcome_pairing import (
     OUTCOME_PAIRED_DISAPPEARED,
     OUTCOME_PAIRED_PRESENT,
     OUTCOME_PENDING,
-    OUTCOME_STALE,
     AdvisorOutcomeRecord,
     compute_advisor_calibration,
     compute_advisor_calibration_by_channel,

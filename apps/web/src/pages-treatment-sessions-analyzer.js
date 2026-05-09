@@ -6,6 +6,7 @@
 import { api } from './api.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
+import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
 
 const TREATMENT_SESSIONS_CLINICAL_ROLES = new Set([
   'clinician',
@@ -874,6 +875,18 @@ export async function pgTreatmentSessionsAnalyzer(setTopbar, navigate) {
       <div id="ts-toolbar" style="margin-bottom:12px"></div>
       <div id="ts-body"></div>
     </div>`;
+
+  if (!el.querySelector('[data-aar-strip="treatment_sessions"]')) {
+    const _aarHost = document.createElement('div');
+    _aarHost.dataset.aarStrip = 'treatment_sessions';
+    el.prepend(_aarHost);
+    mountAnalyzerAIReportStrip({
+      container: _aarHost,
+      analyzerType: 'treatment_sessions',
+      getAnalysisId: () => activePatientId,
+      label: 'AI Decision Support',
+    });
+  }
 
   const $ = (id) => document.getElementById(id);
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import os
 import sqlite3
 import uuid
@@ -13,7 +12,7 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 
 from fastapi import HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -135,6 +134,7 @@ class EvidenceCitationPayload(BaseModel):
 
 
 class EvidenceProvenance(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     source_paper_ids: list[str] = Field(default_factory=list)
     retrieval_reasons: list[str] = Field(default_factory=list)
     matched_concepts: list[str] = Field(default_factory=list)
@@ -751,8 +751,8 @@ def build_drivers(query: EvidenceQuery) -> list[EvidenceDriver]:
     }
     rows = defaults.get(query.target_name, [("Multimodal", query.target_name.replace("_", " "), "active finding", "contextual")])
     return [
-        EvidenceDriver(source_modality=m, label=l, value=v, direction=d, contribution_text=f"{l} is a top patient-specific driver for this claim.", weight=round(0.35 - i * 0.06, 2))
-        for i, (m, l, v, d) in enumerate(rows)
+        EvidenceDriver(source_modality=m, label=lbl, value=v, direction=d, contribution_text=f"{lbl} is a top patient-specific driver for this claim.", weight=round(0.35 - i * 0.06, 2))
+        for i, (m, lbl, v, d) in enumerate(rows)
     ]
 
 

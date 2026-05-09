@@ -419,6 +419,34 @@ def test_rerun_with_unknown_version_returns_404(
     assert rr.status_code == 404, rr.text
 
 
+def test_raw_vs_cleaned_summary_exposes_compare_snapshot(
+    client: TestClient, two_clinics_with_analysis: dict[str, Any]
+) -> None:
+    aid = two_clinics_with_analysis["analysis_id"]
+    client.post(
+        f"/api/v1/qeeg-raw/{aid}/cleaning-version",
+        json={
+            "label": "v1",
+            "bad_channels": ["Fp1", "T3"],
+            "rejected_segments": [{"start_sec": 1.0, "end_sec": 2.5, "description": "BAD_user"}],
+            "rejected_ica_components": [3],
+        },
+        headers=_auth(two_clinics_with_analysis["token_a"]),
+    )
+
+    r = client.get(
+        f"/api/v1/qeeg-raw/{aid}/raw-vs-cleaned-summary",
+        headers=_auth(two_clinics_with_analysis["token_a"]),
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["cleaning_version"]["version_number"] == 1
+    assert body["compare_snapshot"]["bad_channels"] == ["Fp1", "T3"]
+    assert body["compare_snapshot"]["bad_segments_count"] == 1
+    assert body["compare_snapshot"]["excluded_ica_count"] == 1
+    assert body["compare_snapshot"]["retained_data_pct"] >= 0
+
+
 # ── /cleaning-log ────────────────────────────────────────────────────────────
 def test_cleaning_log_records_actor_and_timestamp(
     client: TestClient, two_clinics_with_analysis: dict[str, Any]

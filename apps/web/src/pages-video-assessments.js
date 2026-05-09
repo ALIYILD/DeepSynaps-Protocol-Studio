@@ -10,8 +10,10 @@ import {
 } from './video-assessment-protocol.js';
 import { showToast } from './helpers.js';
 import { api } from './api.js';
+import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { isDemoSession } from './demo-session.js';
 import { currentUser } from './auth.js';
+import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
 
 const SESSION_STORAGE_KEY = 'ds_video_assessment_session_v2';
 export const VIDEO_ASSESSMENT_SESSION_STORAGE_KEY = SESSION_STORAGE_KEY;
@@ -2095,6 +2097,24 @@ function _render() {
     ${esc(DISCLAIMER)}
   </div></div>
 </div>`;
+  ensureAgentBrainStatus(el);
+
+  // Mount the shared analyzer AI report strip (decision support).
+  // Row key: _vaSession.id — the canonical VideoAssessmentSession.id used by
+  // _refreshPersistedSessionTruth, patchVideoAssessmentSession, and
+  // finalizeVideoAssessmentSession throughout this file.
+  if (!el.querySelector('[data-aar-strip="video_assessment"]')) {
+    const _aarHost = document.createElement('div');
+    _aarHost.dataset.aarStrip = 'video_assessment';
+    el.prepend(_aarHost);
+    mountAnalyzerAIReportStrip({
+      container: _aarHost,
+      analyzerType: 'video_assessment',
+      getAnalysisId: () => (_vaSession && _vaSession.id) || '',
+      getPatientContext: () => (_vaSession && _vaSession.patient_id) || _vaSelectedPatientId || '',
+      label: 'AI Decision Support',
+    });
+  }
 
   _wire();
   void _ensurePriorSessionsLoaded();

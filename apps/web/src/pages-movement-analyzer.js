@@ -5,6 +5,12 @@
 import { api } from './api.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
+import { drHero } from './helpers.js';
+import { loadPatientFlagSummary } from './dr-friendly-flags.js';
+import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
+
+const MOVEMENT_CLINICAL_QUESTION = "Are this patient's motor signs (tremor, bradykinesia, gait, posture) changing in clinically meaningful ways?";
+const MOVEMENT_HOW_TO_READ = "Movement cues fuse passive sensors and chart context where available. Outputs are decision-support cues — not autonomous neurological diagnosis, fall-risk final determination, treatment eligibility, or medication recommendations.";
 
 const CLINICAL_MOVEMENT_ANALYZER_ROLES = new Set(['clinician', 'admin', 'clinic-admin', 'supervisor', 'reviewer', 'technician', 'resident']);
 
@@ -648,7 +654,7 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
   try {
     setTopbar({
       title: 'Movement Analyzer',
-      subtitle: 'Clinician-reviewed movement & motor decision support',
+      subtitle: MOVEMENT_CLINICAL_QUESTION,
     });
   } catch {
     try { setTopbar('Movement Analyzer', 'Motor decision support'); } catch {}
@@ -687,6 +693,7 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
   el.innerHTML = `
     <div class="ds-movement-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
       <div id="mv-demo-banner"></div>
+      <div id="mv-dr-hero-slot">${drHero({ question: MOVEMENT_CLINICAL_QUESTION, howToRead: MOVEMENT_HOW_TO_READ, flagCount: 0 })}</div>
       <div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(155,127,255,0.28);background:rgba(155,127,255,0.06);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
         <strong style="color:var(--text-primary)">Clinical decision-support — movement review workspace.</strong>
         Summaries fuse passive sensors and chart context where available. Outputs are <strong>movement-analysis cues</strong>, not autonomous neurological diagnosis, fall-risk final determination, treatment eligibility, protocol approval, or medication recommendations. Every finding requires clinician interpretation.
@@ -695,6 +702,30 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
       <div id="mv-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px"></div>
       <div id="mv-body"></div>
     </div>`;
+
+  async function _refreshMvDrHero(patientId) {
+    const slot = document.getElementById('mv-dr-hero-slot');
+    if (!slot) return;
+    let flagCount = 0; let flagSummary = '';
+    if (patientId) {
+      const s = await loadPatientFlagSummary(patientId);
+      flagCount = s.flagCount; flagSummary = s.flagSummary;
+    }
+    slot.innerHTML = drHero({ question: MOVEMENT_CLINICAL_QUESTION, howToRead: MOVEMENT_HOW_TO_READ, flagCount, flagSummary });
+  }
+  _refreshMvDrHero(activePatientId);
+
+  if (!el.querySelector('[data-aar-strip="movement"]')) {
+    const _aarHost = document.createElement('div');
+    _aarHost.dataset.aarStrip = 'movement';
+    el.prepend(_aarHost);
+    mountAnalyzerAIReportStrip({
+      container: _aarHost,
+      analyzerType: 'movement',
+      getAnalysisId: () => activePatientId,
+      label: 'AI Decision Support',
+    });
+  }
 
   const $ = (id) => document.getElementById(id);
 
@@ -729,6 +760,7 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
     $('mv-back-clinic')?.addEventListener('click', () => {
       view = 'clinic';
       activePatientId = null;
+      _refreshMvDrHero(activePatientId);
       render();
     });
     $('mv-refresh')?.addEventListener('click', () => {
@@ -742,6 +774,7 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
       const v = String(ev.target.value || '').trim();
       if (!v) return;
       activePatientId = v;
+      _refreshMvDrHero(activePatientId);
       const hit = rosterCache.find((x) => x.id === v);
       activePatientName = _patientDisplayName(hit) || profileCache?.patient_name || v;
       view = 'patient';
@@ -820,6 +853,7 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
       const open = () => {
         const p = (summaryCache?.patients || []).find((x) => x.patient_id === pid);
         activePatientId = pid;
+        _refreshMvDrHero(activePatientId);
         activePatientName = p?.patient_name || pid;
         const sel = $('mv-patient-select');
         if (sel) sel.value = pid;
@@ -840,6 +874,7 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
         const pid = btn.getAttribute('data-patient-id');
         const p = (summaryCache?.patients || []).find((x) => x.patient_id === pid);
         activePatientId = pid;
+        _refreshMvDrHero(activePatientId);
         activePatientName = p?.patient_name || pid;
         const sel = $('mv-patient-select');
         if (sel) sel.value = pid;

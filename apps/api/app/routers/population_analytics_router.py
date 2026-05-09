@@ -49,8 +49,8 @@ import logging
 import statistics
 import uuid
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
-from typing import Iterable, Optional
+from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, Field
@@ -991,10 +991,10 @@ def _response_rate_for_cohort(
         if baseline.id == latest.id:
             continue
         b = baseline.score_numeric or 0.0
-        l = latest.score_numeric or 0.0
+        latest_v = latest.score_numeric or 0.0
         if b == 0:
             continue
-        delta_pct = (b - l) * 100.0 / b
+        delta_pct = (b - latest_v) * 100.0 / b
         paired_pids.add(pid)
         if delta_pct >= responder_threshold_pct:
             responders += 1
@@ -1079,10 +1079,10 @@ def treatment_response(
             if baseline.id == latest.id:
                 continue
             b = baseline.score_numeric or 0.0
-            l = latest.score_numeric or 0.0
+            latest_v = latest.score_numeric or 0.0
             if b == 0:
                 continue
-            delta_pct = (b - l) * 100.0 / b
+            delta_pct = (b - latest_v) * 100.0 / b
             paired.add(pid)
             if delta_pct >= responder_threshold_pct:
                 responders += 1

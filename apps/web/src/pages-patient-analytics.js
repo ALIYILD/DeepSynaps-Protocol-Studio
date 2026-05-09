@@ -7,6 +7,7 @@
 
 import { DEMO_PATIENT_ROSTER, demoPtFromRoster } from './patient-dashboard-helpers.js';
 import { api } from './api.js';
+import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import {
   EvidenceChip,
   PatientEvidenceTab,
@@ -19,6 +20,7 @@ import { emptyPatientEvidenceContext, loadPatientEvidenceContext } from './patie
 import { EVIDENCE_TOTAL_PAPERS } from './evidence-dataset.js';
 import { VOICE_DECISION_SUPPORT_SHORT } from './voice-decision-support.js';
 import { buildReport, reportToJSONString, downloadBlob } from './deeptwin/reports.js';
+import { mountMedicalImageCard } from './medical-image-card.js';
 
 function emptyAnalyticsEvidenceContext(patientId = '') {
   return emptyPatientEvidenceContext(patientId);
@@ -890,6 +892,7 @@ export async function pgPatientAnalyticsCohort(setTopbar) {
       </div>
     </div>
   </div>`;
+  ensureAgentBrainStatus(el);
 
   // wire row clicks
   el.querySelectorAll('.pa-cohort-row').forEach(row => {
@@ -937,6 +940,7 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
         <span class="pa-grid-count">${WIDGETS.length} panels · click any to drill in</span>
       </div>
       <div class="pa-grid">${grid}</div>
+      <div id="ds-medical-image-card-patient-analytics" style="margin-top:16px"></div>
     </div>
     <div class="pa-body" style="${activeTab === 'evidence' ? '' : 'display:none'}">
       ${evidenceTab}
@@ -951,6 +955,7 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
       <span class="pa-foot-live"><span class="pa-foot-dot"></span> ${evidenceContext.live ? 'Telemetry preview · evidence context live' : 'Demo preview'}</span>
     </footer>
   </div>`;
+  ensureAgentBrainStatus(el);
 
   initEvidenceDrawer({ patientId: id, onOpenFullTab: () => {
     window._paActiveTab = 'evidence';
@@ -959,6 +964,11 @@ export async function pgPatientAnalyticsDetail(setTopbar, patientId) {
   wireEvidenceChips(el, {
     onOpen: (query) => openEvidenceDrawer(query),
   });
+
+  try {
+    var _miHost = document.getElementById('ds-medical-image-card-patient-analytics');
+    if (_miHost) mountMedicalImageCard(_miHost, { patientId: id, audience: 'clinician' });
+  } catch (_miErr) { /* non-fatal: medical-image card is optional */ }
 
   // Actions
   el.querySelectorAll('[data-pa-action="open-deeptwin"]').forEach(b =>

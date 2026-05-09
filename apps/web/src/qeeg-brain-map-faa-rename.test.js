@@ -58,14 +58,17 @@ test('renderIndicatorGrid: brain_balance contract field key still renders the ca
   assert.match(html, /41\.7%ile/, 'expected indicator percentile 41.7%ile to render');
 });
 
-test('renderIndicatorGrid: omits FAA card if brain_balance is missing (still no old label)', function () {
+test('renderIndicatorGrid: omits FAA card entirely when brain_balance is missing (gated)', function () {
+  // After the QEEG evidence-citation gating (DEEPSYNAPS_QEEG_UNEVIDENCED_INDICATORS,
+  // default OFF), the backend now returns brain_balance: null when the operator
+  // has not opted into surfacing unvalidated indicators. The renderer must
+  // omit the card entirely — no placeholder card, no FAA label, and absolutely
+  // no resurrection of the old "Brain Balance" label.
   var html = tpl.renderIndicatorGrid({
     tbr: { value: 4.1, unit: 'ratio', percentile: 77.8, band: 'balanced' },
   });
-  // Card label is rendered for all 5 slots (with em-dash placeholder for missing data).
-  // The FAA label must still appear; the old label must not.
-  assert.match(html, /Frontal Alpha Asymmetry/);
-  assert.equal(/Brain Balance/.test(html), false);
+  assert.equal(/Frontal Alpha Asymmetry/.test(html), false, 'FAA card should be omitted when brain_balance is missing');
+  assert.equal(/Brain Balance/.test(html), false, 'old "Brain Balance" label must never appear');
 });
 
 test('patient renderer: FAA label appears, "Brain Balance" does not', function () {

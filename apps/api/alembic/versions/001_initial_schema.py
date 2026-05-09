@@ -22,8 +22,8 @@ def upgrade() -> None:
         sa.Column('hashed_password', sa.String(255), nullable=False),
         sa.Column('role', sa.String(50), nullable=False, server_default='guest'),
         sa.Column('package_id', sa.String(50), nullable=False, server_default='explorer'),
-        sa.Column('is_verified', sa.Boolean(), nullable=False, server_default='0'),
-        sa.Column('is_active', sa.Boolean(), nullable=False, server_default='1'),
+        sa.Column('is_verified', sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        sa.Column('is_active', sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column('created_at', sa.DateTime(), nullable=False),
         sa.Column('updated_at', sa.DateTime(), nullable=False),
     )

@@ -23,7 +23,7 @@ def upgrade() -> None:
         sa.Column('source_type', sa.String(32), nullable=False),     # wearable, platform, manual
         sa.Column('display_name', sa.String(128), nullable=True),    # "John's Apple Watch"
         sa.Column('status', sa.String(32), nullable=False, server_default='disconnected'),  # connected, disconnected, pending, error
-        sa.Column('consent_given', sa.Boolean(), nullable=False, server_default='0'),
+        sa.Column('consent_given', sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column('consent_given_at', sa.DateTime(), nullable=True),
         sa.Column('connected_at', sa.DateTime(), nullable=True),
         sa.Column('last_sync_at', sa.DateTime(), nullable=True),
@@ -106,8 +106,8 @@ def upgrade() -> None:
         sa.Column('triggered_at', sa.DateTime(), nullable=False),
         sa.Column('reviewed_at', sa.DateTime(), nullable=True),
         sa.Column('reviewed_by', sa.String(64), nullable=True),
-        sa.Column('dismissed', sa.Boolean(), nullable=False, server_default='0'),
-        sa.Column('auto_generated', sa.Boolean(), nullable=False, server_default='1'),
+        sa.Column('dismissed', sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        sa.Column('auto_generated', sa.Boolean(), nullable=False, server_default=sa.text("true")),
     )
     op.create_index('ix_wearable_alert_flags_patient_id', 'wearable_alert_flags', ['patient_id'])
     op.create_index('ix_wearable_alert_flags_dismissed', 'wearable_alert_flags', ['dismissed'])

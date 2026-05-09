@@ -1,7 +1,6 @@
 from fastapi.testclient import TestClient
 from app.settings import get_settings
 
-from app.settings import get_settings
 
 
 def test_case_summary_requires_clinician_role(

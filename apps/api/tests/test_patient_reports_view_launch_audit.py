@@ -601,7 +601,7 @@ class TestSummary:
         auth_headers: dict,
         demo_patient_with_consent: Patient,
     ) -> None:
-        rid_a = _seed_report(
+        _seed_report(
             patient_id=demo_patient_with_consent.id,
             title="A",
             status="signed",
@@ -609,7 +609,7 @@ class TestSummary:
         rid_b = _seed_report(
             patient_id=demo_patient_with_consent.id, title="B"
         )
-        rid_c = _seed_report(
+        _seed_report(
             patient_id=demo_patient_with_consent.id, title="C"
         )
         # Acknowledge B

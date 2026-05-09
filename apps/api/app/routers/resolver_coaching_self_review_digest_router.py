@@ -51,10 +51,7 @@ from app.workers.resolver_coaching_self_review_digest_worker import (
     DISPATCH_ACTION,
     KNOWN_CHANNELS,
     WORKER_SURFACE,
-    env_cooldown_hours,
     env_enabled,
-    env_interval_hours,
-    env_min_wrong_calls,
     get_worker,
 )
 

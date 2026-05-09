@@ -14,9 +14,12 @@
 // Netlify preview (VITE_ENABLE_DEMO=1) see the full populated report without
 // the Fly API being online.
 // ─────────────────────────────────────────────────────────────────────────────
-import { api, downloadBlob } from './api.js';
+import { api, downloadBlob, API_BASE } from './api.js';
+import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { emptyState, showToast } from './helpers.js';
 import { EvidenceChip, createEvidenceQueryForTarget, initEvidenceDrawer, openEvidenceDrawer, wireEvidenceChips } from './evidence-intelligence.js';
+import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
+import { mountQuickPreviewSection } from './mri-quick-preview-section.js';
 // Cornerstone3D viewer is loaded dynamically — the @cornerstonejs/* packages
 // are optional and may not be installed.  When absent the build still succeeds
 // and the MRI page falls back to the NiiVue viewer.
@@ -29,7 +32,6 @@ async function _loadCornerstoneMPR() {
   } catch { return null; }
 }
 
-const FUSION_API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const FUSION_TOKEN_KEY = 'ds_access_token';
 
 // ── Module state ────────────────────────────────────────────────────────────
@@ -487,9 +489,6 @@ export function renderFusionSummaryCard(fusion, patientId) {
 
 var _niivueLoaderPromise = null;
 
-function _getApiBase() {
-  return (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
-}
 
 function _viewerVolumeCandidates(report, payload) {
   if (payload && payload.base_volume && payload.base_volume.url) {
@@ -542,7 +541,7 @@ function _renderViewerFallback(el, opts, reason) {
 
 function _renderOverlayIframe(el, opts) {
   if (!el || !opts || !opts.analysisId || !opts.targetId) return false;
-  var src = _getApiBase() + '/api/v1/mri/overlay/' + encodeURIComponent(opts.analysisId) + '/' + encodeURIComponent(opts.targetId);
+  var src = API_BASE + '/api/v1/mri/overlay/' + encodeURIComponent(opts.analysisId) + '/' + encodeURIComponent(opts.targetId);
   el.innerHTML =
     '<iframe class="ds-mri-progressive-viewer__iframe" src="' + esc(src) + '" title="MRI overlay viewer"></iframe>';
   return true;
@@ -2664,6 +2663,7 @@ export function renderFullView(state) {
     + renderDemoLiveBanner()
     + (showDemoBanner ? _mriDemoBanner() : '')
     + renderMRILinkedModules({ patientId: state.patientId || null, report: report })
+    + '<div id="ds-mri-quick-preview-mount"></div>'
     + renderHero(state.patientAnalyses)
     + '<div class="ds-mri-layout">'
     + '<div class="ds-mri-col ds-mri-col--left">' + left + '</div>'
@@ -3034,7 +3034,7 @@ async function _startJobWatch(navigate) {
 
   var token = null;
   try { token = api.getToken ? api.getToken() : null; } catch (_) { token = null; }
-  var apiBase = _getApiBase();
+  var apiBase = API_BASE;
   var url = apiBase + '/api/v1/mri/status/' + encodeURIComponent(_jobId) + '/events';
   if (!token || typeof fetch !== 'function' || typeof AbortController === 'undefined') {
     _startPolling(navigate);
@@ -3284,7 +3284,7 @@ function _wireRightColumn(navigate) {
     btn.addEventListener('click', async function () {
       var aid = btn.getAttribute('data-aid');
       if (!aid) return;
-      var _apiBase = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
+      var apiBase = API_BASE;
       var text = _apiBase + '/api/v1/mri/' + encodeURIComponent(aid) + '/viewer.json';
       try {
         await navigator.clipboard.writeText(text);
@@ -3488,6 +3488,7 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
         + '<div><div class="qeeg-hero__title">MRI analysis workspace</div>'
         + '<div class="qeeg-hero__sub">Disabled by feature flag.</div></div></div>'
         + renderRegulatoryFooter() + '</div>';
+      ensureAgentBrainStatus(el);
     }
     return;
   }
@@ -3552,7 +3553,33 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
       patientId: pid || (_report && _report.patient && _report.patient.patient_id) || null,
       patientAnalyses: patientAnalyses,
     });
+    ensureAgentBrainStatus(el);
+    // Mount the shared analyzer AI report strip (decision support).
+    // Row key: _mriAnalysisId (the canonical "current MRI analysis_id" used by
+    // _dsExportFhir / exportFHIRBundle elsewhere in this file).
+    if (!el.querySelector('[data-aar-strip="mri"]')) {
+      var _aarHost = document.createElement('div');
+      _aarHost.dataset.aarStrip = 'mri';
+      el.prepend(_aarHost);
+      mountAnalyzerAIReportStrip({
+        container: _aarHost,
+        analyzerType: 'mri',
+        getAnalysisId: function () {
+          return _mriAnalysisId || (_report && _report.analysis_id) || '';
+        },
+        getPatientContext: function () {
+          return (_patientMeta && _patientMeta.patient_id)
+            || (_report && _report.patient && _report.patient.patient_id)
+            || '';
+        },
+        label: 'AI Decision Support',
+      });
+    }
     _mountInlineMRIViewer(_report);
+    try {
+      var _qpHost = document.getElementById('ds-mri-quick-preview-mount');
+      if (_qpHost) mountQuickPreviewSection(_qpHost, { api: api });
+    } catch (_qpErr) { /* non-fatal: quick-preview is optional */ }
     _wireUploader(navigate);
     _wireRunButton(navigate);
     _wireRightColumn(navigate);

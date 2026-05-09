@@ -7,7 +7,8 @@
 //   3. AI Report        — AI interpretation + clinician review
 //   4. Compare          — pre/post comparison
 // ─────────────────────────────────────────────────────────────────────────────
-import { api, downloadBlob } from './api.js';
+import { api, downloadBlob, API_BASE } from './api.js';
+import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { renderBrainMap10_20, renderTopoHeatmap, renderConnectivityMatrix, renderConnectivityBrainMap, renderConnectivityChordLite, renderICAComponents, renderWaveletHeatmap, renderChannelQualityMap, renderAsymmetryMap, renderPowerBarChart, renderTBRBarChart, renderSignalDeviationChart, renderBiomarkerGauges, renderBrodmannTable, render3DBrainMap, render3DBrainMapMini } from './brain-map-svg.js';
 import { emptyState, showToast, spark } from './helpers.js';
 import { DK_LOBES, groupROIsByLobe, formatDKLabel } from './qeeg-dk-atlas.js';
@@ -33,6 +34,7 @@ import { renderTimeline, mountTimeline } from './qeeg-timeline.js';
 import { EvidenceChip, createEvidenceQueryForTarget, initEvidenceDrawer, openEvidenceDrawer, wireEvidenceChips } from './evidence-intelligence.js';
 import { renderLearningEEGReferenceCard } from './learning-eeg-reference.js';
 import { renderUploadWorkflow, mountUploadWorkflow, resetUploadWorkflow } from './qeeg-upload-workflow.js';
+import { mountMedicalImageCard } from './medical-image-card.js';
 import {
   erpApplyTrialMappingRows,
   erpFormatBidsSummaryHtml,
@@ -47,7 +49,6 @@ export {
   erpValidateEventMapping,
 } from './erp-event-mapping.js';
 
-const FUSION_API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const FUSION_TOKEN_KEY = 'ds_access_token';
 
 // Feature flag for the Contract V2 AI upgrade panels + buttons. Defaults to
@@ -129,6 +130,22 @@ function _revokeQEEGPrintableReportViewerUrl() {
 
 export function _canRenderQEEGPrintableReport(report, analysis) {
   return !!(analysis && analysis.id && report && report.id);
+}
+
+// Live-readiness helpers used by qEEG honest-demo labelling. Keep deterministic —
+// any of these signals means the analysis was assembled from bundled preview data
+// and must not be presented as a clinical finding.
+export function _qeegAnalysisIsSyntheticDemo(analysis) {
+  if (!analysis || typeof analysis !== 'object') return false;
+  if (analysis.is_synthetic_demo === true) return true;
+  if (analysis.norm_db_version === 'toy-0.1') return true;
+  if (analysis.id === 'demo') return true;
+  return false;
+}
+
+export function _qeegReportIsSyntheticDemo(report, analysis) {
+  if (report && typeof report === 'object' && typeof report.id === 'string' && report.id.indexOf('demo') === 0) return true;
+  return _qeegAnalysisIsSyntheticDemo(analysis);
 }
 
 export function _getQEEGReportPdfUrl(report, analysis) {
@@ -1200,7 +1217,7 @@ export function renderELoretaROIPanel(analysis) {
     innerHtml += '</details>';
   });
 
-  return card('Source localization — ROI power' + method, innerHtml);
+  return card('eLORETA ROI Power' + method, innerHtml);
 }
 
 // ── §4.3b Source ROIs on 3D Brain Map ──────────────────────────────────────
@@ -3039,11 +3056,11 @@ function _qeegClinicalSafetyFooter() {
   return '<div data-testid="qeeg-safety-footer" class="qeeg-safety-footer" style="margin-top:24px;padding:14px 16px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border);font-size:12px;color:var(--text-secondary);line-height:1.6">'
     + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:6px">Clinical safety disclaimers</div>'
     + '<ul style="margin:0;padding-left:18px">'
-    + '<li>qEEG findings <strong>support interpretation and require clinician review</strong>.</li>'
-    + '<li>Z-scores are referenced against the embedded normative dataset (see Normative Model Card).</li>'
-    + '<li>Protocol-fit suggestions are decision-support and <strong>are not prescriptive</strong>.</li>'
-    + '<li>Red flags require clinician review per local policy before any treatment action.</li>'
-    + '<li>AI interpretation runs after deterministic numerics — it summarises, it does not generate findings.</li>'
+    + '<li>This workspace provides <strong>EEG/qEEG analysis support and decision-support only</strong>. It is not autonomous diagnosis, psychiatry, epilepsy determination, emergency triage, protocol prescription, device control, or AI-directed therapy.</li>'
+    + '<li>Normative z-scores and comparisons apply only when the pipeline reports a real normative database version — verify the Normative Model Card for source and applicability.</li>'
+    + '<li>Protocol-fit and protocol suggestions are <strong>draft ideas for clinician review</strong>; they are not treatment approval or stimulation targeting.</li>'
+    + '<li>Red flags and quality alerts are review cues — confirm against raw data and local policy before any clinical action.</li>'
+    + '<li>AI-assisted text summarises available numerics and documents — it <strong>does not replace</strong> clinical interpretation or independent findings.</li>'
     + '</ul></div>';
 }
 
@@ -4094,20 +4111,22 @@ async function _exportQEEGArtifact(kind) {
   }
 }
 
-window._qeegExportFHIRBundle = function () { return _exportQEEGArtifact('fhir'); };
-window._qeegExportBIDSPackage = function () { return _exportQEEGArtifact('bids'); };
-window._exportCurrentFHIRBundle = function () {
-  if (window.location.hash && window.location.hash.indexOf('mri-analysis') !== -1 && typeof window._mriExportFHIRBundle === 'function') {
-    return window._mriExportFHIRBundle();
-  }
-  return window._qeegExportFHIRBundle();
-};
-window._exportCurrentBIDSPackage = function () {
-  if (window.location.hash && window.location.hash.indexOf('mri-analysis') !== -1 && typeof window._mriExportBIDSPackage === 'function') {
-    return window._mriExportBIDSPackage();
-  }
-  return window._qeegExportBIDSPackage();
-};
+if (typeof window !== 'undefined') {
+  window._qeegExportFHIRBundle = function () { return _exportQEEGArtifact('fhir'); };
+  window._qeegExportBIDSPackage = function () { return _exportQEEGArtifact('bids'); };
+  window._exportCurrentFHIRBundle = function () {
+    if (window.location.hash && window.location.hash.indexOf('mri-analysis') !== -1 && typeof window._mriExportFHIRBundle === 'function') {
+      return window._mriExportFHIRBundle();
+    }
+    return window._qeegExportFHIRBundle();
+  };
+  window._exportCurrentBIDSPackage = function () {
+    if (window.location.hash && window.location.hash.indexOf('mri-analysis') !== -1 && typeof window._mriExportBIDSPackage === 'function') {
+      return window._mriExportBIDSPackage();
+    }
+    return window._qeegExportBIDSPackage();
+  };
+}
 let _fusionSummary = null;
 let _collapsedSections = (function () {
   const fallback = { medications: true, neurological: true, lifestyle: true };
@@ -4821,12 +4840,19 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   }
   pageHtml += renderPatientSelector(_patients, patientId);
   pageHtml += renderTabBar(tab);
+  pageHtml += '<div id="ds-medical-image-card-qeeg-analysis" style="margin:12px 0 16px"></div>';
   pageHtml += '<div id="qeeg-tab-content" role="tabpanel" tabindex="0" aria-labelledby="qeeg-tab-' + tab + '"></div>';
   pageHtml += _qeegClinicalSafetyFooter();
   pageHtml += '</div>';
   el.innerHTML = pageHtml;
+  ensureAgentBrainStatus(el);
   _wireQEEGTabKeyboard();
   _qeegRestoreScroll(tab);
+
+  try {
+    var _miHost = document.getElementById('ds-medical-image-card-qeeg-analysis');
+    if (_miHost && patientId) mountMedicalImageCard(_miHost, { patientId: patientId, audience: 'clinician' });
+  } catch (_miErr) { /* non-fatal: medical-image card is optional */ }
 
   // Wire hero export + workbench buttons. Both fall back honestly when no
   // analysis is selected — we never silently swallow the click.
@@ -6769,7 +6795,7 @@ function _downloadCSV(csv, filename) {
   URL.revokeObjectURL(url);
 }
 
-window._qeegExportBandPowerCSV = function () {
+if (typeof window !== 'undefined') window._qeegExportBandPowerCSV = function () {
   if (!_currentAnalysis) return showToast('No analysis data loaded', 'warning');
   var bp = _currentAnalysis.band_powers || {};
   var bands = bp.bands || {};
@@ -6805,7 +6831,7 @@ window._qeegExportBandPowerCSV = function () {
   showToast(_isDemoExport ? 'DEMO band power CSV exported' : 'Band power CSV exported', 'success');
 };
 
-window._qeegExportAdvancedCSV = function () {
+if (typeof window !== 'undefined') window._qeegExportAdvancedCSV = function () {
   if (!_currentAnalysis || !_currentAnalysis.advanced_analyses) return showToast('No advanced analyses data', 'warning');
   var adv = _currentAnalysis.advanced_analyses;
   var rows = ['Analysis,Category,Status,Duration_ms,Summary'];
@@ -6817,7 +6843,7 @@ window._qeegExportAdvancedCSV = function () {
   showToast('Advanced analyses CSV exported', 'success');
 };
 
-window._qeegExportJSON = function () {
+if (typeof window !== 'undefined') window._qeegExportJSON = function () {
   if (!_currentAnalysis) return showToast('No analysis data loaded', 'warning');
   var patientName = _patient ? ((_patient.first_name || '') + ' ' + (_patient.last_name || '')).trim() : '';
   var _isDemoExport = !!(window._qeegSelectedId === 'demo' && _isDemoMode());
@@ -6852,7 +6878,7 @@ window._qeegExportJSON = function () {
   showToast(_isDemoExport ? 'DEMO analysis JSON exported' : 'Full analysis JSON exported', 'success');
 };
 
-window._qeegPrintReport = function () {
+if (typeof window !== 'undefined') window._qeegPrintReport = function () {
   if (!_currentReport) return showToast('No report data loaded', 'warning');
   var narrative = _currentReport.ai_narrative || {};
   var conditions = _currentReport.condition_matches || [];
@@ -6973,7 +6999,7 @@ function _qeegBuildDemoBrainMapHTML() {
 function _qeegIsDemoReportId(reportId) {
   return reportId === 'demo-report' || reportId === encodeURIComponent('demo-report');
 }
-window._qeegOpenBrainMapReport = function (reportId) {
+if (typeof window !== 'undefined') window._qeegOpenBrainMapReport = function (reportId) {
   if (!reportId) return showToast('No report id available', 'warning');
   _qeegAudit('open_brain_map_report', { report_id: reportId });
   if (_qeegIsDemoReportId(reportId)) {
@@ -6990,7 +7016,7 @@ window._qeegOpenBrainMapReport = function (reportId) {
     showToast('Could not open brain map report: ' + (err && err.message ? err.message : err), 'error');
   }
 };
-window._qeegDownloadBrainMapReport = function (reportId) {
+if (typeof window !== 'undefined') window._qeegDownloadBrainMapReport = function (reportId) {
   if (!reportId) return showToast('No report id available', 'warning');
   _qeegAudit('download_brain_map_report', { report_id: reportId });
   if (_qeegIsDemoReportId(reportId)) {
@@ -7023,7 +7049,7 @@ window._qeegDownloadBrainMapReport = function (reportId) {
 };
 
 // ── PDF download via backend endpoint ────────────────────────────────────────
-window._qeegDownloadPDF = function () {
+if (typeof window !== 'undefined') window._qeegDownloadPDF = function () {
   if (!_currentReport) return showToast('No report data loaded', 'warning');
   if (!_canRenderQEEGPrintableReport(_currentReport, _currentAnalysis)) {
     return showToast('Printable report is not available for this analysis yet', 'warning');
@@ -7047,7 +7073,7 @@ window._qeegDownloadPDF = function () {
 };
 
 // ── Coherence band switcher ──────────────────────────────────────────────────
-window._qeegSwitchCoherenceBand = function (band) {
+if (typeof window !== 'undefined') window._qeegSwitchCoherenceBand = function (band) {
   _coherenceBand = band;
   var wrap = document.getElementById('qeeg-coherence-wrap');
   if (!wrap || !_currentAnalysis) return;

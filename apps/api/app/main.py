@@ -185,12 +185,15 @@ from app.routers.team_router import router as team_router
 from app.routers.preferences_router import router as preferences_router
 from app.routers.data_privacy_router import router as data_privacy_router
 from app.routers.risk_stratification_router import router as risk_stratification_router
+from app.routers.risk_analyzer_router import router as risk_analyzer_router
 from app.routers.qeeg_analysis_router import router as qeeg_analysis_router
+from app.routers.analyzer_ai_report_router import router as analyzer_ai_report_router
 from app.routers.qeeg_live_router import router as qeeg_live_router
 from app.routers.qeeg_copilot_router import router as qeeg_copilot_router
 from app.routers.qeeg_viz_router import router as qeeg_viz_router
 from app.routers.qeeg_capabilities_router import router as qeeg_capabilities_router
 from app.routers.mri_analysis_router import router as mri_analysis_router
+from app.routers.medical_images_router import router as medical_images_router
 from app.routers.fusion_router import router as fusion_router
 from app.routers.patient_summary_router import router as patient_summary_router
 from app.routers.patient_timeline_router import router as patient_timeline_router
@@ -204,6 +207,7 @@ from app.routers.deeptwin_neuroai_lab_router import router as deeptwin_neuroai_l
 from app.routers.feature_store_router import router as feature_store_router
 from app.routers.citation_validator_router import router as citation_validator_router
 from app.routers.ai_health_router import router as ai_health_router
+from app.routers.agent_brain_router import router as agent_brain_router
 from app.routers.command_center_router import router as command_center_router
 from app.routers.dashboard_router import router as dashboard_router
 from app.routers.schedules_router import router as schedules_router
@@ -241,7 +245,6 @@ from app.routers.recording_eeg_events_router import router as recording_eeg_even
 from app.routers.montages_router import router as montages_router
 from app.routers.audit_trail_router import router as audit_trail_router
 from app.routers.biometrics_router import router as biometrics_router
-from app.routers.bio_router import router as bio_router
 from app.routers.qeeg_report_annotations_router import (
     router as qeeg_report_annotations_router,
 )
@@ -638,7 +641,9 @@ app.include_router(team_router)
 app.include_router(preferences_router)
 app.include_router(data_privacy_router)
 app.include_router(risk_stratification_router)
+app.include_router(risk_analyzer_router)
 app.include_router(qeeg_analysis_router)
+app.include_router(analyzer_ai_report_router)
 app.include_router(qeeg_live_router)
 app.include_router(qeeg_copilot_router)
 app.include_router(qeeg_viz_router)
@@ -647,6 +652,7 @@ app.include_router(qeeg_105_analysis_catalog_router)
 app.include_router(qeeg_105_analysis_run_router)
 app.include_router(qeeg_105_analysis_results_router)
 app.include_router(mri_analysis_router)
+app.include_router(medical_images_router)
 app.include_router(fusion_router)
 app.include_router(monitor_router)
 app.include_router(deeptwin_router)
@@ -661,6 +667,7 @@ app.include_router(admin_pgvector_router)
 app.include_router(feature_store_router)
 app.include_router(citation_validator_router)
 app.include_router(ai_health_router)
+app.include_router(agent_brain_router)
 app.include_router(command_center_router)
 app.include_router(schedules_router)
 app.include_router(dashboard_router)
@@ -696,7 +703,6 @@ app.include_router(rotation_policy_advisor_threshold_tuning_router)
 app.include_router(treatment_sessions_router)
 app.include_router(audit_trail_router)
 app.include_router(biometrics_router)
-app.include_router(bio_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -737,7 +743,18 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    # Honour a stricter Referrer-Policy already set by the route handler.
+    # The SSE endpoint (`/api/v1/notifications/stream`) accepts the access
+    # token in a `?token=…` query param (EventSource cannot send an
+    # Authorization header) and explicitly sets `no-referrer` to prevent
+    # the full URL — token included — leaking via the `Referer` header on
+    # any same-origin navigation. Overwriting that with the global default
+    # (`strict-origin-when-cross-origin`) reopens the leak, since
+    # `strict-origin-when-cross-origin` still sends the FULL URL on
+    # same-origin requests. Use setdefault semantics so any route that
+    # sets its own policy keeps it.
+    if "Referrer-Policy" not in response.headers:
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "

@@ -26,7 +26,7 @@ primary_region = "lhr"
   DEEPSYNAPS_API_HOST = "0.0.0.0"
   DEEPSYNAPS_API_PORT = "8080"
   DEEPSYNAPS_LOG_LEVEL = "INFO"
-  DEEPSYNAPS_CORS_ORIGINS = "https://deepsynaps-studio.fly.dev"
+  DEEPSYNAPS_CORS_ORIGINS = "https://deepsynaps-studio.fly.dev,https://deepsynaps-studio-preview.netlify.app"
   PORT = "8080"
   # Evidence pipeline DB on the persistent /data volume (see [[mounts]] below).
   # The evidence_router returns 503 with a clear message until populated.

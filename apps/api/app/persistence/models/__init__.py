@@ -77,6 +77,7 @@ from .auth import (
     UserSession,
 )
 from .billing import (
+    AgentHire,
     AgentPromptOverride,
     AgentSubscription,
     ClinicMonthlyCostCap,
@@ -179,6 +180,7 @@ from .media import (
 )
 from .labs import LabsAnalyzerAudit, PatientLabResult
 from .mri import (
+    MedicalImageAsset,
     MriAnalysis,
     MriReportAudit,
     MriReportFinding,
@@ -275,6 +277,7 @@ from .wellness import (
 __all__ = [
     "Base",
     "AdverseEvent",
+    "AgentHire",
     "AgentPromptOverride",
     "AgentRunAudit",
     "AgentSkill",

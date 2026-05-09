@@ -206,6 +206,26 @@ class ReportProvenance(BaseModel):
     generated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
+class MedicalImageCrossModalSection(BaseModel):
+    """Non-diagnostic MRI / medical-image cross-reference for the qEEG report.
+
+    Mirrors the dict returned by
+    :func:`app.services.medical_image_report_context.build_qeeg_cross_modal_section`.
+    The ``safe_sentence`` is always sourced from
+    ``preview_service.SAFE_REPORT_SENTENCES`` and never claims that the qEEG
+    findings imply anatomical disease. The ``disclaimer`` makes the
+    handoff-only nature explicit. PR #619 follow-up — closes the
+    ``ConfigDict(extra="forbid")`` gating so the helper output can flow
+    into ``QEEGBrainMapReport`` directly.
+    """
+    model_config = ConfigDict(extra="forbid")
+    has_mri: bool = False
+    mri_image_id: Optional[str] = None
+    mri_preview_status: Optional[str] = None
+    safe_sentence: Optional[str] = None
+    disclaimer: Optional[str] = None
+
+
 class QEEGBrainMapReport(BaseModel):
     """Canonical brain-map report payload. See module docstring."""
     model_config = ConfigDict(extra="forbid")
@@ -219,6 +239,7 @@ class QEEGBrainMapReport(BaseModel):
     ai_narrative: AINarrative = Field(default_factory=AINarrative)
     quality: ReportQuality = Field(default_factory=ReportQuality)
     provenance: ReportProvenance = Field(default_factory=ReportProvenance)
+    medical_image_context: Optional[MedicalImageCrossModalSection] = None
     disclaimer: str = DEFAULT_DISCLAIMER
 
 
@@ -304,8 +325,26 @@ _INDICATOR_EVIDENCE: dict[str, dict[str, str]] = {
 }
 
 
-def compute_indicators(features: dict[str, Any]) -> Indicators:
-    """Compute the 5 cover indicators from the pipeline feature dict."""
+UNEVIDENCED_INDICATOR_FIELDS: tuple[str, ...] = (
+    "alpha_reactivity",
+    "brain_balance",
+    "ai_brain_age",
+)
+
+
+def compute_indicators(
+    features: dict[str, Any],
+    *,
+    include_unevidenced: bool = False,
+) -> Indicators:
+    """Compute the 5 cover indicators from the pipeline feature dict.
+
+    The three indicators in :data:`UNEVIDENCED_INDICATOR_FIELDS` lack
+    regulatory clearance and are gated by default — callers must opt in
+    explicitly via ``include_unevidenced=True``. Default behaviour returns
+    ``None`` for those fields so they cannot reach clinician- or
+    patient-facing renderers. Reference: ``deepsynaps-qeeg-evidence-gaps.md``.
+    """
     spec = features.get("spectral") or {}
     asymmetry = features.get("asymmetry") or {}
     aperiodic = features.get("aperiodic") or {}
@@ -314,6 +353,36 @@ def compute_indicators(features: dict[str, Any]) -> Indicators:
     tbr_pct = spec.get("theta_beta_ratio_percentile")
     paf_hz = spec.get("peak_alpha_frequency_hz")
     paf_pct = spec.get("peak_alpha_frequency_percentile")
+
+    if include_unevidenced:
+        alpha_reactivity = IndicatorValue(
+            value=_to_float(spec.get("alpha_reactivity_ratio")),
+            unit="EO/EC",
+            percentile=_to_float(spec.get("alpha_reactivity_percentile")),
+            band=_percentile_to_band(_to_float(spec.get("alpha_reactivity_percentile"))),
+            evidence_grade=_INDICATOR_EVIDENCE["alpha_reactivity"]["evidence_grade"],
+            evidence_caveat=_INDICATOR_EVIDENCE["alpha_reactivity"]["evidence_caveat"],
+        )
+        brain_balance = IndicatorValue(
+            value=_to_float(asymmetry.get("hemisphere_laterality_index")),
+            unit="laterality",
+            percentile=_to_float(asymmetry.get("hemisphere_laterality_percentile")),
+            band=_percentile_to_band(_to_float(asymmetry.get("hemisphere_laterality_percentile"))),
+            evidence_grade=_INDICATOR_EVIDENCE["brain_balance"]["evidence_grade"],
+            evidence_caveat=_INDICATOR_EVIDENCE["brain_balance"]["evidence_caveat"],
+        )
+        ai_brain_age = IndicatorValue(
+            value=_to_float(aperiodic.get("ai_estimated_brain_age_years")),
+            unit="years",
+            percentile=None,
+            band=None,
+            evidence_grade=_INDICATOR_EVIDENCE["ai_brain_age"]["evidence_grade"],
+            evidence_caveat=_INDICATOR_EVIDENCE["ai_brain_age"]["evidence_caveat"],
+        )
+    else:
+        alpha_reactivity = None
+        brain_balance = None
+        ai_brain_age = None
 
     return Indicators(
         tbr=IndicatorValue(
@@ -332,30 +401,9 @@ def compute_indicators(features: dict[str, Any]) -> Indicators:
             evidence_grade=_INDICATOR_EVIDENCE["occipital_paf"]["evidence_grade"],
             evidence_caveat=_INDICATOR_EVIDENCE["occipital_paf"]["evidence_caveat"],
         ),
-        alpha_reactivity=IndicatorValue(
-            value=_to_float(spec.get("alpha_reactivity_ratio")),
-            unit="EO/EC",
-            percentile=_to_float(spec.get("alpha_reactivity_percentile")),
-            band=_percentile_to_band(_to_float(spec.get("alpha_reactivity_percentile"))),
-            evidence_grade=_INDICATOR_EVIDENCE["alpha_reactivity"]["evidence_grade"],
-            evidence_caveat=_INDICATOR_EVIDENCE["alpha_reactivity"]["evidence_caveat"],
-        ),
-        brain_balance=IndicatorValue(
-            value=_to_float(asymmetry.get("hemisphere_laterality_index")),
-            unit="laterality",
-            percentile=_to_float(asymmetry.get("hemisphere_laterality_percentile")),
-            band=_percentile_to_band(_to_float(asymmetry.get("hemisphere_laterality_percentile"))),
-            evidence_grade=_INDICATOR_EVIDENCE["brain_balance"]["evidence_grade"],
-            evidence_caveat=_INDICATOR_EVIDENCE["brain_balance"]["evidence_caveat"],
-        ),
-        ai_brain_age=IndicatorValue(
-            value=_to_float(aperiodic.get("ai_estimated_brain_age_years")),
-            unit="years",
-            percentile=None,
-            band=None,
-            evidence_grade=_INDICATOR_EVIDENCE["ai_brain_age"]["evidence_grade"],
-            evidence_caveat=_INDICATOR_EVIDENCE["ai_brain_age"]["evidence_caveat"],
-        ),
+        alpha_reactivity=alpha_reactivity,
+        brain_balance=brain_balance,
+        ai_brain_age=ai_brain_age,
     )
 
 
@@ -462,6 +510,8 @@ def from_pipeline_result(
     narrative_bank: Optional[dict[str, Any]] = None,
     *,
     file_path: Optional[str] = None,
+    patient_id: Optional[str] = None,
+    settings: Optional[Any] = None,
 ) -> QEEGBrainMapReport:
     """Map ``run_pipeline_safe`` output into a QEEGBrainMapReport.
 
@@ -480,6 +530,13 @@ def from_pipeline_result(
     file_path
         Optional path to the source EDF/EEG file, used to compute file_hash
         for provenance.
+    patient_id
+        Optional internal patient id. When given, the safe MRI cross-modal
+        section is attached to the report; when omitted, the section is
+        ``None`` so old callers see no behaviour change.
+    settings
+        Optional settings override; only used to locate the medical-image
+        sidecar store under tests.
 
     Returns
     -------
@@ -499,8 +556,13 @@ def from_pipeline_result(
     quality_in = pipeline_dict.get("quality") or {}
     method = pipeline_dict.get("method_provenance") or {}
 
+    from app.settings import get_settings
+
     header = ReportHeader(**(patient_meta or {}))
-    indicators = compute_indicators(features)
+    indicators = compute_indicators(
+        features,
+        include_unevidenced=get_settings().qeeg_unevidenced_indicators_enabled,
+    )
     score = compute_brain_function_score(features)
     lobes = _build_lobe_breakdown(features)
     source_map = _build_source_map(zscores)
@@ -524,6 +586,22 @@ def from_pipeline_result(
         file_hash=_file_hash(file_path),
     )
 
+    cross_modal: Optional[MedicalImageCrossModalSection] = None
+    if patient_id:
+        try:
+            from app.services.medical_image_report_context import (
+                build_qeeg_cross_modal_section,
+            )
+
+            cm_dict = build_qeeg_cross_modal_section(patient_id, settings=settings)
+            cross_modal = MedicalImageCrossModalSection.model_validate(cm_dict)
+        except Exception:  # pragma: no cover — never block report build
+            _log.exception(
+                "qeeg_report_template: cross-modal MRI lookup failed for patient_id=%s",
+                patient_id,
+            )
+            cross_modal = None
+
     return QEEGBrainMapReport(
         header=header,
         indicators=indicators,
@@ -538,6 +616,7 @@ def from_pipeline_result(
         ai_narrative=AINarrative(findings=findings),
         quality=quality,
         provenance=provenance,
+        medical_image_context=cross_modal,
     )
 
 
@@ -545,6 +624,7 @@ __all__ = [
     "REPORT_SCHEMA_VERSION",
     "DEFAULT_DISCLAIMER",
     "DK_ROIS_PER_HEMISPHERE",
+    "UNEVIDENCED_INDICATOR_FIELDS",
     "load_narrative_bank",
     "compute_brain_function_score",
     "compute_indicators",
@@ -565,4 +645,5 @@ __all__ = [
     "Citation",
     "ReportQuality",
     "ReportProvenance",
+    "MedicalImageCrossModalSection",
 ]

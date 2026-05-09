@@ -36,11 +36,9 @@ from fastapi.testclient import TestClient
 from app.database import SessionLocal
 from app.persistence.models import (
     AuditEventRecord,
-    Clinic,
     EscalationChain,
     OncallPage,
     Patient,
-    User,
 )
 
 

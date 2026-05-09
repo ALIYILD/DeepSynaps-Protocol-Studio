@@ -5,6 +5,12 @@ import {
   ANALYZER_DEMO_VIEWS,
   DEMO_MODE_BANNER_HTML,
 } from './demo-fixtures-analyzers.js';
+import { drHero } from './helpers.js';
+import { loadPatientFlagSummary } from './dr-friendly-flags.js';
+import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
+
+const DP_CLINICAL_QUESTION = "What do this patient's daily-life signals (sleep, mobility, social, voice diary) suggest about their trajectory?";
+const DP_HOW_TO_READ = "Digital cues are exploratory — they reflect passive signals over a window of days/weeks and may be missing or stale. Combine with interview, assessments, and biometrics. Cues alone are not diagnostic.";
 
 function esc(s) {
   return String(s ?? '')
@@ -631,7 +637,7 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
   try {
     setTopbar({
       title: 'Digital Phenotyping Analyzer',
-      subtitle: 'Exploratory digital phenotype cues — clinician review required',
+      subtitle: DP_CLINICAL_QUESTION,
     });
   } catch {
     try { setTopbar('Digital Phenotyping Analyzer', 'Exploratory cues — clinician review'); } catch {}
@@ -671,19 +677,55 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
     activePatientId = handoffPatientId;
     activePatientName = 'Patient';
     view = 'patient';
+    // _refreshDpDrHero is hoisted (declared inside same fn scope below) and
+    // gates on slot existence — safe to call before el.innerHTML runs.
+    _refreshDpDrHero(activePatientId);
   }
 
   el.innerHTML = `
     <div class="ds-dp-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
       <div id="dp-demo-banner"></div>
+      <div id="dp-dr-hero-slot">${drHero({ question: DP_CLINICAL_QUESTION, howToRead: DP_HOW_TO_READ, flagCount: 0 })}</div>
       <div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(155,127,255,0.28);background:rgba(155,127,255,0.06);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
         <strong style="color:var(--text-primary)">Exploratory decision-support.</strong>
         ${esc(GOVERNANCE_REQUIRED_COPY)}
         <span style="display:block;margin-top:8px;font-size:11px;color:var(--text-tertiary)">Combine interview, assessments, biometrics, and other modalities — digital cues alone are not diagnostic and may reflect missing or stale data.</span>
       </div>
+      <div role="region" aria-label="Related clinical workspace" style="margin-bottom:14px;padding:12px 16px;border-radius:10px;border:1px solid rgba(74,158,255,0.20);background:rgba(74,158,255,0.04);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:10px;color:var(--blue);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;margin-bottom:2px">Related workspace</div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:2px">Phenotype labels</div>
+          <div style="font-size:11px;color:var(--text-tertiary);line-height:1.4">Clinician hypothesis labels with confidence levels — useful when interpreting whether digital cues align with assigned subtype.</div>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" onclick="window._nav && window._nav('phenotype-analyzer')" style="white-space:nowrap">Open Phenotype Analyzer →</button>
+      </div>
       <div id="dp-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px"></div>
       <div id="dp-body"></div>
     </div>`;
+
+  async function _refreshDpDrHero(patientId) {
+    const slot = document.getElementById('dp-dr-hero-slot');
+    if (!slot) return;
+    let flagCount = 0; let flagSummary = '';
+    if (patientId) {
+      const s = await loadPatientFlagSummary(patientId);
+      flagCount = s.flagCount; flagSummary = s.flagSummary;
+    }
+    slot.innerHTML = drHero({ question: DP_CLINICAL_QUESTION, howToRead: DP_HOW_TO_READ, flagCount, flagSummary });
+  }
+  _refreshDpDrHero(activePatientId);
+
+  if (!el.querySelector('[data-aar-strip="digital_phenotyping"]')) {
+    const _aarHost = document.createElement('div');
+    _aarHost.dataset.aarStrip = 'digital_phenotyping';
+    el.prepend(_aarHost);
+    mountAnalyzerAIReportStrip({
+      container: _aarHost,
+      analyzerType: 'digital_phenotyping',
+      getAnalysisId: () => activePatientId,
+      label: 'AI Decision Support',
+    });
+  }
 
   const $ = (id) => document.getElementById(id);
 
@@ -763,6 +805,7 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
         const p = (summaryCache?.patients || []).find((x) => x.patient_id === pid);
         applyDigitalPhenotypingPatientContext('patient-profile', pid);
         activePatientId = pid;
+        _refreshDpDrHero(activePatientId);
         activePatientName = p?.patient_name || pid;
         view = 'patient';
         render();
@@ -782,6 +825,7 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
         const p = (summaryCache?.patients || []).find((x) => x.patient_id === pid);
         applyDigitalPhenotypingPatientContext('patient-profile', pid);
         activePatientId = pid;
+        _refreshDpDrHero(activePatientId);
         activePatientName = p?.patient_name || pid;
         view = 'patient';
         render();

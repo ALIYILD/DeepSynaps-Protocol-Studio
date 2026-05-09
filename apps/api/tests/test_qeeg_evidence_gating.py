@@ -15,7 +15,10 @@ Reference: ``deepsynaps-qeeg-evidence-gaps.md`` (auto-memory).
 from __future__ import annotations
 
 from app.services.qeeg_protocol_fit import suggest_protocols_from_report
-from app.services.qeeg_report_template import compute_indicators
+from app.services.qeeg_report_template import (
+    UNEVIDENCED_INDICATOR_FIELDS,
+    compute_indicators,
+)
 
 
 # ── Indicator gating ─────────────────────────────────────────────────────────
@@ -52,7 +55,7 @@ def _features_fixture() -> dict:
 
 
 def test_every_indicator_has_evidence_grade_and_caveat() -> None:
-    indicators = compute_indicators(_features_fixture())
+    indicators = compute_indicators(_features_fixture(), include_unevidenced=True)
     dump = indicators.model_dump()
     for name in _EXPECTED_INDICATOR_GRADES:
         block = dump.get(name)
@@ -64,7 +67,7 @@ def test_every_indicator_has_evidence_grade_and_caveat() -> None:
 
 
 def test_indicator_evidence_grades_match_audit() -> None:
-    indicators = compute_indicators(_features_fixture())
+    indicators = compute_indicators(_features_fixture(), include_unevidenced=True)
     dump = indicators.model_dump()
     for name, expected in _EXPECTED_INDICATOR_GRADES.items():
         assert dump[name]["evidence_grade"] == expected, (
@@ -73,11 +76,75 @@ def test_indicator_evidence_grades_match_audit() -> None:
 
 
 def test_ai_brain_age_caveat_warns_no_clearance() -> None:
-    indicators = compute_indicators(_features_fixture())
+    indicators = compute_indicators(_features_fixture(), include_unevidenced=True)
     caveat = indicators.ai_brain_age.evidence_caveat or ""
     # Caveat must explicitly say no clearance and direct against clinical use.
     assert "no FDA/CE clearance" in caveat or "no FDA / CE clearance" in caveat
     assert "clinical biomarker" in caveat.lower() or "clinical use" in caveat.lower()
+
+
+# ── Hard-gate behaviour (default = unevidenced indicators hidden) ────────────
+
+
+def test_default_compute_indicators_hides_unevidenced_fields() -> None:
+    """alpha_reactivity, brain_balance, ai_brain_age must be None by default."""
+    indicators = compute_indicators(_features_fixture())
+    for name in UNEVIDENCED_INDICATOR_FIELDS:
+        assert getattr(indicators, name) is None, (
+            f"{name} must be None when include_unevidenced=False — "
+            "lacks regulatory clearance per deepsynaps-qeeg-evidence-gaps.md"
+        )
+
+
+def test_default_compute_indicators_keeps_evidenced_fields() -> None:
+    """tbr + occipital_paf must always populate (they have evidence support)."""
+    indicators = compute_indicators(_features_fixture())
+    assert indicators.tbr is not None
+    assert indicators.tbr.value == 4.1
+    assert indicators.occipital_paf is not None
+    assert indicators.occipital_paf.value == 8.8
+
+
+def test_unevidenced_field_set_matches_audit() -> None:
+    """Lock the gated set so future indicator additions are forced through review."""
+    assert set(UNEVIDENCED_INDICATOR_FIELDS) == {
+        "alpha_reactivity",
+        "brain_balance",
+        "ai_brain_age",
+    }
+
+
+def test_from_pipeline_result_respects_settings_gate(monkeypatch) -> None:
+    """from_pipeline_result must read settings.qeeg_unevidenced_indicators_enabled."""
+    from app.services.qeeg_report_template import from_pipeline_result
+    from app.settings import get_settings
+
+    pipeline_dict = {
+        "features": _features_fixture(),
+        "zscores": {},
+        "quality": {},
+        "method_provenance": {},
+    }
+
+    # Default: gated.
+    get_settings.cache_clear()  # type: ignore[attr-defined]
+    monkeypatch.delenv("DEEPSYNAPS_QEEG_UNEVIDENCED_INDICATORS", raising=False)
+    report = from_pipeline_result(pipeline_dict, narrative_bank={})
+    for name in UNEVIDENCED_INDICATOR_FIELDS:
+        assert getattr(report.indicators, name) is None, (
+            f"{name} must be None when DEEPSYNAPS_QEEG_UNEVIDENCED_INDICATORS unset"
+        )
+
+    # Opt-in: surfaced.
+    get_settings.cache_clear()  # type: ignore[attr-defined]
+    monkeypatch.setenv("DEEPSYNAPS_QEEG_UNEVIDENCED_INDICATORS", "1")
+    report = from_pipeline_result(pipeline_dict, narrative_bank={})
+    for name in UNEVIDENCED_INDICATOR_FIELDS:
+        assert getattr(report.indicators, name) is not None, (
+            f"{name} must populate when DEEPSYNAPS_QEEG_UNEVIDENCED_INDICATORS=1"
+        )
+
+    get_settings.cache_clear()  # type: ignore[attr-defined]
 
 
 # ── Protocol-suggestion gating ───────────────────────────────────────────────

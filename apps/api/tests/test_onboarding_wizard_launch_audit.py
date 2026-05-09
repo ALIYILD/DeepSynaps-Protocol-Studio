@@ -20,7 +20,6 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from app.database import SessionLocal
 
 
 # ── Surface whitelist sanity ──────────────────────────────────────────────
