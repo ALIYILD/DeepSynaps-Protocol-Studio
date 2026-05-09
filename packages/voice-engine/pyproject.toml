@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deepsynaps-voice-engine"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = []
+
+# voice-engine has a flat layout (.py files at the package root with their own
+# __init__.py) and relies on tests/conftest.py to prepend the package dir to
+# sys.path. This pyproject only provides install metadata so that
+# `pip install -e packages/voice-engine` succeeds in CI; no Python code is
+# actually packaged here.
+[tool.setuptools]
+py-modules = []
+packages = []
