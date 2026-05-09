@@ -48,3 +48,33 @@ test('Bundled evidence dataset does not ship illustrative DOI links for conditio
   assert.match(ds, /recentHighImpact.*length = 0/s);
   assert.match(ds, /topPublishingJournals: \[\]/);
 });
+
+test('Indications spine uses computed_evidence_grade chip (not only curated grade)', () => {
+  const src = read('./pages-research-evidence.js');
+  // The spine sidebar must call _computedGradeBadge on computed_evidence_grade.
+  assert.match(src, /_computedGradeBadge/);
+  assert.match(src, /computed_evidence_grade/);
+  // The detail header must also expose computed_evidence_grade.
+  assert.match(src, /ind\.computed_evidence_grade/);
+  // The rubric tooltip text must be present so clinicians can hover-to-learn.
+  assert.match(src, /Rubric:/);
+  assert.match(src, /Recomputed nightly/);
+});
+
+test('_computedGradeBadge is defined and emits a ds-computed-grade-chip span', () => {
+  const src = read('./pages-research-evidence.js');
+  assert.match(src, /function _computedGradeBadge/);
+  assert.match(src, /ds-computed-grade-chip/);
+  // Color map must include E grade (red = speculative).
+  assert.match(src, /E: '#ef4444'/);
+  // The badge must use the rubric tooltip constants.
+  assert.match(src, /_COMPUTED_GRADE_TOOLTIP/);
+  assert.match(src, /_RUBRIC_HINT/);
+});
+
+test('Indications detail header shows both curated and computed grades', () => {
+  const src = read('./pages-research-evidence.js');
+  // Both badges must appear in the header block.
+  assert.match(src, /ind\.computed_evidence_grade.*_computedGradeBadge|_computedGradeBadge.*ind\.computed_evidence_grade/s);
+  assert.match(src, /curated/);
+});

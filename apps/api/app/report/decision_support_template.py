@@ -40,6 +40,133 @@ def _confidence_label(value: Any) -> str:
     return f"{pct}%"
 
 
+def _confidence_bar_svg(value: Any) -> str:
+    """Inline 80x6 confidence bar (printable, no external assets)."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        f = 0.0
+    f = max(0.0, min(1.0, f))
+    width = int(round(f * 80))
+    color = "#15803d" if f >= 0.7 else ("#d97706" if f >= 0.4 else "#dc2626")
+    return (
+        "<svg width='80' height='6' viewBox='0 0 80 6' "
+        "xmlns='http://www.w3.org/2000/svg'>"
+        "<rect x='0' y='0' width='80' height='6' rx='3' fill='#e2e8f0'/>"
+        f"<rect x='0' y='0' width='{width}' height='6' rx='3' fill='{color}'/>"
+        "</svg>"
+    )
+
+
+def _severity_distribution_svg(findings: list[dict[str, Any]]) -> str:
+    """Inline bar chart of finding severity counts. Empty → empty string."""
+    buckets = {"critical": 0, "high": 0, "moderate": 0, "low": 0}
+    for f in findings or []:
+        sev = (f.get("severity") or "moderate").lower()
+        if sev in buckets:
+            buckets[sev] += 1
+    total = sum(buckets.values())
+    if total == 0:
+        return ""
+    bar_w = 40
+    gap = 14
+    canvas_w = 4 * bar_w + 3 * gap + 20
+    max_h = 60
+    max_count = max(buckets.values())
+    parts = [
+        f"<svg width='{canvas_w}' height='{max_h + 28}' "
+        f"viewBox='0 0 {canvas_w} {max_h + 28}' "
+        "xmlns='http://www.w3.org/2000/svg' role='img' "
+        "aria-label='Severity distribution'>",
+    ]
+    x = 10
+    for sev in ("critical", "high", "moderate", "low"):
+        count = buckets[sev]
+        h = int(round((count / max_count) * max_h)) if max_count else 0
+        y = max_h - h
+        color = _severity_color(sev)
+        parts.append(
+            f"<rect x='{x}' y='{y}' width='{bar_w}' height='{h}' "
+            f"fill='{color}' rx='2'/>"
+        )
+        parts.append(
+            f"<text x='{x + bar_w // 2}' y='{max_h + 12}' text-anchor='middle' "
+            f"font-size='8' fill='#475569'>{sev[:4].upper()}</text>"
+        )
+        parts.append(
+            f"<text x='{x + bar_w // 2}' y='{y - 2}' text-anchor='middle' "
+            f"font-size='9' font-weight='600' fill='#0f172a'>{count}</text>"
+        )
+        x += bar_w + gap
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _sparkline_svg(values: list[Any], label: str = "") -> str:
+    """Inline sparkline for an analyzer-supplied numeric series."""
+    nums: list[float] = []
+    for v in values or []:
+        try:
+            nums.append(float(v))
+        except (TypeError, ValueError):
+            continue
+    if len(nums) < 2:
+        return ""
+    w, h = 280, 38
+    pad = 4
+    lo, hi = min(nums), max(nums)
+    rng = (hi - lo) or 1.0
+    step = (w - 2 * pad) / max(1, (len(nums) - 1))
+    points = []
+    for i, v in enumerate(nums):
+        x = pad + i * step
+        y = h - pad - ((v - lo) / rng) * (h - 2 * pad)
+        points.append(f"{x:.1f},{y:.1f}")
+    polyline = " ".join(points)
+    label_html = (
+        f"<text x='{pad}' y='10' font-size='9' fill='#475569'>{_esc(label)} "
+        f"(min {lo:.0f} · max {hi:.0f})</text>"
+        if label
+        else ""
+    )
+    return (
+        f"<svg width='{w}' height='{h}' viewBox='0 0 {w} {h}' "
+        "xmlns='http://www.w3.org/2000/svg'>"
+        f"{label_html}"
+        f"<polyline fill='none' stroke='#0f172a' stroke-width='1.5' "
+        f"points='{polyline}'/>"
+        "</svg>"
+    )
+
+
+def _charts_panel_html(
+    findings: list[dict[str, Any]], extra_charts: list[dict[str, Any]]
+) -> str:
+    """Severity bar chart + analyzer-supplied sparklines, in one panel."""
+    sev_svg = _severity_distribution_svg(findings)
+    extras: list[str] = []
+    for c in extra_charts or []:
+        kind = (c.get("kind") or "").lower()
+        if kind == "sparkline":
+            svg = _sparkline_svg(c.get("data") or [], c.get("label") or "")
+            if svg:
+                extras.append(
+                    f"<div class='chart-item'><div class='chart-label'>"
+                    f"{_esc(c.get('label') or '')}</div>{svg}</div>"
+                )
+    if not sev_svg and not extras:
+        return ""
+    sev_block = (
+        f"<div class='chart-item'><div class='chart-label'>"
+        f"Finding severity distribution</div>{sev_svg}</div>"
+        if sev_svg
+        else ""
+    )
+    return (
+        "<div class='charts-row'>" + sev_block + "".join(extras) + "</div>"
+    )
+
+
 def _findings_html(findings: list[dict[str, Any]]) -> str:
     if not findings:
         return "<p class='muted'>No structured findings produced.</p>"
@@ -56,6 +183,7 @@ def _findings_html(findings: list[dict[str, Any]]) -> str:
                 </span>
                 <span class='finding-title'>{_esc(f.get('title') or '—')}</span>
                 <span class='conf'>conf {_confidence_label(f.get('confidence'))}</span>
+                <span class='conf-bar'>{_confidence_bar_svg(f.get('confidence'))}</span>
               </div>
               <div class='finding-obs'>{_esc(f.get('observation') or '')}</div>
             </li>
@@ -256,6 +384,14 @@ footer.report-foot {
   color: #3730a3;
 }
 .source-pill.fallback { background: #fee2e2; color: #991b1b; }
+.charts-row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end;
+  margin: 6px 0 4px 0; }
+.chart-item { display: flex; flex-direction: column; gap: 2px;
+  border: 1px solid #e2e8f0; border-radius: 4px; padding: 6px 10px;
+  background: #fafafa; }
+.chart-label { font-size: 8.5pt; color: #475569; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.04em; }
+.conf-bar { display: inline-flex; align-items: center; }
 """
 
 
@@ -273,6 +409,7 @@ def render_decision_support_html(
     generated_at: str = "",
     clinic_label: str = "—",
     clinician_label: str = "—",
+    charts: Optional[list[dict[str, Any]]] = None,
 ) -> str:
     """Render a clinical decision-support narrative as a print-ready HTML page."""
     metadata = metadata or {}
@@ -329,6 +466,7 @@ def render_decision_support_html(
 
 <section>
   <h2>Key findings</h2>
+  {_charts_panel_html(findings, charts or [])}
   {_findings_html(findings)}
 </section>
 

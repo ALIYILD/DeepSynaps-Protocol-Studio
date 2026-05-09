@@ -220,9 +220,16 @@ test('apps/web/package.json::test:unit registers this file', () => {
     fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'),
   );
   const cmd = (pkg.scripts && pkg.scripts['test:unit']) || '';
+  const filename = 'multi-adapter-delivery-parity-launch-audit.test.js';
+  // test:unit either lists this file explicitly OR delegates to
+  // scripts/run-unit-tests.mjs which globs src/**/*.test.js (PR #642
+  // + chore/test-coverage-pr2). Either form is a valid registration.
+  const usesRunner = cmd.includes('scripts/run-unit-tests.mjs');
+  const listedExplicitly = cmd.includes(filename);
   assert.ok(
-    cmd.includes('multi-adapter-delivery-parity-launch-audit.test.js'),
-    'apps/web/package.json::test:unit must register this test file',
+    usesRunner || listedExplicitly,
+    'apps/web/package.json::test:unit must register this test file ' +
+      '(explicitly listed or picked up by the runner-script glob)',
   );
 });
 

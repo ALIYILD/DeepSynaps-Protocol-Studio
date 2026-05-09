@@ -4,6 +4,7 @@
  */
 
 import { api } from './api.js';
+import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { EVIDENCE_TOTAL_PAPERS } from './evidence-dataset.js';
 import {
   VOICE_DECISION_SUPPORT_FULL,
@@ -525,6 +526,7 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
     }
     if (!voiceAnalyzerAllowsLiveRole(actorRole)) {
       el.innerHTML = _renderVoiceAnalyzerRestrictedCard();
+      ensureAgentBrainStatus(el);
       return;
     }
   }
@@ -651,6 +653,7 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
         <p style="margin:0">Uploading or running analysis should be performed under your clinic’s policies. Server-side storage follows API persistence rules; this page does not replace signed documents or protocol approval workflows.</p>
       </section>
     </div>`;
+  ensureAgentBrainStatus(el);
 
   // Mount the shared analyzer AI report strip (decision support).
   // Row key: live audio analysis id, sourced from window._lastVoiceAnalysisId
