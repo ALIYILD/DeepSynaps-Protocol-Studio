@@ -20,6 +20,8 @@ import { emptyState, showToast } from './helpers.js';
 import { EvidenceChip, createEvidenceQueryForTarget, initEvidenceDrawer, openEvidenceDrawer, wireEvidenceChips } from './evidence-intelligence.js';
 import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
 import { mountQuickPreviewSection } from './mri-quick-preview-section.js';
+import { renderClinicalDisclaimer } from './clinical-disclaimer.js';
+
 // Cornerstone3D viewer is loaded dynamically — the @cornerstonejs/* packages
 // are optional and may not be installed.  When absent the build still succeeds
 // and the MRI page falls back to the NiiVue viewer.
@@ -48,6 +50,7 @@ var _jobError      = null;
 var _selectedCondition = 'mdd';
 var _fusionSummary = null;
 var _mriSavedEvidenceCitations = [];
+var _mriCapabilities = null;  // { features: [...], status: 'active'|'fallback'|'unavailable' }
 
 function _getMRIReportEvidenceContext() {
   return {
@@ -567,6 +570,25 @@ function _renderCapabilitiesPanel(caps) {
   }
   html += '</div>';
   return html;
+async function _fetchMRICapabilities() {
+  try {
+    var res = await api.get('/mri/capabilities');
+    _mriCapabilities = res;
+  } catch (_err) {
+    _mriCapabilities = null;
+  }
+}
+
+function renderMRIQCBadge() {
+  if (!_mriCapabilities) return '';
+  var caps = _mriCapabilities.features || [];
+  var activeCount = caps.filter(function (f) { return f.status === 'active'; }).length;
+  var totalCount = caps.length || 1;
+  var icon = activeCount === totalCount ? '✓' : (activeCount > 0 ? '⚠' : '✕');
+  var bgColor = activeCount === totalCount ? '#10b981' : (activeCount > 0 ? '#f59e0b' : '#ef4444');
+  return '<div style="display:inline-block;padding:4px 8px;border-radius:6px;background:' + bgColor + ';color:#fff;font-size:11px;font-weight:600;letter-spacing:0.5px">'
+    + icon + ' ' + activeCount + '/' + totalCount + ' features'
+    + '</div>';
 }
 
 export function renderFusionSummaryCard(fusion, patientId) {
@@ -1988,7 +2010,8 @@ export function renderGlassBrain(report) {
 
   var caption = '<div class="ds-mri-glass-caption">'
     + '<strong>MNI152 template slices</strong> with literature-derived target coordinates projected for orientation — '
-    + 'not the patient\'s own MRI volume. Switch plane, scroll or use +/&minus; to zoom, drag to pan.'
+    + 'not the patient\'s own MRI volume. Switch plane, scroll or use +/− to zoom, drag to pan. '
+    + '<strong>Model-estimated indicator. Requires radiologist/neurologist review.</strong>'
     + '</div>';
 
   return card(
@@ -2791,6 +2814,7 @@ export function renderFullView(state) {
   }
 
   return '<div class="ch-shell ds-mri-shell">'
+    + renderClinicalDisclaimer()
     + renderDemoLiveBanner()
     + (showDemoBanner ? _mriDemoBanner() : '')
     + renderMRILinkedModules({ patientId: state.patientId || null, report: report })

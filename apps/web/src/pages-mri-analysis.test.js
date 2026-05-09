@@ -284,7 +284,9 @@ test('renderFullView explains pending and failed non-report states', () => {
 // Banned-word regex scan: rendered HTML must not contain diagnostic language
 // ═════════════════════════════════════════════════════════════════════════════
 test('rendered HTML contains no banned clinical-claim words', () => {
-  const banned = /\b(diagnose|diagnostic|treatment recommendation|cures)\b/i;
+  // Banned words, but allow negations (e.g., "does not diagnose" is OK).
+  // Use negative lookbehind for common negation patterns: does not, no, without, non-
+  const banned = /(?<!does not )(?<!no )(?<!without )(?<!non-)\b(diagnose|diagnostic|treatment recommendation|cures)\b/i;
   // We scan the full view both empty and loaded, plus the demo MedRAG panel.
   const fragments = [
     renderFullView({ report: null }),
