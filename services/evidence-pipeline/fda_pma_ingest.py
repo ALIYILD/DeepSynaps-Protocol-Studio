@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """fda_pma_ingest.py — Idempotent PMA ingest for major neuromodulation modalities.
 
-Fetches PMA records from openFDA for DBS, VNS, SCS, HNS (and their verified
-product codes) and upserts them into the `devices` table, then links each
-device to every indication it is FDA-approved for via `device_indications`.
+Fetches PMA records from openFDA for DBS, VNS, SCS, HNS, RNS, DRG, SNM,
+MRgFUS, and VNS-stroke (each with its verified product code) and upserts
+them into the `devices` table, then links each device to every indication
+it is FDA-approved for via `device_indications`.
 
 Usage:
     python3 fda_pma_ingest.py [--db PATH] [--max N] [--dry-run] [--modality SLUG]
@@ -11,7 +12,8 @@ Usage:
     --db        Path to the SQLite DB (default: db.DB_PATH).
     --max       Max records per (applicant, product-code) pair per endpoint (default: 20).
     --dry-run   Fetch and print; write nothing.
-    --modality  Restrict run to one modality key (e.g. DBS, VNS, SCS, HNS).
+    --modality  Restrict run to one modality key (e.g. DBS, VNS, SCS, HNS,
+                RNS, DRG, SNM, MRgFUS, VNS-stroke).
 
 Idempotency:
     devices has UNIQUE(kind, number, decision_date); re-runs are safe no-ops.
@@ -20,32 +22,28 @@ Idempotency:
 Rate-limit policy:
     0.30 s inter-request sleep; exponential back-off on HTTP 429.
 
-Product-code rationale (all verified against openFDA classification endpoint):
+Product-code rationale (all verified against openFDA classification + PMA endpoints):
     MHY  — Stimulator, Electrical, Implanted, For Parkinsonian Tremor (Class III, PMA).
-           Used for DBS (PD, ET, OCD via HDE, epilepsy ANT).
+           Used for DBS (PD, ET, OCD HDE, epilepsy ANT).
     LYJ  — Stimulator, Autonomic Nerve, Implanted For Epilepsy (Class III, PMA).
            Used for VNS epilepsy and VNS depression.
     LGW  — Stimulator, Spinal-Cord, Totally Implanted For Pain Relief (Class III, PMA).
            Used for SCS (FBSS and PDN).
     MNQ  — Stimulator, Hypoglossal Nerve, Implanted, Apnea (Class III, PMA).
            Used for HNS (OSA).
+    PFN  — Implanted Brain Stimulator For Epilepsy (NeuroPace RNS, P100026; Class III).
+    PMP  — Dorsal Root Ganglion Stimulator For Pain Relief (Abbott Proclaim DRG, P150004; Class III).
+    EZW  — Stimulator, Electrical, Implantable, For Incontinence
+           (Medtronic InterStim P970004 + Axonics R20/R15 P190006; Class III).
+    POH  — MR-Guided Focused Ultrasound System (Insightec Exablate Neuro, P150038; Class III).
+    QPY  — Stimulator, Autonomic Nerve, Implanted For Stroke Rehabilitation
+           (MicroTransponder Vivistim Paired VNS, P210007; Class III).
 
-Codes intentionally omitted (not yet verifiable in openFDA):
-    NCJ (telescope implant in openFDA, not DBS — previously listed incorrectly),
-    QPH (VNS stroke rehab — small data, verify before use),
-    QAB (DRG — unverified),
-    LYW / GXN (SNM — unverified),
-    MXO (RNS — unverified).
-
-MRgFUS note:
-    OYJ returns DNA saliva-collection kits in openFDA 510(k); QBV returns bone
-    marrow concentration kits.  Neither maps to neuromodulation brain-ablation
-    devices.  The correct Insightec Exablate Neuro product code requires manual
-    verification at accessdata.fda.gov before this ingest can safely pull
-    MRgFUS PMAs.  Accordingly, MRgFUS is NOT included here.  The 9 existing
-    mrgfus_essential_tremor device_indications rows (all linked to DNA / bone
-    marrow 510(k) noise) are flagged in the curation log but NOT deleted by
-    this script — deletion requires explicit user approval per policy.
+Historical false leads (verified wrong against openFDA, do NOT re-add):
+    NCJ (telescope implant), QPH / MXO / LYW / GXN (do not exist),
+    QAB (cardiac pacing analyzer, not DRG),
+    OYJ (saliva DNA kit, not MRgFUS), QBV (PRP centrifuge, not MRgFUS).
+    All audited 2026-05-09; see docs/fda-product-codes.md.
 """
 from __future__ import annotations
 
@@ -132,6 +130,61 @@ MODALITY_TABLE: list[dict] = [
         # Inspire is the sole PMA holder as of 2026.
         "slugs": [
             "hns_osa",
+        ],
+    },
+    {
+        "modality": "RNS",
+        "product_codes": ["PFN"],
+        "applicants": ["NeuroPace"],
+        # PFN = "Implanted Brain Stimulator For Epilepsy" (NeuroPace RNS
+        # System, P100026 + supplements). Sole PMA holder; Class III.
+        "slugs": [
+            "rns_epilepsy",
+        ],
+    },
+    {
+        "modality": "DRG",
+        "product_codes": ["PMP"],
+        "applicants": ["Abbott", "St. Jude Medical"],
+        # PMP = "Dorsal Root Ganglion Stimulator For Pain Relief" (Abbott
+        # Proclaim DRG, P150004). St. Jude was the original applicant before
+        # the Abbott acquisition; both names appear in older records.
+        "slugs": [
+            "drg_crps",
+        ],
+    },
+    {
+        "modality": "SNM",
+        "product_codes": ["EZW"],
+        "applicants": ["Medtronic", "Axonics"],
+        # EZW = "Stimulator, Electrical, Implantable, For Incontinence"
+        # (Medtronic InterStim, P970004; Axonics R20/R15, P190006). Both
+        # applicants share this product code for sacral neuromodulation.
+        "slugs": [
+            "snm_bladder_bowel",
+        ],
+    },
+    {
+        "modality": "MRgFUS",
+        "product_codes": ["POH"],
+        "applicants": ["Insightec"],
+        # POH = "MR-Guided Focused Ultrasound System" (Insightec Exablate
+        # Neuro 4000, P150038 + supplements). Earlier OYJ/QBV mapping was
+        # wrong (saliva DNA / PRP centrifuge) — see fda_curation_log_2026-05-09.md.
+        "slugs": [
+            "mrgfus_essential_tremor",
+        ],
+    },
+    {
+        "modality": "VNS-stroke",
+        "product_codes": ["QPY"],
+        "applicants": ["MicroTransponder", "Mobia Medical"],
+        # QPY = "Stimulator, Autonomic Nerve, Implanted For Stroke
+        # Rehabilitation" (Vivistim Paired VNS System, P210007). Separate
+        # product code from LYJ (epilepsy/depression VNS) since the Vivistim
+        # device family is distinct.
+        "slugs": [
+            "vns_stroke_rehab",
         ],
     },
 ]
@@ -309,7 +362,10 @@ def run(
 
     modalities = MODALITY_TABLE
     if modality_filter:
-        modalities = [m for m in MODALITY_TABLE if m["modality"] == modality_filter.upper()]
+        # Case-insensitive match — table keys are mixed-case (e.g. "MRgFUS",
+        # "VNS-stroke") so a hard .upper() would never match.
+        wanted = modality_filter.casefold()
+        modalities = [m for m in MODALITY_TABLE if m["modality"].casefold() == wanted]
         if not modalities:
             print(
                 f"[fda_pma_ingest] unknown modality filter '{modality_filter}'; "

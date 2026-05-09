@@ -181,6 +181,71 @@ SELECT d.id, i.id
  WHERE d.product_code = 'MNQ'
    AND (d.curation_status IS NULL OR d.curation_status = 'accept');
 
+-- =============================================================================
+-- 11. PFN (RNS) -> rns_epilepsy
+--     NeuroPace RNS System (P100026 + supplements). Sole PFN PMA holder.
+-- =============================================================================
+
+INSERT OR IGNORE INTO device_indications (device_id, indication_id)
+SELECT d.id, i.id
+  FROM devices d
+  JOIN indications i ON i.slug = 'rns_epilepsy'
+ WHERE d.product_code = 'PFN'
+   AND (d.curation_status IS NULL OR d.curation_status = 'accept');
+
+-- =============================================================================
+-- 12. PMP (DRG) -> drg_crps
+--     Abbott Proclaim DRG (P150004 + supplements; original applicant
+--     St. Jude Medical pre-acquisition).
+-- =============================================================================
+
+INSERT OR IGNORE INTO device_indications (device_id, indication_id)
+SELECT d.id, i.id
+  FROM devices d
+  JOIN indications i ON i.slug = 'drg_crps'
+ WHERE d.product_code = 'PMP'
+   AND (d.curation_status IS NULL OR d.curation_status = 'accept');
+
+-- =============================================================================
+-- 13. EZW (SNM) -> snm_bladder_bowel
+--     Medtronic InterStim (P970004) + Axonics R20/R15 (P190006). Both
+--     applicants share EZW for sacral neuromodulation (urinary urge
+--     incontinence, urinary retention, fecal incontinence).
+-- =============================================================================
+
+INSERT OR IGNORE INTO device_indications (device_id, indication_id)
+SELECT d.id, i.id
+  FROM devices d
+  JOIN indications i ON i.slug = 'snm_bladder_bowel'
+ WHERE d.product_code = 'EZW'
+   AND (d.curation_status IS NULL OR d.curation_status = 'accept');
+
+-- =============================================================================
+-- 14. POH (MRgFUS) -> mrgfus_essential_tremor
+--     Insightec Exablate Neuro 4000 (P150038 + supplements). Replaces the
+--     wrong OYJ/QBV mapping cleaned up in fda_curation_oyj_qbv_cleanup.sql.
+-- =============================================================================
+
+INSERT OR IGNORE INTO device_indications (device_id, indication_id)
+SELECT d.id, i.id
+  FROM devices d
+  JOIN indications i ON i.slug = 'mrgfus_essential_tremor'
+ WHERE d.product_code = 'POH'
+   AND (d.curation_status IS NULL OR d.curation_status = 'accept');
+
+-- =============================================================================
+-- 15. QPY (Vivistim Paired VNS) -> vns_stroke_rehab
+--     MicroTransponder / Mobia Medical Vivistim (P210007). Distinct from
+--     LYJ (epilepsy/depression VNS) family.
+-- =============================================================================
+
+INSERT OR IGNORE INTO device_indications (device_id, indication_id)
+SELECT d.id, i.id
+  FROM devices d
+  JOIN indications i ON i.slug = 'vns_stroke_rehab'
+ WHERE d.product_code = 'QPY'
+   AND (d.curation_status IS NULL OR d.curation_status = 'accept');
+
 COMMIT;
 
 -- =============================================================================
