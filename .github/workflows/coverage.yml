@@ -242,10 +242,22 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pytest pytest-asyncio pytest-cov pytest-timeout
-          # Install the package under test plus its sibling deps. Most packages
-          # depend only on core-schema; the loop in install-python keeps the
-          # graph correct for combined runs.
-          pip install -e packages/core-schema || true
+          # Install all in-repo deepsynaps-* packages first so pip can resolve
+          # intra-repo dependencies (e.g. generation-engine → render-engine,
+          # safety-engine) from local checkouts rather than failing to find
+          # them on PyPI. The trailing '|| true' lets us tolerate any package
+          # that has not yet been published / configured.
+          for pkg in core-schema condition-registry modality-registry \
+                     device-registry clinical-data-registry safety-engine \
+                     evidence qa render-engine generation-engine \
+                     biometrics-pipeline mri-pipeline neuro-engine \
+                     deeptwin-neuroai-lab feature-store text-pipeline \
+                     audio-pipeline video-pipeline voice-engine \
+                     qeeg-pipeline qeeg-encoder deepsynaps-core; do
+            pip install -e "packages/$pkg" --no-deps || true
+          done
+          # Now install the package under test WITH its declared deps so any
+          # missing pieces surface as a real failure.
           pip install -e packages/${{ matrix.package }}
       - name: Run pytest with coverage
         working-directory: packages/${{ matrix.package }}
