@@ -2504,6 +2504,9 @@ async function renderEvidenceSearch(body) {
     _resWorkspaceHeader(_liveEvidenceUiStats, { shortcuts: true }) +
     libraryAuthNote +
     corpusStatusBanner +
+    /* B4: Agent Brain status mount — degrades gracefully when provider not configured.
+       mountAgentBrainStatus() is injected by agent-brain-status.js if present. */
+    '<div id="agent-brain-status" aria-live="polite" style="margin-bottom:12px"></div>' +
     '<div id="re-live-evidence-host" style="margin-bottom:16px"></div>' +
     '<div class="ch-card" style="margin-bottom:16px;padding:14px 16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between">' +
       '<div style="font-size:12px;color:var(--text-secondary)"><strong>Research export summary</strong> — clinician-only; audits on server.</div>' +
@@ -2656,6 +2659,14 @@ async function renderEvidenceSearch(body) {
   try {
     await window._reRefreshEvidenceSearchPanels?.('', '', indexedPaperCount > 0);
   } catch {}
+
+  // B4: Mount Agent Brain status widget if available (degrades gracefully).
+  const agentBrainMount = document.getElementById('agent-brain-status');
+  if (agentBrainMount && typeof window.mountAgentBrainStatus === 'function') {
+    try {
+      window.mountAgentBrainStatus(agentBrainMount, { page: 'evidence', providers: ['assessment'] });
+    } catch {}
+  }
 
   if (defaultSearch) {
     window._reSearch = window._reSearch || {};

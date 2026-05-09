@@ -8,7 +8,9 @@
 export const EVIDENCE_DATASET_VERSION = '2026-04-24';
 /** Bundled fallback headline when status endpoint unavailable — not a deployed guarantee. */
 export const EVIDENCE_TOTAL_PAPERS   = 184669;
-export const EVIDENCE_TOTAL_TRIALS   = 12840;
+// Bundled rollup from v4 DB (2026-04-29). Matches sqlite3 count(*)=1409.
+// (Previous value of 12840 was an older orientation estimate — corrected A3.)
+export const EVIDENCE_TOTAL_TRIALS   = 1409;
 export const EVIDENCE_TOTAL_META     = 3920;
 export const EVIDENCE_SOURCES        = ['PubMed','OpenAlex','Cochrane','ClinicalTrials.gov','EMBASE','Scopus','PsycINFO','IEEE Xplore','bioRxiv','medRxiv'];
 
