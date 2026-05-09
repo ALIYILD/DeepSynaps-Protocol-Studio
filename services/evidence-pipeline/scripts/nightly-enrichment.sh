@@ -35,15 +35,35 @@
 
 set -euo pipefail
 
-PIPELINE_DIR="${PIPELINE_DIR:-$HOME/DeepSynaps-Protocol-Studio/services/evidence-pipeline}"
-EVIDENCE_DB_PATH="${EVIDENCE_DB_PATH:-$PIPELINE_DIR/neuromodulation_evidence_2026-04-29_v4.db}"
+# CRON_WORKTREE is the dedicated repo checkout the LaunchAgent invokes from.
+# Pinned to origin/main so concurrent sessions in the primary repo checkout
+# can't break the cron by switching branches. Local DB lives outside the
+# worktree (see EVIDENCE_DB_PATH below) so it survives `git checkout`.
+CRON_WORKTREE="${CRON_WORKTREE:-$HOME/.deepsynaps-cron}"
+PIPELINE_DIR="${PIPELINE_DIR:-$CRON_WORKTREE/services/evidence-pipeline}"
+EVIDENCE_DB_PATH="${EVIDENCE_DB_PATH:-$HOME/DeepSynaps-Protocol-Studio/services/evidence-pipeline/neuromodulation_evidence_2026-04-29_v4.db}"
 ENRICH_BATCH="${ENRICH_BATCH:-10000}"
 ROUTE_TOP="${ROUTE_TOP:-1000}"
 LOCK_DIR="${LOCK_DIR:-${TMPDIR:-/tmp}/deepsynaps-evidence-enrichment.lock}"
+# macOS keychain trust roots (corporate MITM that intercepts CTGOV/EuropePMC
+# at certain hours rejected default certifi at 01:04 BST 2026-05-09; system
+# keychain has the org root pre-installed).
+SSL_CERT_FILE="${SSL_CERT_FILE:-/etc/ssl/cert.pem}"
 
-export EVIDENCE_DB_PATH
+export EVIDENCE_DB_PATH SSL_CERT_FILE
 
 ts() { date +"%Y-%m-%dT%H:%M:%S%z"; }
+
+# ---------------------------------------------------------------------------
+# Refresh the pinned worktree to the latest origin/main BEFORE the lockfile
+# guard. If origin/main has new wrapper / script changes, this picks them up
+# without anyone touching the LaunchAgent.
+# ---------------------------------------------------------------------------
+if [[ -d "$CRON_WORKTREE/.git" || -f "$CRON_WORKTREE/.git" ]]; then
+    git -C "$CRON_WORKTREE" fetch origin --quiet || true
+    # Detached-HEAD checkout — no branch state to clash with concurrent sessions.
+    git -C "$CRON_WORKTREE" checkout --quiet origin/main || true
+fi
 
 # ---------------------------------------------------------------------------
 # Atomic single-instance guard. mkdir is the macOS-portable atomic op.
