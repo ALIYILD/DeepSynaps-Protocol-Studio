@@ -14,6 +14,9 @@ import numpy as np
 
 from app.services.analyses._engine import register_analysis
 
+# numpy 2.0 removes np.trapz; 1.x does not have np.trapezoid.
+_trapz = getattr(np, "trapezoid", None) or np.trapz
+
 
 # ── Entropy helpers ──────────────────────────────────────────────────────────
 
@@ -276,7 +279,7 @@ def multiscale_entropy(ctx: dict[str, Any]) -> dict[str, Any]:
             scale_entropies.append(round(se, 4))
 
         # Complexity index = area under MSE curve
-        ci = round(float(np.trapz(scale_entropies)), 4) if scale_entropies else 0.0
+        ci = round(float(_trapz(scale_entropies)), 4) if scale_entropies else 0.0
 
         channels_data[ch] = {
             "mse_curve": scale_entropies,
