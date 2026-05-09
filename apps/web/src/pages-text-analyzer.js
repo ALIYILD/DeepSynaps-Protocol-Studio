@@ -7,6 +7,7 @@
  */
 
 import { api } from './api.js';
+import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { currentUser } from './auth.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
@@ -388,6 +389,7 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
   const actorRole = String(currentUser?.role || '').trim().toLowerCase();
   if (!canUseTextAnalyzerWorkspace(actorRole, { allowUnknown: demoMode })) {
     el.innerHTML = _renderTextAnalyzerRestrictedCard();
+    ensureAgentBrainStatus(el);
     return;
   }
 
@@ -493,6 +495,7 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
 
       <div id="ta-result" data-testid="text-analyzer-results"></div>
     </div>`;
+  ensureAgentBrainStatus(el);
 
   async function _refreshTaDrHero(patientId) {
     const slot = document.getElementById('ta-dr-hero-slot');

@@ -206,6 +206,26 @@ class ReportProvenance(BaseModel):
     generated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
+class MedicalImageCrossModalSection(BaseModel):
+    """Non-diagnostic MRI / medical-image cross-reference for the qEEG report.
+
+    Mirrors the dict returned by
+    :func:`app.services.medical_image_report_context.build_qeeg_cross_modal_section`.
+    The ``safe_sentence`` is always sourced from
+    ``preview_service.SAFE_REPORT_SENTENCES`` and never claims that the qEEG
+    findings imply anatomical disease. The ``disclaimer`` makes the
+    handoff-only nature explicit. PR #619 follow-up — closes the
+    ``ConfigDict(extra="forbid")`` gating so the helper output can flow
+    into ``QEEGBrainMapReport`` directly.
+    """
+    model_config = ConfigDict(extra="forbid")
+    has_mri: bool = False
+    mri_image_id: Optional[str] = None
+    mri_preview_status: Optional[str] = None
+    safe_sentence: Optional[str] = None
+    disclaimer: Optional[str] = None
+
+
 class QEEGBrainMapReport(BaseModel):
     """Canonical brain-map report payload. See module docstring."""
     model_config = ConfigDict(extra="forbid")
@@ -219,6 +239,7 @@ class QEEGBrainMapReport(BaseModel):
     ai_narrative: AINarrative = Field(default_factory=AINarrative)
     quality: ReportQuality = Field(default_factory=ReportQuality)
     provenance: ReportProvenance = Field(default_factory=ReportProvenance)
+    medical_image_context: Optional[MedicalImageCrossModalSection] = None
     disclaimer: str = DEFAULT_DISCLAIMER
 
 
@@ -489,6 +510,8 @@ def from_pipeline_result(
     narrative_bank: Optional[dict[str, Any]] = None,
     *,
     file_path: Optional[str] = None,
+    patient_id: Optional[str] = None,
+    settings: Optional[Any] = None,
 ) -> QEEGBrainMapReport:
     """Map ``run_pipeline_safe`` output into a QEEGBrainMapReport.
 
@@ -507,6 +530,13 @@ def from_pipeline_result(
     file_path
         Optional path to the source EDF/EEG file, used to compute file_hash
         for provenance.
+    patient_id
+        Optional internal patient id. When given, the safe MRI cross-modal
+        section is attached to the report; when omitted, the section is
+        ``None`` so old callers see no behaviour change.
+    settings
+        Optional settings override; only used to locate the medical-image
+        sidecar store under tests.
 
     Returns
     -------
@@ -556,6 +586,22 @@ def from_pipeline_result(
         file_hash=_file_hash(file_path),
     )
 
+    cross_modal: Optional[MedicalImageCrossModalSection] = None
+    if patient_id:
+        try:
+            from app.services.medical_image_report_context import (
+                build_qeeg_cross_modal_section,
+            )
+
+            cm_dict = build_qeeg_cross_modal_section(patient_id, settings=settings)
+            cross_modal = MedicalImageCrossModalSection.model_validate(cm_dict)
+        except Exception:  # pragma: no cover — never block report build
+            _log.exception(
+                "qeeg_report_template: cross-modal MRI lookup failed for patient_id=%s",
+                patient_id,
+            )
+            cross_modal = None
+
     return QEEGBrainMapReport(
         header=header,
         indicators=indicators,
@@ -570,6 +616,7 @@ def from_pipeline_result(
         ai_narrative=AINarrative(findings=findings),
         quality=quality,
         provenance=provenance,
+        medical_image_context=cross_modal,
     )
 
 
@@ -598,4 +645,5 @@ __all__ = [
     "Citation",
     "ReportQuality",
     "ReportProvenance",
+    "MedicalImageCrossModalSection",
 ]

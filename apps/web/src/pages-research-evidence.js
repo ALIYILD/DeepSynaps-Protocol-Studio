@@ -2960,12 +2960,42 @@ async function renderNeedsReview(body) {
      a one-click search button instead of fabricating counts.
    ══════════════════════════════════════════════════════════════════════════════ */
 
-const _GRADE_COLOR_MAP = { A: '#2dd4bf', B: '#60a5fa', C: '#fbbf24', D: '#f97316' };
+const _GRADE_COLOR_MAP = { A: '#22c55e', B: '#84cc16', C: '#eab308', D: '#f97316', E: '#ef4444' };
 
 function _gradeBadge(grade) {
   if (!grade) return '';
   const c = _GRADE_COLOR_MAP[String(grade).toUpperCase()] || 'var(--text-tertiary)';
   return `<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;background:${c};color:#0b1220;letter-spacing:0.5px">EV-${esc(String(grade).toUpperCase())}</span>`;
+}
+
+/* _computedGradeBadge — coloured pill for the DB-computed A-E grade.
+ * Rubric: A>=200p+10t+5d | B>=100p+1d | C>=30p | D>=5p | E<5p.
+ * Hover tooltip explains the grade without leaving the page.
+ */
+const _COMPUTED_GRADE_TOOLTIP = {
+  A: 'Grade A: >=200 routed papers, >=10 trials, >=5 cleared devices. Strong evidence + regulatory + replication.',
+  B: 'Grade B: >=100 papers, >=1 cleared device. Mainstream evidence with at least one regulatory pathway.',
+  C: 'Grade C: >=30 papers. Active research area; off-label or investigational. Not yet mainstream.',
+  D: 'Grade D: >=5 papers. Emerging indication; pilot studies only. IRB/ethics required for clinical use.',
+  E: 'Grade E: <5 papers in the curated corpus. Speculative / very early-stage.',
+};
+const _RUBRIC_HINT = 'Rubric: A>=200p+10t+5d | B>=100p+1d | C>=30p | D>=5p | E<5p. Recomputed nightly from junction-table counts.';
+
+function _computedGradeBadge(grade) {
+  if (!grade) return '';
+  const g = String(grade).toUpperCase();
+  const c = _GRADE_COLOR_MAP[g] || '#6b7280';
+  const tip = (_COMPUTED_GRADE_TOOLTIP[g] || 'Dynamic grade (A-E) computed from paper/trial/device counts.') + ' ' + _RUBRIC_HINT;
+  return (
+    '<span class="ds-computed-grade-chip" ' +
+    'title="' + esc(tip) + '" ' +
+    'style="display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;' +
+    'padding:2px 7px;border-radius:99px;letter-spacing:0.04em;' +
+    'background:' + c + '22;border:1px solid ' + c + '77;color:' + c + ';line-height:1.4">' +
+    '<span style="font-size:9px;opacity:0.75">DB</span>' +
+    esc(g) +
+    '</span>'
+  );
 }
 
 function _paperLink(paper) {
@@ -3085,7 +3115,7 @@ function _renderSpineSidebar(rows, selectedSlug) {
         `background:${isSel ? 'rgba(45,212,191,0.08)' : 'transparent'};cursor:pointer;color:var(--text-primary);` +
         `display:flex;flex-direction:column;gap:2px">` +
         `<span style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600">` +
-        `${_gradeBadge(row.evidence_grade)}<span>${esc(row.label)}</span></span>` +
+        `${_computedGradeBadge(row.computed_evidence_grade)}<span>${esc(row.label)}</span></span>` +
         `<span style="font-size:10px;color:var(--text-tertiary)">${esc(row.modality)} · ${counts}</span>` +
         '</button>'
       );
@@ -3207,7 +3237,9 @@ async function renderIndicationsSpine(body) {
   const headerHtml = (
     '<div class="ch-card" style="padding:14px;margin-bottom:12px;display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap">' +
     '<div style="flex:1 1 280px">' +
-    `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">${_gradeBadge(ind.evidence_grade)}` +
+    `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px">` +
+    `${_computedGradeBadge(ind.computed_evidence_grade)}` +
+    `${ind.evidence_grade ? '<span title="Clinician-curated grade (may differ from DB-computed)">' + _gradeBadge(ind.evidence_grade) + '<span style="font-size:9px;color:var(--text-tertiary);margin-left:2px">(curated)</span></span>' : ''}` +
     `<span style="font-size:18px;font-weight:700;color:var(--text-primary)">${esc(ind.label)}</span></div>` +
     `<div style="font-size:12px;color:var(--text-secondary)">${esc(ind.modality)} → ${esc(ind.condition)}</div>` +
     (ind.regulatory ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">Regulatory: ${esc(ind.regulatory)}</div>` : '') +

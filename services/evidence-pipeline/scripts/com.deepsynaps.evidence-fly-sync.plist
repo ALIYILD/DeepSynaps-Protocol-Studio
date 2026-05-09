@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Daily LaunchAgent that pushes the local evidence DB up to Fly's
+  /data/evidence.db so production reads the same growing corpus the
+  local 2-hour cron is enriching.
+
+  Schedule: 04:00 local. The local enrichment cron (every 2h) typically
+  runs at 02:00 + 04:00; this fires right after the 04:00 enrichment
+  finishes so prod gets the freshest snapshot of the day.
+
+  Install:
+    cp services/evidence-pipeline/scripts/com.deepsynaps.evidence-fly-sync.plist \
+       ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.deepsynaps.evidence-fly-sync.plist
+
+  Inspect:
+    launchctl list | grep deepsynaps
+    tail -50 ~/Library/Logs/deepsynaps-evidence-fly-sync.log
+
+  Stop:
+    launchctl unload ~/Library/LaunchAgents/com.deepsynaps.evidence-fly-sync.plist
+
+  Auth: flyctl must be authenticated for the user this LaunchAgent runs
+  as. `flyctl auth whoami` should succeed in a regular shell on this Mac.
+  No tokens in the plist.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.deepsynaps.evidence-fly-sync</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>$HOME/.deepsynaps-cron/services/evidence-pipeline/scripts/sync-evidence-db-to-fly.sh</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/Users/aliyildirim/.fly/bin</string>
+        <key>SSL_CERT_FILE</key>
+        <string>/etc/ssl/cert.pem</string>
+    </dict>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>4</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/aliyildirim/Library/Logs/deepsynaps-evidence-fly-sync.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/aliyildirim/Library/Logs/deepsynaps-evidence-fly-sync.log</string>
+
+    <key>AbandonProcessGroup</key>
+    <false/>
+</dict>
+</plist>
