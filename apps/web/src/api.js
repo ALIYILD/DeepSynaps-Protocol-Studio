@@ -2744,6 +2744,14 @@ export const api = {
     apiFetchBinary(`/api/v1/mri/report/${encodeURIComponent(analysisId)}/html`),
   getMRIViewerPayload: (analysisId) =>
     apiFetch(`/api/v1/mri/${encodeURIComponent(analysisId)}/viewer.json`),
+  // Phase 3 viewer state persistence
+  saveMRIViewerState: (analysisId, payload) =>
+    apiFetch(`/api/v1/mri/${encodeURIComponent(analysisId)}/viewer-state`, { method: 'POST', body: JSON.stringify(payload) }),
+  getMRIViewerState: (analysisId) =>
+    apiFetch(`/api/v1/mri/${encodeURIComponent(analysisId)}/viewer-state`),
+  // Phase 3 capabilities endpoint
+  getMRICapabilities: () =>
+    apiFetch('/api/v1/mri/capabilities'),
   getMRIOverlayHtml: (analysisId, targetId) =>
     apiFetchBinary(`/api/v1/mri/overlay/${encodeURIComponent(analysisId)}/${encodeURIComponent(targetId)}`),
   getMRIMedRAG: (analysisId, topK = 20) =>

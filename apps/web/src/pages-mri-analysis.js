@@ -79,6 +79,11 @@ var _atlasLabelsVisible = true;
 var _atlasEfieldVisible = true;
 var _atlasAnimFrame = null;
 
+// ── Viewer state persistence (Phase 3 backend) ───────────────────────────────
+var _viewerState = null;              // Saved viewer state (slice position, ROI visibility, etc.)
+var _mriCapabilities = null;          // Pipeline capabilities (modules, tools, versions)
+var _capabilitiesLoading = false;
+
 // ── Modality color map (shared by glass-brain + atlas viewer) ───────────────
 // MRI-based stimulation only: TPS, tFUS (techniques requiring MRI-guided targeting)
 var MODALITY_DOT_COLOR = {
@@ -443,6 +448,125 @@ async function _fetchFusionSummary(patientId) {
   } catch (_) {
     return null;
   }
+}
+
+// ── Viewer state persistence (Phase 3) ───────────────────────────────────────
+/**
+ * Load saved viewer state for the current analysis.
+ * Returns null if not found or on error (graceful fallback).
+ */
+async function _loadViewerState(analysisId) {
+  if (!analysisId || _isDemoMode()) return null;
+  try {
+    var resp = await api.getMRIViewerState(analysisId);
+    if (resp && resp.state) {
+      _viewerState = resp.state;
+      return _viewerState;
+    }
+  } catch (_e) {
+    // Silently fail — viewer state is a nice-to-have, not a blocker
+  }
+  return null;
+}
+
+/**
+ * Save viewer state (slice position, ROI visibility, overlay alpha, etc.).
+ * Called on viewer interactions (slice change, toggle overlay, etc.).
+ */
+async function _saveViewerState(analysisId, state) {
+  if (!analysisId || _isDemoMode()) return;
+  try {
+    _viewerState = state;
+    await api.saveMRIViewerState(analysisId, { state: state });
+  } catch (_e) {
+    // Silently fail — non-critical feature
+  }
+}
+
+// ── MRI pipeline capabilities (Phase 3) ──────────────────────────────────────
+/**
+ * Fetch MRI pipeline capabilities (module availability, tool versions, GPU status).
+ * Used to gracefully degrade UI when optional features are unavailable.
+ */
+async function _loadMRICapabilities() {
+  if (_mriCapabilities) return _mriCapabilities;
+  if (_capabilitiesLoading) return null;
+  if (_isDemoMode()) {
+    // Demo: synthesize capabilities
+    return {
+      status: 'ok',
+      pipeline_version: '0.4.2',
+      modules: {
+        structural: { available: true, engine: 'FastSurfer', gpu: false },
+        fmri: { available: true, networks_count: 17 },
+        dmri: { available: false },
+        registration: { available: true, tool: 'antspyx', version: '0.3.24' },
+        targeting: { available: true, conditions_supported: ['mdd', 'ptsd'] },
+      },
+      warnings: [],
+      last_checked_at: new Date().toISOString(),
+    };
+  }
+  _capabilitiesLoading = true;
+  try {
+    var resp = await api.getMRICapabilities();
+    _mriCapabilities = resp || null;
+  } catch (_e) {
+    _mriCapabilities = null;
+  }
+  _capabilitiesLoading = false;
+  return _mriCapabilities;
+}
+
+/**
+ * Render a capability badge (shows module availability in UI).
+ * Example: "FastSurfer ✓ GPU N/A"
+ */
+function _renderCapabilityBadge(module) {
+  if (!module) return '';
+  var label = module.engine || module.tool || module.name || 'Module';
+  var avail = module.available ? '✓' : '✗';
+  var details = [];
+  if (module.gpu !== undefined) {
+    details.push('GPU ' + (module.gpu ? 'On' : 'N/A'));
+  }
+  if (module.version) {
+    details.push('v' + module.version);
+  }
+  var html = '<span class="ds-capability-badge" style="display:inline-block;padding:4px 8px;border-radius:4px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);font-size:11px;margin:2px 4px 2px 0">'
+    + avail + ' ' + label;
+  if (details.length) {
+    html += ' (' + details.join(', ') + ')';
+  }
+  html += '</span>';
+  return html;
+}
+
+/**
+ * Render capabilities panel (embedded in page or modal).
+ * Shows module availability with warnings.
+ */
+function _renderCapabilitiesPanel(caps) {
+  if (!caps) {
+    return '<div style="color:var(--text-tertiary);font-size:12px">Capabilities unavailable.</div>';
+  }
+  var html = '<div style="font-size:11px">';
+  html += '<div style="color:var(--text-secondary);margin-bottom:8px"><strong>Pipeline modules:</strong></div>';
+  var modules = caps.modules || {};
+  Object.keys(modules).forEach(function(key) {
+    var mod = modules[key];
+    html += _renderCapabilityBadge(Object.assign({ name: key }, mod)) + ' ';
+  });
+  if (caps.warnings && caps.warnings.length) {
+    html += '<div style="margin-top:12px;padding:8px;background:rgba(168,85,247,0.1);border-left:2px solid rgba(168,85,247,0.4);font-size:11px;color:var(--text-tertiary)">';
+    html += '<div style="font-weight:600;color:var(--text-primary)">Warnings:</div>';
+    caps.warnings.forEach(function(w) {
+      html += '<div style="margin-top:4px">• ' + esc(w) + '</div>';
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
 }
 
 export function renderFusionSummaryCard(fusion, patientId) {
@@ -2605,6 +2729,13 @@ export function renderFullView(state) {
           + renderMRIQCChips(report),
       })
       + renderMRIReportSection({
+        id: 'ds-mri-section-capabilities',
+        title: 'Pipeline',
+        subtitle: 'Capabilities & modules',
+        defaultOpen: false,
+        innerHtml: _renderCapabilitiesPanel(_mriCapabilities),
+      })
+      + renderMRIReportSection({
         id: 'ds-mri-section-safety',
         title: 'Safety',
         subtitle: 'Cockpit & flags',
@@ -3524,6 +3655,13 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
   var patientAnalyses = [];
   var pid = _patientMeta && _patientMeta.patient_id;
   _fusionSummary = await _fetchFusionSummary(pid || (_report && _report.patient && _report.patient.patient_id));
+  
+  // Phase 3: Load viewer state + capabilities
+  if (_report && _mriAnalysisId) {
+    _loadViewerState(_mriAnalysisId).catch(function() {});  // Non-blocking
+    _loadMRICapabilities().catch(function() {});             // Non-blocking
+  }
+  
   await _loadMRISavedEvidenceCitations(pid || (_report && _report.patient && _report.patient.patient_id));
   _mriSavedEvidenceCitations = _filterMRISavedEvidenceCitations(_mriSavedEvidenceCitations, _getMRIReportEvidenceContext());
   if (pid && !_isDemoMode()) {
