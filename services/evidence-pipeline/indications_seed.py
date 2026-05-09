@@ -320,13 +320,49 @@ SEED = [
         "slug": "nerivio_migraine",
         "label": "Remote electrical neuromodulation for migraine",
         "modality": "REN",
-        "condition": "Migraine (acute)",
+        "condition": "Migraine (acute and preventive)",
         "grade": "A",
-        "regulatory": "FDA-cleared 2019",
+        "regulatory": "FDA-cleared 2019 (DEN180059) + supplements",
         "pubmed_q": '("Nerivio"[Title/Abstract] OR "remote electrical neuromodulation"[Title/Abstract])',
         "broad_q": '"remote electrical neuromodulation" migraine',
         "trial_q": '"remote electrical neuromodulation" migraine',
         "fda_applicants": ["Theranica"],
+        # QGT = "Distal Transcutaneous Electrical Stimulator For Treatment Of
+        # Acute Migraine" (Theranica Nerivio, K201824/K223169 + DEN180059).
+        # Class II 510(k); regulation 882.5899. Verified 2026-05-09.
+        "product_codes": ["QGT"],
+    },
+    {
+        "slug": "etns_migraine_cefaly",
+        "label": "External trigeminal nerve stimulation (e-TNS) for migraine",
+        "modality": "eTNS",
+        "condition": "Migraine (acute and preventive)",
+        "grade": "A",
+        "regulatory": "FDA-cleared 2014 (preventive) + 2017 (acute)",
+        "pubmed_q": '("Cefaly"[Title/Abstract] OR ("external trigeminal nerve stimulation"[Title/Abstract] AND migraine[Title/Abstract]))',
+        "broad_q": '"trigeminal nerve stimulation" migraine Cefaly',
+        "trial_q": '"trigeminal nerve stimulation" migraine OR Cefaly migraine',
+        "fda_applicants": ["Cefaly"],
+        # PCC = "Stimulator, Nerve, Electrical, Transcutaneous, For Migraine"
+        # (Cefaly Technology, K160237 / K201895 / K234029). Class II 510(k);
+        # regulation 882.5891. Verified 2026-05-09.
+        "product_codes": ["PCC"],
+    },
+    {
+        "slug": "nvns_migraine_cluster",
+        "label": "Non-invasive vagus nerve stimulation (nVNS) for migraine and cluster headache",
+        "modality": "nVNS",
+        "condition": "Migraine and episodic cluster headache (acute and preventive)",
+        "grade": "A",
+        "regulatory": "FDA-cleared 2017 (cluster, DEN150048) + 2018 (migraine)",
+        "pubmed_q": '("gammaCore"[Title/Abstract] OR ("non-invasive vagus nerve stimulation"[Title/Abstract] AND (migraine[Title/Abstract] OR "cluster headache"[Title/Abstract])))',
+        "broad_q": 'gammaCore migraine OR "non-invasive vagus" cluster headache',
+        "trial_q": 'gammaCore migraine OR "cluster headache"',
+        "fda_applicants": ["electroCore"],
+        # PKR = "Non-invasive Vagus Nerve Stimulator" (electroCore gammaCore /
+        # gammaCore-S / gammaCore Sapphire, DEN150048 + K173442 + K203546).
+        # Class II 510(k). Verified 2026-05-09.
+        "product_codes": ["PKR"],
     },
 
     # ── Neurofeedback (EEG biofeedback) ─────────────────────────────────────
