@@ -11,15 +11,13 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from app.services.agent_brain.providers._placeholders import (
-    AssessmentProvider,
-    BiomarkerProvider,
-    DeepTwinContextProvider,
-    MRIKnowledgeProvider,
-    QEEGKnowledgeProvider,
-    VideoAudioAnalysisProvider,
-)
 from app.services.agent_brain.providers.agent_memory import AgentMemoryProvider
+from app.services.agent_brain.providers.assessment import AssessmentProvider
+from app.services.agent_brain.providers.biomarker import BiomarkerProvider
+from app.services.agent_brain.providers.deeptwin_context import DeepTwinContextProvider
+from app.services.agent_brain.providers.mri_knowledge import MRIKnowledgeProvider
+from app.services.agent_brain.providers.qeeg_knowledge import QEEGKnowledgeProvider
+from app.services.agent_brain.providers.video_audio_analysis import VideoAudioAnalysisProvider
 from app.services.agent_brain.providers.base import AgentBrainProvider
 from app.services.agent_brain.providers.condition_registry import ConditionRegistryProvider
 from app.services.agent_brain.providers.device_registry import DeviceRegistryProvider
