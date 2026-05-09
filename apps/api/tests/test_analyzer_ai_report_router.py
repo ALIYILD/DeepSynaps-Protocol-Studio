@@ -121,6 +121,8 @@ def test_list_analyzer_types(client: TestClient, aar_setup: dict[str, Any]) -> N
         "digital_phenotyping",
         "deeptwin",
         "treatment_sessions",
+        "biometrics",
+        "medication",
     }
     assert expected.issubset(set(body["analyzer_types"])), body
 

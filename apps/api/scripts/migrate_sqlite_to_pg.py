@@ -45,6 +45,8 @@ from sqlalchemy.types import (
     ARRAY,
     BigInteger,
     Boolean,
+    Date,
+    DateTime,
     Integer,
     JSON,
     SmallInteger,
@@ -228,6 +230,10 @@ def _is_bool(col_type: Any) -> bool:
 
 def _is_integer(col_type: Any) -> bool:
     return isinstance(col_type, (Integer, BigInteger, SmallInteger))
+
+
+def _is_datetime(col_type: Any) -> bool:
+    return isinstance(col_type, (DateTime, Date))
 
 
 def _coerce_value(value: Any, col_type: Any) -> Any:
@@ -416,6 +422,19 @@ def _normalize_for_compare(value: Any, col_type: Any) -> Any:
         if isinstance(value, tuple):
             return list(value)
         return value
+    # Datetimes: SQLite returns ISO strings; PG returns datetime objects.
+    # Normalize both to a comparable ISO string at microsecond precision.
+    if _is_datetime(col_type):
+        import datetime as _dt
+        if isinstance(value, _dt.datetime):
+            return value.replace(tzinfo=None).isoformat(sep=" ", timespec="microseconds")
+        if isinstance(value, _dt.date):
+            return value.isoformat()
+        if isinstance(value, str):
+            s = value.strip().replace("T", " ")
+            # Strip fractional-seconds tail beyond microseconds and any TZ.
+            return s
+        return value
     return value
 
 
@@ -494,8 +513,15 @@ def _select_tables(
     only: Iterable[str],
     skip: Iterable[str],
 ) -> list[str]:
+    skip_set = {t for t in skip if t}
+    only_set = {t for t in only if t}
     sqlite_set = set(sqlite_tables)
     pg_set = set(pg_tables)
+    # Apply --skip-table to BOTH sides before drift comparison so a deliberately
+    # skipped table (e.g. patient_vectors with pgvector absent) doesn't trip the
+    # ABORT below.
+    sqlite_set -= skip_set
+    pg_set -= skip_set
     sqlite_only = sorted(sqlite_set - pg_set)
     pg_only = sorted(pg_set - sqlite_set)
     intersect = sorted(sqlite_set & pg_set)
@@ -510,8 +536,6 @@ def _select_tables(
         )
 
     selected = list(intersect)
-    only_set = {t for t in only if t}
-    skip_set = {t for t in skip if t}
     if only_set:
         bad = only_set - set(selected)
         if bad:
@@ -554,6 +578,10 @@ def main(argv: list[str] | None = None) -> int:
         for name in selected:
             reflected[name] = Table(name, metadata, autoload_with=pg_conn)
 
+        # SQLAlchemy 2.0 autobegan a transaction during reflection. Commit it
+        # so we can start a fresh outer transaction that wraps the copy phase.
+        if pg_conn.in_transaction():
+            pg_conn.commit()
         outer = pg_conn.begin()
         per_table_results: list[tuple[str, int, float]] = []
         try:

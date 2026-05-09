@@ -163,3 +163,60 @@ class MriUpload(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(), default=lambda: datetime.now(timezone.utc),
     )
+
+
+class MedicalImageAsset(Base):
+    """One row per non-diagnostic medical-image preview (PR #619 follow-up).
+
+    PR #619 shipped the MIQ-inspired Quick Look preview with file-based
+    sidecar JSON persistence; this model is the DB promotion. The router
+    dual-writes (sidecar + DB row) so the legacy file-based reader keeps
+    working through the migration window. Mirrors the sidecar payload
+    one-to-one — column names match the JSON keys used by
+    ``app.routers.medical_images_router._write_sidecar``.
+
+    Scoping
+    -------
+    * ``patient_id`` is nullable — uploads can be standalone (e.g. a
+      clinician previewing a file before linking it to a patient).
+    * ``clinic_id`` carries the multi-tenant gate (resolved from the
+      uploader's actor at write time).
+
+    Indexes are tuned for the query patterns that the report-context
+    layer and the patient-index endpoint actually use:
+    ``patient_id`` (latest-by-patient), ``(clinic_id, created_at desc)``
+    (clinic-admin lists), ``created_by`` (audit).
+    """
+
+    __tablename__ = "medical_image_assets"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    patient_id: Mapped[Optional[str]] = mapped_column(
+        Text(), nullable=True, index=True
+    )
+    upload_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    filename: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    file_format: Mapped[str] = mapped_column(String(32), nullable=False)
+    storage_path: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="ready")
+    error: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    metadata_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    preview_paths_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    warning_flags_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    clinician_imaging_note: Mapped[Optional[str]] = mapped_column(
+        Text(), nullable=True
+    )
+    created_by: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+    created_by_role: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    clinic_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        ForeignKey("clinics.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=lambda: datetime.now(timezone.utc), index=True
+    )
+    processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)

@@ -271,6 +271,7 @@ async def export_ai_report_pdf(
         clinician_label=getattr(actor, "user_id", None)
         or getattr(actor, "actor_id", "—")
         or "—",
+        charts=payload.charts,
     )
 
     try:
