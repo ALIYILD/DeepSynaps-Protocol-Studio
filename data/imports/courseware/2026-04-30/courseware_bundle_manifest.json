@@ -1,0 +1,12 @@
+{
+  "bundle_name": "courseware",
+  "generated_at": "2026-04-30T06:09:59.614307+00:00",
+  "source_root_label": "Desktop/USA COURSES/QEEG COURSE",
+  "runtime_outputs": [
+    "data/courseware/knowledge-kb/index.json",
+    "data/courseware/knowledge-kb/qeeg-certificate-course.json",
+    "data/courseware/knowledge-kb/qeeg-course-research-library.json"
+  ],
+  "source_asset_count": 10,
+  "research_asset_count": 37
+}

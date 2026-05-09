@@ -1,0 +1,2087 @@
+{
+  "schema_version": "1.0.0",
+  "resource_slug": "qeeg-germany-session-library",
+  "resource_name": "qEEG Germany Session Library",
+  "source_bundle_date": "2026-04-30",
+  "generated_at": "2026-04-30T05:19:21.689856+00:00",
+  "source_root": "/Users/aliyildirim/Library/CloudStorage/OneDrive-Personal/Desktop/desktop 2025 windows/COSMOS DOC/QEEG GERMANY FILES",
+  "session_count": 136,
+  "asset_count": 989,
+  "site_distribution": [
+    {
+      "label": "site-19d9d834",
+      "count": 679
+    },
+    {
+      "label": "site-199f0cd7",
+      "count": 310
+    }
+  ],
+  "filetype_distribution": [
+    {
+      "label": ".cfg",
+      "count": 240
+    },
+    {
+      "label": ".dll",
+      "count": 234
+    },
+    {
+      "label": ".exe",
+      "count": 156
+    },
+    {
+      "label": ".eeg",
+      "count": 80
+    },
+    {
+      "label": ".inf",
+      "count": 78
+    },
+    {
+      "label": ".par",
+      "count": 78
+    },
+    {
+      "label": ".edf",
+      "count": 63
+    },
+    {
+      "label": ".docx",
+      "count": 60
+    }
+  ],
+  "session_summaries": [
+    {
+      "session_id": "session-0161da4467f1",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-c26e5a48d1",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-018f64a0c02b",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-9850aa66d6",
+      "asset_count": 11,
+      "edf_count": 0,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "support.cfg",
+        "support.dll",
+        "support.cfg",
+        "support.exe"
+      ]
+    },
+    {
+      "session_id": "session-020eb40b27f7",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-c02928680f",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-02b2e456bc4e",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-d7489eb2",
+      "participant_id": "participant-467c7ab219",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-0304ef00c692",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-d7489eb2",
+      "participant_id": "participant-842a884dfd",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-044752d7e8ee",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-480731ad1d",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-050a042c05fd",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-2b63d4c06c",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-0613056a951c",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-ee3489ad4e",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-075cb43b0717",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-e913a2be84",
+      "asset_count": 12,
+      "edf_count": 0,
+      "eeg_count": 2,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.eeg",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-080dfbd62735",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-52fb053465",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-0b8f3ccf364f",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-e3d23a2868",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-0c9233e7f172",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-518d6700ea",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-0e2e7aeb114c",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-176130dc7e",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-0fe211ba91ca",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-1bfaaf5ff0",
+      "asset_count": 11,
+      "edf_count": 0,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "support.cfg",
+        "support.dll",
+        "support.cfg",
+        "support.exe"
+      ]
+    },
+    {
+      "session_id": "session-100e9bf58e41",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-c02928680f",
+      "asset_count": 11,
+      "edf_count": 0,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "support.cfg",
+        "support.dll",
+        "support.cfg",
+        "support.exe"
+      ]
+    },
+    {
+      "session_id": "session-10d87b7896ab",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-91904a0aa4",
+      "asset_count": 11,
+      "edf_count": 0,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "support.cfg",
+        "support.dll",
+        "support.cfg",
+        "support.exe"
+      ]
+    },
+    {
+      "session_id": "session-116bf2859563",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-0fa87b15f8",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-16fe0542a2c3",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-3930e46f36",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-18c34a515ab4",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-f8a0cd0fa2",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-198b0f7b61d0",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-e0ee1f4237",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-1a1ad604e0f3",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-0fa87b15f8",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-1e083d8d9c74",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-d7489eb2",
+      "participant_id": "participant-fd87fc4b0f",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-205bf7ccbf29",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-85ad777310",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-22348270bb92",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-52fb053465",
+      "asset_count": 11,
+      "edf_count": 0,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "support.cfg",
+        "support.dll",
+        "support.cfg",
+        "support.exe"
+      ]
+    },
+    {
+      "session_id": "session-2258a56358a2",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-c02928680f",
+      "asset_count": 11,
+      "edf_count": 0,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "support.cfg",
+        "support.dll",
+        "support.cfg",
+        "support.exe"
+      ]
+    },
+    {
+      "session_id": "session-257fd4fba583",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-e913a2be84",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-26a9eff55ae0",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-79f7793f31",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-2b9106f25eb5",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-4dd526d143",
+      "asset_count": 14,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 12,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.cfg",
+        "support.dll"
+      ]
+    },
+    {
+      "session_id": "session-378ab1bcc245",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-52fb053465",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-389ace9a9c09",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-1dbe6d1780",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-38c29a4dbb56",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-c02928680f",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-3bb0cecc0137",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-f8a0cd0fa2",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-3bf1094082de",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-979b2e7b00",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-3de17f576952",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-979b2e7b00",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-42b11ccfd1ea",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-9d2faa7d12",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-457ce4cafaf4",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-40400c80e1",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-458fc0f44802",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-52fb053465",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-462a8bbc5833",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-1bfaaf5ff0",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-462d4adee93c",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-d2040bd1d8",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-4739564b3c2f",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-ffa85c7739",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-48b75d27172e",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-52fb053465",
+      "asset_count": 12,
+      "edf_count": 0,
+      "eeg_count": 2,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.eeg",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-4f5b4dee0db1",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-d1d59db3ea",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-4f8e615e6a32",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-d7489eb2",
+      "participant_id": "participant-fe1ce13272",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-52e84a79a3cc",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-eac587b970",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-5330e68629d4",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-c33a22dcae",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-546ebe2d4882",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-d7489eb2",
+      "participant_id": "participant-4b8d682a6b",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-55e3354a8999",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-ed5f3b66e3",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-5674f2c78b5b",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-9d2faa7d12",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-58acb7580ce9",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-d1bdee37b3",
+      "asset_count": 14,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 12,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.cfg",
+        "support.dll"
+      ]
+    },
+    {
+      "session_id": "session-58fcae0d32f7",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-ffa85c7739",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-5a116a8ea9e0",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-41f3292cf5",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-5d2d6d9e893e",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-40400c80e1",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-5fb5d0db5798",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-57b2fb5d0b",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-60492a782be8",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-da149ab652",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-6749710584b2",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-d2040bd1d8",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-680376ba04f4",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-9850aa66d6",
+      "asset_count": 11,
+      "edf_count": 0,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "support.cfg",
+        "support.dll",
+        "support.cfg",
+        "support.exe"
+      ]
+    },
+    {
+      "session_id": "session-6c6c12eacfd5",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-c26e5a48d1",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-6e5ac0895024",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-4d360b8e85",
+      "asset_count": 13,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 1,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-6e96316cef3e",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-d7489eb2",
+      "participant_id": "participant-e615c2ef80",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-6fcfab542363",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-a8087cf066",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-71701a6e69d7",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-d7489eb2",
+      "participant_id": "participant-467c7ab219",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-736f4e748ab1",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-57b2fb5d0b",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-7453008e00ca",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-91904a0aa4",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-74a17beef963",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-566ce99419",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-750df7bc53cf",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-d7489eb2",
+      "participant_id": "participant-fe1ce13272",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-772caaa2f2bc",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-1d876b7bd5",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-77be8ede16c1",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-ee3489ad4e",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-798342143c1d",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-d7489eb2",
+      "participant_id": "participant-145704d7db",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-7b3a784d764c",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-d1d59db3ea",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-7d6c64ed5432",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-9850aa66d6",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-7e15c74bcf94",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-f4c5c64aa4",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-7f655d41b8ca",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-ac7f19e432",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-821a5a08c199",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-a8087cf066",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-8477642510ac",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-d7489eb2",
+      "participant_id": "participant-1b28e16916",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-85ea3c72d7a4",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-36847450e7",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-889bad4b4feb",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-399633c81c",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-88d712fdc36e",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-1dbe6d1780",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-8bf7b53f1be6",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-c33a22dcae",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-8d11be6c7c14",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-986651b403",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-8e6c60e1ddc5",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-52fb053465",
+      "asset_count": 11,
+      "edf_count": 0,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "support.cfg",
+        "support.dll",
+        "support.cfg",
+        "support.exe"
+      ]
+    },
+    {
+      "session_id": "session-8f0f6e257343",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-3d9dffe64d",
+      "asset_count": 11,
+      "edf_count": 0,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "support.cfg",
+        "support.dll",
+        "support.cfg",
+        "support.exe"
+      ]
+    },
+    {
+      "session_id": "session-8fe90cd97433",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-eac587b970",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-90087b085a8a",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-e0ee1f4237",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-914a55d3468e",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-e913a2be84",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-9175c76482ea",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-bb6a2d8b9b",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-9337b626ac6a",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-75714c7085",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-9443266fd3f0",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-e3d23a2868",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-9607389b7b70",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-5fc45a701d",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-998c4d05c4fa",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-2b63d4c06c",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-9fe68af1b6db",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-5fc45a701d",
+      "asset_count": 11,
+      "edf_count": 0,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "support.cfg",
+        "support.dll",
+        "support.cfg",
+        "support.exe"
+      ]
+    },
+    {
+      "session_id": "session-a29974b16476",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-c26e5a48d1",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-a2dd5618062f",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-176130dc7e",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-a3131cb76485",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-2d46a9a4e1",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-a4969419ef0f",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-f4c5c64aa4",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-a5025481d494",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-1d876b7bd5",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-a9b0a17f4793",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-9850aa66d6",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-ab1d205ff4bf",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-1d5b8878a5",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-ac81dc1f1fed",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-1bfaaf5ff0",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-af0443bb8e24",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-52fb053465",
+      "asset_count": 11,
+      "edf_count": 0,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "support.cfg",
+        "support.dll",
+        "support.cfg",
+        "support.exe"
+      ]
+    },
+    {
+      "session_id": "session-b34760e8cb51",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-d7489eb2",
+      "participant_id": "participant-842a884dfd",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-b413022e45ac",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-d1bdee37b3",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-b74068c83834",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-3d9dffe64d",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-b8a7a611e8af",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-3d9dffe64d",
+      "asset_count": 11,
+      "edf_count": 0,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "support.cfg",
+        "support.dll",
+        "support.cfg",
+        "support.exe"
+      ]
+    },
+    {
+      "session_id": "session-bdc9ff192740",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-3d9dffe64d",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-bdf281830672",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-5fc45a701d",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-c20f636e69f1",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-d7489eb2",
+      "participant_id": "participant-145704d7db",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-c2d617b45e4a",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-986651b403",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-c35ab45ea1f5",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-43b3f0ea",
+      "participant_id": "participant-36847450e7",
+      "asset_count": 14,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 12,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.cfg",
+        "support.dll"
+      ]
+    },
+    {
+      "session_id": "session-c387ce8d1614",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-2d46a9a4e1",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-c6b76befa392",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-480731ad1d",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-c724e13ff961",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-5fc45a701d",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-c988052c5cc0",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-45162552b8",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-cad718632210",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-45162552b8",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-ccdb46a770c0",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-518d6700ea",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-ce42c15acc86",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-d7489eb2",
+      "participant_id": "participant-fd87fc4b0f",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-d37e097a2b30",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-85ad777310",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-d5462aaeba9c",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-3930e46f36",
+      "asset_count": 12,
+      "edf_count": 1,
+      "eeg_count": 1,
+      "docx_count": 0,
+      "support_file_count": 10,
+      "representative_assets": [
+        "support.inf",
+        "recording.eeg",
+        "recording.edf",
+        "support.cfg",
+        "support.dll",
+        "support.cfg"
+      ]
+    },
+    {
+      "session_id": "session-d7a00c627353",
+      "site_id": "site-19d9d834",
+      "day_id": "day-ab1507ad",
+      "participant_id": "participant-5ebca09aad",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-d8381d44d2d7",
+      "site_id": "site-199f0cd7",
+      "day_id": "day-d7489eb2",
+      "participant_id": "participant-e615c2ef80",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    },
+    {
+      "session_id": "session-d931abed2567",
+      "site_id": "site-19d9d834",
+      "day_id": "day-9d2fe9a9",
+      "participant_id": "participant-ed5f3b66e3",
+      "asset_count": 1,
+      "edf_count": 0,
+      "eeg_count": 0,
+      "docx_count": 1,
+      "support_file_count": 0,
+      "representative_assets": [
+        "participant-note.docx"
+      ]
+    }
+  ],
+  "integration_notes": [
+    "This library maps the current OneDrive QEEG GERMANY FILES tree into DeepSynaps-readable session metadata.",
+    "Participant names and raw session paths are anonymized before anything is written into the repo.",
+    "It is intended for qEEG raw-workbench fixtures, sample-session routing, parser testing, and analyzer-side provenance awareness.",
+    "The asset registry includes EDF, EEG, DOCX, and support files bundled with each session folder."
+  ]
+}

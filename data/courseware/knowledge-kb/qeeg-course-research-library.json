@@ -1,0 +1,2179 @@
+{
+  "schema_version": "1.0.0",
+  "resource_slug": "qeeg-course-research-library",
+  "resource_name": "qEEG Course Research Library",
+  "generated_at": "2026-04-30T06:09:59.605309+00:00",
+  "source_bundle_date": "2026-04-30",
+  "course_provider": "USA qEEG Course Import",
+  "program_name": "USA COURSES / QEEG COURSE",
+  "material_count": 37,
+  "source_assets": [
+    {
+      "asset_id": "paper-901a048af143",
+      "title": "Article Summary:Arns, M., de Ridder, S., Strehl, U., Breteler, M., & Coenen, A. (2009). Efficacy ofNeurofeedback treatment in ADHD: The effects on inattention, Impulsivity and H...",
+      "kind": "article_summary",
+      "relative_path": "Arns2009ArticleSummarydocx-220304-141834.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "bytes": 178870,
+      "year": 2009,
+      "lead_author": "Arns",
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "adhd",
+        "neurofeedback",
+        "reporting"
+      ],
+      "analyzer_use": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+      "agent_use": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives.",
+      "note": "Readable local file. Source file: Arns2009ArticleSummarydocx-220304-141834.pdf"
+    },
+    {
+      "asset_id": "paper-c09cd9bcfcf0",
+      "title": "Article Summary:Coben, R., & Padolsky, I. (2007). Assessment-guided Neurofeedback for autistic spectrumdisorder. Journal of Neurotherapy, 11(1), 5–23. doi:10.1300/j184v11n01_02",
+      "kind": "article_summary",
+      "relative_path": "Coben2007ArticleSummarydocx-220304-140152 - Copy.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "bytes": 178394,
+      "year": 2007,
+      "lead_author": "Coben",
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "connectivity",
+        "autism",
+        "neurofeedback",
+        "reporting"
+      ],
+      "analyzer_use": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+      "agent_use": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives.",
+      "note": "Readable local file. Source file: Coben2007ArticleSummarydocx-220304-140152 - Copy.pdf"
+    },
+    {
+      "asset_id": "paper-e9690ba2671d",
+      "title": "Independent EEG Sources Are Dipolar",
+      "kind": "research_pdf",
+      "relative_path": "Delorme2012IndependentEEGSourcesAreDipolar-220304-135752.pdf",
+      "hydrated": true,
+      "pages": 14,
+      "bytes": 1326966,
+      "year": 2012,
+      "lead_author": "Delorme",
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "gamma",
+        "reporting"
+      ],
+      "analyzer_use": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+      "agent_use": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments.",
+      "note": "Readable local file. Source file: Delorme2012IndependentEEGSourcesAreDipolar-220304-135752.pdf"
+    },
+    {
+      "asset_id": "paper-1ec75a5e7096",
+      "title": "Article Summary:Delorme, A, Palmer, J, Onton, J, Oosterveld, R, Makeig, S. (2012) Independent EEG SourcesAre Dipolar. PLoSOne 7(2): 30135. Doi: 10.1371/journal.pone.0030135",
+      "kind": "article_summary",
+      "relative_path": "Delorme2021ArticleSummarydocx-220304-135742.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "bytes": 175999,
+      "year": 2021,
+      "lead_author": "Delorme",
+      "topical_tags": [
+        "artifact"
+      ],
+      "analyzer_use": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+      "agent_use": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments.",
+      "note": "Readable local file. Source file: Delorme2021ArticleSummarydocx-220304-135742.pdf"
+    },
+    {
+      "asset_id": "paper-9551c2ccdce1",
+      "title": "Note",
+      "kind": "research_pdf",
+      "relative_path": "Dhar2010Reducedinterhemisphericcoherenceindyslexicadults-220304-135558.pdf",
+      "hydrated": true,
+      "pages": 5,
+      "bytes": 221321,
+      "year": 2010,
+      "lead_author": "Dhar",
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "adhd",
+        "autism",
+        "reading",
+        "reporting"
+      ],
+      "analyzer_use": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+      "agent_use": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments.",
+      "note": "Readable local file. Source file: Dhar2010Reducedinterhemisphericcoherenceindyslexicadults-220304-135558.pdf"
+    },
+    {
+      "asset_id": "paper-427fe710ca3d",
+      "title": "1 MEDICATION TABLE FOR 5 HALF LIFES 7/28/2023",
+      "kind": "reference_sheet",
+      "relative_path": "DrugHalfLifeChartxlsSheet1-230728-120414 - Copy.pdf",
+      "hydrated": true,
+      "pages": 18,
+      "bytes": 96016,
+      "year": 2041,
+      "lead_author": "DrugHalfLifeChartxlsSheet",
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "gamma"
+      ],
+      "analyzer_use": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+      "agent_use": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives.",
+      "note": "Readable local file. Source file: DrugHalfLifeChartxlsSheet1-230728-120414 - Copy.pdf"
+    },
+    {
+      "asset_id": "paper-14e22eb5cbac",
+      "title": "Article Summary:Enoch, M.A., Shen, P.-H., Ducci, F., Yuan, Q., Liu, J., White, K. V., … Goldman, D. (2008).Common genetic origins for EEG, alcoholism and anxiety: The role of CR...",
+      "kind": "article_summary",
+      "relative_path": "Enoch2008ArticleSummarydocx-220304-142046.pdf",
+      "hydrated": true,
+      "pages": 2,
+      "bytes": 188085,
+      "year": 2008,
+      "lead_author": "Enoch",
+      "topical_tags": [
+        "artifact",
+        "reporting"
+      ],
+      "analyzer_use": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+      "agent_use": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments.",
+      "note": "Readable local file. Source file: Enoch2008ArticleSummarydocx-220304-142046.pdf"
+    },
+    {
+      "asset_id": "paper-8fa7a9512fa7",
+      "title": "Common Genetic Origins for EEG, Alcoholism and",
+      "kind": "research_pdf",
+      "relative_path": "Enoch2008CommongeneticoriginsforEEGalcoholismandanxiety-220304-142053.pdf",
+      "hydrated": true,
+      "pages": 11,
+      "bytes": 511580,
+      "year": 2008,
+      "lead_author": "Enoch",
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "connectivity",
+        "dementia",
+        "gamma",
+        "reporting"
+      ],
+      "analyzer_use": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+      "agent_use": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives.",
+      "note": "Readable local file. Source file: Enoch2008CommongeneticoriginsforEEGalcoholismandanxiety-220304-142053.pdf"
+    },
+    {
+      "asset_id": "paper-ef23fc6b6b1a",
+      "title": "The electroencephalography of encephalopathy in patients with",
+      "kind": "research_pdf",
+      "relative_path": "Faigle 2013 - The electroencephalography of encephalopathy in patients with endocrine and metabolic disorders.pdf",
+      "hydrated": true,
+      "pages": 25,
+      "bytes": 3110513,
+      "year": 2013,
+      "lead_author": "Faigle",
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "adhd",
+        "dementia",
+        "reading",
+        "reporting"
+      ],
+      "analyzer_use": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+      "agent_use": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives.",
+      "note": "Readable local file. Source file: Faigle 2013 - The electroencephalography of encephalopathy in patients with endocrine and metabolic disorders.pdf"
+    },
+    {
+      "asset_id": "paper-19975f452d5b",
+      "title": "Drug exposure and EEG/qEEG findings",
+      "kind": "research_pdf",
+      "relative_path": "Gunkelman2009DrugexposureandEEG_qEEGfindings-220304-141716 (1).pdf",
+      "hydrated": true,
+      "pages": 6,
+      "bytes": 178925,
+      "year": 2009,
+      "lead_author": "Gunkelman",
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "connectivity",
+        "reading",
+        "reporting"
+      ],
+      "analyzer_use": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+      "agent_use": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives.",
+      "note": "Readable local file. Source file: Gunkelman2009DrugexposureandEEG_qEEGfindings-220304-141716 (1).pdf"
+    },
+    {
+      "asset_id": "paper-70416e6eeeb2",
+      "title": "Article Summary:Gunkelman, J., (2009). Drug exposure and EEG/qEEG findings: A technical guide. Brain ScienceInternational. Pleasanton, CA",
+      "kind": "article_summary",
+      "relative_path": "Gunkelman2012ArticleSummarydocx-220304-141710.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "bytes": 177208,
+      "year": 2012,
+      "lead_author": "Gunkelman",
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "connectivity",
+        "reading",
+        "reporting"
+      ],
+      "analyzer_use": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+      "agent_use": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives.",
+      "note": "Readable local file. Source file: Gunkelman2012ArticleSummarydocx-220304-141710.pdf"
+    },
+    {
+      "asset_id": "paper-9a691c77adcf",
+      "title": "Article Summary:Herrmann, C., & Demiralp, T. (2005). Human EEG gamma oscillations in neuropsychiatricdisorders. Clinical Neurophysiology, 116(12), 2719–2733. doi:10.1016/j.clinp...",
+      "kind": "article_summary",
+      "relative_path": "Herrmann2005ArticleSummarydocx-220304-135125.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "bytes": 176839,
+      "year": 2005,
+      "lead_author": "Herrmann",
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "adhd",
+        "dementia",
+        "gamma",
+        "reporting"
+      ],
+      "analyzer_use": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+      "agent_use": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments.",
+      "note": "Readable local file. Source file: Herrmann2005ArticleSummarydocx-220304-135125.pdf"
+    },
+    {
+      "asset_id": "paper-af4b4928f089",
+      "title": "Invited review",
+      "kind": "research_pdf",
+      "relative_path": "Herrmann2005HumanEEGgammaoscillationsinneuropsychiatricdisorders-220304-135132.pdf",
+      "hydrated": true,
+      "pages": 15,
+      "bytes": 332566,
+      "year": 2005,
+      "lead_author": "Herrmann",
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "connectivity",
+        "adhd",
+        "autism",
+        "dementia",
+        "gamma",
+        "reporting"
+      ],
+      "analyzer_use": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+      "agent_use": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives.",
+      "note": "Readable local file. Source file: Herrmann2005HumanEEGgammaoscillationsinneuropsychiatricdisorders-220304-135132.pdf"
+    },
+    {
+      "asset_id": "paper-a642795fb9b2",
+      "title": "Decreased EEG synchronization in Alzheimer’s disease and",
+      "kind": "research_pdf",
+      "relative_path": "Koenig2005DecreasedEEGsynchronizationinAlzheimersdiseaseandmildcognitiveimpairment-220304-092450.pdf",
+      "hydrated": true,
+      "pages": 24,
+      "bytes": 138152,
+      "year": 2005,
+      "lead_author": "Koenig",
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "connectivity",
+        "dementia",
+        "gamma",
+        "reporting"
+      ],
+      "analyzer_use": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+      "agent_use": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives.",
+      "note": "Readable local file. Source file: Koenig2005DecreasedEEGsynchronizationinAlzheimersdiseaseandmildcognitiveimpairment-220304-092450.pdf"
+    },
+    {
+      "asset_id": "paper-25c6d5b68e3d",
+      "title": "Article Summary:Li, B. J., Friston, K., Mody, M., Wang, H. N., Lu, H. B., & Hu, D. W. (2018). A brain network model fordepression: From symptom understanding to disease interven...",
+      "kind": "article_summary",
+      "relative_path": "Li2018ArticleSummarydocx-220304-085902.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "bytes": 187268,
+      "year": 2018,
+      "lead_author": "Li",
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "reporting"
+      ],
+      "analyzer_use": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+      "agent_use": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments.",
+      "note": "Readable local file. Source file: Li2018ArticleSummarydocx-220304-085902.pdf"
+    },
+    {
+      "asset_id": "paper-4b4bb5b7b296",
+      "title": "Article Summary:Machado, C., Estévez, M., Leisman, G., Melillo, R., Rodríguez, R., DeFina, P., … Beltrán, C.(2013). QEEG spectral and coherence assessment of autistic children i...",
+      "kind": "article_summary",
+      "relative_path": "Machado2013ArticleSummarydocx-220304-140221.pdf",
+      "hydrated": true,
+      "pages": 2,
+      "bytes": 186910,
+      "year": 2013,
+      "lead_author": "Machado",
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "autism",
+        "gamma",
+        "reporting"
+      ],
+      "analyzer_use": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+      "agent_use": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments.",
+      "note": "Readable local file. Source file: Machado2013ArticleSummarydocx-220304-140221.pdf"
+    },
+    {
+      "asset_id": "paper-a98eba2dc449",
+      "title": "ORIGINAL PAPER",
+      "kind": "research_pdf",
+      "relative_path": "Machado2013QEEGspectralandcoherenceassessmentofautisticchildreninthreedifferent-220304-140230.pdf",
+      "hydrated": true,
+      "pages": 19,
+      "bytes": 2227361,
+      "year": 2013,
+      "lead_author": "Machado",
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "connectivity",
+        "adhd",
+        "autism",
+        "gamma",
+        "reading",
+        "reporting"
+      ],
+      "analyzer_use": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+      "agent_use": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives.",
+      "note": "Readable local file. Source file: Machado2013QEEGspectralandcoherenceassessmentofautisticchildreninthreedifferent-220304-140230.pdf"
+    },
+    {
+      "asset_id": "paper-89a14202e3a0",
+      "title": "Article Summary:Makeig, S. and Onton, J. (2009) ERP Features and EEG Dynamics: AN ICA Perspective (AnInvited Chapter) Swartz Center for Computational Neuroscience, Institute for...",
+      "kind": "article_summary",
+      "relative_path": "Makeig2009ArticleSummarydocx-220304-090528.pdf",
+      "hydrated": true,
+      "pages": 2,
+      "bytes": 178246,
+      "year": 2009,
+      "lead_author": "Makeig",
+      "topical_tags": [
+        "artifact"
+      ],
+      "analyzer_use": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+      "agent_use": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments.",
+      "note": "Readable local file. Source file: Makeig2009ArticleSummarydocx-220304-090528.pdf"
+    },
+    {
+      "asset_id": "paper-84d388c41046",
+      "title": "See discussions, stats, and author profiles for this publication at: https://www.researchgate.net/publication/228639595",
+      "kind": "research_pdf",
+      "relative_path": "Makeig2009ERPFeaturesandEEGDynamics_ANICAPerspective-220304-090538.pdf",
+      "hydrated": true,
+      "pages": 59,
+      "bytes": 2914483,
+      "year": 2009,
+      "lead_author": "Makeig",
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "gamma",
+        "reading",
+        "reporting"
+      ],
+      "analyzer_use": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+      "agent_use": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments.",
+      "note": "Readable local file. Source file: Makeig2009ERPFeaturesandEEGDynamics_ANICAPerspective-220304-090538.pdf"
+    },
+    {
+      "asset_id": "paper-114ec52a06d3",
+      "title": "Article Summary:Nuwer, M., (1997) Assessment of digital EEG, quantitative EEG and EEG brain mapping.Neurology:49. 277-292",
+      "kind": "article_summary",
+      "relative_path": "Nuwer1997ArticleSummarydocx-220304-141132.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "bytes": 175720,
+      "year": 1997,
+      "lead_author": "Nuwer",
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "reporting"
+      ],
+      "analyzer_use": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+      "agent_use": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives.",
+      "note": "Readable local file. Source file: Nuwer1997ArticleSummarydocx-220304-141132.pdf"
+    },
+    {
+      "asset_id": "paper-9737af9f9fb6",
+      "title": "1997;49;277Neurology",
+      "kind": "research_pdf",
+      "relative_path": "Nuwer1997AssessmentofdigitalEEGquantitativeEEGandEEGbrainmapping-220304-141136.pdf",
+      "hydrated": true,
+      "pages": 18,
+      "bytes": 2477874,
+      "year": 1997,
+      "lead_author": "Nuwer",
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "connectivity",
+        "adhd",
+        "dementia",
+        "reading",
+        "reporting"
+      ],
+      "analyzer_use": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+      "agent_use": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives.",
+      "note": "Readable local file. Source file: Nuwer1997AssessmentofdigitalEEGquantitativeEEGandEEGbrainmapping-220304-141136.pdf"
+    },
+    {
+      "asset_id": "paper-57f26368a192",
+      "title": "Journal of Neurotherapy: Investigations in",
+      "kind": "research_pdf",
+      "relative_path": "RatcliffBaird2002ADHDandStuttering_SimilarEEGprofilessuggestNeurotherapyas-220304-090320.pdf",
+      "hydrated": true,
+      "pages": 19,
+      "bytes": 697762,
+      "year": 2002,
+      "lead_author": "RatcliffBaird",
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "connectivity",
+        "adhd",
+        "reading",
+        "neurofeedback",
+        "reporting"
+      ],
+      "analyzer_use": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+      "agent_use": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives.",
+      "note": "Readable local file. Source file: RatcliffBaird2002ADHDandStuttering_SimilarEEGprofilessuggestNeurotherapyas-220304-090320.pdf"
+    },
+    {
+      "asset_id": "paper-8464d20be27e",
+      "title": "Article Summary:Ratcliff-Baird, B. (2002). ADHD and Stuttering: Similar EEG profiles suggest Neurotherapy asan adjunct to traditional speech therapies. Journal of Neurotherapy, ...",
+      "kind": "article_summary",
+      "relative_path": "RatcliffBaird2002ArticleSummarydocx-220304-090308.pdf",
+      "hydrated": true,
+      "pages": 2,
+      "bytes": 179421,
+      "year": 2002,
+      "lead_author": "RatcliffBaird",
+      "topical_tags": [
+        "artifact",
+        "adhd",
+        "reading",
+        "neurofeedback"
+      ],
+      "analyzer_use": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+      "agent_use": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments.",
+      "note": "Readable local file. Source file: RatcliffBaird2002ArticleSummarydocx-220304-090308.pdf"
+    },
+    {
+      "asset_id": "paper-e46932337900",
+      "title": "Article Summary:Salinsky, M. C., Binder, L. M., Oken, B. S., Storzbach, D., Aron, C. R., & Dodrill, C. B. (2002).Effects of Gabapentin and carbamazepine on the EEG and Cognition...",
+      "kind": "article_summary",
+      "relative_path": "Salinsky2002ArticleSummarydocx-220304-141311.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "bytes": 177976,
+      "year": 2002,
+      "lead_author": "Salinsky",
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "reporting"
+      ],
+      "analyzer_use": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+      "agent_use": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives.",
+      "note": "Readable local file. Source file: Salinsky2002ArticleSummarydocx-220304-141311.pdf"
+    },
+    {
+      "asset_id": "paper-1146ccf17729",
+      "title": "Clinical Research",
+      "kind": "research_pdf",
+      "relative_path": "Salinsky2002EffectsofGabapentinandcarbamazepineontheEEGandCognitioninhealthyvolunteers-220304-141317.pdf",
+      "hydrated": true,
+      "pages": 9,
+      "bytes": 263239,
+      "year": 2002,
+      "lead_author": "Salinsky",
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "connectivity",
+        "dementia",
+        "reading",
+        "reporting"
+      ],
+      "analyzer_use": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+      "agent_use": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives.",
+      "note": "Readable local file. Source file: Salinsky2002EffectsofGabapentinandcarbamazepineontheEEGandCognitioninhealthyvolunteers-220304-141317.pdf"
+    },
+    {
+      "asset_id": "paper-165e26b1f574",
+      "title": "Accelerating the world's research.",
+      "kind": "research_pdf",
+      "relative_path": "Sherlin2010ApositionpaperonneurofeedbackforthetreatmentofADHD-220304-140247.pdf",
+      "hydrated": true,
+      "pages": 16,
+      "bytes": 828818,
+      "year": 2010,
+      "lead_author": "Sherlin",
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "adhd",
+        "autism",
+        "reading",
+        "neurofeedback",
+        "reporting"
+      ],
+      "analyzer_use": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+      "agent_use": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives.",
+      "note": "Readable local file. Source file: Sherlin2010ApositionpaperonneurofeedbackforthetreatmentofADHD-220304-140247.pdf"
+    },
+    {
+      "asset_id": "paper-99b144049862",
+      "title": "Article Summary:Sherlin, L., Arns, M., Lubar, J., & Sokhadze, E. (2010). A position paper on Neurofeedback forthe treatment of ADHD. Journal of Neurotherapy, 14(2), 66–78.doi:10...",
+      "kind": "article_summary",
+      "relative_path": "Sherlin2010ArticleSummarydocx-220304-140240.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "bytes": 176521,
+      "year": 2010,
+      "lead_author": "Sherlin",
+      "topical_tags": [
+        "artifact",
+        "adhd",
+        "neurofeedback",
+        "reporting"
+      ],
+      "analyzer_use": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+      "agent_use": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments.",
+      "note": "Readable local file. Source file: Sherlin2010ArticleSummarydocx-220304-140240.pdf"
+    },
+    {
+      "asset_id": "paper-97635902f932",
+      "title": "Article Summary:Solso, S., Xu, R., Proudfoot, J., Hagler, D. J., Campbell, K., Venkatraman, V., … Courchesne, E.(2015). Diffusion Tensor imaging provides evidence of possible Ax...",
+      "kind": "article_summary",
+      "relative_path": "Solso2015ArticleSummarydocx-220304-140420.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "bytes": 192491,
+      "year": 2015,
+      "lead_author": "Solso",
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "autism",
+        "reporting"
+      ],
+      "analyzer_use": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+      "agent_use": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments.",
+      "note": "Readable local file. Source file: Solso2015ArticleSummarydocx-220304-140420.pdf"
+    },
+    {
+      "asset_id": "paper-c270f19f37ba",
+      "title": "Archival Report",
+      "kind": "research_pdf",
+      "relative_path": "Solso2015DiffusionTensorimagingprovidesevidenceofpossibleAxonalOverconnectivityinfrontallobesinautismspectrumdisordertoddlers-220304-140424.pdf",
+      "hydrated": true,
+      "pages": 9,
+      "bytes": 1073179,
+      "year": 2015,
+      "lead_author": "Solso",
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "autism",
+        "reading",
+        "reporting"
+      ],
+      "analyzer_use": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+      "agent_use": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments.",
+      "note": "Readable local file. Source file: Solso2015DiffusionTensorimagingprovidesevidenceofpossibleAxonalOverconnectivityinfrontallobesinautismspectrumdisordertoddlers-220304-140424.pdf"
+    },
+    {
+      "asset_id": "paper-f58e722d85cd",
+      "title": "Article Summary:",
+      "kind": "article_summary",
+      "relative_path": "Thatcher2008ArticleSummarydocx-220304-140616.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "bytes": 188155,
+      "year": 2008,
+      "lead_author": "Thatcher",
+      "topical_tags": [
+        "artifact",
+        "connectivity"
+      ],
+      "analyzer_use": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+      "agent_use": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments.",
+      "note": "Readable local file. Source file: Thatcher2008ArticleSummarydocx-220304-140616.pdf"
+    },
+    {
+      "asset_id": "paper-e20e113b4e3d",
+      "title": "Article Summary:Thornton, K., (2002), Electrophysiology (QEEG) correlates of effective reading memory:Towards a generator/activation theory of the mind. J. Neurotherapy:6(3). 37-66",
+      "kind": "article_summary",
+      "relative_path": "Thornton2002ArticleSummarydocx-220304-141147.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "bytes": 176815,
+      "year": 2002,
+      "lead_author": "Thornton",
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "reading",
+        "neurofeedback",
+        "reporting"
+      ],
+      "analyzer_use": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+      "agent_use": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments.",
+      "note": "Readable local file. Source file: Thornton2002ArticleSummarydocx-220304-141147.pdf"
+    },
+    {
+      "asset_id": "paper-15b99da263da",
+      "title": "Journal of Neurotherapy: Investigations in Neuromodulation,",
+      "kind": "research_pdf",
+      "relative_path": "Thornton2002ElectrophysiologyQEEGcorrelatesofeffectivereadingmemory_Towardsagenerator_activationtheoryofthemind-220304-141154.pdf",
+      "hydrated": true,
+      "pages": 31,
+      "bytes": 1150276,
+      "year": 2002,
+      "lead_author": "Thornton",
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "connectivity",
+        "adhd",
+        "reading",
+        "neurofeedback",
+        "reporting"
+      ],
+      "analyzer_use": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+      "agent_use": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives.",
+      "note": "Readable local file. Source file: Thornton2002ElectrophysiologyQEEGcorrelatesofeffectivereadingmemory_Towardsagenerator_activationtheoryofthemind-220304-141154.pdf"
+    },
+    {
+      "asset_id": "paper-1f6982d2cb7f",
+      "title": "NeuroRegulation",
+      "kind": "research_pdf",
+      "relative_path": "Thornton2014AQEEGactivationmethodologywhichobtains100accuracyinthediscriminationtraumaticbraininjuredfromnormalanddoesthelearningdisabledshowthebraininjurypattern_-220304-135314.pdf",
+      "hydrated": true,
+      "pages": 10,
+      "bytes": 668516,
+      "year": 2014,
+      "lead_author": "Thornton",
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "adhd",
+        "gamma",
+        "reading",
+        "neurofeedback",
+        "reporting"
+      ],
+      "analyzer_use": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+      "agent_use": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments.",
+      "note": "Readable local file. Source file: Thornton2014AQEEGactivationmethodologywhichobtains100accuracyinthediscriminationtraumaticbraininjuredfromnormalanddoesthelearningdisabledshowthebraininjurypattern_-220304-135314.pdf"
+    },
+    {
+      "asset_id": "paper-0a26a67ab0cd",
+      "title": "Article Summary:Thornton, K. (2014). A QEEG activation methodology which obtains 100% accuracy in thediscrimination traumatic brain injured from normal and does the learning dis...",
+      "kind": "article_summary",
+      "relative_path": "Thornton2014ArticleSummarydocx-220304-135304.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "bytes": 176060,
+      "year": 2014,
+      "lead_author": "Thornton",
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "reading",
+        "reporting"
+      ],
+      "analyzer_use": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+      "agent_use": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments.",
+      "note": "Readable local file. Source file: Thornton2014ArticleSummarydocx-220304-135304.pdf"
+    },
+    {
+      "asset_id": "paper-b16c9c38ce53",
+      "title": "Article Summary:Zarei, M., Johansen-Berg, H., Smith, S., Ciccarelli, O., Thompson, A. J., & Matthews, P. M.(2006). Functional anatomy of interhemispheric cortical connections in...",
+      "kind": "article_summary",
+      "relative_path": "Zarei2006ArticleSummarydocx-220304-142228.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "bytes": 177379,
+      "year": 2006,
+      "lead_author": "Zarei",
+      "topical_tags": [
+        "artifact",
+        "connectivity"
+      ],
+      "analyzer_use": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+      "agent_use": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments.",
+      "note": "Readable local file. Source file: Zarei2006ArticleSummarydocx-220304-142228.pdf"
+    },
+    {
+      "asset_id": "paper-a6ada490e060",
+      "title": "J. Anat.",
+      "kind": "research_pdf",
+      "relative_path": "Zarei2006Functionalanatomyofinterhemisphericcorticalconnectionsinthehumanbrain-220304-142233.pdf",
+      "hydrated": true,
+      "pages": 10,
+      "bytes": 252760,
+      "year": 2006,
+      "lead_author": "Zarei",
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "dementia",
+        "reading",
+        "reporting"
+      ],
+      "analyzer_use": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+      "agent_use": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments.",
+      "note": "Readable local file. Source file: Zarei2006Functionalanatomyofinterhemisphericcorticalconnectionsinthehumanbrain-220304-142233.pdf"
+    },
+    {
+      "asset_id": "paper-86f09372acc4",
+      "title": "INSTRUCTIONS:",
+      "kind": "reference_sheet",
+      "relative_path": "kharrazian-institute-brain-region-localization-form-digital.pdf",
+      "hydrated": true,
+      "pages": 3,
+      "bytes": 512767,
+      "year": null,
+      "lead_author": "Local course",
+      "topical_tags": [
+        "artifact"
+      ],
+      "analyzer_use": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+      "agent_use": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments.",
+      "note": "Readable local file. Source file: kharrazian-institute-brain-region-localization-form-digital.pdf"
+    }
+  ],
+  "research_items": [
+    {
+      "paper_id": "paper-427fe710ca3d",
+      "title": "1 MEDICATION TABLE FOR 5 HALF LIFES 7/28/2023",
+      "kind": "reference_sheet",
+      "lead_author": "DrugHalfLifeChartxlsSheet",
+      "year": 2041,
+      "relative_path": "DrugHalfLifeChartxlsSheet1-230728-120414 - Copy.pdf",
+      "hydrated": true,
+      "pages": 18,
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "gamma"
+      ],
+      "status": "extracted",
+      "summary": "1 MEDICATION TABLE FOR 5 HALF LIFES 7/28/2023 TRADE, GENERIC, CHEMICAL DETOX 5-HTP 5-HYDROXTRYPTOPHAN 2 DAYS a-LIPOIC ACID ALPHA LIPOIC ACID 4 HOURS ABILIFY ARIPIPRAZOLE 30 DAYS ACAMPROSATE CALCIUM CAMPRAL 7 DAYS ACCUPRIL QUINAPRIL NO DETOX ACCUTANE ISOTRETINOIN 16 DAYS ACETAMINOPHEN 15 HOURS ACIPHEX RABEPRAZOLE 10 HOURS ACTIFED 2 DAYS ACTONEL RISEDRONATE 8 HOURS ACTOS PIOGLITAZONE HCL 5 DAYS ACYCLOVIR ZOVIRAX 20 HOURS ADDERALL 2 DAYS ADIPEX 3 DAYS ADVICOR NIACIN EXT RELEASE & LOVASTATIN 1 DAY ADVIL 10 HOURS ADVAIR 2 DAYS AFRIN 1 DAY AGENERACE 3 DAYS AGGRENOX ...",
+      "topic_outline": [
+        "1 MEDICATION TABLE FOR 5 HALF LIFES 7/28/2023",
+        "TRADE, GENERIC, CHEMICAL DETOX",
+        "5-HTP 5-HYDROXTRYPTOPHAN 2 DAYS",
+        "a-LIPOIC ACID ALPHA LIPOIC ACID 4 HOURS",
+        "ABILIFY ARIPIPRAZOLE 30 DAYS",
+        "ACAMPROSATE CALCIUM CAMPRAL 7 DAYS",
+        "ACCUPRIL QUINAPRIL NO DETOX",
+        "ACCUTANE ISOTRETINOIN 16 DAYS",
+        "ACETAMINOPHEN 15 HOURS",
+        "ACIPHEX RABEPRAZOLE 10 HOURS"
+      ],
+      "search_preview": "1 MEDICATION TABLE FOR 5 HALF LIFES 7/28/2023 | TRADE, GENERIC, CHEMICAL DETOX | 5-HTP 5-HYDROXTRYPTOPHAN 2 DAYS | a-LIPOIC ACID ALPHA LIPOIC ACID 4 HOURS | ABILIFY ARIPIPRAZOLE 30 DAYS | ACAMPROSATE CALCIUM CAMPRAL 7 DAYS",
+      "clinical_use": {
+        "analyzer": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+        "agents": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives."
+      },
+      "citation_hint": "DrugHalfLifeChartxlsSheet 2041"
+    },
+    {
+      "paper_id": "paper-1ec75a5e7096",
+      "title": "Article Summary:Delorme, A, Palmer, J, Onton, J, Oosterveld, R, Makeig, S. (2012) Independent EEG SourcesAre Dipolar. PLoSOne 7(2): 30135. Doi: 10.1371/journal.pone.0030135",
+      "kind": "article_summary",
+      "lead_author": "Delorme",
+      "year": 2021,
+      "relative_path": "Delorme2021ArticleSummarydocx-220304-135742.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "topical_tags": [
+        "artifact"
+      ],
+      "status": "extracted",
+      "summary": "Article Summary:Delorme, A, Palmer, J, Onton, J, Oosterveld, R, Makeig, S. (2012) Independent EEG SourcesAre Dipolar.",
+      "topic_outline": [
+        "Article Summary:Delorme, A, Palmer, J, Onton, J, Oosterveld, R, Makeig, S. (2012) Independent EEG SourcesAre Dipolar. PLoSOne 7(2): 30135. Doi: 10.1371/journal.pone.0030135",
+        "This article discusses independent control analysis (ICA) and blind source separation (BSS)methods when separating individual brain and non-brain source signals that have been c...",
+        "Relationship to IMO qEEG Program",
+        "Although most of us will not mess with the electrical component side of the technology we usefor qEEG, it is important to know how to obtain more accurate data and how this proc...",
+        "Questions to Consider",
+        "1. What do ICA methods allow modeling for?a. ICA methods that allow for modeling of spatial non-stationarity of the sourceconfiguration, and/or more general convolutive process ...",
+        "2. What are non-brain sources?a. Scalp-recorded EEG data also include non-brain or ‘artifact’ signals that are linearlymixed with brain EEG source activities at the scalp electr...",
+        "3. What is ICA primarily used for?a. Use of ICA to remove distinct sources of artifact data from EEG and other neuroimagingdata is increasingly widely accepted and so is its use...",
+        "©InMindOut Emotional Wellness Center 2022"
+      ],
+      "search_preview": "Article Summary:Delorme, A, Palmer, J, Onton, J, Oosterveld, R, Makeig, S. (2012) Independent EEG SourcesAre Dipolar. PLoSOne 7(2): 30135. Doi: 10.1371/journal.pone.0030135 | This article discusses independent control analysis (ICA) and blind source separation (BSS)methods when separating individual brain and non-brain source signals that have been c... | Relationship to IMO qEEG Program | Although most of us will not mess with the electrical component side of the technology we usefor qEEG, it is important to know how to obtain more accurate data and how this proc... | Questions to Consider | 1. What do ICA methods allow modeling for?a. ICA methods that allow for modeling of spatial non-stationarity of the sourceconfiguration, and/or more general convolutive process ...",
+      "clinical_use": {
+        "analyzer": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+        "agents": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments."
+      },
+      "citation_hint": "Delorme 2021"
+    },
+    {
+      "paper_id": "paper-25c6d5b68e3d",
+      "title": "Article Summary:Li, B. J., Friston, K., Mody, M., Wang, H. N., Lu, H. B., & Hu, D. W. (2018). A brain network model fordepression: From symptom understanding to disease interven...",
+      "kind": "article_summary",
+      "lead_author": "Li",
+      "year": 2018,
+      "relative_path": "Li2018ArticleSummarydocx-220304-085902.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Article Summary:Li, B. J., Friston, K., Mody, M., Wang, H.",
+      "topic_outline": [
+        "Article Summary:Li, B. J., Friston, K., Mody, M., Wang, H. N., Lu, H. B., & Hu, D. W. (2018). A brain network model fordepression: From symptom understanding to disease interven...",
+        "This article reviews recent studies involving functional and effective connectivity in depression(Li et al., 2018, p. 1004). They discuss how elevated connectivity of a ventral ...",
+        "Relationship to IMO qEEG Program",
+        "Although this article does not speak of their methods in great detail, they used imagingtechniques that did not involve qEEG. These methods are helpful when reviewing regions of...",
+        "Questions to Consider",
+        "1. How does the DMN relate to MDD?a. Zhu et al. (2012) reported that “elevated functional connectivity in the anterior divisionof the DMN in MDD patients to be positively correl...",
+        "a. “The CCN is thought to be an executive or control system, responsible for regulatingthoughts, and actions in accordance with internal goals (p. 1012).”",
+        "3. What do the researchers suggest is a highlight of determining the functional interactionsbetween neural networks?",
+        "a. “Investigating the dynamics of functional interactions among distributed systems may becritically important to concisely delineate the neural mechanisms of the diseases (p.10...",
+        "©InMindOut Emotional Wellness Center 2022"
+      ],
+      "search_preview": "Article Summary:Li, B. J., Friston, K., Mody, M., Wang, H. N., Lu, H. B., & Hu, D. W. (2018). A brain network model fordepression: From symptom understanding to disease interven... | This article reviews recent studies involving functional and effective connectivity in depression(Li et al., 2018, p. 1004). They discuss how elevated connectivity of a ventral ... | Relationship to IMO qEEG Program | Although this article does not speak of their methods in great detail, they used imagingtechniques that did not involve qEEG. These methods are helpful when reviewing regions of... | Questions to Consider | 1. How does the DMN relate to MDD?a. Zhu et al. (2012) reported that “elevated functional connectivity in the anterior divisionof the DMN in MDD patients to be positively correl...",
+      "clinical_use": {
+        "analyzer": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+        "agents": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments."
+      },
+      "citation_hint": "Li 2018"
+    },
+    {
+      "paper_id": "paper-c270f19f37ba",
+      "title": "Archival Report",
+      "kind": "research_pdf",
+      "lead_author": "Solso",
+      "year": 2015,
+      "relative_path": "Solso2015DiffusionTensorimagingprovidesevidenceofpossibleAxonalOverconnectivityinfrontallobesinautismspectrumdisordertoddlers-220304-140424.pdf",
+      "hydrated": true,
+      "pages": 9,
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "autism",
+        "reading",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Archival Report Diffusion Tensor Imaging Provides Evidence of Possible Axonal Overconnectivity in Frontal Lobes in Autism Spectrum Disorder Toddlers Stephanie Solso, Ronghui Xu, James Proudfoot, Donald J. Hagler Jr., Kathleen Campbell, Vijay Venkatraman, Cynthia Carter Barnes, Clelia Ahrens-Barbeau, Karen Pierce, Anders Dale, Lisa Eyler, and Eric Courchesne ABSTRACT BACKGROUND: Theories of brain abnormality in autism spectrum disorder (ASD) have focused on under- connectivity as an explanation for social, language, and behavioral deﬁcits but are based mainly on studies of older autistic children and adults.",
+      "topic_outline": [
+        "Archival Report",
+        "Diffusion Tensor Imaging Provides Evidence of",
+        "Possible Axonal Overconnectivity in Frontal",
+        "Lobes in Autism Spectrum Disorder Toddlers",
+        "Stephanie Solso, Ronghui Xu, James Proudfoot, Donald J. Hagler Jr., Kathleen Campbell,",
+        "Vijay Venkatraman, Cynthia Carter Barnes, Clelia Ahrens-Barbeau, Karen Pierce, Anders Dale,",
+        "Lisa Eyler, and Eric Courchesne",
+        "ABSTRACT",
+        "BACKGROUND: Theories of brain abnormality in autism spectrum disorder (ASD) have focused on under-",
+        "connectivity as an explanation for social, language, and behavioral deﬁcits but are based mainly on studies of"
+      ],
+      "search_preview": "Archival Report | Diffusion Tensor Imaging Provides Evidence of | Possible Axonal Overconnectivity in Frontal | Lobes in Autism Spectrum Disorder Toddlers | Stephanie Solso, Ronghui Xu, James Proudfoot, Donald J. Hagler Jr., Kathleen Campbell, | Vijay Venkatraman, Cynthia Carter Barnes, Clelia Ahrens-Barbeau, Karen Pierce, Anders Dale,",
+      "clinical_use": {
+        "analyzer": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+        "agents": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments."
+      },
+      "citation_hint": "Solso 2015"
+    },
+    {
+      "paper_id": "paper-97635902f932",
+      "title": "Article Summary:Solso, S., Xu, R., Proudfoot, J., Hagler, D. J., Campbell, K., Venkatraman, V., … Courchesne, E.(2015). Diffusion Tensor imaging provides evidence of possible Ax...",
+      "kind": "article_summary",
+      "lead_author": "Solso",
+      "year": 2015,
+      "relative_path": "Solso2015ArticleSummarydocx-220304-140420.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "autism",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Article Summary:Solso, S., Xu, R., Proudfoot, J., Hagler, D. J., Campbell, K., Venkatraman, V., … Courchesne, E.(2015).",
+      "topic_outline": [
+        "Article Summary:Solso, S., Xu, R., Proudfoot, J., Hagler, D. J., Campbell, K., Venkatraman, V., … Courchesne, E.(2015). Diffusion Tensor imaging provides evidence of possible Ax...",
+        "This article reviews underconnectivity in people with autism spectrum disorder (ASD) and itscorrelation to social, language, and behavior deficits (Solso et al., 2015, p. 676). ...",
+        "Relationship to IMO qEEG Program",
+        "Different types of imaging are used for various purposes.The purpose of this study was toreview the development of long-distance connections and widely distributed neural networ...",
+        "Questions to Consider",
+        "1. Which factor was recorded by the fMRI?a. Functional connectivity - keep in mind that f u n c t i o n a l MRIs assist in determining thef u n c t i o n a l correlations within...",
+        "2. Consider the following text: :The frontal tracts that develop abnormally inASD—fronto-amygdala, fronto-temporal, fronto-frontal, and fronto-striatal—are important insocial, e...",
+        "©InMindOut Emotional Wellness Center 2022"
+      ],
+      "search_preview": "Article Summary:Solso, S., Xu, R., Proudfoot, J., Hagler, D. J., Campbell, K., Venkatraman, V., … Courchesne, E.(2015). Diffusion Tensor imaging provides evidence of possible Ax... | This article reviews underconnectivity in people with autism spectrum disorder (ASD) and itscorrelation to social, language, and behavior deficits (Solso et al., 2015, p. 676). ... | Relationship to IMO qEEG Program | Different types of imaging are used for various purposes.The purpose of this study was toreview the development of long-distance connections and widely distributed neural networ... | Questions to Consider | 1. Which factor was recorded by the fMRI?a. Functional connectivity - keep in mind that f u n c t i o n a l MRIs assist in determining thef u n c t i o n a l correlations within...",
+      "clinical_use": {
+        "analyzer": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+        "agents": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments."
+      },
+      "citation_hint": "Solso 2015"
+    },
+    {
+      "paper_id": "paper-0a26a67ab0cd",
+      "title": "Article Summary:Thornton, K. (2014). A QEEG activation methodology which obtains 100% accuracy in thediscrimination traumatic brain injured from normal and does the learning dis...",
+      "kind": "article_summary",
+      "lead_author": "Thornton",
+      "year": 2014,
+      "relative_path": "Thornton2014ArticleSummarydocx-220304-135304.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "reading",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Article Summary:Thornton, K. (2014).",
+      "topic_outline": [
+        "Article Summary:Thornton, K. (2014). A QEEG activation methodology which obtains 100% accuracy in thediscrimination traumatic brain injured from normal and does the learning dis...",
+        "The researchers in this study focused on using qEEG to discriminate brain activity patternsbetween a traumatic brain injury (TBI) and a learning disability (LD) (Thornton, 2014,...",
+        "Relationship to IMO qEEG Program",
+        "The qEEG methods did not explain what type of equipment, sites, or filters were used. However,information regarding these details were given from other studies that were reviewe...",
+        "Questions to Consider",
+        "1. How would the presence of a strong developmental pattern showing increases in almost allcoherence and phase relations could negate the use of comparing the values of children...",
+        "a. The child’s numbers would be lower strictly due to developmental patterns (Thornton,2014, p. 215).",
+        "2. How were the researchers able to detect evidence of a brain injury?",
+        "a. Using a brain injury algorithm, abnormal features of brain electrical activity weredetected in athletes with concussion at the time of injury, which persisted beyond thepoint...",
+        "©InMindOut Emotional Wellness Center 2022"
+      ],
+      "search_preview": "Article Summary:Thornton, K. (2014). A QEEG activation methodology which obtains 100% accuracy in thediscrimination traumatic brain injured from normal and does the learning dis... | The researchers in this study focused on using qEEG to discriminate brain activity patternsbetween a traumatic brain injury (TBI) and a learning disability (LD) (Thornton, 2014,... | Relationship to IMO qEEG Program | The qEEG methods did not explain what type of equipment, sites, or filters were used. However,information regarding these details were given from other studies that were reviewe... | Questions to Consider | 1. How would the presence of a strong developmental pattern showing increases in almost allcoherence and phase relations could negate the use of comparing the values of children...",
+      "clinical_use": {
+        "analyzer": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+        "agents": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments."
+      },
+      "citation_hint": "Thornton 2014"
+    },
+    {
+      "paper_id": "paper-1f6982d2cb7f",
+      "title": "NeuroRegulation",
+      "kind": "research_pdf",
+      "lead_author": "Thornton",
+      "year": 2014,
+      "relative_path": "Thornton2014AQEEGactivationmethodologywhichobtains100accuracyinthediscriminationtraumaticbraininjuredfromnormalanddoesthelearningdisabledshowthebraininjurypattern_-220304-135314.pdf",
+      "hydrated": true,
+      "pages": 10,
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "adhd",
+        "gamma",
+        "reading",
+        "neurofeedback",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "NeuroRegulation 209 | NeuroRegulation Vol. 1(3-4):209-218 2014 doi:10.15540/nr.1.3-4.209 http://www.neuroregulation.org A QEEG Activation Methodology That Obtained 100% Accuracy in the Discrimination of Traumatic Brain Injured from Normal and Does the Learning Disabled Show the Brain Injury Pattern?",
+      "topic_outline": [
+        "NeuroRegulation",
+        "209 | NeuroRegulation Vol. 1(3-4):209-218 2014 doi:10.15540/nr.1.3-4.209",
+        "http://www.neuroregulation.org",
+        "A QEEG Activation Methodology That Obtained",
+        "100% Accuracy in the Discrimination of",
+        "Traumatic Brain Injured from Normal and Does",
+        "the Learning Disabled Show the Brain Injury",
+        "Pattern?",
+        "Kirtley E. Thornton*",
+        "The Neuroscience Center, Charlotte, North Carolina"
+      ],
+      "search_preview": "NeuroRegulation | 209 | NeuroRegulation Vol. 1(3-4):209-218 2014 doi:10.15540/nr.1.3-4.209 | http://www.neuroregulation.org | A QEEG Activation Methodology That Obtained | 100% Accuracy in the Discrimination of | Traumatic Brain Injured from Normal and Does",
+      "clinical_use": {
+        "analyzer": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+        "agents": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments."
+      },
+      "citation_hint": "Thornton 2014"
+    },
+    {
+      "paper_id": "paper-4b4bb5b7b296",
+      "title": "Article Summary:Machado, C., Estévez, M., Leisman, G., Melillo, R., Rodríguez, R., DeFina, P., … Beltrán, C.(2013). QEEG spectral and coherence assessment of autistic children i...",
+      "kind": "article_summary",
+      "lead_author": "Machado",
+      "year": 2013,
+      "relative_path": "Machado2013ArticleSummarydocx-220304-140221.pdf",
+      "hydrated": true,
+      "pages": 2,
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "autism",
+        "gamma",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Article Summary:Machado, C., Estévez, M., Leisman, G., Melillo, R., Rodríguez, R., DeFina, P., … Beltrán, C.(2013). QEEG spectral and coherence assessment of autistic children in three differentexperimental conditions.",
+      "topic_outline": [
+        "Article Summary:Machado, C., Estévez, M., Leisman, G., Melillo, R., Rodríguez, R., DeFina, P., … Beltrán, C.(2013). QEEG spectral and coherence assessment of autistic children i...",
+        "The researchers of this article examined subjects with autism spectrum disorders (ASD) byutilizing spectral and coherence analysis during three experimental conditions in order ...",
+        "Relationship to IMO qEEG Program",
+        "QEEG is utilized in assessing autistic children. The article explains spectral and coherencecalculation methods while also showing abnormal EEG characteristics for their subject...",
+        "Questions to Consider",
+        "1. What is Autism spectrum disorder (ASD) clinically characterized by?",
+        "a. Lessened social interaction, language impairments, behavioral stereotypes, and variedcognitive deficits (Machado et al., 2013, p. 406)",
+        "2. What have other researchers reported regarding spectral analysis?",
+        "a. Cantor et al. (1986) and Cantor and Chabot (2009) reported reduced alpha activity,meanwhile other authors indicated decrement of this EEG frequency band, bilaterally,and fron...",
+        "3. Why is it also important to record EEG when assessing autistic subjects?"
+      ],
+      "search_preview": "Article Summary:Machado, C., Estévez, M., Leisman, G., Melillo, R., Rodríguez, R., DeFina, P., … Beltrán, C.(2013). QEEG spectral and coherence assessment of autistic children i... | The researchers of this article examined subjects with autism spectrum disorders (ASD) byutilizing spectral and coherence analysis during three experimental conditions in order ... | Relationship to IMO qEEG Program | QEEG is utilized in assessing autistic children. The article explains spectral and coherencecalculation methods while also showing abnormal EEG characteristics for their subject... | Questions to Consider | 1. What is Autism spectrum disorder (ASD) clinically characterized by?",
+      "clinical_use": {
+        "analyzer": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+        "agents": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments."
+      },
+      "citation_hint": "Machado 2013"
+    },
+    {
+      "paper_id": "paper-a98eba2dc449",
+      "title": "ORIGINAL PAPER",
+      "kind": "research_pdf",
+      "lead_author": "Machado",
+      "year": 2013,
+      "relative_path": "Machado2013QEEGspectralandcoherenceassessmentofautisticchildreninthreedifferent-220304-140230.pdf",
+      "hydrated": true,
+      "pages": 19,
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "connectivity",
+        "adhd",
+        "autism",
+        "gamma",
+        "reading",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "ORIGINAL PAPER QEEG Spectral and Coherence Assessment of Autistic Children in Three Different Experimental Conditions Calixto Machado • Mario Este´vez • Gerry Leisman • Robert Melillo • Rafael Rodrı´guez • Phillip DeFina • Adria´n Herna´ndez • Jesu´sP e´rez-Nellar • Rolando Naranjo • Mauricio Chinchilla • Nicola´s Garo´falo • Jose´ Vargas • Carlos Beltra´n Published online: 19 September 2013 /C211 The Author(s) 2013. This article is published with open access at Springerlink.com Abstract We studied autistics by quantitative EEG spectral and coherence analysis during three experimental conditions: basal, watching a cartoon ...",
+      "topic_outline": [
+        "ORIGINAL PAPER",
+        "QEEG Spectral and Coherence Assessment of Autistic Children",
+        "in Three Different Experimental Conditions",
+        "Calixto Machado • Mario Este´vez • Gerry Leisman • Robert Melillo •",
+        "Rafael Rodrı´guez • Phillip DeFina • Adria´n Herna´ndez • Jesu´sP e´rez-Nellar •",
+        "Rolando Naranjo • Mauricio Chinchilla • Nicola´s Garo´falo • Jose´ Vargas •",
+        "Carlos Beltra´n",
+        "Published online: 19 September 2013",
+        "/C211 The Author(s) 2013. This article is published with open access at Springerlink.com",
+        "Abstract We studied autistics by quantitative EEG"
+      ],
+      "search_preview": "ORIGINAL PAPER | QEEG Spectral and Coherence Assessment of Autistic Children | in Three Different Experimental Conditions | Calixto Machado • Mario Este´vez • Gerry Leisman • Robert Melillo • | Rafael Rodrı´guez • Phillip DeFina • Adria´n Herna´ndez • Jesu´sP e´rez-Nellar • | Rolando Naranjo • Mauricio Chinchilla • Nicola´s Garo´falo • Jose´ Vargas •",
+      "clinical_use": {
+        "analyzer": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+        "agents": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives."
+      },
+      "citation_hint": "Machado 2013"
+    },
+    {
+      "paper_id": "paper-ef23fc6b6b1a",
+      "title": "The electroencephalography of encephalopathy in patients with",
+      "kind": "research_pdf",
+      "lead_author": "Faigle",
+      "year": 2013,
+      "relative_path": "Faigle 2013 - The electroencephalography of encephalopathy in patients with endocrine and metabolic disorders.pdf",
+      "hydrated": true,
+      "pages": 25,
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "adhd",
+        "dementia",
+        "reading",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "The electroencephalography of encephalopathy in patients with endocrine and metabolic disorders Roland Faigle, MD, PhD1,*, Raoul Sutter, MD1,2, and Peter W. Kaplan, MB, BS, FRCP1,2 1Department of Neurology, Johns Hopkins Bayview Medical Center, Baltimore, Maryland, USA 2Division of Neurosciences Critical Care, Department of Anesthesiology and Critical Care Medicine, Johns Hopkins University School of Medicine, Baltimore, Maryland, USA Abstract Patients with acute alteration in mental status from encephalopathy due to underlying metabolic- toxic or endocrine abnormalities are frequently seen in the acute hospital setting.",
+      "topic_outline": [
+        "The electroencephalography of encephalopathy in patients with",
+        "endocrine and metabolic disorders",
+        "Roland Faigle, MD, PhD1,*, Raoul Sutter, MD1,2, and Peter W. Kaplan, MB, BS, FRCP1,2",
+        "1Department of Neurology, Johns Hopkins Bayview Medical Center, Baltimore, Maryland, USA",
+        "2Division of Neurosciences Critical Care, Department of Anesthesiology and Critical Care",
+        "Medicine, Johns Hopkins University School of Medicine, Baltimore, Maryland, USA",
+        "Abstract",
+        "Patients with acute alteration in mental status from encephalopathy due to underlying metabolic-",
+        "toxic or endocrine abnormalities are frequently seen in the acute hospital setting. A rapid diagnosis",
+        "and correction of the underlying cause is essential as a prolonged state of encephalopathy portends"
+      ],
+      "search_preview": "The electroencephalography of encephalopathy in patients with | endocrine and metabolic disorders | Roland Faigle, MD, PhD1,*, Raoul Sutter, MD1,2, and Peter W. Kaplan, MB, BS, FRCP1,2 | 1Department of Neurology, Johns Hopkins Bayview Medical Center, Baltimore, Maryland, USA | 2Division of Neurosciences Critical Care, Department of Anesthesiology and Critical Care | Medicine, Johns Hopkins University School of Medicine, Baltimore, Maryland, USA",
+      "clinical_use": {
+        "analyzer": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+        "agents": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives."
+      },
+      "citation_hint": "Faigle 2013"
+    },
+    {
+      "paper_id": "paper-70416e6eeeb2",
+      "title": "Article Summary:Gunkelman, J., (2009). Drug exposure and EEG/qEEG findings: A technical guide. Brain ScienceInternational. Pleasanton, CA",
+      "kind": "article_summary",
+      "lead_author": "Gunkelman",
+      "year": 2012,
+      "relative_path": "Gunkelman2012ArticleSummarydocx-220304-141710.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "connectivity",
+        "reading",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Article Summary:Gunkelman, J., (2009). Drug exposure and EEG/qEEG findings: A technical guide.",
+      "topic_outline": [
+        "Article Summary:Gunkelman, J., (2009). Drug exposure and EEG/qEEG findings: A technical guide. Brain ScienceInternational. Pleasanton, CA",
+        "This study provides a brief and concise summary of many articles, papers, reviews, and booksover medications and their EEG indications in patients. The article notes that the me...",
+        "Relationship to IMO qEEG Program",
+        "The use of drugs or alcohol can influence a technician's interpretation of an interview andtreatment plan as well as altering the EEG reading. Having general knowledge about the...",
+        "Questions to Consider",
+        "1. Discuss the effects of stimulants on subjects with different levels of arousal.",
+        "a. When a stimulant is given to an under-aroused subject, it increases the alpha. In anormally aroused subject, stimulants decrease alpha. In an anxious subject, alpha willnot b...",
+        "2. What is the reciprocal effect between alpha and beta?",
+        "a. As brain stem stimulation desynchronizes the alpha generators, beta is seen(Gunkelman, 2012, p. 1)",
+        "3. Which of the medications for Neuroleptics increases the coherence of the EEGand decreasesbeta?"
+      ],
+      "search_preview": "Article Summary:Gunkelman, J., (2009). Drug exposure and EEG/qEEG findings: A technical guide. Brain ScienceInternational. Pleasanton, CA | This study provides a brief and concise summary of many articles, papers, reviews, and booksover medications and their EEG indications in patients. The article notes that the me... | Relationship to IMO qEEG Program | The use of drugs or alcohol can influence a technician's interpretation of an interview andtreatment plan as well as altering the EEG reading. Having general knowledge about the... | Questions to Consider | 1. Discuss the effects of stimulants on subjects with different levels of arousal.",
+      "clinical_use": {
+        "analyzer": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+        "agents": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives."
+      },
+      "citation_hint": "Gunkelman 2012"
+    },
+    {
+      "paper_id": "paper-e9690ba2671d",
+      "title": "Independent EEG Sources Are Dipolar",
+      "kind": "research_pdf",
+      "lead_author": "Delorme",
+      "year": 2012,
+      "relative_path": "Delorme2012IndependentEEGSourcesAreDipolar-220304-135752.pdf",
+      "hydrated": true,
+      "pages": 14,
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "gamma",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Independent EEG Sources Are Dipolar Arnaud Delorme1,2,4*, Jason Palmer1, Julie Onton1,5, Robert Oostenveld3, Scott Makeig1 1 Swartz Center for Computational Neuroscience, University of California San Diego, La Jolla, California, United States of America,2 Centre de recherche Cerveau et Cognition, Paul Sabatier University, Toulouse, France,3 Donders Institute for Brain, Cognition and Behaviour, Radboud University, Nijmegen, The Netherlands,4 CERCO, CNRS, Toulouse, France,5 Naval Health Research Center, San Diego, California, United States of America Abstract Independent component analysis (ICA) and blind source separation (BSS) methods are increasingly used to separate individual brain and ...",
+      "topic_outline": [
+        "Independent EEG Sources Are Dipolar",
+        "Arnaud Delorme1,2,4*, Jason Palmer1, Julie Onton1,5, Robert Oostenveld3, Scott Makeig1",
+        "1 Swartz Center for Computational Neuroscience, University of California San Diego, La Jolla, California, United States of America,2 Centre de recherche Cerveau et",
+        "Cognition, Paul Sabatier University, Toulouse, France,3 Donders Institute for Brain, Cognition and Behaviour, Radboud University, Nijmegen, The Netherlands,4 CERCO,",
+        "CNRS, Toulouse, France,5 Naval Health Research Center, San Diego, California, United States of America",
+        "Abstract",
+        "Independent component analysis (ICA) and blind source separation (BSS) methods are increasingly used to separate",
+        "individual brain and non-brain source signals mixed by volume conduction in electroencephalographic (EEG) and other",
+        "electrophysiological recordings. We compared results of decomposing thirteen 71-channel human scalp EEG datasets by 22",
+        "ICA and BSS algorithms, assessing the pairwise mutual information (PMI) in scalp channel pairs, the remaining PMI in"
+      ],
+      "search_preview": "Independent EEG Sources Are Dipolar | Arnaud Delorme1,2,4*, Jason Palmer1, Julie Onton1,5, Robert Oostenveld3, Scott Makeig1 | 1 Swartz Center for Computational Neuroscience, University of California San Diego, La Jolla, California, United States of America,2 Centre de recherche Cerveau et | Cognition, Paul Sabatier University, Toulouse, France,3 Donders Institute for Brain, Cognition and Behaviour, Radboud University, Nijmegen, The Netherlands,4 CERCO, | CNRS, Toulouse, France,5 Naval Health Research Center, San Diego, California, United States of America | Abstract",
+      "clinical_use": {
+        "analyzer": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+        "agents": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments."
+      },
+      "citation_hint": "Delorme 2012"
+    },
+    {
+      "paper_id": "paper-165e26b1f574",
+      "title": "Accelerating the world's research.",
+      "kind": "research_pdf",
+      "lead_author": "Sherlin",
+      "year": 2010,
+      "relative_path": "Sherlin2010ApositionpaperonneurofeedbackforthetreatmentofADHD-220304-140247.pdf",
+      "hydrated": true,
+      "pages": 16,
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "adhd",
+        "autism",
+        "reading",
+        "neurofeedback",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Accelerating the world's research. A position paper on neurofeedback for the treatment of ADHD Leslie Sherlin Journal of Neurotherapy Cite this paper Get the citation in MLA, APA, or Chicago styles Downloaded from Academia.edu  Related papers Evaluation of neurofeedback in ADHD: The long and winding road Ute Strehl Determination of the Effects of Neurofeedback Training in the Neuropsychological Rehabilitation in In… Mahnaz Moghanloo Neurofeedback for the treatment of children and adolescents with ADHD: a randomized and controlle… Irene Elgen, N.",
+      "topic_outline": [
+        "Accelerating the world's research.",
+        "A position paper on neurofeedback",
+        "for the treatment of ADHD",
+        "Leslie Sherlin",
+        "Journal of Neurotherapy",
+        "Cite this paper",
+        "Get the citation in MLA, APA, or Chicago styles",
+        "Downloaded from Academia.edu ",
+        "Related papers",
+        "Evaluation of neurofeedback in ADHD: The long and winding road"
+      ],
+      "search_preview": "Accelerating the world's research. | A position paper on neurofeedback | for the treatment of ADHD | Leslie Sherlin | Journal of Neurotherapy | Cite this paper",
+      "clinical_use": {
+        "analyzer": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+        "agents": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives."
+      },
+      "citation_hint": "Sherlin 2010"
+    },
+    {
+      "paper_id": "paper-99b144049862",
+      "title": "Article Summary:Sherlin, L., Arns, M., Lubar, J., & Sokhadze, E. (2010). A position paper on Neurofeedback forthe treatment of ADHD. Journal of Neurotherapy, 14(2), 66–78.doi:10...",
+      "kind": "article_summary",
+      "lead_author": "Sherlin",
+      "year": 2010,
+      "relative_path": "Sherlin2010ArticleSummarydocx-220304-140240.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "topical_tags": [
+        "artifact",
+        "adhd",
+        "neurofeedback",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Article Summary:Sherlin, L., Arns, M., Lubar, J., & Sokhadze, E. (2010).",
+      "topic_outline": [
+        "Article Summary:Sherlin, L., Arns, M., Lubar, J., & Sokhadze, E. (2010). A position paper on Neurofeedback forthe treatment of ADHD. Journal of Neurotherapy, 14(2), 66–78.doi:10...",
+        "This article discusses the current evidence of the use of neurofeedback in the treatment ofADHD along with recommendations for implementation in clinical practice (Sherlin et al...",
+        "Relationship to IMO qEEG Program",
+        "This article encourages neurofeedback practitioners to utilize qEEG when assessing a client’sbrain activity and when creating treatment plans. The authors suggest that qEEG-base...",
+        "Questions to Consider",
+        "1. What are the signature findings (brain activity commonalities) of the ADHD populationthroughout pre-treatment qEEG assessments?a. Increased levels of slow waves (theta) and d...",
+        "2. What is another neurofeedback treatment protocol mentioned in this article that does notinvolve the theta/beta ratio and is also used to treat ADHD?a. Encouraging SMR (p. 69)",
+        "3. How long do the treatment effects of neurofeedback typically last?a. Longer than 6 months or even more than 2 years (p. 68)",
+        "©InMindOut Emotional Wellness Center 2022"
+      ],
+      "search_preview": "Article Summary:Sherlin, L., Arns, M., Lubar, J., & Sokhadze, E. (2010). A position paper on Neurofeedback forthe treatment of ADHD. Journal of Neurotherapy, 14(2), 66–78.doi:10... | This article discusses the current evidence of the use of neurofeedback in the treatment ofADHD along with recommendations for implementation in clinical practice (Sherlin et al... | Relationship to IMO qEEG Program | This article encourages neurofeedback practitioners to utilize qEEG when assessing a client’sbrain activity and when creating treatment plans. The authors suggest that qEEG-base... | Questions to Consider | 1. What are the signature findings (brain activity commonalities) of the ADHD populationthroughout pre-treatment qEEG assessments?a. Increased levels of slow waves (theta) and d...",
+      "clinical_use": {
+        "analyzer": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+        "agents": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments."
+      },
+      "citation_hint": "Sherlin 2010"
+    },
+    {
+      "paper_id": "paper-9551c2ccdce1",
+      "title": "Note",
+      "kind": "research_pdf",
+      "lead_author": "Dhar",
+      "year": 2010,
+      "relative_path": "Dhar2010Reducedinterhemisphericcoherenceindyslexicadults-220304-135558.pdf",
+      "hydrated": true,
+      "pages": 5,
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "adhd",
+        "autism",
+        "reading",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Note Reduced interhemispheric coherence in dyslexic adults Monica Dhara,*, Pieter H. Beena,b, Ruud B.",
+      "topic_outline": [
+        "Note",
+        "Reduced interhemispheric coherence in dyslexic adults",
+        "Monica Dhara,*, Pieter H. Beena,b, Ruud B. Minderaac and Monika Althausc",
+        "a BCN Neuroimaging Center, University Medical Center Groningen, University of Groningen, The Netherlands",
+        "b Department of Dutch, Faculty of Arts, University of Groningen, The Netherlands",
+        "c Department of Child and Adolescent Psychiatry, University Medical Center Groningen, University of Groningen, The Netherlands",
+        "article info",
+        "Article history:",
+        "Received 15 September 2008",
+        "Reviewed 19 November 2008"
+      ],
+      "search_preview": "Note | Reduced interhemispheric coherence in dyslexic adults | Monica Dhara,*, Pieter H. Beena,b, Ruud B. Minderaac and Monika Althausc | a BCN Neuroimaging Center, University Medical Center Groningen, University of Groningen, The Netherlands | b Department of Dutch, Faculty of Arts, University of Groningen, The Netherlands | c Department of Child and Adolescent Psychiatry, University Medical Center Groningen, University of Groningen, The Netherlands",
+      "clinical_use": {
+        "analyzer": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+        "agents": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments."
+      },
+      "citation_hint": "Dhar 2010"
+    },
+    {
+      "paper_id": "paper-901a048af143",
+      "title": "Article Summary:Arns, M., de Ridder, S., Strehl, U., Breteler, M., & Coenen, A. (2009). Efficacy ofNeurofeedback treatment in ADHD: The effects on inattention, Impulsivity and H...",
+      "kind": "article_summary",
+      "lead_author": "Arns",
+      "year": 2009,
+      "relative_path": "Arns2009ArticleSummarydocx-220304-141834.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "adhd",
+        "neurofeedback",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Article Summary:Arns, M., de Ridder, S., Strehl, U., Breteler, M., & Coenen, A. (2009).",
+      "topic_outline": [
+        "Article Summary:Arns, M., de Ridder, S., Strehl, U., Breteler, M., & Coenen, A. (2009). Efficacy ofNeurofeedback treatment in ADHD: The effects on inattention, Impulsivity and H...",
+        "This article is a meta-analysis of the effects of neurofeedback on different symptoms of ADHDsuch as inattention, impulsivity and hyperactivity. Arns (2009) and his colleagues f...",
+        "Relationship to IMO qEEG Program",
+        "Given that this article discusses neurofeedback rather than the qEEG assessment, theresearchers found that neurofeedback is an efficacious treatment for ADHD and related symptom...",
+        "Questions to Consider",
+        "1. What were the common electrode placement sites in Table 1 for most of the neurofeedbackstudies?a. Central placements (Cz, C3, C4) (p. 183)",
+        "2. What was the most common neurofeedback training utilized in the studies in Table 1?a. Theta/Beta Protocol (p. 183)",
+        "3. What are the criteria for a treatment to be considered Level 5 Efficacious?a. Level 5: efficacious and specific. To meet the criteria for this classification, the treatmentne...",
+        "©InMindOut Emotional Wellness Center 2022"
+      ],
+      "search_preview": "Article Summary:Arns, M., de Ridder, S., Strehl, U., Breteler, M., & Coenen, A. (2009). Efficacy ofNeurofeedback treatment in ADHD: The effects on inattention, Impulsivity and H... | This article is a meta-analysis of the effects of neurofeedback on different symptoms of ADHDsuch as inattention, impulsivity and hyperactivity. Arns (2009) and his colleagues f... | Relationship to IMO qEEG Program | Given that this article discusses neurofeedback rather than the qEEG assessment, theresearchers found that neurofeedback is an efficacious treatment for ADHD and related symptom... | Questions to Consider | 1. What were the common electrode placement sites in Table 1 for most of the neurofeedbackstudies?a. Central placements (Cz, C3, C4) (p. 183)",
+      "clinical_use": {
+        "analyzer": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+        "agents": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives."
+      },
+      "citation_hint": "Arns 2009"
+    },
+    {
+      "paper_id": "paper-89a14202e3a0",
+      "title": "Article Summary:Makeig, S. and Onton, J. (2009) ERP Features and EEG Dynamics: AN ICA Perspective (AnInvited Chapter) Swartz Center for Computational Neuroscience, Institute for...",
+      "kind": "article_summary",
+      "lead_author": "Makeig",
+      "year": 2009,
+      "relative_path": "Makeig2009ArticleSummarydocx-220304-090528.pdf",
+      "hydrated": true,
+      "pages": 2,
+      "topical_tags": [
+        "artifact"
+      ],
+      "status": "extracted",
+      "summary": "Article Summary:Makeig, S. and Onton, J.",
+      "topic_outline": [
+        "Article Summary:Makeig, S. and Onton, J. (2009) ERP Features and EEG Dynamics: AN ICA Perspective (AnInvited Chapter) Swartz Center for Computational Neuroscience, Institute for...",
+        "This article reviews 50 years of scientific experience in studying the shapes and sizes of averageevent-related potential (ERP) responses of scalp EEG signals to sensory effects...",
+        "Relationship to IMO qEEG Program",
+        "This review of the use of ICA and the ERP and EEG dynamic are included in the IMOpresentations “Filtering EEG Brainwaves” and “Neurophysiological Processes & Terminology”. Thefu...",
+        "Questions to Consider",
+        "1. What is ICA?",
+        "a. ICA is a method for training or learning spatial filters that, when applied to data collectedfrom many scalp locations, each focus on one source of information in the data (M...",
+        "2. Applied to EEG data, what does ICA do?",
+        "a. ICA tackles ‘head on’ the major confounding factor that has limited the development ofEEG-based brain imaging methods, namely the broad spread of EEG source potentialsthrough...",
+        "3. What is the difference between ICA and PCA"
+      ],
+      "search_preview": "Article Summary:Makeig, S. and Onton, J. (2009) ERP Features and EEG Dynamics: AN ICA Perspective (AnInvited Chapter) Swartz Center for Computational Neuroscience, Institute for... | This article reviews 50 years of scientific experience in studying the shapes and sizes of averageevent-related potential (ERP) responses of scalp EEG signals to sensory effects... | Relationship to IMO qEEG Program | This review of the use of ICA and the ERP and EEG dynamic are included in the IMOpresentations “Filtering EEG Brainwaves” and “Neurophysiological Processes & Terminology”. Thefu... | Questions to Consider | 1. What is ICA?",
+      "clinical_use": {
+        "analyzer": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+        "agents": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments."
+      },
+      "citation_hint": "Makeig 2009"
+    },
+    {
+      "paper_id": "paper-19975f452d5b",
+      "title": "Drug exposure and EEG/qEEG findings",
+      "kind": "research_pdf",
+      "lead_author": "Gunkelman",
+      "year": 2009,
+      "relative_path": "Gunkelman2009DrugexposureandEEG_qEEGfindings-220304-141716 (1).pdf",
+      "hydrated": true,
+      "pages": 6,
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "connectivity",
+        "reading",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Drug exposure and EEG/qEEG findings Dec 23rd, 2009 by Jay Gunkelman. A technical guide by Jay Gunkelman, QEEG-D General comments: There is a generally reciprocal effect between alpha and beta, as brain stem stimulation desynchronizes the alpha generators, beta is seen.",
+      "topic_outline": [
+        "Drug exposure and EEG/qEEG findings",
+        "Dec 23rd, 2009",
+        "by Jay Gunkelman.",
+        "A technical guide by Jay Gunkelman, QEEG-D",
+        "General comments:",
+        "There is a generally reciprocal effect between alpha and beta, as brain stem stimulation",
+        "desynchronizes the alpha generators, beta is seen. During states of under-arousal, this",
+        "relationship is not seen, as when the subject is alerted, when both alpha and beta increase.",
+        "The point is that the arousal level changes the EEG responses expected, as when a stimulant",
+        "is given to an under-aroused subject, increasing alpha. In a normally aroused subject,"
+      ],
+      "search_preview": "Drug exposure and EEG/qEEG findings | Dec 23rd, 2009 | by Jay Gunkelman. | A technical guide by Jay Gunkelman, QEEG-D | General comments: | There is a generally reciprocal effect between alpha and beta, as brain stem stimulation",
+      "clinical_use": {
+        "analyzer": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+        "agents": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives."
+      },
+      "citation_hint": "Gunkelman 2009"
+    },
+    {
+      "paper_id": "paper-84d388c41046",
+      "title": "See discussions, stats, and author profiles for this publication at: https://www.researchgate.net/publication/228639595",
+      "kind": "research_pdf",
+      "lead_author": "Makeig",
+      "year": 2009,
+      "relative_path": "Makeig2009ERPFeaturesandEEGDynamics_ANICAPerspective-220304-090538.pdf",
+      "hydrated": true,
+      "pages": 59,
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "gamma",
+        "reading",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "See discussions, stats, and author profiles for this publication at: https://www.researchgate.net/publication/228639595 ERP features and EEG dynamics: An ICA perspective Article · January 2012 DOI: 10.1093/oxfordhb/9780195374148.013.0035 CITATIONS 68 READS 2,510 2 authors: Some of the authors of this publication are also working on these related projects: High-resolution EEG brain and brain/body imaging View project 'Your surprise or mine?' EEG signatures of prediction error and outcome value in a dyadic turn-taking game View project Scott Makeig University of California, San Diego 415 PUBLICATIONS 57,168 CITATIONS SEE PROFILE Julie Onton University of California, ...",
+      "topic_outline": [
+        "See discussions, stats, and author profiles for this publication at: https://www.researchgate.net/publication/228639595",
+        "ERP features and EEG dynamics: An ICA perspective",
+        "Article · January 2012",
+        "DOI: 10.1093/oxfordhb/9780195374148.013.0035",
+        "CITATIONS",
+        "68",
+        "READS",
+        "2,510",
+        "2 authors:",
+        "Some of the authors of this publication are also working on these related projects:"
+      ],
+      "search_preview": "See discussions, stats, and author profiles for this publication at: https://www.researchgate.net/publication/228639595 | ERP features and EEG dynamics: An ICA perspective | Article · January 2012 | DOI: 10.1093/oxfordhb/9780195374148.013.0035 | CITATIONS | 68",
+      "clinical_use": {
+        "analyzer": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+        "agents": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments."
+      },
+      "citation_hint": "Makeig 2009"
+    },
+    {
+      "paper_id": "paper-f58e722d85cd",
+      "title": "Article Summary:",
+      "kind": "article_summary",
+      "lead_author": "Thatcher",
+      "year": 2008,
+      "relative_path": "Thatcher2008ArticleSummarydocx-220304-140616.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "topical_tags": [
+        "artifact",
+        "connectivity"
+      ],
+      "status": "extracted",
+      "summary": "Article Summary: Thatcher, R. W., North, D.",
+      "topic_outline": [
+        "Article Summary:",
+        "Thatcher, R. W., North, D. M., & Biver, C. J. (2008). Intelligence and EEG phase reset: a twocompartmental model of phase shift and lock.Neuroimage,42(4), 1639-1653.",
+        "The researchers of this article explored the potential relationships between EEG phase rest andperformance on the Wechsler Intelligence test. The study took 378 subjects ranging...",
+        "Relationship to IMO qEEG Program",
+        "In the IMO QEEG program, phase locking is another name for synchronization. As stated in theIMO curriculum, phase locking is a measurement of how similar oscillations are in ref...",
+        "Additionally, the study notes that there is a direct relationship between coherence and phaselock duration and an inverse relationship to phase shift duration. This means shorte...",
+        "Questions to Consider",
+        "1. What insight does phase lock duration provide for understanding coherence?",
+        "a. It helps in understanding the underlying dynamics of coherence itself (Thatcher et al.,2008, 1652)",
+        "2. Discuss how phase shift and phase lock are somewhat an independent process."
+      ],
+      "search_preview": "Article Summary: | Thatcher, R. W., North, D. M., & Biver, C. J. (2008). Intelligence and EEG phase reset: a twocompartmental model of phase shift and lock.Neuroimage,42(4), 1639-1653. | The researchers of this article explored the potential relationships between EEG phase rest andperformance on the Wechsler Intelligence test. The study took 378 subjects ranging... | Relationship to IMO qEEG Program | In the IMO QEEG program, phase locking is another name for synchronization. As stated in theIMO curriculum, phase locking is a measurement of how similar oscillations are in ref... | Additionally, the study notes that there is a direct relationship between coherence and phaselock duration and an inverse relationship to phase shift duration. This means shorte...",
+      "clinical_use": {
+        "analyzer": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+        "agents": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments."
+      },
+      "citation_hint": "Thatcher 2008"
+    },
+    {
+      "paper_id": "paper-14e22eb5cbac",
+      "title": "Article Summary:Enoch, M.A., Shen, P.-H., Ducci, F., Yuan, Q., Liu, J., White, K. V., … Goldman, D. (2008).Common genetic origins for EEG, alcoholism and anxiety: The role of CR...",
+      "kind": "article_summary",
+      "lead_author": "Enoch",
+      "year": 2008,
+      "relative_path": "Enoch2008ArticleSummarydocx-220304-142046.pdf",
+      "hydrated": true,
+      "pages": 2,
+      "topical_tags": [
+        "artifact",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Article Summary:Enoch, M.A., Shen, P.-H., Ducci, F., Yuan, Q., Liu, J., White, K. V., … Goldman, D.",
+      "topic_outline": [
+        "Article Summary:Enoch, M.A., Shen, P.-H., Ducci, F., Yuan, Q., Liu, J., White, K. V., … Goldman, D. (2008).Common genetic origins for EEG, alcoholism and anxiety: The role of CR...",
+        "This article analyzes EEG as an intermediate phenotype for complex behaviors andpsychopathology where arousal is implicated, such as anxiety, depression, and addiction (Enoch et...",
+        "Relationship to IMO qEEG Program",
+        "This EEG study discusses the EEG indications for alcoholism and anxiety. In addition to the priorEEG research, the authors of this study looked at both genetic variations and EE...",
+        "Questions to Consider",
+        "1. Why was the corticotropin releasing hormone-binding protein (CRH-BP) chosen for this analysis?",
+        "a. We chose to analyze results for CRH-BP since it was located at the apex of theconvergent linkage peaks for alpha, beta and theta EEG power and because it is a logicalcandidat...",
+        "2. What did the EEG results of this study show?",
+        "a. There was no relationship between alpha or beta EEG power and alcohol use disorders(AUD) or anxiety in this population that has a high prevalence of lifetime AUD (46% inwomen...",
+        "©InMindOut Emotional Wellness Center 2022"
+      ],
+      "search_preview": "Article Summary:Enoch, M.A., Shen, P.-H., Ducci, F., Yuan, Q., Liu, J., White, K. V., … Goldman, D. (2008).Common genetic origins for EEG, alcoholism and anxiety: The role of CR... | This article analyzes EEG as an intermediate phenotype for complex behaviors andpsychopathology where arousal is implicated, such as anxiety, depression, and addiction (Enoch et... | Relationship to IMO qEEG Program | This EEG study discusses the EEG indications for alcoholism and anxiety. In addition to the priorEEG research, the authors of this study looked at both genetic variations and EE... | Questions to Consider | 1. Why was the corticotropin releasing hormone-binding protein (CRH-BP) chosen for this analysis?",
+      "clinical_use": {
+        "analyzer": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+        "agents": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments."
+      },
+      "citation_hint": "Enoch 2008"
+    },
+    {
+      "paper_id": "paper-8fa7a9512fa7",
+      "title": "Common Genetic Origins for EEG, Alcoholism and",
+      "kind": "research_pdf",
+      "lead_author": "Enoch",
+      "year": 2008,
+      "relative_path": "Enoch2008CommongeneticoriginsforEEGalcoholismandanxiety-220304-142053.pdf",
+      "hydrated": true,
+      "pages": 11,
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "connectivity",
+        "dementia",
+        "gamma",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Common Genetic Origins for EEG, Alcoholism and Anxiety: The Role ofCRH-BP Mary-Anne Enoch1*, Pei-Hong Shen1, Francesca Ducci1, Qiaoping Yuan1, Jixia Liu1, Kenneth V. White1, Bernard Albaugh2, Colin A.",
+      "topic_outline": [
+        "Common Genetic Origins for EEG, Alcoholism and",
+        "Anxiety: The Role ofCRH-BP",
+        "Mary-Anne Enoch1*, Pei-Hong Shen1, Francesca Ducci1, Qiaoping Yuan1, Jixia Liu1, Kenneth V. White1,",
+        "Bernard Albaugh2, Colin A. Hodgkinson1, David Goldman1",
+        "1 Laboratory of Neurogenetics, National Institute on Alcohol Abuse and Alcoholism, National Institutes of Health, Bethesda, Maryland, United States of America,2 Center",
+        "for Human Behavior Studies, Inc, Weatherford, Oklahoma, United States of America",
+        "Abstract",
+        "The resting EEG is a dynamic index of cortical activation, cognitive function and consciousness and is therefore an",
+        "intermediate phenotype for many behaviors in which arousal is implicated such as anxiety and alcoholism. We performed a",
+        "dense whole genome linkage scan using 3878 unlinked SNPs in a large pedigree derived from a population isolate sample"
+      ],
+      "search_preview": "Common Genetic Origins for EEG, Alcoholism and | Anxiety: The Role ofCRH-BP | Mary-Anne Enoch1*, Pei-Hong Shen1, Francesca Ducci1, Qiaoping Yuan1, Jixia Liu1, Kenneth V. White1, | Bernard Albaugh2, Colin A. Hodgkinson1, David Goldman1 | 1 Laboratory of Neurogenetics, National Institute on Alcohol Abuse and Alcoholism, National Institutes of Health, Bethesda, Maryland, United States of America,2 Center | for Human Behavior Studies, Inc, Weatherford, Oklahoma, United States of America",
+      "clinical_use": {
+        "analyzer": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+        "agents": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives."
+      },
+      "citation_hint": "Enoch 2008"
+    },
+    {
+      "paper_id": "paper-c09cd9bcfcf0",
+      "title": "Article Summary:Coben, R., & Padolsky, I. (2007). Assessment-guided Neurofeedback for autistic spectrumdisorder. Journal of Neurotherapy, 11(1), 5–23. doi:10.1300/j184v11n01_02",
+      "kind": "article_summary",
+      "lead_author": "Coben",
+      "year": 2007,
+      "relative_path": "Coben2007ArticleSummarydocx-220304-140152 - Copy.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "connectivity",
+        "autism",
+        "neurofeedback",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Article Summary:Coben, R., & Padolsky, I. (2007).",
+      "topic_outline": [
+        "Article Summary:Coben, R., & Padolsky, I. (2007). Assessment-guided Neurofeedback for autistic spectrumdisorder. Journal of Neurotherapy, 11(1), 5–23. doi:10.1300/j184v11n01_02",
+        "Coben and Padolsky (2007) expanded the work of Jarusiewicz (2002) for documenting theeffectiveness of neurofeedback for Autism by using a larger sample size, broader range of as...",
+        "As for the qEEG portion of the study, the qEEG assessments involved “recording and digitizingEEG based on the International 10/20 System of electrode placement (Coben & Padolsky...",
+        "Relationship to IMO Biofeedback Program",
+        "Using the same, repeatable process for research is important. The research in this article is welldocumented and those wanting to utilize qEEG guided neurofeedback will do well ...",
+        "Questions to Consider",
+        "1. What did the qEEG results show after the neurofeedback regarding hyperactivity?a. A total of 76% of the subjects had a decrease in cerebral hyperconnectivity (p. 17)",
+        "2. Which treatment medication used for Autism was found to be the most harmful?a. Risperidal with a 3 benefit to 1 harm ratio (p. 8)",
+        "3. Why do you think it is beneficial for the researchers to list the specifications of the qEEGequipment?a. For replication purposes and to show the different options available ...",
+        "©InMindOut Emotional Wellness Center 2022"
+      ],
+      "search_preview": "Article Summary:Coben, R., & Padolsky, I. (2007). Assessment-guided Neurofeedback for autistic spectrumdisorder. Journal of Neurotherapy, 11(1), 5–23. doi:10.1300/j184v11n01_02 | Coben and Padolsky (2007) expanded the work of Jarusiewicz (2002) for documenting theeffectiveness of neurofeedback for Autism by using a larger sample size, broader range of as... | As for the qEEG portion of the study, the qEEG assessments involved “recording and digitizingEEG based on the International 10/20 System of electrode placement (Coben & Padolsky... | Relationship to IMO Biofeedback Program | Using the same, repeatable process for research is important. The research in this article is welldocumented and those wanting to utilize qEEG guided neurofeedback will do well ... | Questions to Consider",
+      "clinical_use": {
+        "analyzer": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+        "agents": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives."
+      },
+      "citation_hint": "Coben 2007"
+    },
+    {
+      "paper_id": "paper-b16c9c38ce53",
+      "title": "Article Summary:Zarei, M., Johansen-Berg, H., Smith, S., Ciccarelli, O., Thompson, A. J., & Matthews, P. M.(2006). Functional anatomy of interhemispheric cortical connections in...",
+      "kind": "article_summary",
+      "lead_author": "Zarei",
+      "year": 2006,
+      "relative_path": "Zarei2006ArticleSummarydocx-220304-142228.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "topical_tags": [
+        "artifact",
+        "connectivity"
+      ],
+      "status": "extracted",
+      "summary": "Article Summary:Zarei, M., Johansen-Berg, H., Smith, S., Ciccarelli, O., Thompson, A. J., & Matthews, P.",
+      "topic_outline": [
+        "Article Summary:Zarei, M., Johansen-Berg, H., Smith, S., Ciccarelli, O., Thompson, A. J., & Matthews, P. M.(2006). Functional anatomy of interhemispheric cortical connections in...",
+        "The researchers of this study used diffusion imaging tractography to produce a probabilistic mapof interhemispheric cortical pathways with the human corpus callosum that may be ...",
+        "Relationship to IMO qEEG Program",
+        "The researchers of this study got written consent from all subjects in accordance with ethicalapproval from the national hospital for neurology and neurosurgery and institute of...",
+        "Questions to Consider",
+        "1. What can diffusion imaging tractography do? Provide an example.",
+        "a. It provides a non-invasive method for visualization of white matter pathways in thehuman brain. For example, cortical connections with thalamus, basal ganglia, internalcapsul...",
+        "2. How were the subject groups compared?",
+        "a. General linear models (ANOVA with repeated measures) were used to assess the effectsof gender, cortical targets, and hemisphere on absolute and relative volume of the tracts(...",
+        "©InMindOut Emotional Wellness Center 2022"
+      ],
+      "search_preview": "Article Summary:Zarei, M., Johansen-Berg, H., Smith, S., Ciccarelli, O., Thompson, A. J., & Matthews, P. M.(2006). Functional anatomy of interhemispheric cortical connections in... | The researchers of this study used diffusion imaging tractography to produce a probabilistic mapof interhemispheric cortical pathways with the human corpus callosum that may be ... | Relationship to IMO qEEG Program | The researchers of this study got written consent from all subjects in accordance with ethicalapproval from the national hospital for neurology and neurosurgery and institute of... | Questions to Consider | 1. What can diffusion imaging tractography do? Provide an example.",
+      "clinical_use": {
+        "analyzer": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+        "agents": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments."
+      },
+      "citation_hint": "Zarei 2006"
+    },
+    {
+      "paper_id": "paper-a6ada490e060",
+      "title": "J. Anat.",
+      "kind": "research_pdf",
+      "lead_author": "Zarei",
+      "year": 2006,
+      "relative_path": "Zarei2006Functionalanatomyofinterhemisphericcorticalconnectionsinthehumanbrain-220304-142233.pdf",
+      "hydrated": true,
+      "pages": 10,
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "dementia",
+        "reading",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "J. Anat.",
+      "topic_outline": [
+        "J. Anat.",
+        "(2006)",
+        "209",
+        ", pp311–320 doi: 10.1111/j.1469-7580.2006.00615.x",
+        "© 2006 The Authors",
+        "Journal compilation © 2006 Anatomical Society of Great Britain and Ireland",
+        "Blackwell Publishing Ltd",
+        "Functional anatomy of interhemispheric cortical",
+        "connections in the human brain",
+        "Mojtaba Zarei,"
+      ],
+      "search_preview": "J. Anat. | (2006) | 209 | , pp311–320 doi: 10.1111/j.1469-7580.2006.00615.x | © 2006 The Authors | Journal compilation © 2006 Anatomical Society of Great Britain and Ireland",
+      "clinical_use": {
+        "analyzer": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+        "agents": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments."
+      },
+      "citation_hint": "Zarei 2006"
+    },
+    {
+      "paper_id": "paper-9a691c77adcf",
+      "title": "Article Summary:Herrmann, C., & Demiralp, T. (2005). Human EEG gamma oscillations in neuropsychiatricdisorders. Clinical Neurophysiology, 116(12), 2719–2733. doi:10.1016/j.clinp...",
+      "kind": "article_summary",
+      "lead_author": "Herrmann",
+      "year": 2005,
+      "relative_path": "Herrmann2005ArticleSummarydocx-220304-135125.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "adhd",
+        "dementia",
+        "gamma",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Article Summary:Herrmann, C., & Demiralp, T. (2005).",
+      "topic_outline": [
+        "Article Summary:Herrmann, C., & Demiralp, T. (2005). Human EEG gamma oscillations in neuropsychiatricdisorders. Clinical Neurophysiology, 116(12), 2719–2733. doi:10.1016/j.clinp...",
+        "With emerging interest for oscillations in gamma frequency and its activity in correlation withcognitive functions, the authors of this article examine the alterations of gamma ...",
+        "Relationship to IMO qEEG Program",
+        "Although this study specifically examines the correlations between certain cognitive functionsand gamma frequency, it also provides helpful definitions for phase synchrony and p...",
+        "Questions to Consider",
+        "1. Spontaneous gamma oscillations can be explained by what interactions? What do they reflect?",
+        "a. Spontaneous gamma oscillations, that contribute a fraction of the total EEG/MEG powerat any given moment have been explained by thalamocortical resonant synapticinteractions ...",
+        "2. Identify the frequency for gamma activity.",
+        "a. Faster oscillations in the human EEG between 30 and 80 Hz (Herrmann & Demiralp,2005, p. 2719).",
+        "3. What must be done in order to record steady-state responses?"
+      ],
+      "search_preview": "Article Summary:Herrmann, C., & Demiralp, T. (2005). Human EEG gamma oscillations in neuropsychiatricdisorders. Clinical Neurophysiology, 116(12), 2719–2733. doi:10.1016/j.clinp... | With emerging interest for oscillations in gamma frequency and its activity in correlation withcognitive functions, the authors of this article examine the alterations of gamma ... | Relationship to IMO qEEG Program | Although this study specifically examines the correlations between certain cognitive functionsand gamma frequency, it also provides helpful definitions for phase synchrony and p... | Questions to Consider | 1. Spontaneous gamma oscillations can be explained by what interactions? What do they reflect?",
+      "clinical_use": {
+        "analyzer": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+        "agents": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments."
+      },
+      "citation_hint": "Herrmann 2005"
+    },
+    {
+      "paper_id": "paper-a642795fb9b2",
+      "title": "Decreased EEG synchronization in Alzheimer’s disease and",
+      "kind": "research_pdf",
+      "lead_author": "Koenig",
+      "year": 2005,
+      "relative_path": "Koenig2005DecreasedEEGsynchronizationinAlzheimersdiseaseandmildcognitiveimpairment-220304-092450.pdf",
+      "hydrated": true,
+      "pages": 24,
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "connectivity",
+        "dementia",
+        "gamma",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Decreased EEG synchronization in Alzheimer’s disease and mild cognitive impairment T. Koeniga*, L.",
+      "topic_outline": [
+        "Decreased EEG synchronization in Alzheimer’s disease and",
+        "mild cognitive impairment",
+        "T. Koeniga*, L. Prichep b,c, T. Dierksa, D. Hubl a, L.O. Wahlund d, E.R. John b,c,",
+        "V. Jelic d",
+        "a) Department of Psychiatric Neurophysio logy, University Hosp ital of Clinical",
+        "Psychiatry Bern, Switzerland,",
+        "b) Brain Research Laboratories, NYU School of Medicine, New York, NY, USA",
+        "c) Nathan S. Kline Psychiatric Research Institute, Orangeburg, NY, USA",
+        "d) Division of Geriatric Medicine, Department of C linical Neuroscience and",
+        "Family Medicine, Karolinska Institute, Stockholm, Sweden"
+      ],
+      "search_preview": "Decreased EEG synchronization in Alzheimer’s disease and | mild cognitive impairment | T. Koeniga*, L. Prichep b,c, T. Dierksa, D. Hubl a, L.O. Wahlund d, E.R. John b,c, | V. Jelic d | a) Department of Psychiatric Neurophysio logy, University Hosp ital of Clinical | Psychiatry Bern, Switzerland,",
+      "clinical_use": {
+        "analyzer": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+        "agents": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives."
+      },
+      "citation_hint": "Koenig 2005"
+    },
+    {
+      "paper_id": "paper-af4b4928f089",
+      "title": "Invited review",
+      "kind": "research_pdf",
+      "lead_author": "Herrmann",
+      "year": 2005,
+      "relative_path": "Herrmann2005HumanEEGgammaoscillationsinneuropsychiatricdisorders-220304-135132.pdf",
+      "hydrated": true,
+      "pages": 15,
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "connectivity",
+        "adhd",
+        "autism",
+        "dementia",
+        "gamma",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Invited review Human EEG gamma oscillations in neuropsychiatric disorders C.S. Herrmanna,*, T.",
+      "topic_outline": [
+        "Invited review",
+        "Human EEG gamma oscillations in neuropsychiatric disorders",
+        "C.S. Herrmanna,*, T. Demiralpb",
+        "aDepartment of Psychology, Magdeburg University, P.O. Box 4120, 39106 Magdeb urg, Germany",
+        "bDepartment of Physiology, Istanbul Faculty of Medicine, Istanbul University, Capa-Istanbul, Turkey",
+        "Accepted 15 July 2005",
+        "Available online 25 October 2005",
+        "Abstract",
+        "Due to their small amplitude, the importance of high-frequency EEG oscillations with respect to cognitive functions and disorders is often",
+        "underestimated as compared to slower oscillations. This article reviews the literature on the alterations of gamma oscillations (about"
+      ],
+      "search_preview": "Invited review | Human EEG gamma oscillations in neuropsychiatric disorders | C.S. Herrmanna,*, T. Demiralpb | aDepartment of Psychology, Magdeburg University, P.O. Box 4120, 39106 Magdeb urg, Germany | bDepartment of Physiology, Istanbul Faculty of Medicine, Istanbul University, Capa-Istanbul, Turkey | Accepted 15 July 2005",
+      "clinical_use": {
+        "analyzer": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+        "agents": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives."
+      },
+      "citation_hint": "Herrmann 2005"
+    },
+    {
+      "paper_id": "paper-8464d20be27e",
+      "title": "Article Summary:Ratcliff-Baird, B. (2002). ADHD and Stuttering: Similar EEG profiles suggest Neurotherapy asan adjunct to traditional speech therapies. Journal of Neurotherapy, ...",
+      "kind": "article_summary",
+      "lead_author": "RatcliffBaird",
+      "year": 2002,
+      "relative_path": "RatcliffBaird2002ArticleSummarydocx-220304-090308.pdf",
+      "hydrated": true,
+      "pages": 2,
+      "topical_tags": [
+        "artifact",
+        "adhd",
+        "reading",
+        "neurofeedback"
+      ],
+      "status": "extracted",
+      "summary": "Article Summary:Ratcliff-Baird, B. (2002).",
+      "topic_outline": [
+        "Article Summary:Ratcliff-Baird, B. (2002). ADHD and Stuttering: Similar EEG profiles suggest Neurotherapy asan adjunct to traditional speech therapies. Journal of Neurotherapy, ...",
+        "This study explored the differences in theta and alpha activity measured byelectroencephalography (EEG) in the frontal lobe between participants that stutter and those who donot...",
+        "The qEEG acquisition was done with a Lexicor Medical Technologies NeuroSearch-24 system. Thecap they used had 19 channels and it was recorded using linked ears reference. Impeda...",
+        "Relationship to IMO qEEG Program",
+        "In this study, the researchers utilized a linked ears montage and impedance was checked toensure a more viable recording. Some amplifiers and softwares require the practitioner ...",
+        "Questions to Consider",
+        "1. What appropriate troubleshooting techniques would be used to decrease impedance if it isabove 5 kOhms?a. Massaging the electro gel inside the electrode cup with an orange sti...",
+        "2. Why was the frontal lobe chosen to be recorded for this study?a. Speech motor plan assembly requires successful attention to the feedback from anexecuted syllable that is rel...",
+        "©InMindOut Emotional Wellness Center 2022",
+        "direction and maintenance of focused attention and contains a strong inhibitorycomponent (p. 8). In a nutshell, the frontal cortex involves inhibition of attention andmotor comp..."
+      ],
+      "search_preview": "Article Summary:Ratcliff-Baird, B. (2002). ADHD and Stuttering: Similar EEG profiles suggest Neurotherapy asan adjunct to traditional speech therapies. Journal of Neurotherapy, ... | This study explored the differences in theta and alpha activity measured byelectroencephalography (EEG) in the frontal lobe between participants that stutter and those who donot... | The qEEG acquisition was done with a Lexicor Medical Technologies NeuroSearch-24 system. Thecap they used had 19 channels and it was recorded using linked ears reference. Impeda... | Relationship to IMO qEEG Program | In this study, the researchers utilized a linked ears montage and impedance was checked toensure a more viable recording. Some amplifiers and softwares require the practitioner ... | Questions to Consider",
+      "clinical_use": {
+        "analyzer": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+        "agents": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments."
+      },
+      "citation_hint": "RatcliffBaird 2002"
+    },
+    {
+      "paper_id": "paper-e46932337900",
+      "title": "Article Summary:Salinsky, M. C., Binder, L. M., Oken, B. S., Storzbach, D., Aron, C. R., & Dodrill, C. B. (2002).Effects of Gabapentin and carbamazepine on the EEG and Cognition...",
+      "kind": "article_summary",
+      "lead_author": "Salinsky",
+      "year": 2002,
+      "relative_path": "Salinsky2002ArticleSummarydocx-220304-141311.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Article Summary:Salinsky, M. C., Binder, L.",
+      "topic_outline": [
+        "Article Summary:Salinsky, M. C., Binder, L. M., Oken, B. S., Storzbach, D., Aron, C. R., & Dodrill, C. B. (2002).Effects of Gabapentin and carbamazepine on the EEG and Cognition...",
+        "This study focused on the neurotoxic side effects of antiepileptic drugs (AED) that contribute tocognitive dysfunction (Salinsky et al., 2002, p. 482). They utilized a structure...",
+        "Relationship to IMO qEEG Program",
+        "There have been many studies about drug effects using qEEG assessments. The results of theserecordings are used to understand what brain activity is produced when clients are on...",
+        "Questions to Consider",
+        "1. Were the artifacts taken out of the recording when they were processed?",
+        "a. Yes, it is important to take out artifacts or unwanted data from the recording being usedto create a report (Salinsky et al., 2002, p. 484). If you do not, then this distorts...",
+        "2. What other variable was affected by AEDs besides cognition?",
+        "a. Mood (Salinsky et al., 2002, p. 488). This should be taken into consideration whencreating a report as well as treatment plan because the client is not only having cognitivei...",
+        "3. Considering question #2: what would you target first? Mood or cognition?"
+      ],
+      "search_preview": "Article Summary:Salinsky, M. C., Binder, L. M., Oken, B. S., Storzbach, D., Aron, C. R., & Dodrill, C. B. (2002).Effects of Gabapentin and carbamazepine on the EEG and Cognition... | This study focused on the neurotoxic side effects of antiepileptic drugs (AED) that contribute tocognitive dysfunction (Salinsky et al., 2002, p. 482). They utilized a structure... | Relationship to IMO qEEG Program | There have been many studies about drug effects using qEEG assessments. The results of theserecordings are used to understand what brain activity is produced when clients are on... | Questions to Consider | 1. Were the artifacts taken out of the recording when they were processed?",
+      "clinical_use": {
+        "analyzer": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+        "agents": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives."
+      },
+      "citation_hint": "Salinsky 2002"
+    },
+    {
+      "paper_id": "paper-e20e113b4e3d",
+      "title": "Article Summary:Thornton, K., (2002), Electrophysiology (QEEG) correlates of effective reading memory:Towards a generator/activation theory of the mind. J. Neurotherapy:6(3). 37-66",
+      "kind": "article_summary",
+      "lead_author": "Thornton",
+      "year": 2002,
+      "relative_path": "Thornton2002ArticleSummarydocx-220304-141147.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "topical_tags": [
+        "artifact",
+        "connectivity",
+        "reading",
+        "neurofeedback",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Article Summary:Thornton, K., (2002), Electrophysiology (QEEG) correlates of effective reading memory:Towards a generator/activation theory of the mind. J.",
+      "topic_outline": [
+        "Article Summary:Thornton, K., (2002), Electrophysiology (QEEG) correlates of effective reading memory:Towards a generator/activation theory of the mind. J. Neurotherapy:6(3). 37-66",
+        "This article explores the relationships between qEEG and memory scores for reading materials(Thornton, 2002, p. 37). The researchers reviewed the generator patterns as a set of ...",
+        "Relationship to IMO qEEG Program",
+        "The measurements the researchers chose are typical measurements that practitioners use todetermine frequency abnormalities and connectivity. These variables are reviewed and the...",
+        "Questions to Consider",
+        "1. What were the electrode sites that were related to higher total memory scores?a. F7 and T5 (p. 53)",
+        "2. Which gender was found to have obtained higher levels of the T5 coherence alpha generator andtotal memory?a. Females (p. 60)",
+        "3. What is the phenomenon that is considered to be a form of synaptic enhancement that isbelieved to contribute to neural mechanisms for forms of learning?a. Long-term Potentiat...",
+        "©InMindOut Emotional Wellness Center 2022"
+      ],
+      "search_preview": "Article Summary:Thornton, K., (2002), Electrophysiology (QEEG) correlates of effective reading memory:Towards a generator/activation theory of the mind. J. Neurotherapy:6(3). 37-66 | This article explores the relationships between qEEG and memory scores for reading materials(Thornton, 2002, p. 37). The researchers reviewed the generator patterns as a set of ... | Relationship to IMO qEEG Program | The measurements the researchers chose are typical measurements that practitioners use todetermine frequency abnormalities and connectivity. These variables are reviewed and the... | Questions to Consider | 1. What were the electrode sites that were related to higher total memory scores?a. F7 and T5 (p. 53)",
+      "clinical_use": {
+        "analyzer": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+        "agents": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments."
+      },
+      "citation_hint": "Thornton 2002"
+    },
+    {
+      "paper_id": "paper-1146ccf17729",
+      "title": "Clinical Research",
+      "kind": "research_pdf",
+      "lead_author": "Salinsky",
+      "year": 2002,
+      "relative_path": "Salinsky2002EffectsofGabapentinandcarbamazepineontheEEGandCognitioninhealthyvolunteers-220304-141317.pdf",
+      "hydrated": true,
+      "pages": 9,
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "connectivity",
+        "dementia",
+        "reading",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Clinical Research Effects of Gabapentin and Carbamazepine on the EEG and Cognition in Healthy Volunteers *Martin C. Salinsky, *Lawrence M.",
+      "topic_outline": [
+        "Clinical Research",
+        "Effects of Gabapentin and Carbamazepine on the EEG and",
+        "Cognition in Healthy Volunteers",
+        "*Martin C. Salinsky, *Lawrence M. Binder, *Barry S. Oken, †Daniel Storzbach, ‡Carey R. Aron,",
+        "and §Carl B. Dodrill",
+        "*Oregon Health Sciences University Epilepsy Center and †Portland Veterans Affairs Medical Center, Portland, Oregon;",
+        "‡Warner-Lambert Pharmaceuticals, Morris Plains, New Jersey; and §University of Washington Epilepsy Center,",
+        "Seattle, Washington, U.S.A.",
+        "Summary: Purpose: Antiepileptic drug (AED) therapy can be",
+        "associated with neurotoxic side effects including cognitive dys-"
+      ],
+      "search_preview": "Clinical Research | Effects of Gabapentin and Carbamazepine on the EEG and | Cognition in Healthy Volunteers | *Martin C. Salinsky, *Lawrence M. Binder, *Barry S. Oken, †Daniel Storzbach, ‡Carey R. Aron, | and §Carl B. Dodrill | *Oregon Health Sciences University Epilepsy Center and †Portland Veterans Affairs Medical Center, Portland, Oregon;",
+      "clinical_use": {
+        "analyzer": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+        "agents": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives."
+      },
+      "citation_hint": "Salinsky 2002"
+    },
+    {
+      "paper_id": "paper-57f26368a192",
+      "title": "Journal of Neurotherapy: Investigations in",
+      "kind": "research_pdf",
+      "lead_author": "RatcliffBaird",
+      "year": 2002,
+      "relative_path": "RatcliffBaird2002ADHDandStuttering_SimilarEEGprofilessuggestNeurotherapyas-220304-090320.pdf",
+      "hydrated": true,
+      "pages": 19,
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "connectivity",
+        "adhd",
+        "reading",
+        "neurofeedback",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Journal of Neurotherapy: Investigations in Neuromodulation, Neurofeedback and Applied Neuroscience ADHD and Stuttering: Similar EEG Profiles Suggest Neurotherapy as an Adjunct to Traditional Speech Therapies Brenda Ratcliff-Baird PhD a b a Hollins Communications Research Institute , Roanoke, VA b Virginia Polytechnic Institute and State University , Blacksburg, VA Published online: 08 Sep 2008. PLEASE SCROLL DOWN FOR ARTICLE THIS OPEN-ACCESS CONTENT MADE POSSIBLE BY THESE GENEROUS SPONSORS To cite this article: Brenda Ratcliff-Baird PhD (2001) ADHD and Stuttering: Similar EEG Profiles Suggest Neurotherapy as an Adjunct to Traditional Speech Therapies, ...",
+      "topic_outline": [
+        "Journal of Neurotherapy: Investigations in",
+        "Neuromodulation, Neurofeedback and Applied",
+        "Neuroscience",
+        "ADHD and Stuttering: Similar EEG Profiles Suggest",
+        "Neurotherapy as an Adjunct to Traditional Speech",
+        "Therapies",
+        "Brenda Ratcliff-Baird PhD a b",
+        "a Hollins Communications Research Institute , Roanoke, VA",
+        "b Virginia Polytechnic Institute and State University , Blacksburg, VA",
+        "Published online: 08 Sep 2008."
+      ],
+      "search_preview": "Journal of Neurotherapy: Investigations in | Neuromodulation, Neurofeedback and Applied | Neuroscience | ADHD and Stuttering: Similar EEG Profiles Suggest | Neurotherapy as an Adjunct to Traditional Speech | Therapies",
+      "clinical_use": {
+        "analyzer": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+        "agents": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives."
+      },
+      "citation_hint": "RatcliffBaird 2002"
+    },
+    {
+      "paper_id": "paper-15b99da263da",
+      "title": "Journal of Neurotherapy: Investigations in Neuromodulation,",
+      "kind": "research_pdf",
+      "lead_author": "Thornton",
+      "year": 2002,
+      "relative_path": "Thornton2002ElectrophysiologyQEEGcorrelatesofeffectivereadingmemory_Towardsagenerator_activationtheoryofthemind-220304-141154.pdf",
+      "hydrated": true,
+      "pages": 31,
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "connectivity",
+        "adhd",
+        "reading",
+        "neurofeedback",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Journal of Neurotherapy: Investigations in Neuromodulation, Neurofeedback and Applied Neuroscience Electrophysiological (QEEG) Correlates of Effective Reading: Towards a Generator/Activation Theory of the Mind Kirtley E. Thornton PhD a b a mental health clinic , New Jersey b QEEG technology Published online: 08 Sep 2008.",
+      "topic_outline": [
+        "Journal of Neurotherapy: Investigations in Neuromodulation,",
+        "Neurofeedback and Applied Neuroscience",
+        "Electrophysiological (QEEG) Correlates of Effective Reading:",
+        "Towards a Generator/Activation Theory of the Mind",
+        "Kirtley E. Thornton PhD a b",
+        "a mental health clinic , New Jersey",
+        "b QEEG technology",
+        "Published online: 08 Sep 2008.",
+        "PLEASE SCROLL DOWN FOR ARTICLE",
+        "THIS OPEN-ACCESS CONTENT MADE POSSIBLE BY THESE GENEROUS SPONSORS"
+      ],
+      "search_preview": "Journal of Neurotherapy: Investigations in Neuromodulation, | Neurofeedback and Applied Neuroscience | Electrophysiological (QEEG) Correlates of Effective Reading: | Towards a Generator/Activation Theory of the Mind | Kirtley E. Thornton PhD a b | a mental health clinic , New Jersey",
+      "clinical_use": {
+        "analyzer": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+        "agents": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives."
+      },
+      "citation_hint": "Thornton 2002"
+    },
+    {
+      "paper_id": "paper-9737af9f9fb6",
+      "title": "1997;49;277Neurology",
+      "kind": "research_pdf",
+      "lead_author": "Nuwer",
+      "year": 1997,
+      "relative_path": "Nuwer1997AssessmentofdigitalEEGquantitativeEEGandEEGbrainmapping-220304-141136.pdf",
+      "hydrated": true,
+      "pages": 18,
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "connectivity",
+        "adhd",
+        "dementia",
+        "reading",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "1997;49;277Neurology Marc Nuwer American Clinical Neurophysiology Society* mapping: Report of the American Academy of Neurology and the Assessment of digital EEG, quantitative EEG, and EEG brain January 24, 2011This information is current as of http://www.neurology.org/content/49/1/277.full.html the World Wide Web at: The online version of this article, along with updated information and services, is located on reserved. Print ISSN: 0028-3878.",
+      "topic_outline": [
+        "1997;49;277Neurology",
+        "Marc Nuwer",
+        "American Clinical Neurophysiology Society*",
+        "mapping: Report of the American Academy of Neurology and the",
+        "Assessment of digital EEG, quantitative EEG, and EEG brain",
+        "January 24, 2011This information is current as of",
+        "http://www.neurology.org/content/49/1/277.full.html",
+        "the World Wide Web at:",
+        "The online version of this article, along with updated information and services, is located on",
+        "reserved. Print ISSN: 0028-3878. Online ISSN: 1526-632X."
+      ],
+      "search_preview": "1997;49;277Neurology | Marc Nuwer | American Clinical Neurophysiology Society* | mapping: Report of the American Academy of Neurology and the | Assessment of digital EEG, quantitative EEG, and EEG brain | January 24, 2011This information is current as of",
+      "clinical_use": {
+        "analyzer": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+        "agents": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives."
+      },
+      "citation_hint": "Nuwer 1997"
+    },
+    {
+      "paper_id": "paper-114ec52a06d3",
+      "title": "Article Summary:Nuwer, M., (1997) Assessment of digital EEG, quantitative EEG and EEG brain mapping.Neurology:49. 277-292",
+      "kind": "article_summary",
+      "lead_author": "Nuwer",
+      "year": 1997,
+      "relative_path": "Nuwer1997ArticleSummarydocx-220304-141132.pdf",
+      "hydrated": true,
+      "pages": 1,
+      "topical_tags": [
+        "psychopharmacology",
+        "artifact",
+        "reporting"
+      ],
+      "status": "extracted",
+      "summary": "Article Summary:Nuwer, M., (1997) Assessment of digital EEG, quantitative EEG and EEG brain mapping.Neurology:49. 277-292 This assessment aims to help clinicians by providing expert review of the current clinicalusefulness of digital EEG, quantitative EEG, and EEG brain mapping (Nuwer, 1997, 277).",
+      "topic_outline": [
+        "Article Summary:Nuwer, M., (1997) Assessment of digital EEG, quantitative EEG and EEG brain mapping.Neurology:49. 277-292",
+        "This assessment aims to help clinicians by providing expert review of the current clinicalusefulness of digital EEG, quantitative EEG, and EEG brain mapping (Nuwer, 1997, 277). ...",
+        "Relationship to IMO qEEG Program",
+        "This article provides an extensive review of EEG and QEEG processes. The IMO QEEG programincludes this information in our lessons. After understanding how EEG and QEEG work and ...",
+        "Questions to Consider",
+        "1. When do the positive values of QEEG for clinical use outweigh its disadvantages?",
+        "a. When used in expert hands and with good clinical judgment, the problems areoutweighed by positive values (Nuwer, 1997, p. 280)",
+        "2. Why is it difficult to determine the clinical utility of QEEG as stated in this article?",
+        "a. There have been few reports suggesting clinical utility. Few of these reports have beenreproduced and some conflict with others (Nuwer, 1997, p. 279).",
+        "3. What difficulty do clinicians run into when gathering information about the patient?"
+      ],
+      "search_preview": "Article Summary:Nuwer, M., (1997) Assessment of digital EEG, quantitative EEG and EEG brain mapping.Neurology:49. 277-292 | This assessment aims to help clinicians by providing expert review of the current clinicalusefulness of digital EEG, quantitative EEG, and EEG brain mapping (Nuwer, 1997, 277). ... | Relationship to IMO qEEG Program | This article provides an extensive review of EEG and QEEG processes. The IMO QEEG programincludes this information in our lessons. After understanding how EEG and QEEG work and ... | Questions to Consider | 1. When do the positive values of QEEG for clinical use outweigh its disadvantages?",
+      "clinical_use": {
+        "analyzer": "Use when beta excess, slowing, or altered arousal may be medication- or stimulant-related rather than intrinsic dysfunction.",
+        "agents": "Use for medication and substance-confound explanations in analyzer, raw-review, and report narratives."
+      },
+      "citation_hint": "Nuwer 1997"
+    },
+    {
+      "paper_id": "paper-86f09372acc4",
+      "title": "INSTRUCTIONS:",
+      "kind": "reference_sheet",
+      "lead_author": "Local course",
+      "year": null,
+      "relative_path": "kharrazian-institute-brain-region-localization-form-digital.pdf",
+      "hydrated": true,
+      "pages": 3,
+      "topical_tags": [
+        "artifact"
+      ],
+      "status": "extracted",
+      "summary": "INSTRUCTIONS: The purpose of this questionnaire is to identify difficulties that you may be experiencing. Please answer every question, do not skip any questions.",
+      "topic_outline": [
+        "INSTRUCTIONS:",
+        "The purpose of this questionnaire is to identify difficulties",
+        "that you may be experiencing. Please answer every",
+        "question, do not skip any questions. Follow the 0 to 4 key,",
+        "and select which best fits for all of your answers.",
+        "Functional Neurology Seminars",
+        "LP © 2017 Dr. Datis Kharrazian",
+        "Page 1",
+        "NAME: DATE:",
+        "Brain Region Localization Form"
+      ],
+      "search_preview": "INSTRUCTIONS: | The purpose of this questionnaire is to identify difficulties | that you may be experiencing. Please answer every | question, do not skip any questions. Follow the 0 to 4 key, | and select which best fits for all of your answers. | Functional Neurology Seminars",
+      "clinical_use": {
+        "analyzer": "Use when separating source-level or ICA-style artifact reasoning from brain-based findings.",
+        "agents": "Use for artifact-reduction guidance when AI or staff need literature support for rejecting contaminated segments."
+      },
+      "citation_hint": "Local course"
+    }
+  ],
+  "topical_index": [
+    {
+      "tag": "artifact",
+      "count": 37
+    },
+    {
+      "tag": "reporting",
+      "count": 30
+    },
+    {
+      "tag": "connectivity",
+      "count": 25
+    },
+    {
+      "tag": "psychopharmacology",
+      "count": 17
+    },
+    {
+      "tag": "reading",
+      "count": 17
+    },
+    {
+      "tag": "adhd",
+      "count": 13
+    },
+    {
+      "tag": "gamma",
+      "count": 10
+    },
+    {
+      "tag": "neurofeedback",
+      "count": 9
+    },
+    {
+      "tag": "autism",
+      "count": 8
+    },
+    {
+      "tag": "dementia",
+      "count": 8
+    }
+  ],
+  "integration_notes": [
+    "This local research library is intended for repo-native qEEG copilot retrieval and analyzer grounding.",
+    "Article summaries are kept alongside paper PDFs so agents can use either the condensed teaching summary or the original source excerpt.",
+    "Search results should be treated as evidence support for reviewed signal and clinical context, not as stand-alone decision authority."
+  ]
+}
