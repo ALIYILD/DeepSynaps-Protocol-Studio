@@ -281,6 +281,10 @@ from app.qeeg.workers.qeeg_analysis_worker import (
     shutdown_worker as shutdown_qeeg_105_worker,
     start_worker_if_enabled as start_qeeg_105_worker,
 )
+from app.workers.resolver_coaching_self_review_digest_worker import (
+    shutdown_worker as shutdown_resolver_coaching_self_review_digest_worker,
+    start_worker_if_enabled as start_resolver_coaching_self_review_digest_worker,
+)
 from app.services.agent_skills_seed import seed_default_agent_skills
 from app.services.clinical_data import HandbookGenerateAPIResponse, seed_clinical_dataset
 from app.services.demo_clinic_seed import (
