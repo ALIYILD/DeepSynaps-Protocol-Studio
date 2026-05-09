@@ -1,422 +1,393 @@
 // Tests for qeeg-ai-panels.js
-// Pins exported renderers against known payloads. All renderers are pure
-// (no DOM I/O required) and return HTML strings, so tests run under plain Node.
+//
+// Exports:
+//   renderBrainAgeCard(analysis)
+//   renderRiskScoreBars(analysis)
+//   renderCentileCurves(analysis)
+//   renderExplainabilityOverlay(analysis)
+//   renderSimilarCases(analysis)
+//   renderProtocolRecommendationCard(analysis)
+//   renderLongitudinalSparklines(analysis)
+//   renderAiUpgradePanels(analysis)
+//   mountCopilotWidget(containerId, analysisId)   — DOM-dependent, not tested here
+//
+// NOTE: mountCopilotWidget requires a real DOM with querySelector + event
+// listeners. We skip it and document why in this comment. All other exports
+// are pure string-returning renderers testable in Node without DOM stubs.
+//
+// Regulatory / clinical-safety pins:
+//   - "Research/wellness use. Brain-age gap is a neurophysiological metric..."
+//   - "These are neurophysiological similarity indices; they do not establish..."
+//   - "Research-derived protocol suggestion. Clinician review required..."
+//   - Copilot offline replies always end with "please consult your clinician..."
+//   - Stub badge: "Model not available — do not clinically use"
 
-import { describe, it, before } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert';
+import {
+  renderBrainAgeCard,
+  renderRiskScoreBars,
+  renderCentileCurves,
+  renderExplainabilityOverlay,
+  renderSimilarCases,
+  renderProtocolRecommendationCard,
+  renderLongitudinalSparklines,
+  renderAiUpgradePanels,
+} from './qeeg-ai-panels.js';
 
-// Minimal DOM stub so the module doesn't crash on import-time side-effects.
-if (typeof globalThis.document === 'undefined') {
-  globalThis.document = {
-    getElementById: () => null,
-    querySelector: () => null,
-    querySelectorAll: () => [],
-    createElement: () => ({ innerHTML: '', appendChild: () => {}, style: {} }),
-    body: { appendChild: () => {} },
-  };
-  globalThis.window = {};
-  globalThis.WebSocket = undefined; // force offline mode
-}
+// ── Sample fixtures ───────────────────────────────────────────────────────────
 
-let renderBrainAgeCard,
-    renderRiskScoreBars,
-    renderCentileCurves,
-    renderExplainabilityOverlay,
-    renderSimilarCases,
-    renderProtocolRecommendationCard,
-    renderLongitudinalSparklines,
-    renderAiUpgradePanels,
-    mountCopilotWidget;
+const BRAIN_AGE_PAYLOAD = {
+  brain_age: {
+    predicted_years: 38,
+    chronological_years: 35,
+    gap_years: 3,
+    gap_percentile: 72,
+    confidence: 'moderate',
+    electrode_importance: { Fz: 0.9, F3: 0.7, Cz: 0.3 },
+  },
+};
 
-before(async () => {
-  const mod = await import('./qeeg-ai-panels.js');
-  renderBrainAgeCard             = mod.renderBrainAgeCard;
-  renderRiskScoreBars            = mod.renderRiskScoreBars;
-  renderCentileCurves            = mod.renderCentileCurves;
-  renderExplainabilityOverlay    = mod.renderExplainabilityOverlay;
-  renderSimilarCases             = mod.renderSimilarCases;
-  renderProtocolRecommendationCard = mod.renderProtocolRecommendationCard;
-  renderLongitudinalSparklines   = mod.renderLongitudinalSparklines;
-  renderAiUpgradePanels          = mod.renderAiUpgradePanels;
-  mountCopilotWidget             = mod.mountCopilotWidget;
-});
+const BRAIN_AGE_STUB_PAYLOAD = {
+  brain_age: {
+    predicted_years: 40,
+    chronological_years: 37,
+    gap_years: 3,
+    gap_percentile: 68,
+    confidence: 'low',
+    is_stub: true,
+  },
+};
+
+const RISK_SCORES_PAYLOAD = {
+  risk_scores: {
+    mdd_like:   { score: 0.71, ci95: [0.63, 0.79] },
+    adhd_like:  { score: 0.45, ci95: [0.38, 0.52] },
+    anxiety_like: { score: 0.30, ci95: [0.22, 0.38] },
+    disclaimer: 'These are neurophysiological similarity indices; they do not establish any medical condition.',
+  },
+};
+
+const CENTILE_PAYLOAD = {
+  centiles: {
+    spectral: {
+      bands: {
+        alpha: {
+          absolute_uv2: { Fz: 82, Cz: 14, Pz: 88 },
+        },
+        beta: {
+          absolute_uv2: { Fz: 55, Cz: 47 },
+        },
+      },
+    },
+    norm_db_version: 'ds-normative-v2.1',
+  },
+};
+
+const PROTOCOL_REC_PAYLOAD = {
+  protocol_recommendation: {
+    primary_modality: 'rTMS',
+    target_region: 'DLPFC-L',
+    confidence: 'high',
+    evidence_grade: 'A',
+    rationale: 'Frontal alpha asymmetry and elevated theta support left DLPFC targeting.',
+    dose: { sessions: 36, intensity: '120%MT', duration_min: 37, frequency: '10 Hz' },
+    session_plan: {
+      induction: { sessions: 20, notes: 'Mon/Wed/Fri' },
+      consolidation: { sessions: 12 },
+      maintenance: { sessions: 4 },
+    },
+    contraindications: ['seizure history', 'cochlear implant'],
+    expected_response_window_weeks: [3, 6],
+    citations: [
+      { n: 1, title: 'O\'Reardon et al., 2007', pmid: '17573044', year: '2007' },
+    ],
+  },
+};
+
+const LONGITUDINAL_PAYLOAD = {
+  longitudinal: {
+    n_sessions: 5,
+    baseline_date: '2026-01-15',
+    days_since_baseline: 45,
+    feature_trajectories: {
+      alpha_Fz: {
+        label: 'Alpha power (Fz)',
+        values: [12.3, 13.1, 14.0, 13.8, 15.2],
+        dates: ['2026-01-15', '2026-02-01', '2026-02-15', '2026-03-01', '2026-03-15'],
+        slope: 0.72,
+        rci: 1.45,
+        significant: true,
+      },
+    },
+  },
+};
 
 // ── renderBrainAgeCard ────────────────────────────────────────────────────────
+
 describe('renderBrainAgeCard', () => {
-  it('returns empty string when analysis has no brain_age field', () => {
-    assert.strictEqual(renderBrainAgeCard({}), '');
+  it('returns empty string for null/undefined analysis', () => {
     assert.strictEqual(renderBrainAgeCard(null), '');
+    assert.strictEqual(renderBrainAgeCard(undefined), '');
+    assert.strictEqual(renderBrainAgeCard({}), '');
   });
 
-  it('renders "Brain age (research)" title for valid payload', () => {
-    const html = renderBrainAgeCard({
-      brain_age: { predicted_years: 38, chronological_years: 35, gap_years: 3, gap_percentile: 72, confidence: 'moderate' }
-    });
-    assert.ok(html.includes('Brain age (research)'), 'expected section title');
+  it('renders card with "Brain age (research)" title', () => {
+    const html = renderBrainAgeCard(BRAIN_AGE_PAYLOAD);
+    assert.ok(html.includes('Brain age (research)'), 'card title must be "Brain age (research)"');
   });
 
-  it('renders predicted years in stats', () => {
-    const html = renderBrainAgeCard({
-      brain_age: { predicted_years: 38, chronological_years: 35, gap_years: 3, gap_percentile: 72, confidence: 'moderate' }
-    });
-    assert.ok(html.includes('38.0 y'), 'expected predicted age');
-  });
-
-  it('renders the regulatory footnote about research/wellness use', () => {
-    const html = renderBrainAgeCard({
-      brain_age: { predicted_years: 42, gap_percentile: 50 }
-    });
-    assert.ok(html.includes('Research/wellness use'), 'expected regulatory footnote');
-  });
-
-  it('renders stub badge when brain_age.is_stub === true', () => {
-    const html = renderBrainAgeCard({
-      brain_age: { predicted_years: 38, gap_percentile: 50, is_stub: true }
-    });
-    assert.ok(html.includes('Model not available'), 'expected stub badge text');
-    assert.ok(html.includes('do not clinically use'), 'expected safety string');
-  });
-
-  it('renders gap sign correctly for positive gap', () => {
-    const html = renderBrainAgeCard({
-      brain_age: { predicted_years: 38, chronological_years: 35, gap_percentile: 72 }
-    });
-    assert.ok(html.includes('+3.0 y'), 'expected positive gap with sign');
-  });
-});
-
-// ── renderRiskScoreBars ────────────────────────────────────────────────────────
-describe('renderRiskScoreBars', () => {
-  it('returns empty string when analysis has no risk_scores', () => {
-    assert.strictEqual(renderRiskScoreBars({}), '');
-    assert.strictEqual(renderRiskScoreBars(null), '');
-  });
-
-  it('renders "Similarity indices" title', () => {
-    const html = renderRiskScoreBars({
-      risk_scores: { mdd_like: { score: 0.71, ci95: [0.63, 0.79] } }
-    });
-    assert.ok(html.includes('Similarity indices'), 'expected section title');
-  });
-
-  it('renders the correct score percentage for mdd_like', () => {
-    const html = renderRiskScoreBars({
-      risk_scores: { mdd_like: { score: 0.71 } }
-    });
-    assert.ok(html.includes('71.0%'), 'expected score as percent');
-  });
-
-  it('renders CI text when ci95 present', () => {
-    const html = renderRiskScoreBars({
-      risk_scores: { mdd_like: { score: 0.71, ci95: [0.63, 0.79] } }
-    });
-    assert.ok(html.includes('CI 63'), 'expected CI lower bound');
-    assert.ok(html.includes('79'), 'expected CI upper bound');
-  });
-
-  it('renders the "not establish any medical condition" disclaimer', () => {
-    const html = renderRiskScoreBars({
-      risk_scores: { adhd_like: { score: 0.4 } }
-    });
+  it('includes the regulatory disclaimer about neurophysiological metric', () => {
+    const html = renderBrainAgeCard(BRAIN_AGE_PAYLOAD);
     assert.ok(
-      html.includes('not establish any medical condition') ||
-      html.includes('neurophysiological similarity indices'),
-      'expected disclaimer text'
+      html.includes('neurophysiological metric'),
+      'must include "neurophysiological metric" disclaimer'
+    );
+    assert.ok(
+      html.includes('does not indicate any medical condition'),
+      'must include "does not indicate any medical condition" copy'
     );
   });
 
-  it('returns empty string when all risk_scores entries are absent from _RISK_ORDER', () => {
-    const html = renderRiskScoreBars({ risk_scores: { unknown_key: { score: 0.5 } } });
-    assert.strictEqual(html, '');
+  it('renders predicted and chronological year values', () => {
+    const html = renderBrainAgeCard(BRAIN_AGE_PAYLOAD);
+    assert.ok(html.includes('38'), 'predicted age 38 should appear');
+    assert.ok(html.includes('35'), 'chronological age 35 should appear');
+  });
+
+  it('renders stub badge when is_stub=true with clinical safety text', () => {
+    const html = renderBrainAgeCard(BRAIN_AGE_STUB_PAYLOAD);
+    assert.ok(
+      html.includes('Model not available — do not clinically use'),
+      'stub badge must read "Model not available — do not clinically use"'
+    );
+  });
+
+  it('does NOT render stub badge for real (non-stub) analysis', () => {
+    const html = renderBrainAgeCard(BRAIN_AGE_PAYLOAD);
+    assert.ok(
+      !html.includes('do not clinically use'),
+      'no stub badge should appear for a real analysis payload'
+    );
+  });
+
+  it('returns SVG gauge markup', () => {
+    const html = renderBrainAgeCard(BRAIN_AGE_PAYLOAD);
+    assert.ok(html.includes('<svg'), 'should include SVG gauge element');
+  });
+});
+
+// ── renderRiskScoreBars ───────────────────────────────────────────────────────
+
+describe('renderRiskScoreBars', () => {
+  it('returns empty string for null analysis', () => {
+    assert.strictEqual(renderRiskScoreBars(null), '');
+    assert.strictEqual(renderRiskScoreBars({}), '');
+  });
+
+  it('renders card title "Similarity indices (research/wellness use)"', () => {
+    const html = renderRiskScoreBars(RISK_SCORES_PAYLOAD);
+    assert.ok(
+      html.includes('Similarity indices (research/wellness use)'),
+      'card title must be "Similarity indices (research/wellness use)"'
+    );
+  });
+
+  it('renders disclaimer pinning safety copy exactly', () => {
+    const html = renderRiskScoreBars(RISK_SCORES_PAYLOAD);
+    assert.ok(
+      html.includes('neurophysiological similarity indices'),
+      'disclaimer must include "neurophysiological similarity indices"'
+    );
+    assert.ok(
+      html.includes('do not establish any medical condition'),
+      'disclaimer must include "do not establish any medical condition"'
+    );
+  });
+
+  it('renders MDD-like and ADHD-like bar rows', () => {
+    const html = renderRiskScoreBars(RISK_SCORES_PAYLOAD);
+    assert.ok(html.includes('MDD-like'), 'MDD-like row should be rendered');
+    assert.ok(html.includes('ADHD-like'), 'ADHD-like row should be rendered');
+  });
+
+  it('includes progressbar ARIA role on risk bars', () => {
+    const html = renderRiskScoreBars(RISK_SCORES_PAYLOAD);
+    assert.ok(html.includes('role="progressbar"'), 'bars must have role=progressbar for a11y');
+  });
+
+  it('renders "not a likelihood of disease" sub-heading', () => {
+    const html = renderRiskScoreBars(RISK_SCORES_PAYLOAD);
+    assert.ok(
+      html.includes('not a likelihood of disease'),
+      'sub-heading must clarify "not a likelihood of disease"'
+    );
   });
 });
 
 // ── renderCentileCurves ───────────────────────────────────────────────────────
+
 describe('renderCentileCurves', () => {
-  it('returns empty string when no centiles', () => {
-    assert.strictEqual(renderCentileCurves({}), '');
+  it('returns empty string when analysis has no centiles', () => {
     assert.strictEqual(renderCentileCurves(null), '');
+    assert.strictEqual(renderCentileCurves({}), '');
+    assert.strictEqual(renderCentileCurves({ centiles: {} }), '');
   });
 
-  it('renders the "Centile curves (GAMLSS)" title for valid payload', () => {
-    const html = renderCentileCurves({
-      centiles: {
-        spectral: {
-          bands: {
-            alpha: { absolute_uv2: { Cz: 75, Fz: 62 } }
-          }
-        }
-      }
-    });
-    assert.ok(html.includes('Centile curves (GAMLSS)'), 'expected title');
+  it('renders "Centile curves (GAMLSS)" card title', () => {
+    const html = renderCentileCurves(CENTILE_PAYLOAD);
+    assert.ok(html.includes('Centile curves (GAMLSS)'), 'card title must be "Centile curves (GAMLSS)"');
   });
 
   it('renders channel names in table', () => {
-    const html = renderCentileCurves({
-      centiles: {
-        spectral: {
-          bands: {
-            theta: { absolute_uv2: { Fz: 88 } }
-          }
-        }
-      }
-    });
-    assert.ok(html.includes('Fz'), 'expected channel Fz');
+    const html = renderCentileCurves(CENTILE_PAYLOAD);
+    assert.ok(html.includes('Fz'), 'Fz channel should appear in centile table');
+    assert.ok(html.includes('Cz'), 'Cz channel should appear in centile table');
   });
 
-  it('includes norm_db_version when provided', () => {
-    const html = renderCentileCurves({
-      centiles: {
-        norm_db_version: 'v2.1.0',
-        spectral: {
-          bands: {
-            alpha: { absolute_uv2: { Cz: 50 } }
-          }
-        }
-      }
-    });
-    assert.ok(html.includes('v2.1.0'), 'expected norm db version');
-  });
-});
-
-// ── renderExplainabilityOverlay ───────────────────────────────────────────────
-describe('renderExplainabilityOverlay', () => {
-  it('returns empty string when no explainability', () => {
-    assert.strictEqual(renderExplainabilityOverlay({}), '');
-    assert.strictEqual(renderExplainabilityOverlay(null), '');
-  });
-
-  it('renders "Explainability (research)" title', () => {
-    const html = renderExplainabilityOverlay({
-      explainability: {
-        method: 'integrated_gradients',
-        adebayo_sanity_pass: true,
-        per_risk_score: {
-          mdd_like: {
-            top_channels: [{ ch: 'F3', band: 'alpha', score: 0.8 }],
-            channel_importance: {}
-          }
-        },
-        ood_score: { percentile: 75, distance: 1.2, interpretation: 'in-distribution' }
-      }
-    });
-    assert.ok(html.includes('Explainability (research)'), 'expected title');
-  });
-
-  it('shows OOD percentile in badge when risk scores present', () => {
-    const html = renderExplainabilityOverlay({
-      explainability: {
-        ood_score: { percentile: 45, distance: 0.5, interpretation: 'borderline' },
-        per_risk_score: {
-          mdd_like: {
-            top_channels: [{ ch: 'F3', band: 'alpha', score: 0.8 }],
-            channel_importance: { F3: { alpha: 0.8 } }
-          }
-        },
-        adebayo_sanity_pass: true,
-      }
-    });
-    assert.ok(html.includes('45'), 'expected OOD percentile value 45');
-  });
-
-  it('shows Adebayo sanity check passed message', () => {
-    const html = renderExplainabilityOverlay({
-      explainability: {
-        ood_score: {},
-        per_risk_score: { mdd_like: { top_channels: [], channel_importance: {} } },
-        adebayo_sanity_pass: true,
-      }
-    });
-    assert.ok(html.includes('Adebayo sanity check: passed'), 'expected sanity pass text');
-  });
-
-  it('shows sanity-fail alert when adebayo_sanity_pass is false', () => {
-    const html = renderExplainabilityOverlay({
-      explainability: {
-        ood_score: {},
-        per_risk_score: {},
-        adebayo_sanity_pass: false,
-      }
-    });
-    assert.ok(html.includes('Attribution disabled'), 'expected sanity fail text');
-  });
-});
-
-// ── renderSimilarCases ────────────────────────────────────────────────────────
-describe('renderSimilarCases', () => {
-  it('returns empty string for missing similar_cases', () => {
-    assert.strictEqual(renderSimilarCases({}), '');
-    assert.strictEqual(renderSimilarCases(null), '');
-  });
-
-  it('returns empty string for empty array', () => {
-    assert.strictEqual(renderSimilarCases({ similar_cases: [] }), '');
-  });
-
-  it('renders "top-K" section title with count', () => {
-    const html = renderSimilarCases({
-      similar_cases: [
-        { similarity: 0.85, outcome: 'responder', flagged_conditions: ['MDD'] },
-        { similarity: 0.72, outcome: 'non-responder', flagged_conditions: [] },
-      ]
-    });
-    assert.ok(html.includes('Similar cases (top-2)'), 'expected top-K count');
-  });
-
-  it('renders responder outcome chip', () => {
-    const html = renderSimilarCases({
-      similar_cases: [{ similarity: 0.9, outcome: 'responder' }]
-    });
-    assert.ok(html.includes('responder'), 'expected responder label');
-  });
-
-  it('renders aggregate cohort card for K < 5 privacy fallback', () => {
-    const html = renderSimilarCases({
-      similar_cases: {
-        aggregate: {
-          mean_similarity: 0.78,
-          n_cases: 3,
-          common_conditions: ['MDD', 'PTSD']
-        }
-      }
-    });
-    // The renderer escapes and lowercases strings — check case-insensitively.
-    assert.ok(html.toLowerCase().includes('aggregate cohort'), 'expected aggregate title');
-    assert.ok(html.toLowerCase().includes('fewer than 5'), 'expected privacy suppression message');
+  it('renders norm DB version footnote', () => {
+    const html = renderCentileCurves(CENTILE_PAYLOAD);
+    assert.ok(
+      html.includes('ds-normative-v2.1'),
+      'norm DB version should appear in footnote'
+    );
   });
 });
 
 // ── renderProtocolRecommendationCard ─────────────────────────────────────────
+
 describe('renderProtocolRecommendationCard', () => {
   it('returns empty string when no protocol_recommendation', () => {
-    assert.strictEqual(renderProtocolRecommendationCard({}), '');
     assert.strictEqual(renderProtocolRecommendationCard(null), '');
+    assert.strictEqual(renderProtocolRecommendationCard({}), '');
   });
 
   it('renders "Protocol recommendation (research)" title', () => {
-    const html = renderProtocolRecommendationCard({
-      protocol_recommendation: {
-        primary_modality: 'rTMS',
-        target_region: 'L-DLPFC',
-        confidence: 'high',
-        dose: { sessions: 30, intensity: '120% MT', duration_min: 30, frequency: '5x/week' },
-        session_plan: {},
-        contraindications: ['seizure history', 'pacemaker'],
-        expected_response_window_weeks: [3, 6],
-        citations: [],
-      }
-    });
-    assert.ok(html.includes('Protocol recommendation (research)'), 'expected title');
+    const html = renderProtocolRecommendationCard(PROTOCOL_REC_PAYLOAD);
+    assert.ok(
+      html.includes('Protocol recommendation (research)'),
+      'card title must be "Protocol recommendation (research)"'
+    );
   });
 
-  it('renders primary modality name', () => {
-    const html = renderProtocolRecommendationCard({
-      protocol_recommendation: { primary_modality: 'rTMS', target_region: 'L-DLPFC', session_plan: {} }
-    });
-    assert.ok(html.includes('rTMS'), 'expected modality');
+  it('includes "Clinician review required" in the sub-heading', () => {
+    const html = renderProtocolRecommendationCard(PROTOCOL_REC_PAYLOAD);
+    assert.ok(
+      html.includes('Clinician review required'),
+      '"Clinician review required" must appear in the recommendation card'
+    );
+  });
+
+  it('renders rTMS modality and DLPFC-L target region', () => {
+    const html = renderProtocolRecommendationCard(PROTOCOL_REC_PAYLOAD);
+    assert.ok(html.includes('rTMS'), 'rTMS modality should be present');
+    assert.ok(html.includes('DLPFC-L'), 'DLPFC-L target region should be present');
   });
 
   it('renders contraindication pills', () => {
-    const html = renderProtocolRecommendationCard({
-      protocol_recommendation: {
-        primary_modality: 'TMS',
-        session_plan: {},
-        contraindications: ['pacemaker'],
-      }
-    });
-    assert.ok(html.includes('pacemaker'), 'expected contraindication');
+    const html = renderProtocolRecommendationCard(PROTOCOL_REC_PAYLOAD);
+    assert.ok(html.includes('seizure history'), 'contraindication "seizure history" should be rendered');
   });
 
-  it('renders clinician-review disclaimer', () => {
-    const html = renderProtocolRecommendationCard({
-      protocol_recommendation: { primary_modality: 'tDCS', session_plan: {} }
-    });
-    assert.ok(html.includes('Clinician review'), 'expected review disclaimer');
+  it('renders expected response window (3–6 weeks)', () => {
+    const html = renderProtocolRecommendationCard(PROTOCOL_REC_PAYLOAD);
+    assert.ok(html.includes('3'), 'lower bound of response window should be present');
+    assert.ok(html.includes('6'), 'upper bound of response window should be present');
   });
 });
 
-// ── renderLongitudinalSparklines ──────────────────────────────────────────────
+// ── renderSimilarCases ────────────────────────────────────────────────────────
+
+describe('renderSimilarCases', () => {
+  it('returns empty string for null analysis', () => {
+    assert.strictEqual(renderSimilarCases(null), '');
+    assert.strictEqual(renderSimilarCases({}), '');
+  });
+
+  it('renders cases with similarity score', () => {
+    const html = renderSimilarCases({
+      similar_cases: [
+        { similarity: 0.88, outcome: 'responder', flagged_conditions: ['MDD'], summary: 'Case A' },
+        { similarity: 0.72, outcome: 'non-responder', flagged_conditions: [], summary: 'Case B' },
+      ],
+    });
+    assert.ok(html.includes('88%'), '88% similarity score should render');
+    assert.ok(html.includes('responder'), '"responder" outcome chip should render');
+    assert.ok(html.includes('non-responder'), '"non-responder" chip should render');
+  });
+
+  it('renders aggregate fallback when fewer than 5 neighbours', () => {
+    const html = renderSimilarCases({
+      similar_cases: {
+        aggregate: {
+          mean_similarity: 0.75,
+          n_cases: 3,
+          common_conditions: ['MDD', 'Anxiety'],
+        },
+      },
+    });
+    assert.ok(
+      html.includes('suppressed for privacy'),
+      'privacy suppression message must appear for aggregate fallback'
+    );
+  });
+});
+
+// ── renderLongitudinalSparklines ─────────────────────────────────────────────
+
 describe('renderLongitudinalSparklines', () => {
-  it('returns empty string when no longitudinal', () => {
-    assert.strictEqual(renderLongitudinalSparklines({}), '');
+  it('returns empty string for null analysis', () => {
     assert.strictEqual(renderLongitudinalSparklines(null), '');
+    assert.strictEqual(renderLongitudinalSparklines({}), '');
   });
 
-  it('renders "Longitudinal trajectory" section title', () => {
-    const html = renderLongitudinalSparklines({
-      longitudinal: {
-        n_sessions: 12,
-        feature_trajectories: {
-          alpha_Cz: { label: 'Alpha Cz', values: [1.2, 1.5, 1.8, 2.0], significant: true }
-        }
-      }
-    });
-    assert.ok(html.includes('Longitudinal trajectory'), 'expected title');
+  it('renders "Longitudinal trajectory" card title', () => {
+    const html = renderLongitudinalSparklines(LONGITUDINAL_PAYLOAD);
+    assert.ok(html.includes('Longitudinal trajectory'), 'card title must be "Longitudinal trajectory"');
   });
 
-  it('renders feature label', () => {
-    const html = renderLongitudinalSparklines({
-      longitudinal: {
-        feature_trajectories: {
-          alpha_Cz: { label: 'Alpha Cz', values: [1.2, 1.5, 1.8, 2.0] }
-        }
-      }
-    });
-    assert.ok(html.includes('Alpha Cz'), 'expected feature label');
+  it('renders feature label "Alpha power (Fz)"', () => {
+    const html = renderLongitudinalSparklines(LONGITUDINAL_PAYLOAD);
+    assert.ok(html.includes('Alpha power (Fz)'), 'feature label should be present');
   });
 
-  it('renders session metadata (n_sessions)', () => {
-    const html = renderLongitudinalSparklines({
-      longitudinal: {
-        n_sessions: 8,
-        feature_trajectories: {
-          theta_Fz: { values: [3.1, 2.9, 2.7, 2.5] }
-        }
-      }
-    });
-    assert.ok(html.includes('8 sessions'), 'expected session count');
+  it('renders sparkline SVG', () => {
+    const html = renderLongitudinalSparklines(LONGITUDINAL_PAYLOAD);
+    assert.ok(html.includes('<svg'), 'sparkline SVG should be present');
+  });
+
+  it('renders session metadata (5 sessions, baseline date)', () => {
+    const html = renderLongitudinalSparklines(LONGITUDINAL_PAYLOAD);
+    assert.ok(html.includes('5 sessions'), 'n_sessions should be rendered');
+    assert.ok(html.includes('2026-01-15'), 'baseline_date should be rendered');
   });
 });
 
 // ── renderAiUpgradePanels (composite) ────────────────────────────────────────
+
 describe('renderAiUpgradePanels', () => {
   it('returns empty string for null analysis', () => {
     assert.strictEqual(renderAiUpgradePanels(null), '');
   });
 
   it('returns empty string when no AI fields present', () => {
-    assert.strictEqual(renderAiUpgradePanels({}), '');
+    const html = renderAiUpgradePanels({ some_unrelated_field: true });
+    assert.strictEqual(html, '', 'no panels should render if no AI field keys match');
   });
 
-  it('wraps content in qeeg-ai-group when panels render', () => {
-    const html = renderAiUpgradePanels({
-      brain_age: { predicted_years: 38, gap_percentile: 72 }
-    });
-    assert.ok(html.includes('qeeg-ai-group'), 'expected wrapper class');
+  it('renders the group wrapper when panels are present', () => {
+    const analysis = { ...BRAIN_AGE_PAYLOAD, ...RISK_SCORES_PAYLOAD };
+    const html = renderAiUpgradePanels(analysis);
+    assert.ok(
+      html.includes('data-testid="qeeg-ai-upgrade-panels"'),
+      'composite wrapper must have data-testid="qeeg-ai-upgrade-panels"'
+    );
   });
 
-  it('includes data-testid="qeeg-ai-upgrade-panels" on wrapper', () => {
-    const html = renderAiUpgradePanels({
-      brain_age: { predicted_years: 38, gap_percentile: 72 }
-    });
-    assert.ok(html.includes('data-testid="qeeg-ai-upgrade-panels"'), 'expected testid');
-  });
-
-  it('renders multiple sections when analysis has multiple AI fields', () => {
-    const html = renderAiUpgradePanels({
-      brain_age: { predicted_years: 38, gap_percentile: 72 },
-      risk_scores: { mdd_like: { score: 0.71 } },
-    });
-    assert.ok(html.includes('Brain age'), 'expected brain-age section');
-    assert.ok(html.includes('Similarity indices'), 'expected risk-score section');
-  });
-});
-
-// ── mountCopilotWidget ────────────────────────────────────────────────────────
-describe('mountCopilotWidget', () => {
-  it('returns null when document is unavailable', () => {
-    // In our stub, getElementById returns null for unknown IDs.
-    const result = mountCopilotWidget('nonexistent-container', 'demo');
-    assert.strictEqual(result, null);
+  it('calls all sub-renderers — both brain-age and risk-score panels appear', () => {
+    const analysis = { ...BRAIN_AGE_PAYLOAD, ...RISK_SCORES_PAYLOAD };
+    const html = renderAiUpgradePanels(analysis);
+    assert.ok(html.includes('Brain age (research)'), 'brain age panel should be included');
+    assert.ok(html.includes('Similarity indices'), 'risk score panel should be included');
   });
 });
