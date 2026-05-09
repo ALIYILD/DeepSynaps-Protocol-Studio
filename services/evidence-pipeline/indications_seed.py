@@ -47,13 +47,34 @@ MODALITY_PRODUCT_CODES = {
     "rTMS":   ["OBP"],
     "dTMS":   ["OBP"],
 
-    # MRgFUS (brain-only) — OYJ = "Stereotactic Ablation System, MR-Image Guided",
-    # QBV = "System, Image-Guided Neurosurgical Lesioning". Without this filter,
-    # an Insightec applicant search pulls in their pelvic / breast / prostate
-    # ultrasound systems (codes PLP, MOS) which are NOT neuromodulation.
-    "MRgFUS": ["OYJ", "QBV"],
+    # MRgFUS — POH = "MR-Guided Focused Ultrasound System" (Insightec Exablate
+    # Neuro 4000, P150038), Class III. Earlier OYJ/QBV mapping was wrong:
+    # openFDA classifies OYJ as "COLLECTION, ORAL FLUID" (saliva DNA kits) and
+    # QBV as "SYSTEM, PLATELET-RICH PLASMA" (bone-marrow centrifuge). Real
+    # code verified via api.fda.gov/device/pma.json on 2026-05-09.
+    # Cleanup history: fda_curation_log_2026-05-09.md +
+    # fda_curation_oyj_qbv_cleanup.sql.
+    "MRgFUS": ["POH"],
 
-    # Unverified: RNS, DRG, SNM, PNS, tDCS, BAT, REN.
+    # RNS — PFN = "Implanted Brain Stimulator For Epilepsy" (NeuroPace RNS
+    # System, P100026), Class III.
+    "RNS":    ["PFN"],
+
+    # DRG — PMP = "Dorsal Root Ganglion Stimulator For Pain Relief" (Abbott
+    # Proclaim DRG, P150004), Class III.
+    "DRG":    ["PMP"],
+
+    # SNM — EZW = "Stimulator, Electrical, Implantable, For Incontinence"
+    # (Medtronic InterStim, P970004), Class III.
+    "SNM":    ["EZW"],
+
+    # VNS-stroke (Vivistim Paired VNS) — QPY = "Stimulator, Autonomic Nerve,
+    # Implanted For Stroke Rehabilitation" (MicroTransponder / Mobia Medical
+    # Vivistim, P210007), Class III. NOT under "VNS" key because LYJ is the
+    # epilepsy/depression family; QPY is its own product code.
+    "VNS-stroke": ["QPY"],
+
+    # Unverified: PNS, tDCS, BAT, REN.
     # ingest.py skips FDA lookup for these until codes are confirmed.
 }
 

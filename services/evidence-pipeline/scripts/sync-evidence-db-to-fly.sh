@@ -81,6 +81,34 @@ if [[ "$INTEGRITY" != "ok" ]]; then
     exit 1
 fi
 
+# ── Coherent snapshot ─────────────────────────────────────────────────────
+# 2026-05-09 incident: a previous sync produced a corrupted staging file on
+# prod ("*** in database main ***" from PRAGMA integrity_check) because the
+# sftp uploaded the live .db while another process (compute_indication_grades.py)
+# was writing to it. The page snapshot was inconsistent across sftp's read.
+#
+# Fix: take a coherent point-in-time copy via sqlite3's `.backup` (uses the
+# online backup API, which is safe under concurrent writers — it holds the
+# correct locks per-page). The snapshot is what we sftp; the live DB stays
+# untouched. Trap guarantees the snapshot is removed even on early exit.
+SNAPSHOT_PATH="${EVIDENCE_DB_PATH}.sync-snapshot"
+log "creating coherent snapshot at $SNAPSHOT_PATH (immune to concurrent writes)..."
+rm -f "$SNAPSHOT_PATH"
+trap 'rm -f "$SNAPSHOT_PATH"' EXIT INT TERM
+sqlite3 "$EVIDENCE_DB_PATH" ".backup '$SNAPSHOT_PATH'" 2>&1
+if [[ ! -f "$SNAPSHOT_PATH" ]]; then
+    log "ERROR: snapshot creation failed — $SNAPSHOT_PATH not produced"
+    exit 1
+fi
+SNAPSHOT_INTEGRITY="$(sqlite3 "$SNAPSHOT_PATH" 'PRAGMA integrity_check;' | head -1 | tr -d '[:space:]')"
+if [[ "$SNAPSHOT_INTEGRITY" != "ok" ]]; then
+    log "ERROR: snapshot integrity_check returned: $SNAPSHOT_INTEGRITY"
+    exit 1
+fi
+EVIDENCE_DB_PATH="$SNAPSHOT_PATH"
+LOCAL_BYTES="$(stat -f %z "$EVIDENCE_DB_PATH" 2>/dev/null || stat -c %s "$EVIDENCE_DB_PATH")"
+log "snapshot ready: $LOCAL_BYTES bytes, integrity=ok"
+
 LOCAL_PAPERS="$(sqlite3 "$EVIDENCE_DB_PATH" 'SELECT COUNT(*) FROM papers;')"
 LOCAL_INDICATIONS="$(sqlite3 "$EVIDENCE_DB_PATH" 'SELECT COUNT(*) FROM indications;')"
 LOCAL_PI="$(sqlite3 "$EVIDENCE_DB_PATH" 'SELECT COUNT(*) FROM paper_indications;')"
@@ -170,17 +198,78 @@ if [[ "$remote_papers" != "$LOCAL_PAPERS" ]]; then
 fi
 log "verified: ${remote_size} bytes, integrity=ok, papers=$remote_papers"
 
+# ── Pre-prune (free space before backup) ────────────────────────────────────
+# Prune oldest timestamped backups BEFORE the new backup. Keep the most recent
+# (PRUNE_KEEP-1) so that after this run completes there are exactly PRUNE_KEEP
+# backups (the existing N-1 + the new bak-<ts> we are about to create).
+#
+# Doing this BEFORE the backup avoids the "/data full → cp truncated → swap
+# proceeds with no rollback" failure observed on 2026-05-09.
+PRUNE_KEEP="${PRUNE_KEEP:-3}"
+PRE_KEEP=$(( PRUNE_KEEP - 1 ))
+[[ $PRE_KEEP -lt 1 ]] && PRE_KEEP=1
+log "pre-prune: keeping the most recent $PRE_KEEP timestamped backups before backup..."
+flyctl ssh console -a "$FLY_APP" --machine "$TARGET_MACHINE" -C "sh -c '
+    cd /data || exit 0
+    ls -1 evidence.db.bak-2*Z 2>/dev/null | sort -r | tail -n +$((PRE_KEEP+1)) | while read f; do
+        rm -f \"\$f\" && echo pruned \"\$f\"
+    done
+'" 2>&1 | grep -E "^pruned" || log "  no backups pruned"
+
+# ── Pre-flight space check ──────────────────────────────────────────────────
+# We need at least LOCAL_BYTES free on /data to fit the backup copy of the
+# live DB. If not enough space, abort BEFORE swapping so we never end up
+# with a truncated backup pretending to be a rollback point.
+log "pre-flight: checking /data free space (need >= $LOCAL_BYTES bytes for backup)..."
+DF_AVAIL_KB="$(
+    flyctl ssh console -a "$FLY_APP" --machine "$TARGET_MACHINE" \
+        -C "sh -c 'df -P /data | awk \"NR==2 {print \\\$4}\"'" 2>&1 \
+        | tr -d '\r' | grep -E '^[0-9]+$' | head -1
+)"
+if [[ -z "$DF_AVAIL_KB" ]]; then
+    log "WARNING: could not parse df output; skipping pre-flight space check."
+else
+    AVAIL_BYTES=$(( DF_AVAIL_KB * 1024 ))
+    log "  /data free: $AVAIL_BYTES bytes  required: $LOCAL_BYTES bytes (for backup cp)"
+    if (( AVAIL_BYTES < LOCAL_BYTES )); then
+        log "ERROR: insufficient free space on /data ($AVAIL_BYTES < $LOCAL_BYTES). Aborting BEFORE swap to preserve rollback safety. Either bump PRUNE_KEEP down, grow the volume, or rm an extra backup manually."
+        exit 1
+    fi
+fi
+
 # ── Atomic swap ─────────────────────────────────────────────────────────────
 
 BAK_NAME="evidence.db.bak-$(date -u +%Y%m%dT%H%M%SZ)"
 log "backing up existing prod DB to /data/$BAK_NAME, then mv staging → $FLY_REMOTE_DB_PATH..."
+# `set -e` inside the heredoc is critical: without it, a failed cp (e.g. ENOSPC)
+# silently falls through to the mv, swapping the live DB with NO valid rollback.
+# 2026-05-09 incident root cause; do not remove.
 flyctl ssh console -a "$FLY_APP" --machine "$TARGET_MACHINE" -C "sh -c '
+    set -e
     if [ -f $FLY_REMOTE_DB_PATH ]; then
         cp $FLY_REMOTE_DB_PATH /data/$BAK_NAME
+        # Verify backup is the same size as the source — guards against any
+        # ENOSPC that managed to slip past set -e.
+        SRC=\$(stat -c %s $FLY_REMOTE_DB_PATH)
+        DST=\$(stat -c %s /data/$BAK_NAME)
+        [ \"\$SRC\" = \"\$DST\" ] || { echo \"backup size mismatch: src=\$SRC dst=\$DST\" >&2; exit 1; }
     fi
     mv ${FLY_REMOTE_DB_PATH}.staging $FLY_REMOTE_DB_PATH
     ls -lah $FLY_REMOTE_DB_PATH
-'" 2>&1 | tail -3
+'" 2>&1 | tail -5
+
+# Verify the swap succeeded — flyctl ssh console returns 0 even when the
+# remote sh -c body exits non-zero, so we must check the live DB directly.
+SWAP_OK="$(
+    flyctl ssh console -a "$FLY_APP" --machine "$TARGET_MACHINE" \
+        -C "sh -c 'stat -c %s $FLY_REMOTE_DB_PATH 2>/dev/null'" 2>&1 \
+        | tr -d '\r' | grep -E '^[0-9]+$' | head -1
+)"
+if [[ "$SWAP_OK" != "$LOCAL_BYTES" ]]; then
+    log "ERROR: post-swap live DB size ($SWAP_OK) != local ($LOCAL_BYTES). Backup may be truncated; investigate before re-running."
+    exit 1
+fi
+log "swap verified: live DB now $SWAP_OK bytes"
 
 # ── Restart + smoke ────────────────────────────────────────────────────────
 
@@ -211,25 +300,7 @@ print('paper_trial_links:', c.execute('SELECT COUNT(*) FROM paper_trial_links').
 
 log "sync complete. backup: /data/$BAK_NAME"
 
-# ── Prune old backups ───────────────────────────────────────────────────────
-# Keep the most recent 3 timestamped backups (evidence.db.bak-<UTC-ts>) on
-# the volume. The original `evidence.db.bak-pre-2026-05-08` (created during
-# the initial Fly upload) is preserved by glob design — it doesn't match
-# the bak-YYYYMMDDTHHMMSSZ pattern.
-#
-# Defensive: if the listing or rm fails (volume read-only, ssh hiccup),
-# warn but don't abort the whole sync — the new DB is already in place.
-PRUNE_KEEP="${PRUNE_KEEP:-3}"
-log "pruning timestamped backups, keeping the most recent $PRUNE_KEEP..."
-PRUNE_OUTPUT="$(
-    flyctl ssh console -a "$FLY_APP" --machine "$TARGET_MACHINE" -C "sh -c '
-        cd /data || exit 0
-        # ls in reverse-sorted order (newest first), skip the first $PRUNE_KEEP,
-        # delete the rest. Glob is intentionally narrow so we cannot match the
-        # pre-cron evidence.db.bak-pre-* preserved-backup.
-        ls -1 evidence.db.bak-2*Z 2>/dev/null | sort -r | tail -n +$((PRUNE_KEEP+1)) | while read f; do
-            rm -f \"\$f\" && echo pruned \"\$f\"
-        done
-    '" 2>&1 || true
-)"
-echo "$PRUNE_OUTPUT" | grep -E "^pruned" || log "  no backups pruned (≤$PRUNE_KEEP timestamped backups exist)"
+# Note: pruning happens BEFORE the backup (see "Pre-prune" block above) so
+# that a full /data cannot silently truncate the backup copy. After this
+# run, the volume holds exactly $PRUNE_KEEP timestamped backups: the
+# (PRUNE_KEEP-1) oldest preserved + the new $BAK_NAME just created.

@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.database import SessionLocal
-from app.persistence.models import Patient, User, Clinic
+from app.persistence.models import Patient, User, Clinic, ClinicalSession
 
 CLINICIAN_HDR = {"Authorization": "Bearer clinician-demo-token"}
 PATIENT_HDR = {"Authorization": "Bearer patient-demo-token"}
@@ -156,3 +156,65 @@ def test_command_center_shape_includes_session_fields(
     sessions = r.json()["sessions"]
     for key in ("total", "completed", "scheduled", "cancelled", "progress_pct", "recent"):
         assert key in sessions, f"Missing key '{key}' in sessions"
+
+
+# Regression: the router previously referenced ClinicalSession.scheduled_date,
+# which does not exist on the model (the column is scheduled_at, String(32)).
+# Without seeded sessions the bug was invisible, and the router's outer
+# try/except swallowed the AttributeError into a demo payload in dev mode.
+#
+# This is a unit-level regression that exercises just the order_by + recent-
+# row construction the fix touched, so it is not coupled to other unrelated
+# schema drift in _build_command_center (AssessmentRecord fields, etc.).
+def test_recent_sessions_uses_scheduled_at_not_scheduled_date() -> None:
+    from app.persistence import models as _models
+
+    CS = _models.ClinicalSession
+
+    # The model must expose scheduled_at and must NOT expose scheduled_date
+    # (the buggy attribute). If a future refactor renames scheduled_at, this
+    # assertion fires and forces the router rename to ride along.
+    assert hasattr(CS, "scheduled_at")
+    assert not hasattr(CS, "scheduled_date")
+
+    # The order_by expression must construct without raising — this is what
+    # the router calls and what raised AttributeError before the fix.
+    expr = CS.scheduled_at.desc()
+    assert expr is not None
+
+
+def test_recent_sessions_real_db_query_against_seeded_rows(patient_in_demo_clinic) -> None:
+    """End-to-end: seed real sessions, run the exact query the router runs."""
+    from app.persistence import models as _models
+
+    CS = _models.ClinicalSession
+    db = SessionLocal()
+    try:
+        for i, status in enumerate(("completed", "scheduled", "cancelled")):
+            db.add(ClinicalSession(
+                id=f"cc-sess-{i}",
+                patient_id=patient_in_demo_clinic.id,
+                clinician_id="actor-clinician-demo",
+                scheduled_at=f"2026-05-0{i+1}T10:00:00Z",
+                status=status,
+            ))
+        db.commit()
+
+        rows = (
+            db.query(CS)
+            .filter(CS.patient_id == patient_in_demo_clinic.id)
+            .order_by(CS.scheduled_at.desc())
+            .limit(100)
+            .all()
+        )
+        assert len(rows) == 3
+        # desc order
+        assert rows[0].scheduled_at >= rows[-1].scheduled_at
+        # the dict-construction line the fix also touched
+        recent = [
+            {"date": s.scheduled_at or "", "status": s.status}
+            for s in rows
+        ]
+        assert all(r["date"] for r in recent)
+    finally:
+        db.close()
