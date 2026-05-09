@@ -13,6 +13,7 @@ import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 import { drHero } from './helpers.js';
 import { loadPatientFlagSummary } from './dr-friendly-flags.js';
+import { renderClinicalDisclaimer, renderPHIWarningBadge, renderNLPStatusBadge } from './clinical-disclaimer.js';
 
 const TEXT_CLINICAL_QUESTION = "What does this patient's writing or transcript reveal about mood, cognitive function, or symptom change?";
 const TEXT_HOW_TO_READ = "Extracted entities and indicators are decision-support drafts. Clinical correlation with examination, history, and assessments is required — text alone does not diagnose.";
@@ -397,9 +398,7 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
     <div class="ds-text-analyzer-shell" style="max-width:980px;margin:0 auto;padding:16px 20px 48px">
       ${_demoBuildBanner()}
       <div id="ta-dr-hero-slot">${drHero({ question: TEXT_CLINICAL_QUESTION, howToRead: TEXT_HOW_TO_READ, flagCount: 0 })}</div>
-      <div style="padding:14px 16px;border-radius:12px;border:1px solid rgba(246,178,60,.35);background:rgba(246,178,60,.09);margin-bottom:18px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
-        <strong style="color:var(--text-primary)">Clinical decision-support.</strong> ${esc(DISCLAIMER)}
-      </div>
+      ${renderClinicalDisclaimer()}
 
       <section style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px 20px;margin-bottom:16px">
         <h2 style="margin:0 0 10px;font-size:15px;font-weight:700">Patient &amp; session context</h2>
@@ -486,6 +485,7 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
           <button type="button" class="btn btn-ghost ${demoMode ? '' : 'is-disabled'}" id="ta-offline-demo"
             ${demoMode ? '' : 'disabled title="Available in demo-token preview sessions"'}>Show offline demo panel</button>
           <span id="ta-status" style="margin-left:4px;font-size:12px;color:var(--text-tertiary)" role="status" aria-live="polite"></span>
+          <span id="ta-phi-warning-badge" style="margin-left:auto"></span>
         </div>
         <p style="font-size:11px;color:var(--text-tertiary);margin:0;line-height:1.45">
           Evidence matching, autonomous protocol selection, and billing codes are not performed on this page.
@@ -602,6 +602,7 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
 
   async function refreshBackendStatus() {
     const slot = $('ta-backend-status');
+    const phiBadge = $('ta-phi-warning-badge');
     if (!slot) return;
     slot.textContent = 'Checking clinical-text service…';
     try {
@@ -609,10 +610,21 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
       const parts = [`${h.backend || 'unknown'} backend`, h.ok === false ? 'status not OK' : 'reachable'];
       if (h.note) parts.push(h.note);
       slot.innerHTML = `<span style="color:var(--text-secondary)">${esc(parts.join(' · '))}</span>`;
+      
+      // Update PHI warning badge based on backend
+      if (phiBadge) {
+        const phiStatus = (h.backend === 'heuristic') ? 'heuristic' : (h.ok === false ? 'unavailable' : 'active');
+        phiBadge.innerHTML = renderPHIWarningBadge(phiStatus);
+      }
     } catch (e) {
       const code = e?.status || e?.code;
       slot.innerHTML = `<span style="color:var(--text-tertiary)">Could not load service metadata (${esc(String(code || e?.message || 'error'))}). `
         + `You may lack clinician access, or the API may be offline. Extraction buttons will still attempt a request.</span>`;
+      
+      // Default to heuristic/unavailable on error
+      if (phiBadge) {
+        phiBadge.innerHTML = renderPHIWarningBadge('unavailable');
+      }
     }
   }
 
