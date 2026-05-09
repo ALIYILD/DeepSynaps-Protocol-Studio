@@ -5,6 +5,7 @@
 // backend errors cannot silently degrade into seeded DeepTwin outputs.
 
 import { api } from '../api.js';
+import { isDemoSession } from '../demo-session.js';
 import {
   demoSummary, demoSignals, demoTimeline, demoCorrelations,
   demoPrediction, demoSimulation, getDemoPatientHeader,
@@ -32,7 +33,9 @@ function _hasAccessToken() {
 }
 
 export function shouldUseDeepTwinDemoFixtures() {
-  return isDeepTwinDemoTokenSession() || (DEMO_FORCED && !_hasAccessToken());
+  // Use the canonical isDemoSession() for consistency with other analyzer pages.
+  // Falls back to isDeepTwinDemoTokenSession() for backward compatibility.
+  return isDemoSession() || isDeepTwinDemoTokenSession();
 }
 
 async function withFallback(fn, fallback) {

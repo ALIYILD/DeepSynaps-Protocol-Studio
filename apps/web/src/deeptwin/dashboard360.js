@@ -320,7 +320,7 @@ function _renderSafetyFooter() {
   return `
     <div class="dt-safety-footer dt360-footer">
       Decision-support only · Requires clinician review · Correlation does not imply causation ·
-      Predictions are uncalibrated unless validated · Not an autonomous treatment recommendation.
+      Predictions are uncalibrated unless validated · Clinician approval required before clinical use.
     </div>
   `;
 }

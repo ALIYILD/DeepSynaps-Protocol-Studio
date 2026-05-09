@@ -122,12 +122,12 @@ export function buildDemoDashboard360Payload(patientId) {
       limitations: [
         'No validated outcome dataset is bound to a production prediction engine.',
         'Prediction output is intentionally withheld instead of rendering deterministic placeholders.',
-        'DeepTwin must not be used as an autonomous treatment recommendation engine.',
+        'DeepTwin must not be used for independent treatment decisions without clinician review.',
       ],
     },
     clinician_notes: [],
     review: { reviewed: false, reviewed_by: null, reviewed_at: null },
-    disclaimer: 'Decision-support only. Requires clinician review. Correlation does not imply causation. Predictions are uncalibrated unless validated. Not an autonomous treatment recommendation.',
+    disclaimer: 'Decision-support only. Requires clinician review. Correlation does not imply causation. Predictions are uncalibrated unless validated. Clinician approval required before clinical use.',
     _demo: true,
     is_demo_view: true,
   };

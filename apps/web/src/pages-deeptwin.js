@@ -36,6 +36,7 @@ import {
   loadingBlock, errorBlock, emptyPatientBlock,
 } from './deeptwin/components.js';
 import { decisionSupportBanner } from './deeptwin/safety.js';
+import { isDemoSession } from './demo-session.js';
 import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { VOICE_DEEPTWIN_DOMAIN_NOTE } from './voice-decision-support.js';
 import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
