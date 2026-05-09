@@ -210,3 +210,26 @@ print('paper_trial_links:', c.execute('SELECT COUNT(*) FROM paper_trial_links').
 \"" 2>&1 | tail -5
 
 log "sync complete. backup: /data/$BAK_NAME"
+
+# ── Prune old backups ───────────────────────────────────────────────────────
+# Keep the most recent 3 timestamped backups (evidence.db.bak-<UTC-ts>) on
+# the volume. The original `evidence.db.bak-pre-2026-05-08` (created during
+# the initial Fly upload) is preserved by glob design — it doesn't match
+# the bak-YYYYMMDDTHHMMSSZ pattern.
+#
+# Defensive: if the listing or rm fails (volume read-only, ssh hiccup),
+# warn but don't abort the whole sync — the new DB is already in place.
+PRUNE_KEEP="${PRUNE_KEEP:-3}"
+log "pruning timestamped backups, keeping the most recent $PRUNE_KEEP..."
+PRUNE_OUTPUT="$(
+    flyctl ssh console -a "$FLY_APP" --machine "$TARGET_MACHINE" -C "sh -c '
+        cd /data || exit 0
+        # ls in reverse-sorted order (newest first), skip the first $PRUNE_KEEP,
+        # delete the rest. Glob is intentionally narrow so we cannot match the
+        # pre-cron evidence.db.bak-pre-* preserved-backup.
+        ls -1 evidence.db.bak-2*Z 2>/dev/null | sort -r | tail -n +$((PRUNE_KEEP+1)) | while read f; do
+            rm -f \"\$f\" && echo pruned \"\$f\"
+        done
+    '" 2>&1 || true
+)"
+echo "$PRUNE_OUTPUT" | grep -E "^pruned" || log "  no backups pruned (≤$PRUNE_KEEP timestamped backups exist)"
