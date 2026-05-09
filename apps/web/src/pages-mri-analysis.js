@@ -570,6 +570,8 @@ function _renderCapabilitiesPanel(caps) {
   }
   html += '</div>';
   return html;
+}
+
 async function _fetchMRICapabilities() {
   try {
     var res = await api.get('/mri/capabilities');
