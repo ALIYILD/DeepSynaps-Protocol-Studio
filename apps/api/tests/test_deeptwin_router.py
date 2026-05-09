@@ -76,6 +76,54 @@ def test_deeptwin_analyze_returns_ranked_workspace_outputs(
     assert body["engine"]["notes"]
 
 
+def test_real_patient_analyze_and_brain_twin_alias_withhold_exploratory_outputs(
+    client: TestClient,
+) -> None:
+    patient_id = "pat-real-analyze-1"
+    user_id = "user-real-analyze-1"
+
+    session = SessionLocal()
+    try:
+        user = _seed_real_clinician(session, user_id=user_id)
+        _seed_real_patient(session, patient_id=patient_id, clinician_id=user.id)
+    finally:
+        session.close()
+
+    headers = _real_headers(user_id)
+    payload = {
+        "patient_id": patient_id,
+        "modalities": ["qeeg_features", "mri_structural", "wearables"],
+        "analysis_modes": ["correlation", "prediction", "causation"],
+    }
+
+    deeptwin_resp = client.post("/api/v1/deeptwin/analyze", headers=headers, json=payload)
+    assert deeptwin_resp.status_code == 200, deeptwin_resp.text
+    deeptwin_body = deeptwin_resp.json()
+    assert deeptwin_body["available"] is False
+    assert deeptwin_body["status"] == "withheld"
+    assert deeptwin_body["reason"] == "no_validated_analysis_model"
+    assert deeptwin_body["used_modalities"] == []
+    assert deeptwin_body["provenance"]["model_id"] == "deeptwin.analyze.withheld"
+    assert deeptwin_body["engine"]["mode"] == "withheld"
+    assert deeptwin_body["engine"]["requested_modalities"] == payload["modalities"]
+    assert deeptwin_body["correlation"]["status"] == "withheld"
+    assert deeptwin_body["prediction"]["status"] == "withheld"
+    assert deeptwin_body["causation"]["status"] == "withheld"
+    assert any("withheld" in item.lower() for item in deeptwin_body["limitations"])
+
+    brain_twin_resp = client.post("/api/v1/brain-twin/analyze", headers=headers, json=payload)
+    assert brain_twin_resp.status_code == 200, brain_twin_resp.text
+    brain_twin_body = brain_twin_resp.json()
+    assert brain_twin_body["available"] is False
+    assert brain_twin_body["status"] == "withheld"
+    assert brain_twin_body["reason"] == deeptwin_body["reason"]
+    assert brain_twin_body["summary"] == deeptwin_body["summary"]
+    assert brain_twin_body["correlation"]["status"] == deeptwin_body["correlation"]["status"]
+    assert brain_twin_body["prediction"]["status"] == deeptwin_body["prediction"]["status"]
+    assert brain_twin_body["causation"]["status"] == deeptwin_body["causation"]["status"]
+    assert brain_twin_body["provenance"]["model_id"] == "deeptwin.analyze.withheld"
+
+
 def test_deeptwin_simulate_returns_503_when_no_validated_engine_is_connected(
     client: TestClient,
     auth_headers: dict[str, dict[str, str]],
@@ -105,6 +153,63 @@ def test_deeptwin_simulate_returns_503_when_no_validated_engine_is_connected(
     assert body["code"] == "deeptwin_simulation_not_implemented"
     assert body["details"]["reason"] == "no_validated_simulation_engine"
     assert body["details"]["placeholder_simulations_disabled"] is True
+
+
+def test_real_patient_simulate_and_brain_twin_alias_withhold_legacy_outputs(
+    client: TestClient,
+) -> None:
+    patient_id = "pat-real-sim-1"
+    user_id = "user-real-sim-1"
+
+    session = SessionLocal()
+    try:
+        user = _seed_real_clinician(session, user_id=user_id)
+        _seed_real_patient(session, patient_id=patient_id, clinician_id=user.id)
+    finally:
+        session.close()
+
+    headers = _real_headers(user_id)
+    payload = {
+        "patient_id": patient_id,
+        "protocol_id": "rtms_fp2_10hz",
+        "horizon_days": 35,
+        "modalities": ["qeeg_features", "wearables", "assessments"],
+        "scenario": {
+            "intervention_type": "rTMS",
+            "target": "Fp2",
+            "frequency_hz": 10,
+            "sessions_per_day": 5,
+            "sessions_per_week": 5,
+            "weeks": 5,
+            "expected_biomarker": "alpha",
+            "clinical_goal": "attention",
+        },
+    }
+
+    deeptwin_resp = client.post("/api/v1/deeptwin/simulate", headers=headers, json=payload)
+    assert deeptwin_resp.status_code == 200, deeptwin_resp.text
+    deeptwin_body = deeptwin_resp.json()
+    assert deeptwin_body["available"] is False
+    assert deeptwin_body["status"] == "withheld"
+    assert deeptwin_body["reason"] == "no_validated_simulation_engine"
+    assert deeptwin_body["engine"]["mode"] == "withheld"
+    assert deeptwin_body["engine"]["requested_protocol_id"] == payload["protocol_id"]
+    assert deeptwin_body["outputs"]["clinical_forecast"]["status"] == "withheld"
+    assert deeptwin_body["outputs"]["clinical_forecast"]["reason"] == "no_validated_simulation_engine"
+    assert deeptwin_body["outputs"]["timecourse"] == []
+    assert deeptwin_body["outputs"]["biomarker_forecast"] == []
+    assert deeptwin_body["outputs"]["provenance"]["model_id"] == "deeptwin.legacy_simulate.withheld"
+    assert any("withheld" in item.lower() for item in deeptwin_body["limitations"])
+
+    brain_twin_resp = client.post("/api/v1/brain-twin/simulate", headers=headers, json=payload)
+    assert brain_twin_resp.status_code == 200, brain_twin_resp.text
+    brain_twin_body = brain_twin_resp.json()
+    assert brain_twin_body["available"] is False
+    assert brain_twin_body["status"] == "withheld"
+    assert brain_twin_body["reason"] == deeptwin_body["reason"]
+    assert brain_twin_body["summary"] == deeptwin_body["summary"]
+    assert brain_twin_body["outputs"]["clinical_forecast"]["status"] == "withheld"
+    assert brain_twin_body["outputs"]["provenance"]["model_id"] == "deeptwin.legacy_simulate.withheld"
 
 
 # ---------------------------------------------------------------------------
@@ -441,6 +546,58 @@ def test_simulation_endpoint_requires_approval(
     assert "x_days" in body["predicted_curve"]
 
 
+def test_real_patient_simulation_endpoint_withholds_heuristic_output(
+    client: TestClient,
+) -> None:
+    patient_id = "pat-real-sim-v1"
+    user_id = "user-real-sim-v1"
+
+    session = SessionLocal()
+    try:
+        user = _seed_real_clinician(session, user_id=user_id)
+        _seed_real_patient(session, patient_id=patient_id, clinician_id=user.id)
+    finally:
+        session.close()
+
+    response = client.post(
+        f"/api/v1/deeptwin/patients/{patient_id}/simulations",
+        headers=_real_headers(user_id),
+        json={
+            "scenario_id": "scn_real_tdcs_fp2",
+            "modality": "tdcs",
+            "target": "Fp2",
+            "frequency_hz": 10,
+            "current_ma": 2.0,
+            "duration_min": 20,
+            "sessions_per_week": 5,
+            "weeks": 5,
+            "contraindications": [],
+            "adherence_assumption_pct": 80.0,
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["available"] is False
+    assert body["status"] == "withheld"
+    assert body["reason"] == "no_validated_simulation_engine"
+    assert body["summary"].lower().startswith("deeptwin simulation output is withheld")
+    assert body["predicted_curve"] == {
+        "x_days": [],
+        "y_response_pct": [],
+        "y_symptom_pct": [],
+    }
+    assert body["responder_probability"] is None
+    assert body["non_responder_flag"] is None
+    assert body["evidence_grade"] is None
+    assert body["evidence_status"] == "unavailable"
+    assert body["top_drivers"] == []
+    assert body["scenario_comparison"]["status"] == "withheld"
+    assert body["scenario_comparison"]["reason"] == "no_validated_simulation_engine"
+    assert body["calibration"]["status"] == "withheld"
+    assert body["provenance"]["model_id"] == "deeptwin.simulations.withheld"
+    assert any("withheld" in item.lower() for item in body["limitations"])
+
+
 def test_report_endpoint(client: TestClient, auth_headers: dict[str, dict[str, str]]) -> None:
     r = client.post(
         f"/api/v1/deeptwin/patients/{PID}/reports",
@@ -452,6 +609,64 @@ def test_report_endpoint(client: TestClient, auth_headers: dict[str, dict[str, s
     assert body["kind"] == "clinician_deep"
     assert body["title"]
     assert "body" in body and isinstance(body["body"], dict)
+
+
+def test_real_patient_report_and_handoff_use_observed_only_or_withheld_payloads(
+    client: TestClient,
+) -> None:
+    patient_id = "pat-real-report-1"
+    user_id = "user-real-report-1"
+
+    session = SessionLocal()
+    try:
+        user = _seed_real_clinician(session, user_id=user_id)
+        _seed_real_patient(session, patient_id=patient_id, clinician_id=user.id)
+    finally:
+        session.close()
+
+    headers = _real_headers(user_id)
+
+    clinician_report = client.post(
+        f"/api/v1/deeptwin/patients/{patient_id}/reports",
+        headers=headers,
+        json={"kind": "clinician_deep"},
+    )
+    assert clinician_report.status_code == 200, clinician_report.text
+    clinician_body = clinician_report.json()
+    assert clinician_body["available"] is True
+    assert clinician_body["status"] == "observed_only"
+    assert clinician_body["reason"] is None
+    assert clinician_body["summary"].lower().startswith("observed-only deeptwin report")
+    assert clinician_body["body"]["status"] == "observed_only"
+    assert "completeness" in clinician_body["body"]
+    assert "review" in clinician_body["body"]
+    assert "Deterministic DeepTwin report builders are disabled" in clinician_body["limitations"][1]
+
+    prediction_report = client.post(
+        f"/api/v1/deeptwin/patients/{patient_id}/reports",
+        headers=headers,
+        json={"kind": "prediction"},
+    )
+    assert prediction_report.status_code == 200, prediction_report.text
+    prediction_body = prediction_report.json()
+    assert prediction_body["available"] is False
+    assert prediction_body["status"] == "withheld"
+    assert prediction_body["reason"] == "no_validated_prediction_model"
+    assert prediction_body["body"]["prediction"]["status"] == "not_implemented"
+    assert any("withheld" in item.lower() for item in prediction_body["limitations"])
+
+    handoff = client.post(
+        f"/api/v1/deeptwin/patients/{patient_id}/agent-handoff",
+        headers=headers,
+        json={"kind": "send_summary", "note": "focus on review state"},
+    )
+    assert handoff.status_code == 200, handoff.text
+    handoff_body = handoff.json()
+    assert handoff_body["available"] is True
+    assert handoff_body["status"] == "observed_only"
+    assert handoff_body["audit_ref"] == "twin_handoff:send_summary:observed_only"
+    assert "report_mode: observed_only" in handoff_body["summary_markdown"]
+    assert "pending_review_items" in handoff_body["summary_markdown"]
 
 
 def test_agent_handoff_endpoint(

@@ -134,6 +134,11 @@ class DeeptwinAnalyzeResponse(BaseModel):
     provenance: dict[str, Any] | None = None
     schema_version: str | None = None
     decision_support_only: bool = True
+    available: bool | None = None
+    status: str | None = None
+    reason: str | None = None
+    summary: str | None = None
+    limitations: list[str] = Field(default_factory=list)
 
 
 class DeeptwinSimulateRequest(BaseModel):
@@ -153,6 +158,11 @@ class DeeptwinSimulateResponse(BaseModel):
     schema_version: str | None = None
     provenance: dict[str, Any] | None = None
     decision_support_only: bool = True
+    available: bool | None = None
+    status: str | None = None
+    reason: str | None = None
+    summary: str | None = None
+    limitations: list[str] = Field(default_factory=list)
 
 
 class DeeptwinEvidenceRequest(BaseModel):
@@ -685,6 +695,8 @@ def deeptwin_analyze(
 ) -> DeeptwinAnalyzeResponse:
     _require_clinician_review_actor(_actor)
     _gate_patient_access(_actor, payload.patient_id, session)
+    if _real_patient_row(session, payload.patient_id) is not None:
+        return _real_patient_analyze_payload(payload)
     used = payload.modalities or ["qeeg_features", "assessments", "wearables"]
     weights = _safe_weights(used, payload.combine, payload.custom_weights)
 
@@ -754,9 +766,90 @@ def brain_twin_analyze(
 def deeptwin_simulate(
     payload: DeeptwinSimulateRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
 ) -> DeeptwinSimulateResponse:
     _require_clinician_review_actor(_actor)
-    _gate_patient_access(_actor, payload.patient_id)
+    _gate_patient_access(_actor, payload.patient_id, db=session)
+    if _real_patient_row(session, payload.patient_id) is not None:
+        inputs = {
+            "patient_id": payload.patient_id,
+            "protocol_id": payload.protocol_id,
+            "horizon_days": payload.horizon_days,
+            "modalities": list(payload.modalities or []),
+            "scenario": payload.scenario or {},
+            "reason": _REAL_PATIENT_SIMULATION_REASON,
+        }
+        limitations = [
+            "No validated DeepTwin simulation engine is connected for real patient rows.",
+            "Legacy deterministic simulation output is intentionally withheld for persisted patient records.",
+            "DeepTwin must not invent patient-specific treatment effects in the legacy brain-twin workflow.",
+        ]
+        return DeeptwinSimulateResponse(
+            patient_id=payload.patient_id,
+            protocol_id=payload.protocol_id,
+            horizon_days=payload.horizon_days,
+            engine={
+                "name": "deeptwin",
+                "status": "withheld",
+                "mode": "withheld",
+                "requested_modalities": list(payload.modalities or []),
+                "requested_protocol_id": payload.protocol_id,
+            },
+            outputs={
+                "clinical_forecast": {
+                    "summary": _REAL_PATIENT_SIMULATION_SUMMARY,
+                    "expected_direction": "withheld",
+                    "caveat": "No validated real-patient simulation engine is connected in this environment.",
+                    "response_probability": None,
+                    "confidence_tier": None,
+                    "status": "withheld",
+                    "reason": _REAL_PATIENT_SIMULATION_REASON,
+                },
+                "biomarker_forecast": [],
+                "timecourse": [],
+                "monitoring_plan": [],
+                "assumptions": [
+                    "Legacy simulation output is fail-closed for persisted patient rows.",
+                    "Clinician review is still required before any protocol decision.",
+                ],
+                "top_drivers": [],
+                "safety_guardrails": [],
+                "uncertainty": {
+                    "method": "withheld_no_validated_model",
+                    "summary": _REAL_PATIENT_SIMULATION_SUMMARY,
+                },
+                "calibration": {
+                    "method": "not_applicable",
+                    "status": "withheld",
+                    "note": _REAL_PATIENT_SIMULATION_SUMMARY,
+                },
+                "provenance": build_provenance(
+                    surface="legacy_simulate.withheld",
+                    inputs=inputs,
+                    schema_version=SCHEMA_VERSION,
+                    extra={
+                        "model_id": "deeptwin.legacy_simulate.withheld",
+                        "engine_mode": "withheld",
+                    },
+                ),
+            },
+            schema_version=SCHEMA_VERSION,
+            provenance=build_provenance(
+                surface="legacy_simulate.withheld",
+                inputs=inputs,
+                schema_version=SCHEMA_VERSION,
+                extra={
+                    "model_id": "deeptwin.legacy_simulate.withheld",
+                    "engine_mode": "withheld",
+                },
+            ),
+            decision_support_only=True,
+            available=False,
+            status="withheld",
+            reason=_REAL_PATIENT_SIMULATION_REASON,
+            summary=_REAL_PATIENT_SIMULATION_SUMMARY,
+            limitations=limitations,
+        )
     if not get_settings().enable_deeptwin_simulation:
         raise ApiServiceError(
             code="deeptwin_simulation_disabled",
@@ -820,8 +913,9 @@ def deeptwin_simulate(
 def brain_twin_simulate(
     payload: DeeptwinSimulateRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
 ) -> DeeptwinSimulateResponse:
-    return deeptwin_simulate(payload=payload, _actor=_actor)
+    return deeptwin_simulate(payload=payload, _actor=_actor, session=session)
 
 
 def _snapshot_id_for_research_bundle() -> str | None:
@@ -1334,14 +1428,14 @@ class TwinSimulationOut(BaseModel):
     input: dict[str, Any]
     predicted_curve: dict[str, Any]
     expected_domains: list[str]
-    responder_probability: float
+    responder_probability: float | None = None
     responder_probability_ci95: list[float] | None = None
-    non_responder_flag: bool
+    non_responder_flag: bool | None = None
     safety_concerns: list[str]
     missing_data: list[str]
     monitoring_plan: list[str]
     evidence_support: list[dict[str, Any]] | list[str]
-    evidence_grade: str
+    evidence_grade: str | None = None
     evidence_status: str | None = None
     approval_required: bool
     labels: dict[str, bool]
@@ -1358,6 +1452,131 @@ class TwinSimulationOut(BaseModel):
     provenance: dict[str, Any] | None = None
     schema_version: str | None = None
     decision_support_only: bool = True
+    available: bool | None = None
+    status: str | None = None
+    reason: str | None = None
+    summary: str | None = None
+    limitations: list[str] = Field(default_factory=list)
+
+
+def _real_patient_simulation_payload(
+    patient_id: str,
+    payload: TwinSimulationRequest,
+) -> dict[str, Any]:
+    scenario_id = str(payload.scenario_id or f"withheld:{payload.modality}:{payload.target}")
+    inputs = {
+        "patient_id": patient_id,
+        "scenario_id": payload.scenario_id,
+        "modality": payload.modality,
+        "target": payload.target,
+        "frequency_hz": payload.frequency_hz,
+        "current_ma": payload.current_ma,
+        "power_w": payload.power_w,
+        "duration_min": payload.duration_min,
+        "sessions_per_week": payload.sessions_per_week,
+        "weeks": payload.weeks,
+        "contraindications": list(payload.contraindications),
+        "adherence_assumption_pct": payload.adherence_assumption_pct,
+        "notes": payload.notes,
+        "reason": _REAL_PATIENT_SIMULATION_REASON,
+    }
+    limitations = [
+        "No validated DeepTwin simulation engine is connected for real patient rows.",
+        "Heuristic scenario curves are intentionally withheld instead of returning deterministic placeholders.",
+        "DeepTwin must not invent patient-specific treatment effects or responder probabilities.",
+    ]
+    return {
+        "patient_id": patient_id,
+        "scenario_id": scenario_id,
+        "input": inputs,
+        "predicted_curve": {
+            "x_days": [],
+            "y_response_pct": [],
+            "y_symptom_pct": [],
+        },
+        "expected_domains": [],
+        "responder_probability": None,
+        "responder_probability_ci95": None,
+        "non_responder_flag": None,
+        "safety_concerns": [],
+        "missing_data": [],
+        "monitoring_plan": [],
+        "evidence_support": [],
+        "evidence_grade": None,
+        "evidence_status": "unavailable",
+        "approval_required": True,
+        "labels": {
+            "simulation_only": True,
+            "not_a_prescription": True,
+            "requires_clinician_review": True,
+        },
+        "disclaimer": (
+            "Decision-support only. Real-patient simulation output is withheld "
+            "until a validated model is connected. Clinician review required."
+        ),
+        "confidence_tier": None,
+        "top_drivers": [],
+        "feature_attribution": [],
+        "rationale": _REAL_PATIENT_SIMULATION_SUMMARY,
+        "patient_specific_notes": [
+            "Real-patient scenario simulation is fail-closed until a validated engine is connected.",
+        ],
+        "scenario_comparison": {
+            "baseline_reference": "not_emitted",
+            "expected_direction": "withheld",
+            "delta_pred": None,
+            "delta_confidence": None,
+            "recommendation_change": None,
+            "status": "withheld",
+            "reason": _REAL_PATIENT_SIMULATION_REASON,
+        },
+        "uncertainty": {
+            "method": "withheld_no_validated_model",
+            "components": {
+                "epistemic": {
+                    "status": "unavailable",
+                    "method": "not_estimated",
+                    "note": "No validated real-patient simulation model is connected.",
+                },
+                "aleatoric": {
+                    "status": "unavailable",
+                    "method": "not_estimated",
+                    "note": "No patient-specific simulation output was emitted.",
+                },
+                "calibration": {
+                    "status": "unavailable",
+                    "method": "not_applicable",
+                    "note": "Calibration is unavailable because no simulation output was produced.",
+                },
+            },
+            "ci95_interpretation": "Simulation withheld; no interval emitted.",
+        },
+        "calibration": {
+            "method": "not_applicable",
+            "status": "withheld",
+            "note": (
+                "Calibration is unavailable because DeepTwin simulation output is "
+                "withheld until a validated engine is connected."
+            ),
+        },
+        "provenance": build_provenance(
+            surface="patients.simulations.withheld",
+            inputs=inputs,
+            schema_version=SCHEMA_VERSION,
+            extra={
+                "model_id": "deeptwin.simulations.withheld",
+                "engine_mode": "withheld",
+                "calibration_status": "unavailable",
+            },
+        ),
+        "schema_version": SCHEMA_VERSION,
+        "decision_support_only": True,
+        "available": False,
+        "status": "withheld",
+        "reason": _REAL_PATIENT_SIMULATION_REASON,
+        "summary": _REAL_PATIENT_SIMULATION_SUMMARY,
+        "limitations": limitations,
+    }
 
 
 class TwinReportRequest(BaseModel):
@@ -1381,6 +1600,10 @@ class TwinReportOut(BaseModel):
     review_points: list[str]
     evidence_grade: str
     body: dict[str, Any]
+    available: bool | None = None
+    status: str | None = None
+    reason: str | None = None
+    summary: str | None = None
 
 
 class TwinAgentHandoffRequest(BaseModel):
@@ -1398,6 +1621,179 @@ class TwinAgentHandoffOut(BaseModel):
     summary_markdown: str
     approval_required: bool
     disclaimer: str
+    available: bool | None = None
+    status: str | None = None
+    reason: str | None = None
+    summary: str | None = None
+
+
+_REPORT_KIND_TITLES = {
+    "clinician_deep": "DeepTwin Clinician Report",
+    "patient_progress": "DeepTwin Patient Progress Report",
+    "prediction": "DeepTwin Prediction Report",
+    "correlation": "DeepTwin Correlation Report",
+    "causal": "DeepTwin Causal Hypothesis Report",
+    "simulation": "DeepTwin Simulation Report",
+    "governance": "DeepTwin Governance & Safety Report",
+    "data_completeness": "DeepTwin Data Completeness Report",
+}
+
+
+def _report_title(kind: str) -> str:
+    return _REPORT_KIND_TITLES.get(kind, _REPORT_KIND_TITLES["clinician_deep"])
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _dashboard_source_keys(dashboard: dict[str, Any]) -> list[str]:
+    return [
+        str(domain.get("key"))
+        for domain in dashboard.get("domains", [])
+        if domain.get("status") in {"available", "partial"} and domain.get("key")
+    ]
+
+
+def _dashboard_warning_lines(dashboard: dict[str, Any], *, limit: int = 4) -> list[str]:
+    lines: list[str] = []
+    for domain in dashboard.get("domains", []):
+        key = str(domain.get("key") or "domain").replace("_", " ")
+        for warning in domain.get("warnings", []) or []:
+            text = str(warning).strip()
+            if text:
+                lines.append(f"{key}: {text}")
+            if len(lines) >= limit:
+                return lines
+    return lines
+
+
+def _real_patient_report_status(
+    kind: str,
+) -> tuple[bool, str, str | None, str]:
+    if kind == "prediction":
+        return False, "withheld", _REAL_PATIENT_PREDICTION_REASON, _REAL_PATIENT_PREDICTION_SUMMARY
+    if kind in {"correlation", "causal"}:
+        return False, "withheld", _REAL_PATIENT_ANALYZE_REASON, _REAL_PATIENT_ANALYZE_SUMMARY
+    if kind == "simulation":
+        return False, "withheld", _REAL_PATIENT_SIMULATION_REASON, _REAL_PATIENT_SIMULATION_SUMMARY
+    return True, "observed_only", None, (
+        "Observed-only DeepTwin report generated from persisted Patient 360 state."
+    )
+
+
+def _real_patient_report_payload(
+    patient_id: str,
+    payload: TwinReportRequest,
+    dashboard: dict[str, Any],
+) -> TwinReportOut:
+    kind = payload.kind if payload.kind in _REPORT_KIND_TITLES else "clinician_deep"
+    available, status, reason, summary = _real_patient_report_status(kind)
+    completeness = dashboard.get("completeness", {})
+    review = dashboard.get("review", {})
+    observed_domains = _dashboard_source_keys(dashboard)
+    warning_lines = _dashboard_warning_lines(dashboard)
+    review_points = [
+        (
+            f"Completeness is {completeness.get('pct', 0)}% across "
+            f"{completeness.get('available_domains', 0)} available domain(s)."
+        ),
+        f"Pending review items: {review.get('pending_items', 0)}.",
+    ]
+    review_points.extend(warning_lines[:2])
+    limitations = [
+        "Report content is limited to persisted observed patient data and review state.",
+        "Deterministic DeepTwin report builders are disabled for real patient rows.",
+    ]
+    if reason:
+        limitations.append(summary)
+    body = {
+        "patient_id": patient_id,
+        "kind": kind,
+        "title": _report_title(kind),
+        "summary": summary,
+        "available": available,
+        "status": status,
+        "reason": reason,
+        "completeness": completeness,
+        "review": review,
+        "observed_domains": observed_domains,
+        "warnings": warning_lines,
+        "limitations": list(limitations),
+        "prediction": dashboard.get("prediction_confidence") if kind in {"clinician_deep", "prediction"} else None,
+        "simulation": {
+            "available": False,
+            "status": "withheld",
+            "reason": _REAL_PATIENT_SIMULATION_REASON,
+            "summary": _REAL_PATIENT_SIMULATION_SUMMARY,
+        } if kind == "simulation" else None,
+    }
+    return TwinReportOut(
+        patient_id=patient_id,
+        kind=kind,
+        title=_report_title(kind),
+        generated_at=_now_iso(),
+        data_sources_used=observed_domains,
+        date_range_days=90,
+        audit_refs=[f"twin_report:{kind}:observed_only"],
+        limitations=limitations,
+        review_points=review_points,
+        evidence_grade="observed_only" if available else "withheld",
+        body=body,
+        available=available,
+        status=status,
+        reason=reason,
+        summary=summary,
+    )
+
+
+def _real_patient_agent_handoff_payload(
+    patient_id: str,
+    payload: TwinAgentHandoffRequest,
+    dashboard: dict[str, Any],
+) -> TwinAgentHandoffOut:
+    completeness = dashboard.get("completeness", {})
+    review = dashboard.get("review", {})
+    observed_domains = _dashboard_source_keys(dashboard)
+    warning_lines = _dashboard_warning_lines(dashboard)
+    header = {
+        "send_summary": "DeepTwin Summary",
+        "draft_protocol_update": "Draft Protocol Update Request",
+        "review_risks": "Risk Review Request",
+        "create_followup_tasks": "Follow-up Tasks Request",
+    }.get(payload.kind, "DeepTwin Summary")
+    lines = [
+        f"# {header}",
+        f"- patient_id: `{patient_id}`",
+        "- report_mode: observed_only",
+        f"- completeness: {completeness.get('pct', 0)}%",
+        f"- pending_review_items: {review.get('pending_items', 0)}",
+        f"- observed_domains: {', '.join(observed_domains[:8]) if observed_domains else 'none recorded'}",
+    ]
+    if warning_lines:
+        lines.append("\n## Review Notes")
+        lines.extend(f"- {line}" for line in warning_lines[:4])
+    if payload.note:
+        lines.append("\n## Clinician Note")
+        lines.append(payload.note)
+    summary = "Observed-only handoff generated from persisted Patient 360 state."
+    return TwinAgentHandoffOut(
+        patient_id=patient_id,
+        kind=payload.kind,
+        note=payload.note,
+        submitted_at=_now_iso(),
+        audit_ref=f"twin_handoff:{payload.kind}:observed_only",
+        summary_markdown="\n".join(lines),
+        approval_required=True,
+        disclaimer=(
+            "Agent handoff is decision-support context only. Persisted patient-state summary only; "
+            "predictive and simulation outputs remain withheld until validated."
+        ),
+        available=True,
+        status="observed_only",
+        reason=None,
+        summary=summary,
+    )
 
 
 @router.get("/patients/{patient_id}/summary", response_model=TwinSummaryOut)
@@ -1492,9 +1888,12 @@ def deeptwin_post_simulation(
     patient_id: str,
     payload: TwinSimulationRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
 ) -> TwinSimulationOut:
     _require_clinician_review_actor(_actor)
-    _gate_patient_access(_actor, patient_id)
+    _gate_patient_access(_actor, patient_id, db=session)
+    if _real_patient_row(session, patient_id) is not None:
+        return TwinSimulationOut(**_real_patient_simulation_payload(patient_id, payload))
     result = simulate_intervention_scenario(
         patient_id,
         scenario_id=payload.scenario_id,
@@ -1567,9 +1966,13 @@ def deeptwin_post_report(
     patient_id: str,
     payload: TwinReportRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
 ) -> TwinReportOut:
     _require_clinician_review_actor(_actor)
-    _gate_patient_access(_actor, patient_id)
+    _gate_patient_access(_actor, patient_id, db=session)
+    _, dashboard = _real_patient_dashboard_payload(session, patient_id)
+    if dashboard is not None:
+        return _real_patient_report_payload(patient_id, payload, dashboard)
     builder = REPORT_BUILDERS.get(payload.kind)
     if builder is None:
         builder = REPORT_BUILDERS["clinician_deep"]
@@ -1598,9 +2001,13 @@ def deeptwin_post_agent_handoff(
     patient_id: str,
     payload: TwinAgentHandoffRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
 ) -> TwinAgentHandoffOut:
     _require_clinician_review_actor(_actor)
-    _gate_patient_access(_actor, patient_id)
+    _gate_patient_access(_actor, patient_id, db=session)
+    _, dashboard = _real_patient_dashboard_payload(session, patient_id)
+    if dashboard is not None:
+        return _real_patient_agent_handoff_payload(patient_id, payload, dashboard)
     result = create_agent_handoff_summary(patient_id, kind=payload.kind, note=payload.note)
     return TwinAgentHandoffOut(**result)
 
@@ -1691,6 +2098,10 @@ class TribeSimulateResponse(BaseModel):
     output: dict[str, Any]
     engine_info: dict[str, Any] = Field(default_factory=lambda: dict(TRIBE_ENGINE_INFO))
     disclaimer: str = TRIBE_DISCLAIMER
+    available: bool | None = None
+    status: str | None = None
+    reason: str | None = None
+    summary: str | None = None
 
 
 class TribeCompareRequest(BaseModel):
@@ -1708,6 +2119,10 @@ class TribeCompareResponse(BaseModel):
     comparison: dict[str, Any]
     engine_info: dict[str, Any] = Field(default_factory=lambda: dict(TRIBE_ENGINE_INFO))
     disclaimer: str = TRIBE_DISCLAIMER
+    available: bool | None = None
+    status: str | None = None
+    reason: str | None = None
+    summary: str | None = None
 
 
 class TribeLatentRequest(BaseModel):
@@ -1724,6 +2139,11 @@ class TribeLatentResponse(BaseModel):
     adapted: dict[str, Any]
     engine_info: dict[str, Any] = Field(default_factory=lambda: dict(TRIBE_ENGINE_INFO))
     disclaimer: str = TRIBE_DISCLAIMER
+    available: bool | None = None
+    status: str | None = None
+    reason: str | None = None
+    summary: str | None = None
+    limitations: list[str] = Field(default_factory=list)
 
 
 class TribeExplainRequest(BaseModel):
@@ -1739,11 +2159,15 @@ class TribeExplainResponse(BaseModel):
     patient_id: str
     protocol_id: str
     explanation: dict[str, Any]
-    response_probability: float
-    response_confidence: str
-    evidence_grade: str
+    response_probability: float | None = None
+    response_confidence: str | None = None
+    evidence_grade: str | None = None
     engine_info: dict[str, Any] = Field(default_factory=lambda: dict(TRIBE_ENGINE_INFO))
     disclaimer: str = TRIBE_DISCLAIMER
+    available: bool | None = None
+    status: str | None = None
+    reason: str | None = None
+    summary: str | None = None
 
 
 class TribeReportPayloadRequest(BaseModel):
@@ -1769,14 +2193,149 @@ class TribeReportPayloadResponse(BaseModel):
     generated_at: str
     engine_info: dict[str, Any] = Field(default_factory=lambda: dict(TRIBE_ENGINE_INFO))
     disclaimer: str = TRIBE_DISCLAIMER
+    available: bool | None = None
+    status: str | None = None
+    reason: str | None = None
+    summary: str | None = None
+
+
+def _real_patient_tribe_simulation_payload(
+    patient_id: str,
+    protocol: TribeProtocolModel,
+    *,
+    horizon_weeks: int,
+) -> dict[str, Any]:
+    return {
+        "patient_id": patient_id,
+        "protocol": protocol.model_dump(),
+        "horizon_weeks": horizon_weeks,
+        "available": False,
+        "status": "withheld",
+        "reason": _REAL_PATIENT_SIMULATION_REASON,
+        "summary": _REAL_PATIENT_SIMULATION_SUMMARY,
+        "heads": {
+            "response_probability": None,
+            "response_confidence": "withheld",
+            "symptom_trajectories": [],
+            "biomarker_trajectories": [],
+            "adverse_risk": {
+                "level": "unavailable",
+                "concerns": [],
+            },
+            "latent_state_change": {
+                "direction": "withheld",
+                "magnitude": None,
+            },
+        },
+        "explanation": {
+            "status": "withheld",
+            "reason": _REAL_PATIENT_SIMULATION_REASON,
+            "summary": _REAL_PATIENT_SIMULATION_SUMMARY,
+            "top_modalities": [],
+            "top_drivers": [],
+            "missing_data_notes": [],
+            "evidence_grade": None,
+            "cautions": [
+                "Decision-support only. Real-patient TRIBE simulation output is withheld until a validated engine is connected.",
+            ],
+        },
+        "approval_required": True,
+        "labels": {
+            "simulation_only": True,
+            "not_a_prescription": True,
+            "requires_clinician_review": True,
+        },
+        "limitations": [
+            "No validated TRIBE simulation engine is connected for real patient rows.",
+            "Heuristic exploratory outputs are intentionally disabled for persisted patient records.",
+        ],
+        "disclaimer": TRIBE_DISCLAIMER,
+    }
+
+
+def _real_patient_tribe_compare_payload(
+    patient_id: str,
+    protocols: list[TribeProtocolModel],
+    *,
+    horizon_weeks: int,
+) -> dict[str, Any]:
+    return {
+        "patient_id": patient_id,
+        "protocol_ids": [protocol.protocol_id for protocol in protocols],
+        "horizon_weeks": horizon_weeks,
+        "available": False,
+        "status": "withheld",
+        "reason": _REAL_PATIENT_PROTOCOL_COMPARISON_REASON,
+        "summary": _REAL_PATIENT_PROTOCOL_COMPARISON_SUMMARY,
+        "winner": None,
+        "ranking": [],
+        "candidates": [],
+        "confidence_gap": None,
+        "limitations": [
+            "No validated comparative engine is connected for real-patient protocol ranking.",
+            "Deterministic exploratory ranking is intentionally withheld instead of being shown as clinical guidance.",
+        ],
+        "disclaimer": TRIBE_DISCLAIMER,
+    }
+
+
+def _real_patient_tribe_latent_payload(patient_id: str) -> TribeLatentResponse:
+    limitations = [
+        "No validated TRIBE latent encoder is connected for real patient rows.",
+        "Heuristic exploratory embeddings are intentionally withheld for persisted patient records.",
+        "DeepTwin must not invent patient-specific latent representations for clinician-facing use.",
+    ]
+    return TribeLatentResponse(
+        patient_id=patient_id,
+        embeddings=[],
+        latent={
+            "available": False,
+            "status": "withheld",
+            "reason": _REAL_PATIENT_LATENT_REASON,
+            "summary": _REAL_PATIENT_LATENT_SUMMARY,
+            "vector": [],
+            "used_modalities": [],
+            "missing_modalities": [],
+            "limitations": list(limitations),
+        },
+        adapted={
+            "available": False,
+            "status": "withheld",
+            "reason": _REAL_PATIENT_LATENT_REASON,
+            "summary": _REAL_PATIENT_LATENT_SUMMARY,
+            "adapted_vector": [],
+            "quality_score": None,
+            "limitations": list(limitations),
+        },
+        available=False,
+        status="withheld",
+        reason=_REAL_PATIENT_LATENT_REASON,
+        summary=_REAL_PATIENT_LATENT_SUMMARY,
+        limitations=limitations,
+    )
 
 
 @router.post("/simulate-tribe", response_model=TribeSimulateResponse, tags=["deeptwin-tribe"])
 def deeptwin_simulate_tribe(
     payload: TribeSimulateRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
 ) -> TribeSimulateResponse:
-    _gate_patient_access(_actor, payload.patient_id)
+    _gate_patient_access(_actor, payload.patient_id, db=session)
+    if _real_patient_row(session, payload.patient_id) is not None:
+        return TribeSimulateResponse(
+            patient_id=payload.patient_id,
+            horizon_weeks=payload.horizon_weeks,
+            output=_real_patient_tribe_simulation_payload(
+                payload.patient_id,
+                payload.protocol,
+                horizon_weeks=payload.horizon_weeks,
+            ),
+            available=False,
+            status="withheld",
+            reason=_REAL_PATIENT_SIMULATION_REASON,
+            summary=_REAL_PATIENT_SIMULATION_SUMMARY,
+        )
     sim = tribe_simulate_protocol(
         payload.patient_id,
         payload.protocol.to_spec(),
@@ -1804,8 +2363,23 @@ def deeptwin_simulate_tribe(
 def deeptwin_compare_protocols(
     payload: TribeCompareRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
 ) -> TribeCompareResponse:
-    _gate_patient_access(_actor, payload.patient_id)
+    _gate_patient_access(_actor, payload.patient_id, db=session)
+    if _real_patient_row(session, payload.patient_id) is not None:
+        return TribeCompareResponse(
+            patient_id=payload.patient_id,
+            horizon_weeks=payload.horizon_weeks,
+            comparison=_real_patient_tribe_compare_payload(
+                payload.patient_id,
+                payload.protocols,
+                horizon_weeks=payload.horizon_weeks,
+            ),
+            available=False,
+            status="withheld",
+            reason=_REAL_PATIENT_PROTOCOL_COMPARISON_REASON,
+            summary=_REAL_PATIENT_PROTOCOL_COMPARISON_SUMMARY,
+        )
     cmp_obj = tribe_compare_protocols(
         payload.patient_id,
         [p.to_spec() for p in payload.protocols],
@@ -1825,8 +2399,11 @@ def deeptwin_compare_protocols(
 def deeptwin_patient_latent(
     payload: TribeLatentRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
 ) -> TribeLatentResponse:
-    _gate_patient_access(_actor, payload.patient_id)
+    _gate_patient_access(_actor, payload.patient_id, db=session)
+    if _real_patient_row(session, payload.patient_id) is not None:
+        return _real_patient_tribe_latent_payload(payload.patient_id)
     embs, latent, adapted = tribe_compute_patient_latent(
         payload.patient_id,
         samples=payload.samples.to_dict() if payload.samples else None,
@@ -1845,8 +2422,27 @@ def deeptwin_patient_latent(
 def deeptwin_explain(
     payload: TribeExplainRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
 ) -> TribeExplainResponse:
-    _gate_patient_access(_actor, payload.patient_id)
+    _gate_patient_access(_actor, payload.patient_id, db=session)
+    if _real_patient_row(session, payload.patient_id) is not None:
+        withheld = _real_patient_tribe_simulation_payload(
+            payload.patient_id,
+            payload.protocol,
+            horizon_weeks=payload.horizon_weeks,
+        )
+        return TribeExplainResponse(
+            patient_id=payload.patient_id,
+            protocol_id=payload.protocol.protocol_id,
+            explanation=withheld["explanation"],
+            response_probability=None,
+            response_confidence=None,
+            evidence_grade=None,
+            available=False,
+            status="withheld",
+            reason=_REAL_PATIENT_SIMULATION_REASON,
+            summary=_REAL_PATIENT_SIMULATION_SUMMARY,
+        )
     sim = tribe_simulate_protocol(
         payload.patient_id,
         payload.protocol.to_spec(),
@@ -1870,8 +2466,36 @@ def deeptwin_explain(
 def deeptwin_report_payload(
     payload: TribeReportPayloadRequest,
     _actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
 ) -> TribeReportPayloadResponse:
-    _gate_patient_access(_actor, payload.patient_id)
+    _gate_patient_access(_actor, payload.patient_id, db=session)
+    if _real_patient_row(session, payload.patient_id) is not None:
+        audit_ref = (
+            f"twin_tribe_report:{payload.patient_id}:{payload.kind}:{payload.protocol.protocol_id}:withheld"
+        )
+        return TribeReportPayloadResponse(
+            patient_id=payload.patient_id,
+            kind=payload.kind,
+            title="DeepTwin Protocol Report Unavailable",
+            sections=[
+                {
+                    "id": "status",
+                    "title": "Protocol simulation unavailable",
+                    "items": [
+                        _REAL_PATIENT_SIMULATION_SUMMARY,
+                        "status: withheld",
+                        f"reason: {_REAL_PATIENT_SIMULATION_REASON}",
+                        "No heuristic TRIBE simulation or protocol comparison report is emitted for real patient rows.",
+                    ],
+                },
+            ],
+            audit_ref=audit_ref,
+            generated_at=datetime.now(timezone.utc).isoformat(),
+            available=False,
+            status="withheld",
+            reason=_REAL_PATIENT_SIMULATION_REASON,
+            summary=_REAL_PATIENT_SIMULATION_SUMMARY,
+        )
     sim = tribe_simulate_protocol(
         payload.patient_id,
         payload.protocol.to_spec(),
@@ -1951,7 +2575,6 @@ def deeptwin_report_payload(
         "protocol_comparison": "DeepTwin Protocol Comparison Report",
         "governance": "DeepTwin Governance Report",
     }
-    from datetime import datetime, timezone
     return TribeReportPayloadResponse(
         patient_id=payload.patient_id,
         kind=payload.kind,

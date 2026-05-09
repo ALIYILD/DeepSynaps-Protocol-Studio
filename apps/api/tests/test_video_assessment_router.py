@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi.testclient import TestClient
 
+from app.auth import AuthenticatedActor
 from app.database import SessionLocal
 from app.persistence.models import AuditEventRecord, Patient
 from app.repositories.audit import create_audit_event
@@ -185,6 +186,7 @@ def test_patient_create_with_clinical_context(client: TestClient, auth_headers: 
     revision = body["revision_token"]
     assert body["clinical_context"]["preset_id"] == "essential_tremor"
     assert "ET" in body["clinical_context"].get("custom_indication", "")
+    revision = body["revision_token"]
 
     r2 = client.patch(
         f"/api/v1/video-assessments/sessions/{sid}",
@@ -203,6 +205,7 @@ def test_patient_create_with_clinical_context(client: TestClient, auth_headers: 
     assert r2.status_code == 200, r2.text
     body = r2.json()
     assert body["summary"]["tasks_skipped"] >= 1
+    assert body["revision_token"] != revision
 
 
 def test_clinician_lists_sessions(client: TestClient, auth_headers: dict, demo_patient_va: str) -> None:
@@ -237,6 +240,7 @@ def test_clinician_can_finalize(client: TestClient, auth_headers: dict, demo_pat
     )
     assert fin.status_code == 200, fin.text
     assert fin.json()["overall_status"] == "finalized"
+    assert fin.json()["revision_token"] != revision
 
 
 def test_export_json_endpoint(client: TestClient, auth_headers: dict, demo_patient_va: str) -> None:
@@ -272,6 +276,47 @@ def test_finalize_blocks_patch(client: TestClient, auth_headers: dict, demo_pati
     assert patch.status_code == 409, patch.text
 
 
+def test_patient_patch_rejects_clinician_only_fields(client: TestClient, auth_headers: dict, demo_patient_va: str) -> None:
+    del demo_patient_va
+    created = client.post("/api/v1/video-assessments/sessions", headers=auth_headers["patient"], json={})
+    sid = created.json()["id"]
+    revision = created.json()["revision_token"]
+
+    patch = client.patch(
+        f"/api/v1/video-assessments/sessions/{sid}",
+        headers=auth_headers["patient"],
+        json={
+            "expected_revision": revision,
+            "overall_status": "finalized",
+            "completed_at": "2026-05-07T09:00:00Z",
+            "summary": {
+                "clinician_impression": "Patient self-approved this recording.",
+                "recommended_followup": "None",
+            },
+            "safety_flags": ["rest_tremor"],
+            "future_ai_metrics_placeholder": {"pose_metrics": {"speed": "fast"}},
+            "tasks": [
+                {
+                    "task_id": "rest_tremor",
+                    "recording_status": "accepted",
+                    "skip_reason": "patient_pref",
+                    "unsafe_flag": True,
+                    "clinician_review": {
+                        "reviewer_id": "actor-clinician-demo",
+                        "reviewed_at": "2026-05-07T09:00:00Z",
+                        "repeat_needed": "no",
+                    },
+                    "recording_asset_id": "asset-patient-forged",
+                    "recording_storage_ref": "video_assessments/forged.webm",
+                    "ai_analysis_status": "analyzed",
+                }
+            ],
+        },
+    )
+    assert patch.status_code == 403, patch.text
+    assert patch.json()["code"] == "patient_patch_forbidden"
+
+
 def test_upload_task_webm(client: TestClient, auth_headers: dict, demo_patient_va: str) -> None:
     del demo_patient_va
     r = client.post("/api/v1/video-assessments/sessions", headers=auth_headers["patient"], json={})
@@ -288,6 +333,10 @@ def test_upload_task_webm(client: TestClient, auth_headers: dict, demo_patient_v
     assert up.status_code == 201, up.text
     data = up.json()
     assert data.get("recording_asset_id")
+    task = next(t for t in data["session"]["tasks"] if t["task_id"] == "rest_tremor")
+    assert task["recording_status"] == "recorded"
+    assert task["clinician_review"] is None
+    assert data["session"]["summary"]["tasks_completed"] >= 1
 
     vid = client.get(
         f"/api/v1/video-assessments/sessions/{sid}/tasks/rest_tremor/video",

@@ -50,6 +50,43 @@ function _canReviewPriorSessions(role = '') {
   return role === 'clinician' || role === 'supervisor' || role === 'admin';
 }
 
+export function videoAssessmentCanClinicianReview(role = '') {
+  return role === 'clinician' || role === 'supervisor' || role === 'admin';
+}
+
+export function videoAssessmentBackendActionProfile({ role = '', attached = false, finalized = false } = {}) {
+  const clinician = videoAssessmentCanClinicianReview(role);
+  return {
+    canCreatePersistedSession: role === 'patient',
+    canWritePersistedPatientSession: role === 'patient' && attached && !finalized,
+    canWritePersistedClinicianSession: clinician && attached && !finalized,
+    reviewSaveLabel:
+      clinician && attached && !finalized ? 'Save review to session' : 'Save local notes',
+    reviewCompleteLabel:
+      clinician && attached && !finalized ? 'Mark task reviewed in session' : 'Mark local draft complete',
+    summarySaveLabel:
+      clinician && attached && !finalized ? 'Save summary to session' : 'Save local summary',
+    exportLabel: attached ? 'Download persisted session JSON' : 'Download session draft (JSON)',
+  };
+}
+
+export function videoAssessmentBuildAttachmentToken(sessionId) {
+  const value = String(sessionId || '').trim();
+  return value ? { session_id: value } : null;
+}
+
+export function videoAssessmentReadAttachmentToken(storage = globalThis.sessionStorage) {
+  try {
+    const raw = storage?.getItem?.(VIDEO_ASSESSMENT_ATTACHMENT_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const token = videoAssessmentBuildAttachmentToken(parsed?.session_id);
+    return token;
+  } catch (_) {
+    return null;
+  }
+}
+
 function esc(v) {
   if (v == null) return '';
   return String(v)
@@ -78,6 +115,54 @@ function _demoTokenWorkspace() {
   } catch (_) {
     return false;
   }
+}
+
+function _canUseClinicianWorkbench() {
+  return videoAssessmentCanClinicianReview(currentUser?.role || '');
+}
+
+function _currentRole() {
+  return currentUser?.role || '';
+}
+
+function _selectedPatientScope() {
+  return _vaSelectedPatientId || _readStoredPatientId() || null;
+}
+
+function _latestBackendSession() {
+  return _vaBackendSessions.items[0] || null;
+}
+
+function _isPersistedSessionId(id) {
+  return !!(id && !String(id).startsWith('vas_'));
+}
+
+function _sessionIsFinalized(session = _vaSession) {
+  return String(session?.overall_status || '') === 'finalized';
+}
+
+function _isAttachedBackendSession() {
+  return !!(_vaBackendBinding.sessionId && _vaSession?.id === _vaBackendBinding.sessionId);
+}
+
+function _backendBindingRoleProfile() {
+  return videoAssessmentBackendActionProfile({
+    role: _currentRole(),
+    attached: _isAttachedBackendSession(),
+    finalized: _sessionIsFinalized(),
+  });
+}
+
+function _canCreatePersistedSession() {
+  return _backendBindingRoleProfile().canCreatePersistedSession && !_demoTokenWorkspace();
+}
+
+function _canWriteAttachedPatientSession() {
+  return _backendBindingRoleProfile().canWritePersistedPatientSession;
+}
+
+function _canWriteAttachedClinicianSession() {
+  return _backendBindingRoleProfile().canWritePersistedClinicianSession;
 }
 
 function _sessionPersistLabel() {
@@ -159,6 +244,23 @@ function _readStoredPatientId() {
   } catch (_) {
     return null;
   }
+}
+
+function _writeStoredAttachmentToken(token) {
+  try {
+    if (!token?.session_id) {
+      sessionStorage.removeItem(VIDEO_ASSESSMENT_ATTACHMENT_STORAGE_KEY);
+      return;
+    }
+    sessionStorage.setItem(
+      VIDEO_ASSESSMENT_ATTACHMENT_STORAGE_KEY,
+      JSON.stringify({ session_id: token.session_id }),
+    );
+  } catch (_) {}
+}
+
+function _clearStoredAttachmentToken() {
+  _writeStoredAttachmentToken(null);
 }
 
 function _writeStoredPatientId(id) {
@@ -431,28 +533,34 @@ async function _patchPersistedTaskState(taskId, taskPatch, successMessage) {
 function _applySummary() {
   if (!_vaSession) return;
   const sum = summarizeSession(_vaSession);
+  const summaryDraft = _vaConflictDraft.summary;
   _vaSession.summary = {
     ..._vaSession.summary,
     tasks_completed: sum.tasks_completed,
     tasks_skipped: sum.tasks_skipped,
     tasks_needing_repeat: sum.tasks_needing_repeat,
     review_completion_percent: sum.review_completion_percent,
+    clinician_impression:
+      summaryDraft && typeof summaryDraft.clinician_impression === 'string'
+        ? summaryDraft.clinician_impression
+        : _vaSession.summary?.clinician_impression,
+    recommended_followup:
+      summaryDraft && typeof summaryDraft.recommended_followup === 'string'
+        ? summaryDraft.recommended_followup
+        : _vaSession.summary?.recommended_followup,
   };
   _vaSession.safety_flags = sum.safety_task_ids || [];
 }
 
 function _ensureSession() {
   if (!_vaSession) {
-    const persisted = _loadPersistedSession();
     const pid =
       _vaSelectedPatientId ||
       _readStoredPatientId() ||
       (_demoTokenWorkspace() ? 'demo-workspace' : 'not-selected');
-    _vaSession =
-      persisted ||
-      createEmptySession({
-        patient_id: pid,
-      });
+    _vaSession = createEmptySession({
+      patient_id: pid,
+    });
     _applySummary();
   }
   return _vaSession;
@@ -460,7 +568,7 @@ function _ensureSession() {
 
 function _syncSessionPatientId() {
   const pid = _vaSelectedPatientId || _readStoredPatientId() || (_demoTokenWorkspace() ? 'demo-workspace' : 'not-selected');
-  if (_vaSession && _vaSession.patient_id !== pid) {
+  if (_vaSession && _vaSession.patient_id !== pid && !_isAttachedBackendSession()) {
     _vaSession.patient_id = pid;
     _persistSession();
   }
@@ -1295,6 +1403,7 @@ async function _beginRecording() {
     const blob = new Blob(_vaRecordedChunks, { type: mime.split(';')[0] || 'video/webm' });
     _cleanupPreviewUrl();
     _vaPreviewUrl = URL.createObjectURL(blob);
+    _setTaskBlob(task.task_id, blob);
     _setTaskBlobUrl(task.task_id, _vaPreviewUrl);
     _setTaskBlob(task.task_id, blob);
     task.recording_asset_id = 'blob:' + task.task_id + ':' + Date.now();
@@ -1338,9 +1447,10 @@ function _stopRecordingClip() {
 
 function _renderModeToggle() {
   const patientActive = _vaUiMode === 'patient';
+  const canReview = _canUseClinicianWorkbench();
   return `<div class="va-mode-toggle" role="tablist" aria-label="Assessment mode">
     <button type="button" role="tab" class="btn ${patientActive ? 'btn-primary' : 'btn-secondary'}" aria-selected="${patientActive}" id="va-mode-patient">Patient Capture Mode</button>
-    <button type="button" role="tab" class="btn ${!patientActive ? 'btn-primary' : 'btn-secondary'}" aria-selected="${!patientActive}" id="va-mode-clinician">Clinician Review Mode</button>
+    <button type="button" role="tab" class="btn ${!patientActive ? 'btn-primary' : 'btn-secondary'}" aria-selected="${!patientActive}" id="va-mode-clinician" ${canReview ? '' : 'disabled aria-disabled="true" title="Clinician, supervisor, or admin account required"'}>Clinician Review Scratchpad</button>
   </div>`;
 }
 
@@ -1359,6 +1469,7 @@ function _renderProgress() {
 }
 
 function _renderSetupChecklist() {
+  const locked = _sessionIsFinalized() && _isAttachedBackendSession();
   return `<div class="ds-card"><div class="ds-card__header"><h3>Before you start</h3></div><div class="ds-card__body">
     <ul class="va-checklist">
       <li>Clear enough floor space to stand and take a few steps safely.</li>
@@ -1368,13 +1479,15 @@ function _renderSetupChecklist() {
       <li>If you live alone and cannot stand safely, skip standing and walking tasks.</li>
     </ul>
     <label class="va-checkbox"><input type="checkbox" id="va-setup-safe" ${_vaSetupConfirmed ? 'checked' : ''}/> I confirm I am in a safe space for movement tasks today.</label>
+    ${locked ? '<p class="va-muted" style="font-size:11px;margin-top:10px">The attached persisted session is finalized. Start a new persisted session to capture additional clips.</p>' : ''}
     <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
-      <button type="button" class="btn btn-primary" id="va-setup-continue">Continue</button>
+      <button type="button" class="btn btn-primary" id="va-setup-continue" ${locked ? 'disabled aria-disabled="true"' : ''}>Continue</button>
     </div>
   </div></div>`;
 }
 
 function _renderTaskIntro(task, def) {
+  const locked = _sessionIsFinalized() && _isAttachedBackendSession();
   const sc = def.script.success_checklist.map((x) => `<li>${esc(x)}</li>`).join('');
   return `<div class="va-task-intro">
     ${_renderProgress()}
@@ -1391,10 +1504,10 @@ function _renderTaskIntro(task, def) {
       <p style="font-size:12px;color:var(--text-secondary);margin-top:10px">Success checklist before recording:</p>
       <ul class="va-checklist">${sc}</ul>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;align-items:center">
-        <button type="button" class="btn btn-secondary" id="va-ready-record">I’m ready (acknowledge)</button>
-        <button type="button" class="btn btn-primary" id="va-start-rec">Start recording</button>
-        <button type="button" class="btn btn-secondary" id="va-skip-task">Skip task</button>
-        <button type="button" class="btn btn-secondary" id="va-unsafe-task" title="Mark if this task is unsafe for you today">Unsafe for me today</button>
+        <button type="button" class="btn btn-secondary" id="va-ready-record" ${locked ? 'disabled aria-disabled="true"' : ''}>I’m ready (acknowledge)</button>
+        <button type="button" class="btn btn-primary" id="va-start-rec" ${locked ? 'disabled aria-disabled="true"' : ''}>Start recording</button>
+        <button type="button" class="btn btn-secondary" id="va-skip-task" ${locked ? 'disabled aria-disabled="true"' : ''}>Skip task</button>
+        <button type="button" class="btn btn-secondary" id="va-unsafe-task" ${locked ? 'disabled aria-disabled="true"' : ''} title="Mark if this task is unsafe for you today">Unsafe for me today</button>
       </div>
     </div></div>
   </div>`;
@@ -1412,6 +1525,8 @@ function _renderRecording(def, phaseCountdown) {
 }
 
 function _renderPostRecord(task, def) {
+  const saveToBackend = _canWriteAttachedPatientSession();
+  const locked = _sessionIsFinalized() && _isAttachedBackendSession();
   const vid = _vaPreviewUrl
     ? `<video id="va-playback" controls playsinline src="${esc(_vaPreviewUrl)}" style="width:100%;max-height:280px;border-radius:8px;background:#000"></video>`
     : '<p class="va-muted">No preview available.</p>';
@@ -1440,9 +1555,9 @@ function _renderPostRecord(task, def) {
     ${vid}
     ${metaBlock}
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
-      <button type="button" class="btn btn-primary" id="va-use-clip">Use this recording</button>
-      <button type="button" class="btn btn-secondary" id="va-rerecord">Record again</button>
-      <button type="button" class="btn btn-secondary" id="va-skip-post">Skip task</button>
+      <button type="button" class="btn btn-primary" id="va-use-clip" ${locked ? 'disabled aria-disabled="true"' : ''}>${saveToBackend ? 'Use this recording and upload to session' : 'Use this recording'}</button>
+      <button type="button" class="btn btn-secondary" id="va-rerecord" ${locked ? 'disabled aria-disabled="true"' : ''}>Record again</button>
+      <button type="button" class="btn btn-secondary" id="va-skip-post" ${locked ? 'disabled aria-disabled="true"' : ''}>Skip task</button>
     </div>
   </div>`;
 }
@@ -1465,7 +1580,7 @@ function _renderPatientContextCard(session) {
   const strip = [];
   if (_demoTokenWorkspace()) strip.push('Demo-token workspace');
   if (_demoBuildFlag()) strip.push('Preview/demo build');
-  strip.push(_persistAllowed() ? 'Local draft persistence on' : 'No reload persistence');
+  strip.push('No local draft reload persistence');
   const warn =
     _vaPatientsLoadFailed && !_demoTokenWorkspace()
       ? `<div class="va-banner va-banner--warn" role="status" style="margin-top:10px;padding:10px 12px;border-radius:8px;border:1px solid rgba(246,178,60,.35);background:rgba(246,178,60,.08);font-size:12px">Could not load the patient list from the API. You can still record locally; reconnect to select a roster patient.</div>`
@@ -1479,7 +1594,7 @@ function _renderPatientContextCard(session) {
       <div class="form-group">
         <label class="form-label" for="va-patient-select">Active patient for this session</label>
         <select id="va-patient-select" class="form-control" style="max-width:420px" aria-describedby="va-patient-help">${_patientOptionsHtml()}</select>
-        <p id="va-patient-help" class="va-muted" style="font-size:11px;margin-top:6px">Linked IDs are for navigation and draft labelling only. Video stays in-browser until a server-backed ingest pipeline is enabled.</p>
+        <p id="va-patient-help" class="va-muted" style="font-size:11px;margin-top:6px">Linked IDs drive navigation, persisted-session checks, and API attachment. ${esc(_sessionPersistLabel())}</p>
       </div>
       <p class="va-muted" style="font-size:12px;margin:0"><strong>Session patient id:</strong> ${esc(pid)}</p>
       ${warn}
@@ -1495,16 +1610,48 @@ function _renderVideoAvailabilityCard(session) {
   }
   const ai = session?.future_ai_metrics_placeholder || {};
   const hasAiSlot = ai && typeof ai === 'object';
+  const latest = _latestBackendSession();
+  const attached = _isAttachedBackendSession();
+  const attachedId = attached ? _vaBackendBinding.sessionId : null;
+  const attachedSummary = attached
+    ? `Attached persisted session: ${esc(attachedId)} · status ${esc(session?.overall_status || 'unknown')}.`
+    : 'No persisted session is attached to this page right now.';
+  const backendLine = _vaBackendSessions.loading
+    ? 'Checking authorized persisted session state from the API…'
+    : _vaBackendSessions.error
+      ? `Could not verify persisted session state from the API: ${esc(_vaBackendSessions.error)}.`
+      : attached
+        ? `${attachedSummary} Eligible capture/review actions on this page now write through to the backend session.`
+        : latest
+          ? `Authorized persisted session detected: status ${esc(latest.overall_status || 'unknown')}, last updated ${esc(latest.updated_at || 'unknown')}. Load it into this page to continue review, finalize it, or export the stored JSON.`
+          : _canUseClinicianWorkbench() && !_selectedPatientScope()
+            ? 'Select a patient to check whether an authorized persisted session exists for clinician review.'
+            : 'No authorized persisted video-assessment session was found for this patient.';
+  const actionButtons = [];
+  if (_canCreatePersistedSession()) {
+    actionButtons.push(`<button type="button" class="btn btn-secondary btn-sm" id="va-create-persisted-session" ${_vaBackendBinding.loading || _vaBackendBinding.saving || _vaBackendBinding.finalizing ? 'disabled aria-disabled="true"' : ''}>Create persisted session</button>`);
+  }
+  if (attached) {
+    actionButtons.push(`<button type="button" class="btn btn-secondary btn-sm" id="va-refresh-persisted-session" ${_vaBackendBinding.loading ? 'disabled aria-disabled="true"' : ''}>Refresh attached session</button>`);
+  }
+  const noteText = _vaBackendBinding.error || _vaConflictDraft.message || '';
+  const bindingNote = noteText
+    ? `<p style="margin-bottom:0;font-size:12px;color:var(--amber)"><strong>Backend action note:</strong> ${esc(noteText)}</p>`
+    : '';
   return `<div class="ds-card" style="margin-bottom:16px">
-    <div class="ds-card__header"><h3 style="margin:0">Video data & analyzer availability</h3></div>
+    <div class="ds-card__header"><h3 style="margin:0">Persistence & review status</h3></div>
     <div class="ds-card__body" style="font-size:13px;line-height:1.55;color:var(--text-secondary)">
       <p style="margin-top:0"><strong>Browser clips this session:</strong> ${withClip} task(s) with a local preview blob.</p>
+      <p><strong>Persisted session state:</strong> ${backendLine}</p>
       <p><strong>Automated pose / affect / movement scoring:</strong> ${
         hasAiSlot
           ? '<span style="color:var(--amber)">Not connected</span> — this workspace records structured clinician observation and clips only. No model runs are claimed here.'
           : 'Unavailable.'
       }</p>
-      <p style="margin-bottom:0;font-size:12px;color:var(--text-tertiary)">${esc(_sessionPersistLabel())}</p>
+      ${actionButtons.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 6px">${actionButtons.join('')}</div>` : ''}
+      ${_renderSessionChooser()}
+      ${bindingNote}
+      <p style="margin-bottom:0;font-size:12px;color:var(--text-tertiary)">Clinician review remains clinician-entered only. ${esc(_sessionPersistLabel())}</p>
     </div>
   </div>`;
 }
@@ -1516,6 +1663,7 @@ function _renderGovernanceCard() {
       <ul style="margin:0;padding-left:18px">
         <li>This page does not provide neurological or psychiatric diagnosis, treatment eligibility, protocol approval, or surveillance.</li>
         <li>Structured scores are clinician-entered observation—not autonomous AI outputs.</li>
+        <li>Detached drafts remain browser-local. Attached persisted sessions still require clinician judgment and are not autonomous model outputs.</li>
         <li>Any future automated markers must show method, uncertainty, and require clinician review (not shipped here yet).</li>
         <li>Exports are JSON drafts for workflow handoff; they are not signed clinical documents.</li>
       </ul>
@@ -1553,15 +1701,17 @@ function _renderQuickLinks() {
 function _renderPatientColumn() {
   const session = _ensureSession();
   session.mode = 'patient_capture';
+  const attached = _canWriteAttachedPatientSession();
+  const locked = _sessionIsFinalized() && _isAttachedBackendSession();
 
   const uploadCard = `<div class="ds-card" style="margin-bottom:12px">
     <div class="ds-card__header"><h3 style="margin:0">Upload a clip file</h3></div>
     <div class="ds-card__body">
-      <p class="va-muted" style="font-size:12px;margin-top:0">Load a local video for the <strong>current task</strong> (preview only in this browser—not saved to the clinical record).</p>
-      <p class="va-muted" style="font-size:11px">Typical containers: MP4, WebM, QuickTime/MOV (browser-dependent). Server-side ingest for clinicians is not wired from this screen.</p>
+      <p class="va-muted" style="font-size:12px;margin-top:0">Load a local video for the <strong>current task</strong> (${attached ? 'accepted clips upload into the attached persisted session' : 'preview only in this browser until a persisted session is attached'}).</p>
+      <p class="va-muted" style="font-size:11px">Typical containers: MP4, WebM, QuickTime/MOV (browser-dependent). ${locked ? 'The attached persisted session is finalized, so new uploads are locked.' : 'Upload alone does not imply clinician sign-off.'}</p>
       <label class="btn btn-secondary btn-sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;margin-top:8px">
         Choose video file
-        <input type="file" id="va-upload-file" accept="video/mp4,video/webm,video/quicktime,video/x-matroska,video/avi" style="position:absolute;width:0;height:0;opacity:0" aria-label="Choose video file for current task" />
+        <input type="file" id="va-upload-file" accept="video/mp4,video/webm,video/quicktime,video/x-matroska,video/avi" style="position:absolute;width:0;height:0;opacity:0" aria-label="Choose video file for current task" ${locked ? 'disabled aria-disabled="true"' : ''}/>
       </label>
     </div>
   </div>`;
@@ -1571,7 +1721,7 @@ function _renderPatientColumn() {
     inner = _renderSetupChecklist();
   } else if (_vaTaskIndex >= session.tasks.length) {
     inner = `<div class="ds-card"><div class="ds-card__body"><h3 style="margin-top:0">All tasks addressed</h3>
-      <p class="va-muted">Switch to Clinician Review Mode to score recordings. To start a new capture cycle, reload this page—draft state follows ${_persistAllowed() ? 'your browser session storage rules' : 'no persistence in this build'}.</p></div></div>`;
+      <p class="va-muted">Authorized staff can open the Clinician Review Scratchpad for local notes. Reload does not retain detached local draft state; attach a persisted session if you need authoritative continuity.</p></div></div>`;
   } else {
     const task = _currentTask();
     const def = task ? _taskDef(task.task_id) : null;
@@ -1639,13 +1789,13 @@ function _renderClinicianForm(task) {
 
   const baseFields = `
     <div class="form-group"><label class="form-label">Video quality</label>
-      <select class="form-control" data-va-field="video_quality"><option value="">Select…</option>${opts('video_quality', ['poor', 'fair', 'good'])}</select></div>
+      <select class="form-control" data-va-field="video_quality" ${disabledAttr}><option value="">Select…</option>${opts('video_quality', ['poor', 'fair', 'good'])}</select></div>
     <div class="form-group"><label class="form-label">Patient compliance</label>
-      <select class="form-control" data-va-field="patient_compliance"><option value="">Select…</option>${opts('patient_compliance', ['poor', 'fair', 'good'])}</select></div>
+      <select class="form-control" data-va-field="patient_compliance" ${disabledAttr}><option value="">Select…</option>${opts('patient_compliance', ['poor', 'fair', 'good'])}</select></div>
     <div class="form-group"><label class="form-label">Task completed (video)</label>
-      <select class="form-control" data-va-field="task_completed"><option value="">Select…</option>${opts('task_completed', ['yes', 'partial', 'no'])}</select></div>
+      <select class="form-control" data-va-field="task_completed" ${disabledAttr}><option value="">Select…</option>${opts('task_completed', ['yes', 'partial', 'no'])}</select></div>
     <div class="form-group"><label class="form-label">Repeat needed</label>
-      <select class="form-control" data-va-field="repeat_needed"><option value="">Select…</option>${opts('repeat_needed', ['yes', 'no'])}</select></div>`;
+      <select class="form-control" data-va-field="repeat_needed" ${disabledAttr}><option value="">Select…</option>${opts('repeat_needed', ['yes', 'no'])}</select></div>`;
 
   let structured = '';
   if (def) {
@@ -1655,7 +1805,7 @@ function _renderClinicianForm(task) {
         `<option value="${esc(v)}" ${cur === v ? 'selected' : ''}>${esc(String(v).replace(/_/g, ' '))}</option>`
       ).join('');
       structured += `<div class="form-group"><label class="form-label">${esc(k.replace(/_/g, ' '))}</label>
-        <select class="form-control" data-va-score="${esc(k)}"><option value="">Select…</option>${optHtml}</select></div>`;
+        <select class="form-control" data-va-score="${esc(k)}" ${disabledAttr}><option value="">Select…</option>${optHtml}</select></div>`;
     }
   }
 
@@ -1691,6 +1841,7 @@ function _renderClinicianForm(task) {
         : `<div class="va-video-placeholder">No recording is available for this task in the current session or persisted backend storage.</div>`;
 
   return `<div class="va-clinician-form">
+    ${conflictBanner}
     ${unsafeBadge}${skipBadge}
     <div style="margin-bottom:12px">${videoBlock}</div>
     ${readOnly ? '<p class="va-muted" style="font-size:12px;margin:0 0 12px;color:var(--amber)">This persisted session is finalized. Structured review fields are read-only.</p>' : ''}
@@ -2229,17 +2380,17 @@ function _renderHistoricalAiSummaryPanel() {
       </div>
       <p class="va-muted" style="margin:12px 0 0">Advisory summary generated from persisted finalized-session comparison data. Not a diagnosis or treatment recommendation.</p>
     </div>
+    <p class="va-muted" style="font-size:11px;margin-top:10px">${esc(reviewHelp)}</p>
   </div>`;
 }
 
 function _renderClinicianColumn() {
   const session = _ensureSession();
   session.mode = 'clinician_review';
-  const role = currentUser?.role || '';
-  if (role === 'patient') {
+  if (!_canUseClinicianWorkbench()) {
     return `<div class="va-col va-col-clinician">
       <div class="ds-card"><div class="ds-card__body">
-        <p class="va-muted" style="margin:0;font-size:13px">Structured clinician scoring is limited to clinician or admin accounts. You can still complete capture tasks in Patient Capture Mode.</p>
+        <p class="va-muted" style="margin:0;font-size:13px">Structured clinician review scratchpad tools are limited to clinician, supervisor, or admin accounts. You can still complete capture tasks in Patient Capture Mode.</p>
       </div></div>
     </div>`;
   }
@@ -2247,6 +2398,20 @@ function _renderClinicianColumn() {
   const idx = Math.min(Math.max(0, _vaSelectedClinicianTask), tasks.length - 1);
   const task = tasks[idx];
   const def = task ? _taskDef(task.task_id) : null;
+  const latest = _latestBackendSession();
+  const scopeNote = _vaBackendSessions.loading
+    ? 'Checking whether an authorized persisted video-assessment session exists for this patient.'
+    : _vaBackendSessions.error
+      ? 'Persisted session state could not be verified from the API. Treat the controls below as local scratchpad only.'
+      : _isAttachedBackendSession()
+        ? _sessionIsFinalized()
+          ? `Attached persisted session "${esc(_vaSession.id)}" is finalized. Stored review is visible here but cannot be edited from this page.`
+          : `Attached persisted session "${esc(_vaSession.id)}" is active. Eligible review edits below write to that record.`
+        : latest
+          ? `Authorized persisted session found with status "${esc(latest.overall_status || 'unknown')}". Load it to continue review from the stored record.`
+        : _selectedPatientScope()
+          ? 'No authorized persisted video-assessment session was found for this patient. Local edits below remain scratchpad-only.'
+          : 'Select a patient to check persisted session state. Until then, local edits below remain scratchpad-only.';
 
   const sidebar = tasks
     .map((t, i) => {
@@ -2261,6 +2426,7 @@ function _renderClinicianColumn() {
     .join('');
 
   return `<div class="va-col va-col-clinician">
+    <div class="va-banner va-banner--warn" role="status" style="margin-bottom:12px;padding:10px 12px;border-radius:8px;border:1px solid rgba(246,178,60,.35);background:rgba(246,178,60,.08);font-size:12px">${scopeNote}</div>
     <div class="va-clin-layout">
       <aside class="va-sidebar" aria-label="Tasks">${sidebar}</aside>
       <div class="va-clin-main">
@@ -2286,7 +2452,7 @@ function _renderSummaryPanel() {
       <div><span class="va-muted">Tasks recorded</span><strong>${s.tasks_completed}</strong></div>
       <div><span class="va-muted">Tasks skipped</span><strong>${s.tasks_skipped}</strong></div>
       <div><span class="va-muted">Safety flags</span><strong>${flags}</strong></div>
-      <div><span class="va-muted">Review progress</span><strong>${s.review_completion_percent}%</strong></div>
+      <div><span class="va-muted">Draft completion</span><strong>${s.review_completion_percent}%</strong></div>
     </div>
     ${persisted ? `<p class="va-muted" style="font-size:11px;margin-top:12px">${readOnly ? 'This attached persisted session is finalized. Notes below are read-only server truth.' : 'This attached persisted session saves clinician summary changes to backend truth with conflict checks.'}</p>` : ''}
     <fieldset style="border:0;padding:0;margin:0" ${readOnly ? 'disabled' : ''}>
@@ -2316,7 +2482,7 @@ function _render() {
   const patientCol = _vaUiMode === 'patient' ? _renderPatientColumn() : `<div class="va-col"><p class="va-muted">Switch to Patient Capture Mode to use the guided flow.</p></div>`;
 
   const clinicianCol =
-    _vaUiMode === 'clinician' ? _renderClinicianColumn() : `<div class="va-col"><p class="va-muted">Switch to Clinician Review Mode to score recordings.</p></div>`;
+    _vaUiMode === 'clinician' ? _renderClinicianColumn() : `<div class="va-col"><p class="va-muted">Switch to Clinician Review Scratchpad for local annotation notes.</p></div>`;
 
   el.innerHTML = `
 <div class="ch-shell va-shell">
@@ -2327,7 +2493,7 @@ function _render() {
       <div class="qeeg-hero__sub">Clinician-reviewed video capture & structured observation (decision-support)</div>
       <p style="max-width:820px;margin-top:10px;font-size:13px;color:var(--text-secondary);line-height:1.5">
         Guided camera tasks with structured clinician scoring—not autonomous diagnosis, emotion certainty, or surveillance.
-        Recordings in this build stay in the browser unless you export a draft; server-side video ingest for clinicians is on the product roadmap.
+        This screen can now attach to an authorized persisted session for real upload, review, finalize, and export flows. When no session is attached, it stays a local scratchpad.
       </p>
     </div>
   </div>
@@ -2344,7 +2510,7 @@ function _render() {
     ${clinicianCol}
   </div>
 
-  ${currentUser?.role === 'patient' ? '' : _renderSummaryPanel()}
+  ${_canUseClinicianWorkbench() ? _renderSummaryPanel() : ''}
 
   <div class="ds-card" style="margin-top:16px"><div class="ds-card__body" style="font-size:11px;color:var(--text-tertiary);line-height:1.5">
     Protocol: ${esc(VIDEO_ASSESSMENT_PROTOCOL.protocol_name)} v${esc(VIDEO_ASSESSMENT_PROTOCOL.protocol_version)} ·
@@ -2487,10 +2653,16 @@ function _wire() {
     const v = /** @type {HTMLSelectElement} */ (e.target).value?.trim();
     _vaSelectedPatientId = v || null;
     if (v) _writeStoredPatientId(v);
-    _ensureSession().patient_id = v || (_demoTokenWorkspace() ? 'demo-workspace' : 'not-selected');
-    _persistSession();
-    showToast(v ? 'Patient context updated for this session.' : 'No patient selected.');
+    if (_isAttachedBackendSession() && v && _vaSession?.patient_id && _vaSession.patient_id !== v) {
+      _startScratchpadSession(v);
+      showToast('Patient scope changed. Detached from the previous persisted session.');
+    } else {
+      _ensureSession().patient_id = v || (_demoTokenWorkspace() ? 'demo-workspace' : 'not-selected');
+      _persistSession();
+      showToast(v ? 'Patient context updated for this session.' : 'No patient selected.');
+    }
     _render();
+    void _refreshBackendSessions();
   });
 
   const pidForLinks = () => _vaSelectedPatientId || _readStoredPatientId();
@@ -2530,6 +2702,10 @@ function _wire() {
     _render();
   });
   document.getElementById('va-mode-clinician')?.addEventListener('click', () => {
+    if (!_canUseClinicianWorkbench()) {
+      showToast('Clinician review scratchpad is limited to clinician, supervisor, or admin accounts.');
+      return;
+    }
     _vaUiMode = 'clinician';
     _render();
     void _ensureSelectedClinicianTaskVideoLoaded();
@@ -2592,6 +2768,25 @@ function _wire() {
   });
   document.getElementById('va-generate-history-ai')?.addEventListener('click', () => {
     void _generateHistoricalAiSummary();
+  });
+
+  document.getElementById('va-create-persisted-session')?.addEventListener('click', async () => {
+    await _createPersistedSession();
+  });
+
+  document.querySelectorAll('[data-va-attach-session]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const sessionId = btn.getAttribute('data-va-attach-session') || '';
+      if (!sessionId) return;
+      if (!_confirmDiscardLocalDraft('Attaching a persisted session')) return;
+      _clearConflictDraft();
+      await _loadBackendSession(sessionId);
+    });
+  });
+
+  document.getElementById('va-refresh-persisted-session')?.addEventListener('click', async () => {
+    if (!_isAttachedBackendSession()) return;
+    await _refreshAttachedSession();
   });
 
   document.getElementById('va-setup-continue')?.addEventListener('click', () => {
@@ -2742,7 +2937,7 @@ function _wire() {
     }
     task.clinician_review = nextReview;
     _persistSession();
-    showToast('Draft saved locally');
+    showToast('Local notes saved');
     _applySummary();
     _render();
   });
@@ -2771,7 +2966,7 @@ function _wire() {
       ...nextReview,
     };
     _persistSession();
-    showToast('Marked reviewed');
+    showToast('Local draft marked complete');
     _applySummary();
     _render();
   });
@@ -2795,7 +2990,7 @@ function _wire() {
     session.summary.clinician_impression = clinicianImpression;
     session.summary.recommended_followup = recommendedFollowup;
     _persistSession();
-    showToast('Summary saved locally');
+    showToast('Local summary saved');
     _render();
   });
 
@@ -2844,6 +3039,7 @@ function _wire() {
     try {
       const blob = file.slice(0, file.size, file.type || 'video/mp4');
       const url = URL.createObjectURL(blob);
+      _setTaskBlob(task.task_id, blob);
       _setTaskBlobUrl(task.task_id, url);
       _setTaskBlob(task.task_id, blob);
       task.recording_asset_id = 'file:' + task.task_id + ':' + Date.now();
@@ -2866,6 +3062,14 @@ function _wire() {
     }
     input.value = '';
   });
+
+  document.getElementById('va-load-stored-clip')?.addEventListener('click', () => {
+    void _ensureSelectedTaskServerVideo();
+  });
+
+  if (_vaUiMode === 'clinician') {
+    void _ensureSelectedTaskServerVideo();
+  }
 }
 
 
@@ -2909,6 +3113,28 @@ async function _skipCurrent(reason) {
     _setTaskBlob(task.task_id, null);
     _setTaskBlobUrl(task.task_id, null);
   }
+  if (_canWriteAttachedPatientSession()) {
+    try {
+      await _patchAttachedSession({
+        tasks: [
+          {
+            task_id: task.task_id,
+            recording_status: task.recording_status,
+            skip_reason: task.skip_reason,
+            unsafe_flag: task.unsafe_flag,
+          },
+        ],
+      }, 'Task status saved to persisted session.');
+    } catch (e) {
+      task.recording_status = original.recording_status;
+      task.skip_reason = original.skip_reason;
+      task.unsafe_flag = original.unsafe_flag;
+      _applySummary();
+      _render();
+      showToast('Could not save task status to persisted session: ' + (e?.message || 'Unknown error'));
+      return;
+    }
+  }
   _cleanupPreviewUrl();
   _vaPatientPhase = 'task_intro';
   _advanceTask(true);
@@ -2934,10 +3160,16 @@ function _advanceTask(fromSkip) {
     _vaPatientPhase = 'task_intro';
   } else {
     _vaTaskIndex = session.tasks.length;
-    session.overall_status = 'completed';
-    session.completed_at = new Date().toISOString();
+    if (!_isAttachedBackendSession()) {
+      session.overall_status = 'completed';
+      session.completed_at = new Date().toISOString();
+    }
     _vaPatientPhase = 'setup';
-    showToast(fromSkip ? 'Last task handled—session complete.' : 'Session complete.');
+    showToast(
+      _isAttachedBackendSession()
+        ? (fromSkip ? 'Last task handled in the persisted session.' : 'All tasks addressed for the persisted session.')
+        : (fromSkip ? 'Last task handled—session complete.' : 'Session complete.')
+    );
   }
   _applySummary();
   _persistSession();
@@ -2951,6 +3183,15 @@ function _advanceTask(fromSkip) {
 export async function pgVideoAssessments(setTopbar, navigate) {
   if (typeof setTopbar === 'function') setTopbar('Video Assessments', 'Virtual care');
   _vaNavigate = typeof navigate === 'function' ? navigate : () => {};
+  const storedAttachment = videoAssessmentReadAttachmentToken();
+  _vaBackendSessions = {
+    loading: false,
+    checked: false,
+    patientId: _selectedPatientScope(),
+    total: 0,
+    items: [],
+    error: null,
+  };
 
   _vaPatientsLoadFailed = false;
   _vaPatientsCache = null;
@@ -3028,4 +3269,9 @@ export async function pgVideoAssessments(setTopbar, navigate) {
   }
 
   _render();
+  void _refreshBackendSessions().then(() => {
+    if (_vaBackendBinding.sessionId) {
+      void _loadBackendSession(_vaBackendBinding.sessionId, { quiet: true, fromStoredToken: true });
+    }
+  });
 }

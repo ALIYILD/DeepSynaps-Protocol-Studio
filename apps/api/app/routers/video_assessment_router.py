@@ -75,7 +75,7 @@ def _audit_va(
     """Best-effort PHI-safe audit (no video bytes in note)."""
     now = datetime.now(timezone.utc)
     event_id = f"video_assessment-{action}-{actor.actor_id}-{int(now.timestamp())}-{uuid.uuid4().hex[:8]}"
-    audit_role = actor.role if actor.role in {"guest", "clinician", "admin"} else "guest"
+    audit_role = actor.role if actor.role in {"guest", "clinician", "admin"} else ("clinician" if actor.role == "supervisor" else "guest")
     try:
         create_audit_event(
             db,
@@ -208,6 +208,50 @@ def _save_session_body(row: VideoAssessmentSession, body: dict[str, Any]) -> Non
     row.updated_at = datetime.now(timezone.utc)
 
 
+def _revision_token_for_row(row: VideoAssessmentSession) -> str:
+    if row.updated_at is None:
+        return ""
+    return row.updated_at.isoformat()
+
+
+def _decorate_session_document(row: VideoAssessmentSession, doc: dict[str, Any]) -> dict[str, Any]:
+    out = dict(doc or {})
+    out["id"] = row.id
+    out["updated_at"] = row.updated_at.isoformat() if row.updated_at else None
+    out["revision_token"] = _revision_token_for_row(row)
+    out["finalized"] = _is_finalized(doc or {})
+    return out
+
+
+def _build_conflict_details(row: VideoAssessmentSession, doc: dict[str, Any]) -> dict[str, Any]:
+    summary = doc.get("summary") or {}
+    return {
+        "session_id": row.id,
+        "revision_token": _revision_token_for_row(row),
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "finalized": _is_finalized(doc),
+        "overall_status": str(doc.get("overall_status") or row.overall_status or ""),
+        "review_completion_percent": summary.get("review_completion_percent"),
+    }
+
+
+def _require_expected_revision(
+    *,
+    row: VideoAssessmentSession,
+    doc: dict[str, Any],
+    expected_revision: Optional[str],
+) -> None:
+    current_revision = _revision_token_for_row(row)
+    if expected_revision and str(expected_revision) == current_revision:
+        return
+    raise ApiServiceError(
+        code="session_conflict",
+        message="Session was updated elsewhere. Reload the latest session state before saving.",
+        status_code=409,
+        details=_build_conflict_details(row, doc),
+    )
+
+
 def _is_finalized(doc: dict[str, Any]) -> bool:
     return str(doc.get("overall_status") or "") == "finalized"
 
@@ -265,12 +309,99 @@ def _merge_task_updates(stored_tasks: list[dict[str, Any]], updates: list[dict[s
     return stored_tasks
 
 
+def _find_task(doc: dict[str, Any], task_id: str) -> Optional[dict[str, Any]]:
+    for task in doc.get("tasks") or []:
+        if task.get("task_id") == task_id:
+            return task
+    return None
+
+
+def _sanitize_patient_task_updates(updates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    sanitized: list[dict[str, Any]] = []
+    for patch in updates:
+        tid = patch.get("task_id")
+        if tid is None:
+            continue
+        clean = {"task_id": tid}
+        for key in _PATIENT_ALLOWED_TASK_FIELDS:
+            if key == "task_id" or key not in patch:
+                continue
+            value = patch[key]
+            if key == "recording_status":
+                status = str(value or "")
+                if status == "accepted":
+                    value = "recorded"
+                elif status not in _PATIENT_ALLOWED_RECORDING_STATUSES:
+                    continue
+            clean[key] = value
+        if any(key != "task_id" for key in clean):
+            if any(key in patch for key in ("recording_status", "skip_reason", "unsafe_flag", "video_capture_meta")):
+                clean["clinician_review"] = None
+            sanitized.append(clean)
+    return sanitized
+
+
+def _reject_patient_clinician_patch(message: str) -> None:
+    raise ApiServiceError(
+        code="patient_patch_forbidden",
+        message=message,
+        status_code=403,
+    )
+
+
+def _apply_patient_patch_restrictions(doc: dict[str, Any], body: PatchSessionRequest) -> None:
+    if body.mode is not None and body.mode != "patient_capture":
+        _reject_patient_clinician_patch("Patients may not switch this session into clinician review mode.")
+    if body.overall_status is not None or body.completed_at is not None:
+        _reject_patient_clinician_patch("Patients may not set final session status fields.")
+    if body.safety_flags is not None:
+        _reject_patient_clinician_patch("Patients may not directly write session safety flags.")
+    if body.summary is not None:
+        forbidden_summary_keys = sorted(
+            key for key in body.summary.keys()
+            if key in {"clinician_impression", "recommended_followup", "review_completion_percent"}
+        )
+        if forbidden_summary_keys:
+            _reject_patient_clinician_patch(
+                "Patients may not write clinician summary fields: "
+                + ", ".join(forbidden_summary_keys)
+                + "."
+            )
+    if body.future_ai_metrics_placeholder is not None:
+        _reject_patient_clinician_patch("Patients may not write clinician-only analyzer placeholder fields.")
+    if body.tasks is not None:
+        for patch in body.tasks:
+            forbidden_task_fields = sorted(
+                key for key in patch.keys()
+                if key not in _PATIENT_ALLOWED_TASK_FIELDS
+            )
+            if forbidden_task_fields:
+                _reject_patient_clinician_patch(
+                    "Patients may not write clinician-owned task fields: "
+                    + ", ".join(forbidden_task_fields)
+                    + "."
+                )
+            status = str(patch.get("recording_status") or "")
+            if status == "accepted":
+                _reject_patient_clinician_patch("Patients may not mark clips accepted or reviewed.")
+    if body.patient_consent is not None:
+        doc["patient_consent"] = {**(doc.get("patient_consent") or {}), **body.patient_consent}
+    if body.clinical_context is not None:
+        doc["clinical_context"] = {**(doc.get("clinical_context") or {}), **body.clinical_context}
+    if body.mode is not None:
+        doc["mode"] = body.mode
+    if body.tasks is not None:
+        sanitized_tasks = _sanitize_patient_task_updates(body.tasks)
+        if sanitized_tasks:
+            doc["tasks"] = _merge_task_updates(doc.get("tasks") or [], sanitized_tasks)
+
+
 def _recalc_summary(body: dict[str, Any]) -> None:
     tasks = body.get("tasks") or []
     completed = sum(
         1
         for t in tasks
-        if str(t.get("recording_status") or "") in ("recorded", "accepted")
+        if str(t.get("recording_status") or "") in ("recorded", "accepted", "pending_review")
     )
     skipped = sum(
         1
@@ -333,6 +464,8 @@ class SessionListItem(BaseModel):
     overall_status: str
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    revision_token: Optional[str] = None
+    finalized: bool = False
     review_completion_percent: Optional[int] = None
 
 
@@ -466,6 +599,8 @@ def _list_item_from_row(row: VideoAssessmentSession) -> SessionListItem:
         overall_status=row.overall_status,
         created_at=row.created_at.isoformat() if row.created_at else None,
         updated_at=row.updated_at.isoformat() if row.updated_at else None,
+        revision_token=_revision_token_for_row(row),
+        finalized=_is_finalized(body),
         review_completion_percent=pct,
     )
 
@@ -1354,25 +1489,29 @@ def patch_session(
             message="This session is finalized and cannot be modified. Contact an administrator if a correction is required.",
             status_code=409,
         )
-    if body.patient_consent is not None:
-        doc["patient_consent"] = {**(doc.get("patient_consent") or {}), **body.patient_consent}
-    if body.clinical_context is not None:
-        doc["clinical_context"] = {**(doc.get("clinical_context") or {}), **body.clinical_context}
-    if body.mode is not None:
-        doc["mode"] = body.mode
-    if body.overall_status is not None:
-        doc["overall_status"] = body.overall_status
-        row.overall_status = body.overall_status
-    if body.completed_at is not None:
-        doc["completed_at"] = body.completed_at
-    if body.safety_flags is not None:
-        doc["safety_flags"] = body.safety_flags
-    if body.summary is not None:
-        doc["summary"] = {**(doc.get("summary") or {}), **body.summary}
-    if body.future_ai_metrics_placeholder is not None:
-        doc["future_ai_metrics_placeholder"] = body.future_ai_metrics_placeholder
-    if body.tasks is not None:
-        doc["tasks"] = _merge_task_updates(doc.get("tasks") or [], body.tasks)
+    _require_expected_revision(row=row, doc=doc, expected_revision=body.expected_revision)
+    if actor.role == "patient":
+        _apply_patient_patch_restrictions(doc, body)
+    else:
+        if body.patient_consent is not None:
+            doc["patient_consent"] = {**(doc.get("patient_consent") or {}), **body.patient_consent}
+        if body.clinical_context is not None:
+            doc["clinical_context"] = {**(doc.get("clinical_context") or {}), **body.clinical_context}
+        if body.mode is not None:
+            doc["mode"] = body.mode
+        if body.overall_status is not None:
+            doc["overall_status"] = body.overall_status
+            row.overall_status = body.overall_status
+        if body.completed_at is not None:
+            doc["completed_at"] = body.completed_at
+        if body.safety_flags is not None:
+            doc["safety_flags"] = body.safety_flags
+        if body.summary is not None:
+            doc["summary"] = {**(doc.get("summary") or {}), **body.summary}
+        if body.future_ai_metrics_placeholder is not None:
+            doc["future_ai_metrics_placeholder"] = body.future_ai_metrics_placeholder
+        if body.tasks is not None:
+            doc["tasks"] = _merge_task_updates(doc.get("tasks") or [], body.tasks)
     _recalc_summary(doc)
     _save_session_body(row, doc)
     db.commit()
@@ -1411,6 +1550,13 @@ async def upload_task_video(
             code="session_finalized",
             message="Session is finalized; uploads are disabled.",
             status_code=409,
+        )
+    _require_expected_revision(row=row, doc=doc_pre, expected_revision=expected_revision)
+    if _find_task(doc_pre, task_id) is None:
+        raise ApiServiceError(
+            code="task_not_found",
+            message="Task not found in this session.",
+            status_code=404,
         )
 
     mime = (file.content_type or "").split(";")[0].strip().lower()
@@ -1454,7 +1600,8 @@ async def upload_task_video(
                 "task_id": task_id,
                 "recording_asset_id": rid,
                 "recording_storage_ref": rel_ref.replace("\\", "/"),
-                "recording_status": "accepted",
+                "recording_status": "recorded",
+                "clinician_review": None,
             }
         ],
     )
@@ -1552,6 +1699,7 @@ def finalize_session(
             message="Session was already finalized.",
             status_code=409,
         )
+    _require_expected_revision(row=row, doc=doc, expected_revision=body.expected_revision)
     doc["overall_status"] = "finalized"
     doc["completed_at"] = datetime.now(timezone.utc).isoformat()
     row.overall_status = "finalized"
@@ -1597,7 +1745,7 @@ def export_session_json(
         "export_kind": "video_assessment_session",
         "export_version": 1,
         "exported_at": now,
-        "session": doc,
+        "session": _decorate_session_document(row, doc),
         "disclaimer": (
             "Structured observation data for clinician review and authorized research only. "
             "Not a standalone diagnosis; interpret with clinical judgment and protocol IRB approval."

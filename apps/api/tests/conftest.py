@@ -37,6 +37,9 @@ SOURCE_PATHS = [
     # guards that), but making the path visible lets the façade load
     # schemas without pip-installing the package.
     REPO_ROOT / "packages" / "mri-pipeline" / "src",
+    # Sibling Neuro Engine scaffold — exposed through the API when present
+    # and guarded in thin installs when the package is absent.
+    REPO_ROOT / "packages" / "neuro-engine" / "src",
     REPO_ROOT / "packages" / "biometrics-pipeline" / "src",
     REPO_ROOT / "packages" / "deeptwin-neuroai-lab" / "src",
     # Evidence Citation Validator package (migration 045).

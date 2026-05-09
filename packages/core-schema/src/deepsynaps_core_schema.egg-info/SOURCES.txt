@@ -1,7 +1,9 @@
 README.md
 pyproject.toml
 src/deepsynaps_core_schema/__init__.py
+src/deepsynaps_core_schema/agent_skills.py
 src/deepsynaps_core_schema/assessments.py
+src/deepsynaps_core_schema/assessments_v2.py
 src/deepsynaps_core_schema/auth.py
 src/deepsynaps_core_schema/condition_knowledge.py
 src/deepsynaps_core_schema/condition_package.py
