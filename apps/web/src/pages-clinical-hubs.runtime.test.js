@@ -174,6 +174,8 @@ function installDomHarness() {
     open() {
       return null;
     },
+    prompt: (...args) => globalThis.prompt(...args),
+    confirm: (...args) => globalThis.confirm(...args),
   };
 
   return {
@@ -209,7 +211,7 @@ function installDomHarness() {
 
 const authMod = await import('./auth.js');
 const { api } = await import('./api.js');
-const { pgFinanceHub, pgReportsHubNew, pgSchedulingHub, pgLibraryHub, pgMonitorHub } = await import('./pages-clinical-hubs.js');
+const { pgFinanceHub, pgReportsHubNew, pgSchedulingHub, pgLibraryHub, pgMonitorHub, pgMarketplaceHub } = await import('./pages-clinical-hubs.js');
 
 function sampleFinanceApi() {
   return {
@@ -395,6 +397,56 @@ function sampleSchedulingApi() {
 
 function sampleLibraryApi() {
   return {
+    marketplaceItems: async () => ({
+      items: [
+        {
+          id: 'mp-1',
+          kind: 'device',
+          name: 'TMS Coil',
+          provider: 'Neuro Supply',
+          description: 'Clinic hardware listing',
+          icon: '🧲',
+          featured: true,
+          price: 2500,
+          price_unit: 'GBP',
+          external_url: 'https://example.com/tms',
+          clinical: true,
+          source: 'marketplace',
+        },
+        {
+          id: 'mp-2',
+          kind: 'software',
+          name: 'Outcome Tracker',
+          provider: 'DS Studio',
+          description: 'Outcome monitoring dashboard',
+          icon: '💻',
+          featured: false,
+          price: 0,
+          price_unit: 'USD',
+          external_url: '',
+          clinical: false,
+          source: 'marketplace',
+        },
+        {
+          id: 'mp-3',
+          kind: 'course',
+          name: 'Protocol Safety Course',
+          provider: 'Education Lab',
+          description: 'Training resource',
+          icon: '📚',
+          featured: false,
+          price: 99,
+          price_unit: 'GBP',
+          external_url: 'https://example.com/course',
+          clinical: false,
+          source: 'marketplace',
+        },
+      ],
+    }),
+    marketplaceSellerMyItems: async () => ({ items: [] }),
+    marketplaceSellerCreateItem: async (payload) => ({ ok: true, payload }),
+    marketplaceSellerUpdateItem: async (id, payload) => ({ ok: true, id, payload }),
+    marketplaceSellerDeleteItem: async () => ({ ok: true }),
     libraryOverview: async () => ({
       evidence_db_available: true,
       condition_count: 2,
@@ -800,6 +852,154 @@ test('pgReportsHubNew export branch downloads outcome CSV and reports real empty
   }
 });
 
+test('pgReportsHubNew recent branch executes rendered export, sign, supersede, modal, and print flows', async () => {
+  const dom = installDomHarness();
+  const originalUser = authMod.currentUser;
+  const originals = {
+    listMyReports: api.listMyReports,
+    getReportsSummary: api.getReportsSummary,
+    renderStoredReport: api.renderStoredReport,
+    exportReportDocx: api.exportReportDocx,
+    exportReportCsv: api.exportReportCsv,
+    signReport: api.signReport,
+    supersedeReport: api.supersedeReport,
+    logReportsAudit: api.logReportsAudit,
+  };
+  const auditEvents = [];
+  authMod.setCurrentUser({ role: 'clinician' });
+  globalThis.window._reportsHubTab = 'recent';
+  globalThis.window._repStatusFilter = '';
+  globalThis.window._repKindFilter = '';
+  globalThis.window._repSearch = '';
+  globalThis.localStorage.setItem('ds_reports_v1', JSON.stringify([
+    {
+      id: 'local-9',
+      name: 'Local Draft',
+      patient: 'Local Patient',
+      type: 'Outcome',
+      date: '2026-05-01',
+      status: 'local-only',
+      content: 'Local content',
+      _source: 'local',
+    },
+  ]));
+  api.listMyReports = async () => ({
+    items: [
+      {
+        id: 'rep-1',
+        name: 'Backend Outcome Report',
+        patient: 'Alex Harper',
+        type: 'Outcome',
+        date: '2026-05-09',
+        status: 'generated',
+        content: 'Rendered content body',
+        _source: 'backend',
+      },
+    ],
+  });
+  api.getReportsSummary = async () => ({ total: 2, draft: 1, signed: 0, superseded: 0 });
+  api.renderStoredReport = async (id, params = {}) => ({
+    blob: new Blob([`${id}:${params.format}`], { type: params.format === 'pdf' ? 'application/pdf' : 'text/html' }),
+    filename: `report-${id}.${params.format}`,
+  });
+  api.exportReportDocx = async (id) => ({
+    blob: new Blob([id], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }),
+    filename: `report-${id}.docx`,
+  });
+  api.exportReportCsv = async (id) => ({
+    blob: new Blob([id], { type: 'text/csv' }),
+    filename: `report-${id}.csv`,
+  });
+  api.signReport = async (id, note) => ({ id, signed_by: note ? 'Dr Signoff' : 'Unknown' });
+  api.supersedeReport = async (id) => ({ id: `${id}-v2` });
+  api.logReportsAudit = async (payload) => { auditEvents.push(payload); };
+
+  const openedWindows = [];
+  globalThis.window.open = (url = '', target = '', features = '') => {
+    const opened = {
+      url,
+      target,
+      features,
+      focused: false,
+      printed: false,
+      documentWrites: '',
+      document: {
+        write(html) {
+          opened.documentWrites += html;
+        },
+        close() {},
+      },
+      focus() {
+        opened.focused = true;
+      },
+      print() {
+        opened.printed = true;
+      },
+    };
+    openedWindows.push(opened);
+    return opened;
+  };
+
+  try {
+    await pgReportsHubNew(() => {}, globalThis.window._nav);
+    assert.match(dom.content.innerHTML, /Recent Reports/);
+    assert.match(dom.content.innerHTML, /Outcome report/);
+    assert.match(dom.content.innerHTML, /Local Draft/);
+
+    globalThis.window._reportsHubAudit('filter_changed', 'status=signed');
+    assert.equal(auditEvents.at(-1).event, 'filter_changed');
+
+    await globalThis.window._repDownloadDocx('rep-1');
+    assert.equal(dom.clickedDownload?.download, 'report-rep-1.docx');
+    assert.equal(dom.toastCalls.at(-1).title, 'DOCX ready');
+
+    await globalThis.window._repDownloadCsv('rep-1');
+    assert.equal(dom.clickedDownload?.download, 'report-rep-1.csv');
+    assert.equal(dom.toastCalls.at(-1).title, 'CSV ready');
+
+    dom.setPromptResult('Signed after review');
+    await globalThis.window._repSign('rep-1');
+    assert.equal(dom.toastCalls.at(-1).title, 'Signed');
+    assert.equal(dom.navCalls.at(-1), 'reports-v2');
+
+    dom.setPromptResult('no');
+    await globalThis.window._repSupersede('rep-1');
+    assert.equal(dom.toastCalls.at(-1).title, 'Reason required');
+
+    dom.setPromptResult('Updated evidence synthesis');
+    await globalThis.window._repSupersede('rep-1');
+    assert.equal(dom.toastCalls.at(-1).title, 'Superseded');
+    assert.equal(dom.navCalls.at(-1), 'reports-v2');
+
+    await globalThis.window._repOpenRenderedHtml('rep-1');
+    assert.equal(openedWindows.at(-1).url.startsWith('blob:mock-'), true);
+
+    await globalThis.window._repDownloadPdf('rep-1');
+    assert.equal(dom.clickedDownload?.download, 'report-rep-1.pdf');
+    assert.equal(dom.toastCalls.at(-1).title, 'PDF ready');
+
+    globalThis.window._repViewSaved('rep-1');
+    assert.match(dom.bodyChildren.at(-1).innerHTML, /Rendered content body/);
+
+    await globalThis.window._repPrintSaved('local-9');
+    assert.match(openedWindows.at(-1).documentWrites, /Local Draft/);
+
+    await globalThis.window._repOpenRenderedHtml('local-9');
+    assert.equal(dom.toastCalls.at(-1).title, 'HTML unavailable');
+  } finally {
+    api.listMyReports = originals.listMyReports;
+    api.getReportsSummary = originals.getReportsSummary;
+    api.renderStoredReport = originals.renderStoredReport;
+    api.exportReportDocx = originals.exportReportDocx;
+    api.exportReportCsv = originals.exportReportCsv;
+    api.signReport = originals.signReport;
+    api.supersedeReport = originals.supersedeReport;
+    api.logReportsAudit = originals.logReportsAudit;
+    authMod.setCurrentUser(originalUser);
+    dom.restore();
+  }
+});
+
 test('pgSchedulingHub covers calendar, referrals, wizard, and shift actions', async () => {
   const dom = installDomHarness();
   const originalUser = authMod.currentUser;
@@ -1110,6 +1310,67 @@ test('pgMonitorHub covers monitoring, adverse-event detail, classification, expo
     api.patchAdverseEvent = originals.patchAdverseEvent;
     api.exportAdverseEventCioms = originals.exportAdverseEventCioms;
     api.reportAdverseEvent = originals.reportAdverseEvent;
+    authMod.setCurrentUser(originalUser);
+    dom.restore();
+  }
+});
+
+test('pgMarketplaceHub covers governance, seller gate, no-url booking, and empty seller dashboard', async () => {
+  const dom = installDomHarness();
+  const originalUser = authMod.currentUser;
+  const originals = {
+    marketplaceItems: api.marketplaceItems,
+    marketplaceSellerMyItems: api.marketplaceSellerMyItems,
+    marketplaceSellerCreateItem: api.marketplaceSellerCreateItem,
+    marketplaceSellerUpdateItem: api.marketplaceSellerUpdateItem,
+    marketplaceSellerDeleteItem: api.marketplaceSellerDeleteItem,
+    logAudit: api.logAudit,
+  };
+  const stubApi = sampleLibraryApi();
+  Object.assign(api, {
+    marketplaceItems: stubApi.marketplaceItems,
+    marketplaceSellerMyItems: stubApi.marketplaceSellerMyItems,
+    marketplaceSellerCreateItem: stubApi.marketplaceSellerCreateItem,
+    marketplaceSellerUpdateItem: stubApi.marketplaceSellerUpdateItem,
+    marketplaceSellerDeleteItem: stubApi.marketplaceSellerDeleteItem,
+    logAudit: async () => ({ ok: true }),
+  });
+
+  try {
+    globalThis.window._showToast = (msg, kind) => {
+      dom.toastCalls.push({ title: msg, kind });
+    };
+
+    authMod.setCurrentUser({ role: 'guest' });
+    let topbarTitle = '';
+    await pgMarketplaceHub((title) => { topbarTitle = title; }, globalThis.window._nav);
+    assert.equal(topbarTitle, 'Marketplace');
+    assert.match(dom.content.innerHTML, /mp-governance-copy/);
+    assert.match(dom.content.innerHTML, /Listing management requires a clinician/);
+    globalThis.window._mpBook('mp-2');
+    assert.equal(dom.toastCalls.at(-1).kind, 'info');
+    globalThis.window._mpListNew();
+    assert.equal(dom.toastCalls.at(-1).kind, 'error');
+
+    authMod.setCurrentUser({ role: 'admin', package_id: 'pro' });
+    await pgMarketplaceHub((title) => { topbarTitle = title; }, globalThis.window._nav);
+    assert.equal(topbarTitle, 'Marketplace');
+    assert.match(dom.content.innerHTML, /Clinic marketplace/);
+    assert.match(dom.content.innerHTML, /Featured/);
+    assert.match(dom.content.innerHTML, /No external link/);
+    await globalThis.window._mpMyListings();
+    assert.ok(dom.bodyChildren.some((child) => child.id === 'mp-list-modal'));
+    assert.match(globalThis.document.getElementById('mp-mylistings-content').innerHTML, /You have no listings yet/);
+    globalThis.window._mpBook('mp-2');
+    assert.equal(dom.toastCalls.at(-1).kind, 'info');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  } finally {
+    api.marketplaceItems = originals.marketplaceItems;
+    api.marketplaceSellerMyItems = originals.marketplaceSellerMyItems;
+    api.marketplaceSellerCreateItem = originals.marketplaceSellerCreateItem;
+    api.marketplaceSellerUpdateItem = originals.marketplaceSellerUpdateItem;
+    api.marketplaceSellerDeleteItem = originals.marketplaceSellerDeleteItem;
+    api.logAudit = originals.logAudit;
     authMod.setCurrentUser(originalUser);
     dom.restore();
   }

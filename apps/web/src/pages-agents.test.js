@@ -233,3 +233,124 @@ describe('__promptOverridesTestApi__ state', () => {
     assert.ok('editingAgentId' in s);
   });
 });
+
+describe('__promptHistoryTestApi__ seams', () => {
+  beforeEach(() => {
+    mod.__promptHistoryTestApi__.reset();
+    delete _lsStore.ds_user;
+  });
+
+  it('diffLines marks equal, deleted, and added rows', () => {
+    const diff = mod.__promptHistoryTestApi__.diffLines('alpha\nbeta', 'alpha\ngamma');
+    assert.deepStrictEqual(diff.map(row => row.kind), ['eq', 'del', 'add']);
+    assert.strictEqual(diff[1].text, 'beta');
+    assert.strictEqual(diff[2].text, 'gamma');
+  });
+
+  it('renderSection exposes the history affordance when overrides are seeded', () => {
+    mod.__promptHistoryTestApi__.seedOverrides([{ agent_id: 'clinic.reception', name: 'Reception Agent' }]);
+    const html = mod.__promptHistoryTestApi__.renderSection([{ id: 'clinic.reception', name: 'Reception Agent' }]);
+    assert.match(html, /prompts-history-btn-clinic\.reception/);
+    assert.match(html, /History/);
+  });
+
+  it('isSuperAdmin respects admin-without-clinic gating', () => {
+    _lsStore.ds_user = JSON.stringify({ role: 'admin' });
+    assert.strictEqual(mod.__promptHistoryTestApi__.isSuperAdmin(), true);
+    _lsStore.ds_user = JSON.stringify({ role: 'admin', clinic_id: 'clinic-1' });
+    assert.strictEqual(mod.__promptHistoryTestApi__.isSuperAdmin(), false);
+  });
+
+  it('fetchHistory records a load error and exposes it via getState when fetch fails', async () => {
+    const items = await mod.__promptHistoryTestApi__.fetchHistory('clinic.reception');
+    assert.deepStrictEqual(items, []);
+    const state = mod.__promptHistoryTestApi__.getState();
+    assert.strictEqual(state.loading, false);
+    assert.ok(typeof state.error === 'string' && state.error.length > 0);
+    assert.ok(Object.prototype.hasOwnProperty.call(state.byAgent, 'clinic.reception'));
+  });
+});
+
+describe('__webhookReplayTestApi__ seams', () => {
+  beforeEach(() => {
+    mod.__webhookReplayTestApi__.reset();
+    delete _lsStore.ds_user;
+  });
+
+  it('renderCard disables replay until the input looks like a Stripe event id', () => {
+    let html = mod.__webhookReplayTestApi__.renderCard();
+    assert.match(html, /disabled/);
+    mod.__webhookReplayTestApi__.setInput('evt_123');
+    html = mod.__webhookReplayTestApi__.renderCard();
+    assert.doesNotMatch(html, /data-test="webhook-replay-btn"[^>]*disabled/);
+  });
+
+  it('renderTabStrip falls back to catalog tabs for non-super-admins', () => {
+    const html = mod.__webhookReplayTestApi__.renderTabStrip();
+    assert.match(html, /Catalog/);
+    assert.doesNotMatch(html, /Activation/);
+  });
+
+  it('isSuperAdmin is true only for cross-clinic admins', () => {
+    _lsStore.ds_user = JSON.stringify({ role: 'admin' });
+    assert.strictEqual(mod.__webhookReplayTestApi__.isSuperAdmin(), true);
+    _lsStore.ds_user = JSON.stringify({ role: 'clinician' });
+    assert.strictEqual(mod.__webhookReplayTestApi__.isSuperAdmin(), false);
+  });
+
+  it('getState reflects current input and idle replay state', () => {
+    mod.__webhookReplayTestApi__.setInput('evt_999');
+    const state = mod.__webhookReplayTestApi__.getState();
+    assert.deepStrictEqual(state, {
+      input: 'evt_999',
+      busy: false,
+      result: null,
+    });
+  });
+});
+
+describe('__onboardingFunnelTestApi__ seams', () => {
+  beforeEach(() => {
+    mod.__onboardingFunnelTestApi__.reset();
+    delete _lsStore.ds_user;
+  });
+
+  it('setWindow clamps invalid and oversized day windows', () => {
+    mod.__onboardingFunnelTestApi__.setWindow(0);
+    assert.strictEqual(mod.__onboardingFunnelTestApi__.getState().days, 1);
+    mod.__onboardingFunnelTestApi__.setWindow(120);
+    assert.strictEqual(mod.__onboardingFunnelTestApi__.getState().days, 90);
+  });
+
+  it('renderCard shows loading state before funnel data exists', () => {
+    const html = mod.__onboardingFunnelTestApi__.renderCard();
+    assert.match(html, /Loading onboarding funnel/i);
+  });
+
+  it('renderTabStrip and renderOpsSection expose super-admin surfaces when authorised', () => {
+    _lsStore.ds_user = JSON.stringify({ role: 'admin' });
+    let html = mod.__onboardingFunnelTestApi__.renderTabStrip();
+    assert.match(html, /Activation/);
+    assert.match(html, /Ops/);
+    assert.match(html, /Prompts/);
+
+    html = mod.__onboardingFunnelTestApi__.renderOpsSection([]);
+    assert.match(html, /Cross-clinic ops/i);
+    assert.match(html, /Replay Stripe webhook event/i);
+    assert.match(html, /Onboarding funnel/i);
+  });
+
+  it('isSuperAdmin is false for clinic-scoped admins', () => {
+    _lsStore.ds_user = JSON.stringify({ role: 'admin', clinic_id: 'clinic-7' });
+    assert.strictEqual(mod.__onboardingFunnelTestApi__.isSuperAdmin(), false);
+  });
+
+  it('fetchFunnel records network errors and getState exposes the failed window', async () => {
+    const payload = await mod.__onboardingFunnelTestApi__.fetchFunnel(14);
+    assert.strictEqual(payload, null);
+    const state = mod.__onboardingFunnelTestApi__.getState();
+    assert.strictEqual(state.loading, false);
+    assert.ok(typeof state.error === 'string' && state.error.length > 0);
+    assert.strictEqual(state.byDays[14], undefined);
+  });
+});

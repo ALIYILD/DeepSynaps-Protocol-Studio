@@ -12325,8 +12325,8 @@ export async function pgPatientProfile(setTopbar) {
     };
     try {
       await api.updatePatient(_ppCurrentId, backendData);
-      window._announce?.('Demographics saved in this browser view');
-      window._showNotifToast?.({ title: 'Saved', body: 'Changes saved locally', severity: 'success' });
+      window._announce?.('Demographics saved');
+      window._showNotifToast?.({ title: 'Saved', body: 'Patient profile updated.', severity: 'success' });
     } catch(e) {
       window._showNotifToast?.({ title: 'Save failed', body: e.message || 'Could not sync to server.', severity: 'warn' });
     }

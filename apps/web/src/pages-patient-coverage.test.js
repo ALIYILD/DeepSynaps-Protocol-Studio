@@ -14,7 +14,7 @@
 // idempotent on a single shared JSDOM. We re-import the module dynamically
 // AFTER the JSDOM globals are installed.
 
-import { describe, it, before } from 'node:test';
+import { describe, it, before, beforeEach } from 'node:test';
 import assert from 'node:assert';
 import { JSDOM } from 'jsdom';
 
@@ -65,6 +65,20 @@ if (typeof globalThis.fetch === 'undefined') {
 }
 
 const ppModule = await import('./pages-patient.js');
+const apiMod = await import('./api.js');
+const authMod = await import('./auth.js');
+const { api } = apiMod;
+
+const _origApi = {};
+function stubApi(stubs) {
+  for (const [k, fn] of Object.entries(stubs)) {
+    if (!(k in _origApi)) _origApi[k] = api[k];
+    api[k] = fn;
+  }
+}
+function restoreApi() {
+  for (const [k, fn] of Object.entries(_origApi)) api[k] = fn;
+}
 
 // Helper: reset content + nav-list + topbar between tests so renders don't
 // observe stale markup from a previous test.
@@ -79,6 +93,22 @@ function resetDom() {
   Array.from(document.body.querySelectorAll('#pt-tk-modal,#pt-acad-modal,#gp-resign-modal'))
     .forEach((n) => n.remove());
 }
+
+before(() => {
+  authMod.setCurrentUser({
+    id: 'patient-1',
+    patient_id: 'patient-1',
+    email: 'patient@example.test',
+    display_name: 'Patient Test',
+    role: 'patient',
+  });
+  window._navPatient = () => {};
+});
+
+beforeEach(() => {
+  restoreApi();
+  _lsShim.clear();
+});
 
 // ── 1. setTopbar edge cases ──────────────────────────────────────────────────
 describe('setTopbar edge cases', () => {
@@ -788,6 +818,110 @@ describe('pgPatientReports() error fallback path', () => {
     const t = document.getElementById('patient-page-title').textContent;
     // setTopbar is called early — either it's set or pages-patient.js short-circuited
     assert.ok(typeof t === 'string');
+  });
+});
+
+describe('pgPatientReports() interaction handlers', () => {
+  before(async () => {
+    resetDom();
+    stubApi({
+      patientPortalOutcomes: async () => [
+        {
+          id: 'out-1',
+          template_id: 'PHQ-9',
+          template_title: 'PHQ-9',
+          score: 8,
+          measurement_point: 'post',
+          administered_at: '2026-05-01T00:00:00Z',
+          status: 'completed',
+          report_url: 'https://example.test/report/out-1',
+        },
+      ],
+      patientPortalAssessments: async () => [],
+      patientPortalCourses: async () => [
+        { id: 'course-1', condition_name: 'Depression', condition_slug: 'depression', protocol_name: 'Left DLPFC', patient_id: 'patient-1' },
+      ],
+      patientPortalSessions: async () => [],
+      patientPortalWearableSummary: async () => [],
+      patientPortalReports: async () => [
+        {
+          id: 'rep-1',
+          title: 'Clinician Summary',
+          report_type: 'care-plan',
+          created_at: '2026-05-02T00:00:00Z',
+          file_url: 'https://example.test/report/rep-1.pdf',
+          status: 'available',
+          text_content: 'Care plan summary',
+        },
+      ],
+      listPatientReports: async () => ({
+        items: [{ id: 'rep-1', is_acknowledged: false, share_back_pending: false }],
+        consent_active: true,
+        is_demo: false,
+      }),
+      getPatientReportsSummary: async () => ({ total_reports: 1 }),
+      acknowledgePatientReport: async () => ({ accepted: true }),
+      requestPatientReportShareBack: async () => ({ accepted: true }),
+      startPatientReportQuestion: async () => ({ accepted: true }),
+    });
+    await ppModule.pgPatientReports();
+  });
+
+  it('toggles category/plain-language sections and expands hidden category rows', () => {
+    const body = document.querySelector('[id^="pt-cat-body-"]');
+    assert.ok(body, 'expected at least one category body');
+    const catId = body.id.replace('pt-cat-body-', '');
+    const plainBtn = document.querySelector('[aria-controls^="pt-doc-pl-"]');
+    assert.ok(plainBtn, 'expected a plain-language accordion button');
+    const docId = plainBtn.getAttribute('aria-controls').replace('pt-doc-pl-', '');
+
+    window._ptToggleCatSection(catId);
+    window._ptToggleCatSection(catId);
+    window._ptToggleDocPl(docId);
+    assert.strictEqual(document.getElementById(`pt-doc-pl-${docId}`).hasAttribute('hidden'), false);
+    window._ptToggleDocPl(docId);
+
+    const sections = Array.from(document.querySelectorAll('[id^="pt-cat-more-"]'));
+    if (sections.length) {
+      const moreId = sections.find((el) => el.hasAttribute('hidden'))?.id || sections[0].id;
+      const moreCatId = moreId.replace('pt-cat-more-', '');
+      window._ptCatShowMore(moreCatId, 12);
+      assert.strictEqual(document.getElementById(moreId).hasAttribute('hidden'), false);
+    }
+  });
+
+  it('executes report audit/navigation handlers and CTA success branches', async () => {
+    let openedUrl = '';
+    let navTo = '';
+    const promptValues = ['GP', 'Need a copy for my GP', 'Can you explain the trend?'];
+    const promptOrig = window.prompt;
+    const openOrig = window.open;
+    window.prompt = () => promptValues.shift() ?? '';
+    window.open = (url) => { openedUrl = url; };
+    window._navPatient = (route) => { navTo = route; };
+
+    try {
+      window._ptAskAbout('rep-1', 'Clinician Summary');
+      assert.ok(document.getElementById('pt-docs-ask-anchor').innerHTML.includes('Go to Messages'));
+
+      window._ptViewDoc('rep-1');
+      assert.ok(openedUrl.includes('rep-1.pdf'));
+
+      window._ptReportOpened('rep-1', 'open_link');
+      window._ptReportDownloaded('rep-1');
+      await window._ptAcknowledgeReport('rep-1', 'Clinician Summary');
+      await window._ptShareBackReport('rep-1', 'Clinician Summary');
+      await window._ptStartQuestionForReport('rep-1', 'Clinician Summary');
+    } finally {
+      window.prompt = promptOrig;
+      window.open = openOrig;
+    }
+
+    const card = document.querySelector('.pt-doc-card[data-id="rep-1"]');
+    assert.ok(card, 'expected report card');
+    assert.strictEqual(card.querySelector('.pt-doc-cta-ack')?.dataset.acknowledged, '1');
+    assert.strictEqual(card.querySelector('.pt-doc-cta-share')?.dataset.shareBackPending, '1');
+    assert.strictEqual(navTo, 'patient-messages');
   });
 });
 

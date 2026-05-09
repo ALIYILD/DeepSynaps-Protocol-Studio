@@ -441,6 +441,101 @@ describe('pgOutcomes — render branches', () => {
     }
     assert.ok(invoked, '<a>.click() should fire');
   });
+
+  it('review-queue handlers execute assignment, submit, filtering, and export branches', async () => {
+    stubApi({
+      listReviewQueue: () => Promise.resolve({ items: [
+        { id: 'rq-1', item_type: 'protocol_approval', course_name: 'Course A', status: 'pending', created_at: new Date().toISOString() },
+        { id: 'rq-2', item_type: 'adverse_event', status: 'pending', created_at: new Date().toISOString() },
+      ] }),
+      listAdverseEvents: () => Promise.resolve({ items: [{ id: 'ae-1', severity: 'moderate', status: 'open' }] }),
+    });
+    clearContent();
+    _lsShim.removeItem('ds_audit_trail');
+    await mod.pgReviewQueue(noopTopbar, () => {});
+
+    const note = document.getElementById('rq-note-rq-1');
+    if (note) note.value = 'Looks acceptable';
+    window._rqAssign('rq-1', 'Dr. Patel');
+    assert.ok(document.getElementById('content').innerHTML.includes('Dr. Patel'));
+
+    window._rqSetDecision('rq-1', 'approved');
+    window._rqSubmit('rq-1');
+    const auditTrail = JSON.parse(_lsShim.getItem('ds_audit_trail') || '[]');
+    assert.ok(auditTrail.some((row) => row.action === 'submit' && row.status === 'approved'));
+
+    window._rqFilterStatus('approved');
+    assert.ok(document.getElementById('rq-tab-content').innerHTML.includes('approved'));
+    window._rqSortPriority();
+    window._rqRenderAudit('all');
+    assert.ok(document.getElementById('rq-tab-content').innerHTML.includes('Audit trail'));
+
+    let clicked = false;
+    const origCreateElement = document.createElement.bind(document);
+    document.createElement = (tag) => {
+      const el = origCreateElement(tag);
+      if (tag === 'a') el.click = () => { clicked = true; };
+      return el;
+    };
+    try {
+      window._rqExportAudit();
+    } finally {
+      document.createElement = origCreateElement;
+    }
+    assert.ok(clicked, 'audit export should click a download anchor');
+
+    const btn = { disabled: false, textContent: 'Resolve' };
+    await window._rqResolveAE('ae-1', btn);
+    assert.strictEqual(window._rqOpenAEs.length, 0);
+  });
+
+  it('outcomes handlers execute filter, prefill, validation, save, and table rerender branches', async () => {
+    let recorded = null;
+    stubApi({
+      listOutcomes: () => Promise.resolve({ items: [
+        { id: 'o-1', patient_id: 'p-1', course_id: 'c-1', template_name: 'PHQ-9', template_id: 'PHQ-9', recorded_at: '2026-03-01T00:00:00Z', score: 18, score_numeric: 18, measurement_point: 'baseline', pct_change: 0, baseline_score: 18, latest_score: 18, is_responder: false },
+        { id: 'o-2', patient_id: 'p-2', course_id: 'c-2', template_name: 'GAD-7', template_id: 'GAD-7', recorded_at: '2026-05-01T00:00:00Z', score: 7, score_numeric: 7, measurement_point: 'post', pct_change: -40, baseline_score: 12, latest_score: 7, is_responder: true },
+      ] }),
+      aggregateOutcomes: () => Promise.resolve({ responder_rate: 0.5, assessment_completion_pct: 70 }),
+      listCourses: () => Promise.resolve({ items: [
+        makeCourse({ id: 'c-1', patient_id: 'p-1', patient_name: 'Alice', condition_slug: 'depression', modality_slug: 'TMS' }),
+        makeCourse({ id: 'c-2', patient_id: 'p-2', patient_name: 'Bob', condition_slug: 'gad', modality_slug: 'Neurofeedback' }),
+      ] }),
+      listPatients: () => Promise.resolve({ items: [{ id: 'p-1', name: 'Alice' }, { id: 'p-2', name: 'Bob' }] }),
+      listAdverseEvents: () => Promise.resolve({ items: [] }),
+      recordOutcome: async (payload) => { recorded = payload; return { accepted: true }; },
+    });
+    clearContent();
+    await mod.pgOutcomes(noopTopbar, () => {});
+
+    window._ocFilterStatus('needs-review');
+    assert.ok(document.getElementById('tab-nr').classList.contains('active'));
+    document.getElementById('oc-search').value = 'Alice';
+    document.getElementById('oc-filter-condition').value = 'depression';
+    document.getElementById('oc-filter-modality').value = 'TMS';
+    window._ocApplyFilters();
+    assert.ok(document.getElementById('oc-improving-list').innerHTML.length > 0);
+
+    window._showRecordOutcome();
+    assert.notStrictEqual(document.getElementById('record-outcome-panel').style.display, 'none');
+    window._ocPreRecordForCourse('c-1');
+    assert.ok(document.getElementById('oc-course').value.startsWith('c-1|'));
+
+    await window._saveOutcome();
+    assert.strictEqual(document.getElementById('oc-error').textContent, 'Enter a score.');
+
+    document.getElementById('oc-score').value = '9';
+    document.getElementById('oc-notes').value = 'Mid-course improvement';
+    await window._saveOutcome();
+    assert.ok(recorded);
+    assert.strictEqual(recorded.course_id, 'c-1');
+    assert.strictEqual(recorded.score_numeric, 9);
+
+    document.getElementById('oc-filter-tmpl').value = 'PHQ-9';
+    document.getElementById('oc-filter-course').value = 'c-1';
+    window._rerenderOutcomeTable();
+    assert.ok(document.getElementById('oc-records-table').innerHTML.includes('PHQ-9'));
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────────────

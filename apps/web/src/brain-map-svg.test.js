@@ -21,6 +21,17 @@ import {
   renderConnectivityMatrix,
   renderConnectivityBrainMap,
   renderConnectivityChordLite,
+  renderICAComponents,
+  renderWaveletHeatmap,
+  renderChannelQualityMap,
+  renderAsymmetryMap,
+  renderPowerBarChart,
+  renderTBRBarChart,
+  renderSignalDeviationChart,
+  renderBiomarkerGauges,
+  renderBrodmannTable,
+  render3DBrainMap,
+  render3DBrainMapMini,
 } from './brain-map-svg.js';
 
 // ── SITES_10_20 constant ──────────────────────────────────────────────────────
@@ -141,6 +152,20 @@ describe('renderBrainMap10_20', () => {
       'custom size should appear in SVG width/height attributes'
     );
   });
+
+  it('omits zones when disabled and skips invalid overlays', () => {
+    const svg = renderBrainMap10_20({ showZones: false, anode: 'BAD', cathode: 'F4', targetRegion: 'UNKNOWN' });
+    assert.ok(!svg.includes('ds-bm-zones'));
+    assert.ok(!svg.includes('class="ds-bm-connect"'));
+    assert.ok(!svg.includes('ds-bm-target-ring'));
+  });
+
+  it('renders highlighted sites and right-side target captions', () => {
+    const svg = renderBrainMap10_20({ targetRegion: 'DLPFC-R', highlightSites: ['Cz', 'Oz'] });
+    assert.ok(svg.includes('Right DLPFC target'));
+    assert.ok(svg.includes('text-anchor="end"'));
+    assert.ok(svg.includes('rgba(74,158,255,0.18)'));
+  });
 });
 
 // ── renderTopoHeatmap (SVG fallback in Node) ──────────────────────────────────
@@ -172,6 +197,23 @@ describe('renderTopoHeatmap (SVG fallback)', () => {
   it('handles empty bandPowers gracefully', () => {
     const result = renderTopoHeatmap({}, { band: 'alpha' });
     assert.ok(typeof result === 'string', 'empty bandPowers should return a string without throwing');
+  });
+
+  it('supports diverging palettes and custom legend labels', () => {
+    const result = renderTopoHeatmap(
+      { F3: -2, F4: 2, Cz: 0 },
+      {
+        band: 'asymmetry',
+        colorScale: 'diverging',
+        valueDomain: [-4, 4],
+        legendMinLabel: '-4σ',
+        legendMidLabel: '0',
+        legendMaxLabel: '+4σ',
+      },
+    );
+    assert.ok(result.includes('-4σ'));
+    assert.ok(result.includes('+4σ'));
+    assert.ok(result.includes('asymmetry'));
   });
 });
 
@@ -243,6 +285,18 @@ describe('renderConnectivityBrainMap', () => {
     const svg = renderConnectivityBrainMap(conns, {});
     assert.ok(typeof svg === 'string' && svg.length > 0, 'T3/T4 backend names should be mapped without error');
   });
+
+  it('filters below-threshold and unknown-channel connections', () => {
+    const svg = renderConnectivityBrainMap(
+      [
+        { ch1: 'F3', ch2: 'Cz', value: 0.2 },
+        { ch1: 'BAD', ch2: 'Cz', value: 0.9 },
+      ],
+      { threshold: 0.3 },
+    );
+    assert.ok(!svg.includes('F3-Cz: 0.20'));
+    assert.ok(!svg.includes('BAD-Cz: 0.90'));
+  });
 });
 
 // ── renderConnectivityChordLite ───────────────────────────────────────────────
@@ -279,5 +333,103 @@ describe('renderConnectivityChordLite', () => {
       svg.includes('Theta chord'),
       'custom title should appear as ARIA label in SVG'
     );
+  });
+
+  it('filters sub-threshold edges and uses inhibitory color for negative links', () => {
+    const svg = renderConnectivityChordLite(
+      NODES,
+      [
+        { source: 'F3', target: 'Cz', weight: 0.2, sign: 1 },
+        { source: 'Cz', target: 'Pz', weight: 0.6, sign: -1 },
+      ],
+      { threshold: 0.3 },
+    );
+    assert.ok(!svg.includes('F3 → Cz: 0.20'));
+    assert.ok(svg.includes('rgba(96,165,250,0.55)'));
+  });
+});
+
+describe('additional brain-map-svg exports', () => {
+  it('covers ICA, wavelet, and quality/asymmetry maps', () => {
+    assert.ok(renderICAComponents([], [], {}).includes('No ICA data'));
+    const icaSvg = renderICAComponents([
+      { label: 'IC1', type: 'eye_blink', variance_explained: 0.23, weights: { Fp1: 1.2, Fp2: 1.0, Cz: -0.4 } },
+      { label: 'IC2', type: 'brain', variance_explained: 0.12, weights: { O1: 0.8, O2: 0.9 } },
+    ], [], { maxComponents: 1 });
+    assert.ok(icaSvg.includes('IC1'));
+    assert.ok(!icaSvg.includes('IC2'));
+
+    assert.ok(renderWaveletHeatmap(null, {}).includes('No time-frequency data'));
+    const waveletSvg = renderWaveletHeatmap({
+      times: [0, 0.5, 1],
+      frequencies: [1, 4, 8, 16, 32],
+      power: [[1, 2, 3], [2, 3, 4], [3, 4, 5], [4, 5, 6], [5, 6, 7]],
+      channel: 'Cz',
+    }, { width: 420, height: 260 });
+    assert.ok(waveletSvg.includes('Cz — Time-Frequency'));
+
+    assert.ok(renderChannelQualityMap(null, [], {}).includes('No quality data'));
+    const qualitySvg = renderChannelQualityMap({
+      F3: { quality: 0.95, peak_to_peak: 42.3, std: 3.2, flat_pct: 0.01 },
+      T3: { quality: 0.55, peak_to_peak: 12.1, std: 7.5, flat_pct: 0.1 },
+    }, ['F3', 'T7'], {});
+    assert.ok(qualitySvg.includes('Grade'));
+    assert.ok(qualitySvg.includes('95%'));
+
+    assert.ok(renderAsymmetryMap(null, {}).includes('No asymmetry data'));
+    const asymSvg = renderAsymmetryMap({
+      frontal: { index: 0.8, direction: 'left' },
+      central: { index: -0.6, direction: 'right' },
+      temporal: { index: 0, direction: 'left' },
+      parietal: { index: 0.2, direction: 'left' },
+      occipital: { index: -0.3, direction: 'right' },
+    }, {});
+    assert.ok(asymSvg.includes('Left dominant'));
+    assert.ok(asymSvg.includes('Right dominant'));
+  });
+
+  it('covers power/TBR/deviation, biomarker, Brodmann, and 3D maps', () => {
+    assert.ok(renderPowerBarChart(null, {}).includes('No band power data'));
+    assert.ok(renderTBRBarChart({}, {}).includes('No TBR data'));
+    assert.ok(renderSignalDeviationChart({}, {}).includes('No signal deviation data'));
+    assert.ok(renderBiomarkerGauges([], {}).includes('No biomarker data'));
+    assert.ok(renderBrodmannTable([], {}).includes('No Brodmann area data'));
+
+    const powerSvg = renderPowerBarChart({
+      delta: { mean: 1.2e-6, status: 'Normal' },
+      theta: { mean: 2.4e-6, status: 'Elevated' },
+      alpha: { mean: 1.8e-6, status: 'Reduced' },
+      beta: { mean: 0.9e-6, status: 'Normal' },
+      gamma: { mean: 0.5e-6, status: 'Normal' },
+    }, {});
+    assert.ok(powerSvg.includes('Absolute Power Spectra'));
+
+    const tbrSvg = renderTBRBarChart({ Fp1: 1.8, Fp2: 4.5, Cz: 3.2 }, { threshold: 4.0 });
+    assert.ok(tbrSvg.includes('Clinical Threshold (4.0)'));
+
+    const devSvg = renderSignalDeviationChart({
+      Fp1: { mean: 2.5e-5, std: 4.1e-6 },
+      Cz: { mean: -1.2e-5, std: 7.3e-6 },
+      O1: { mean: 0.6e-5, std: 2.2e-6 },
+    }, {});
+    assert.ok(devSvg.includes('Most Variable'));
+
+    const biomarkerSvg = renderBiomarkerGauges([
+      { name: 'ADHD', likelihood: 78, relevance: 'High relevance' },
+      { name: 'Anxiety', likelihood: 35, relevance: 'Moderate relevance' },
+      { name: 'None', likelihood: 0, relevance: 'Limited evidence' },
+    ], { columns: 2, gaugeSize: 90 });
+    assert.ok(biomarkerSvg.includes('78%'));
+
+    const brodmannSvg = renderBrodmannTable([
+      { area: 'BA9', name: 'DLPFC', z_score: 2.31, status: 'significant', channels: ['F3', 'F4'], functions: ['Executive'], clinical_relevance: 'Often implicated' },
+      { area: 'BA17', name: 'Visual cortex', z_score: 0.42, status: 'normal', channels: ['O1', 'O2'], functions: ['Vision'], clinical_relevance: '' },
+    ], {});
+    assert.ok(brodmannSvg.includes('Clinical Relevance'));
+
+    const brain3dSvg = render3DBrainMap({ F3: 12, F4: 8, Cz: 10, O1: 15, O2: 14 }, { band: 'beta', showElectrodes: false });
+    assert.ok(brain3dSvg.includes('3D Brain Map — beta'));
+    const miniSvg = render3DBrainMapMini('gamma');
+    assert.ok(miniSvg.includes('animate'));
   });
 });

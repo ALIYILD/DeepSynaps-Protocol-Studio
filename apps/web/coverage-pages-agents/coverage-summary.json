@@ -1,0 +1,3 @@
+{"total": {"lines":{"total":5047,"covered":1651,"skipped":0,"pct":32.71},"statements":{"total":5047,"covered":1651,"skipped":0,"pct":32.71},"functions":{"total":208,"covered":62,"skipped":0,"pct":29.8},"branches":{"total":228,"covered":131,"skipped":0,"pct":57.45},"branchesTrue":{"total":0,"covered":0,"skipped":0,"pct":"Unknown"}}
+,"/Users/aliyildirim/DeepSynaps-Protocol-Studio/apps/web/src/pages-agents.js": {"lines":{"total":5047,"covered":1651,"skipped":0,"pct":32.71},"functions":{"total":208,"covered":62,"skipped":0,"pct":29.8},"statements":{"total":5047,"covered":1651,"skipped":0,"pct":32.71},"branches":{"total":228,"covered":131,"skipped":0,"pct":57.45}}
+}

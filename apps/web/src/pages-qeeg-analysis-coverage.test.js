@@ -881,6 +881,23 @@ describe('renderNormativeTopomapGrid — branch coverage', () => {
       '',
     );
   });
+
+  it('renders topomap cards when spectral z-score channels are populated', () => {
+    const html = mod.renderNormativeTopomapGrid({
+      normative_zscores: {
+        spectral: {
+          bands: {
+            alpha: { absolute_uv2: { Fp1: 1.2, Cz: -2.4, Pz: 3.1, O1: 0.8 } },
+            theta: { absolute_uv2: { Fp1: 0.4, Cz: -1.8, Pz: 2.0, O1: -0.7 } },
+          },
+        },
+      },
+    });
+    assert.match(html, /Normative Topomaps/);
+    assert.match(html, /ds-topo-heatmap/);
+    assert.match(html, /alpha z-score/);
+    assert.match(html, /theta z-score/);
+  });
 });
 
 // ── 22. renderConnectivityClinicViz — branch coverage ────────────────────────
@@ -1458,7 +1475,7 @@ describe('window._qeegOpenBrainMapReport — demo branch', () => {
 describe('pages-qeeg-analysis.js — clinical info sections', () => {
   it('declares 6 clinical-info sections', () => {
     for (const label of [
-      'Presenting Symptoms', 'Diagnoses', 'Safety / Contraindications',
+      'Presenting Symptoms', 'Clinical Profile', 'Safety / Contraindications',
       'Medications & Supplements', 'Neurological & Medical History',
       'Lifestyle & Functional',
     ]) {
@@ -1515,6 +1532,16 @@ describe('pages-qeeg-analysis.js — clinical safety footer wired', () => {
 // ── 45. pgQEEGAnalysis with demo patient — drive analysis-tab path ──────────
 describe('pgQEEGAnalysis — demo-patient tabs render', () => {
   beforeEach(resetDom);
+
+  it('patient tab renders the upload workflow shell with patient context', async () => {
+    window._qeegPatientId = 'demo-sarah-johnson';
+    window._qeegTab = 'patient';
+    await safeAwait(mod.pgQEEGAnalysis(() => {}, () => {}));
+    const html = document.getElementById('content').innerHTML;
+    assert.match(html, /Upload Workflow|Patient &amp; Upload|Patient & Upload/i);
+    assert.match(html, /Sarah|Johnson/);
+    delete window._qeegPatientId;
+  });
 
   it('analysis tab with demo-sarah-johnson patient renders without throw', async () => {
     window._qeegPatientId = 'demo-sarah-johnson';
@@ -1573,6 +1600,42 @@ describe('pgQEEGAnalysis — demo-patient tabs render', () => {
     const html = document.getElementById('content').innerHTML;
     assert.ok(html.length > 0);
     delete window._qeegPatientId;
+  });
+
+  it('raw tab without an analysis shows the raw-workbench handoff prompt', async () => {
+    window._qeegPatientId = null;
+    window._qeegSelectedId = null;
+    window._qeegTab = 'raw';
+    await safeAwait(mod.pgQEEGAnalysis(() => {}, () => {}));
+    const html = document.getElementById('content').innerHTML;
+    assert.strictEqual(window._qeegSelectedId, null);
+    assert.match(html, /No EEG selected/i);
+    assert.match(html, /Raw EEG Workbench/i);
+    delete window._qeegPatientId;
+    delete window._qeegSelectedId;
+  });
+
+  it('learning tab renders educational workflow copy and reference card', async () => {
+    window._qeegPatientId = 'demo-sarah-johnson';
+    window._qeegTab = 'learning';
+    await safeAwait(mod.pgQEEGAnalysis(() => {}, () => {}));
+    const html = document.getElementById('content').innerHTML;
+    assert.match(html, /Educational reference only/);
+    assert.match(html, /Learning EEG Workflow/);
+    assert.match(html, /Learning EEG Library/);
+    delete window._qeegPatientId;
+  });
+
+  it('erp tab without an analysis shows the upload-selection guidance', async () => {
+    window._qeegPatientId = 'demo-sarah-johnson';
+    window._qeegSelectedId = null;
+    window._qeegTab = 'erp';
+    await safeAwait(mod.pgQEEGAnalysis(() => {}, () => {}));
+    const html = document.getElementById('content').innerHTML;
+    assert.match(html, /Select a recording/i);
+    assert.match(html, /Patient &amp; Upload/);
+    delete window._qeegPatientId;
+    delete window._qeegSelectedId;
   });
 });
 
@@ -1645,6 +1708,55 @@ describe('window._qeegSwitchCoherenceBand', () => {
     assert.doesNotThrow(() => {
       window._qeegSwitchCoherenceBand('alpha');
     });
+  });
+
+  it('rerenders the coherence matrix when a loaded analysis has multiple bands', async () => {
+    const fixture = _buildRichAnalysisFixture('coh-switch-1');
+    fixture.advanced_analyses.results.coherence_matrix.data.bands.beta = [
+      [1.0, 0.42, 0.28, 0.31, 0.2, 0.19, 0.14, 0.12],
+      [0.42, 1.0, 0.25, 0.39, 0.18, 0.17, 0.13, 0.11],
+      [0.28, 0.25, 1.0, 0.37, 0.29, 0.26, 0.2, 0.19],
+      [0.31, 0.39, 0.37, 1.0, 0.33, 0.3, 0.22, 0.21],
+      [0.2, 0.18, 0.29, 0.33, 1.0, 0.44, 0.34, 0.28],
+      [0.19, 0.17, 0.26, 0.3, 0.44, 1.0, 0.31, 0.36],
+      [0.14, 0.13, 0.2, 0.22, 0.34, 0.31, 1.0, 0.47],
+      [0.12, 0.11, 0.19, 0.21, 0.28, 0.36, 0.47, 1.0],
+    ];
+
+    const origApi = {
+      listPatients: apiMod.api.listPatients,
+      getPatient: apiMod.api.getPatient,
+      getPatientMedicalHistory: apiMod.api.getPatientMedicalHistory,
+      listPatientQEEGAnalyses: apiMod.api.listPatientQEEGAnalyses,
+      getQEEGAnalysis: apiMod.api.getQEEGAnalysis,
+      getFusionRecommendation: apiMod.api.getFusionRecommendation,
+    };
+    Object.assign(apiMod.api, {
+      listPatients: async () => [],
+      getPatient: async () => null,
+      getPatientMedicalHistory: async () => null,
+      listPatientQEEGAnalyses: async () => ({ items: [fixture] }),
+      getQEEGAnalysis: async () => fixture,
+      getFusionRecommendation: async () => null,
+    });
+
+    try {
+      resetDom();
+      window._qeegPatientId = 'demo-sarah-johnson';
+      window._qeegSelectedId = 'coh-switch-1';
+      window._qeegTab = 'analysis';
+      await safeAwait(mod.pgQEEGAnalysis(() => {}, () => {}));
+
+      const wrap = document.getElementById('qeeg-coherence-wrap');
+      assert.ok(wrap, 'analysis tab should render coherence wrap when data is available');
+      window._qeegSwitchCoherenceBand('beta');
+      assert.match(wrap.innerHTML, /beta coherence/);
+      assert.match(wrap.innerHTML, /qeeg-coh-tab--active[^>]*>beta</i);
+    } finally {
+      Object.assign(apiMod.api, origApi);
+      delete window._qeegPatientId;
+      delete window._qeegSelectedId;
+    }
   });
 });
 
@@ -1998,6 +2110,111 @@ describe('pgQEEGAnalysis — deep render paths via patched api', () => {
     delete window._qeegPatientId;
     delete window._qeegSelectedId;
     delete window._qeegSelectedReportId;
+  });
+
+  it('report tab: renders the no-report workflow and generate action', async () => {
+    const analysis = _buildRichAnalysisFixture('report-empty-1');
+    let generateArgs = null;
+    _patchApi({
+      listPatients: async () => [],
+      getPatient: async () => null,
+      getPatientMedicalHistory: async () => null,
+      listPatientQEEGAnalyses: async () => ({ items: [analysis] }),
+      getQEEGAnalysis: async () => analysis,
+      listQEEGAnalysisReports: async () => ({ items: [] }),
+      generateQEEGAIReport: async (analysisId, payload) => {
+        generateArgs = { analysisId, payload };
+        return { id: 'rep-generated-1' };
+      },
+      getFusionRecommendation: async () => null,
+    });
+    let routedTo = null;
+    window._nav = (route) => { routedTo = route; };
+    window._qeegPatientId = 'demo-sarah-johnson';
+    window._qeegSelectedId = 'report-empty-1';
+    window._qeegTab = 'report';
+
+    await safeAwait(mod.pgQEEGAnalysis(() => {}, window._nav));
+    const tab = document.getElementById('qeeg-tab-content');
+    const html = (tab && tab.innerHTML) || '';
+    assert.match(html, /No AI report yet/);
+    assert.match(html, /Generate AI Report/);
+
+    const reportType = document.getElementById('qeeg-report-type');
+    const button = document.getElementById('qeeg-gen-report-btn');
+    assert.ok(reportType, 'report-type select should render');
+    assert.ok(button, 'generate button should render');
+    reportType.value = 'prediction';
+    button.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.deepStrictEqual(generateArgs, {
+      analysisId: 'report-empty-1',
+      payload: { report_type: 'prediction' },
+    });
+    assert.strictEqual(window._qeegTab, 'report');
+    assert.strictEqual(routedTo, 'qeeg-analysis');
+
+    delete window._qeegPatientId;
+    delete window._qeegSelectedId;
+  });
+
+  it('report + analysis tabs: export helpers execute success paths with loaded data', async () => {
+    const analysis = _buildRichAnalysisFixture('export-fixture-1');
+    const report = _buildRichReportFixture('export-fixture-1', 'rep-export-1');
+    const downloads = [];
+    const origCreateElement = document.createElement.bind(document);
+    const origCreateObjectURL = URL.createObjectURL;
+    const origRevokeObjectURL = URL.revokeObjectURL;
+
+    _patchApi({
+      listPatients: async () => [],
+      getPatient: async () => ({ id: 'demo-sarah-johnson', first_name: 'Sarah', last_name: 'Johnson' }),
+      getPatientMedicalHistory: async () => null,
+      listPatientQEEGAnalyses: async () => ({ items: [analysis] }),
+      getQEEGAnalysis: async () => analysis,
+      listQEEGAnalysisReports: async () => ({ items: [report] }),
+      listEvidenceSavedCitations: async () => [],
+      getFusionRecommendation: async () => null,
+    });
+
+    document.createElement = (tagName) => {
+      const el = origCreateElement(tagName);
+      if (String(tagName).toLowerCase() === 'a') {
+        el.click = () => {
+          downloads.push({ download: el.download, href: el.href });
+        };
+      }
+      return el;
+    };
+    URL.createObjectURL = () => 'blob:qeeg-export';
+    URL.revokeObjectURL = () => {};
+
+    try {
+      window._qeegPatientId = 'demo-sarah-johnson';
+      window._qeegSelectedId = 'export-fixture-1';
+      window._qeegSelectedReportId = 'rep-export-1';
+      window._qeegTab = 'analysis';
+      await safeAwait(mod.pgQEEGAnalysis(() => {}, () => {}));
+      window._qeegTab = 'report';
+      await safeAwait(mod.pgQEEGAnalysis(() => {}, () => {}));
+
+      window._qeegExportBandPowerCSV();
+      window._qeegExportAdvancedCSV();
+      window._qeegExportJSON();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      assert.ok(downloads.some((d) => d.download === 'qeeg_band_powers.csv'));
+      assert.ok(downloads.some((d) => d.download === 'qeeg_advanced_analyses.csv'));
+      assert.ok(downloads.some((d) => /^qeeg_analysis_export-fixture-1_/.test(d.download)));
+    } finally {
+      document.createElement = origCreateElement;
+      URL.createObjectURL = origCreateObjectURL;
+      URL.revokeObjectURL = origRevokeObjectURL;
+      delete window._qeegPatientId;
+      delete window._qeegSelectedId;
+      delete window._qeegSelectedReportId;
+    }
   });
 
   it('compare tab: renders comparison with full payload', async () => {
