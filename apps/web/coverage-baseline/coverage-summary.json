@@ -1,0 +1,3 @@
+{"total": {"lines":{"total":7517,"covered":2145,"skipped":0,"pct":28.53},"statements":{"total":7517,"covered":2145,"skipped":0,"pct":28.53},"functions":{"total":143,"covered":37,"skipped":0,"pct":25.87},"branches":{"total":432,"covered":286,"skipped":0,"pct":66.2},"branchesTrue":{"total":0,"covered":0,"skipped":0,"pct":"Unknown"}}
+,"C:\\Users\\yildi\\DeepSynaps-Protocol-Studio\\apps\\web\\src\\pages-qeeg-analysis.js": {"lines":{"total":7517,"covered":2145,"skipped":0,"pct":28.53},"functions":{"total":143,"covered":37,"skipped":0,"pct":25.87},"statements":{"total":7517,"covered":2145,"skipped":0,"pct":28.53},"branches":{"total":432,"covered":286,"skipped":0,"pct":66.2}}
+}

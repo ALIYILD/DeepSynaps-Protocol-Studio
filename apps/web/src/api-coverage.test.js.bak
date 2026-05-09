@@ -1,0 +1,2889 @@
+// api-coverage.test.js — Deep coverage for apps/web/src/api.js
+//
+// Companion to api.test.js. Each test stubs globalThis.fetch, calls one
+// api method, and asserts on the request shape (URL, method, body) plus,
+// where useful, the parsed response. Error branches (4xx / 5xx / network
+// error) are covered for representative methods.
+//
+// Run: node --test src/api-coverage.test.js
+
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
+
+// ── Minimal DOM / browser stubs (mirrors api.test.js) ──────────────────────
+if (typeof globalThis.localStorage === 'undefined') {
+  const _store = {};
+  globalThis.localStorage = {
+    getItem: (k) => Object.prototype.hasOwnProperty.call(_store, k) ? _store[k] : null,
+    setItem: (k, v) => { _store[k] = String(v); },
+    removeItem: (k) => { delete _store[k]; },
+    clear: () => { Object.keys(_store).forEach(k => delete _store[k]); },
+  };
+}
+if (typeof globalThis.URL === 'undefined') {
+  const { URL } = await import('node:url');
+  globalThis.URL = URL;
+}
+if (typeof globalThis.FormData === 'undefined') {
+  class FormData {
+    constructor() { this._data = []; }
+    append(k, v) { this._data.push([k, v]); }
+    get(k) { const e = this._data.find(([key]) => key === k); return e ? e[1] : null; }
+  }
+  globalThis.FormData = FormData;
+}
+if (typeof globalThis.Blob === 'undefined') {
+  globalThis.Blob = class Blob { constructor(parts = []) { this._parts = parts; } };
+}
+
+// Import after stubs
+const { api, API_BASE } = await import('./api.js');
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function _makeFakeResponse(body, status = 200, headers = { 'content-type': 'application/json' }) {
+  const bodyStr = body === null
+    ? 'null'
+    : (typeof body === 'string' ? body : JSON.stringify(body));
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    headers: { get: (k) => headers[String(k).toLowerCase()] ?? null },
+    json: () => Promise.resolve(JSON.parse(bodyStr)),
+    text: () => Promise.resolve(bodyStr),
+    blob: () => Promise.resolve({ _data: bodyStr }),
+    clone() { return _makeFakeResponse(body, status, headers); },
+  };
+}
+
+function stubFetch(responseBody, status = 200, headers) {
+  const original = globalThis.fetch;
+  let captured = null;
+  globalThis.fetch = (url, init) => {
+    captured = {
+      url: String(url),
+      method: init?.method || 'GET',
+      body: init?.body,
+      headers: init?.headers,
+    };
+    return Promise.resolve(_makeFakeResponse(responseBody, status, headers));
+  };
+  return {
+    getCaptured: () => captured,
+    restore: () => { globalThis.fetch = original; },
+  };
+}
+
+function stubFetchNetworkError(message = 'getaddrinfo ENOTFOUND') {
+  const original = globalThis.fetch;
+  globalThis.fetch = () => Promise.reject(new TypeError(message));
+  return { restore: () => { globalThis.fetch = original; } };
+}
+
+async function expectThrows(promise) {
+  try { await promise; } catch (e) { return e; }
+  throw new Error('Expected promise to reject');
+}
+
+// ── 1. Auth — additional methods ───────────────────────────────────────────
+describe('auth — extra methods', () => {
+  it('api.logout POSTs to /api/v1/auth/logout with refresh token field', async () => {
+    api.setRefreshToken('rfh-1');
+    const stub = stubFetch({ ok: true });
+    try {
+      await api.logout();
+      const c = stub.getCaptured();
+      assert.ok(c.url.endsWith('/api/v1/auth/logout'));
+      assert.strictEqual(c.method, 'POST');
+      const body = JSON.parse(c.body);
+      assert.strictEqual(body.refresh_token, 'rfh-1');
+    } finally { stub.restore(); api.clearRefreshToken(); }
+  });
+
+  it('api.logout sends null refresh_token if none stored', async () => {
+    api.clearRefreshToken();
+    const stub = stubFetch({ ok: true });
+    try {
+      await api.logout();
+      const body = JSON.parse(stub.getCaptured().body);
+      assert.strictEqual(body.refresh_token, null);
+    } finally { stub.restore(); }
+  });
+
+  it('api.activatePatient POSTs to /api/v1/auth/activate-patient', async () => {
+    const stub = stubFetch({ ok: true });
+    try {
+      await api.activatePatient('CODE123', 'p@t.com', 'Pat', 'pw');
+      const c = stub.getCaptured();
+      assert.ok(c.url.endsWith('/api/v1/auth/activate-patient'));
+      assert.strictEqual(c.method, 'POST');
+      const body = JSON.parse(c.body);
+      assert.strictEqual(body.invite_code, 'CODE123');
+      assert.strictEqual(body.email, 'p@t.com');
+    } finally { stub.restore(); }
+  });
+
+  it('api.refresh POSTs to /api/v1/auth/refresh with refresh_token', async () => {
+    const stub = stubFetch({ access_token: 'newtok' });
+    try {
+      await api.refresh('rfh-zzz');
+      const c = stub.getCaptured();
+      assert.ok(c.url.endsWith('/api/v1/auth/refresh'));
+      assert.strictEqual(JSON.parse(c.body).refresh_token, 'rfh-zzz');
+    } finally { stub.restore(); }
+  });
+
+  it('api.resetPassword POSTs token + new_password', async () => {
+    const stub = stubFetch({ ok: true });
+    try {
+      await api.resetPassword('reset-tok', 'NewPass!');
+      const c = stub.getCaptured();
+      assert.ok(c.url.endsWith('/api/v1/auth/reset-password'));
+      const body = JSON.parse(c.body);
+      assert.strictEqual(body.token, 'reset-tok');
+      assert.strictEqual(body.new_password, 'NewPass!');
+    } finally { stub.restore(); }
+  });
+
+  it('api.login stores returned refresh_token', async () => {
+    api.clearRefreshToken();
+    const stub = stubFetch({ access_token: 'a', refresh_token: 'fresh-r' });
+    try {
+      await api.login('u@v.com', 'pw');
+      assert.strictEqual(api.getRefreshToken(), 'fresh-r');
+    } finally { stub.restore(); api.clearRefreshToken(); }
+  });
+});
+
+// ── 2. Patients — extra methods ────────────────────────────────────────────
+describe('patients — extra methods', () => {
+  it('api.patients delegates to listPatients', async () => {
+    const stub = stubFetch({ items: [] });
+    try {
+      await api.patients({ status: 'active' });
+      assert.ok(stub.getCaptured().url.includes('/api/v1/patients'));
+      assert.ok(stub.getCaptured().url.includes('status=active'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getPatientsCohortSummary GETs /cohort-summary', async () => {
+    const stub = stubFetch({ total: 0 });
+    try {
+      await api.getPatientsCohortSummary();
+      assert.ok(stub.getCaptured().url.includes('/api/v1/patients/cohort-summary'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.generateInviteCode POSTs to /api/v1/patients/invite', async () => {
+    const stub = stubFetch({ code: 'INV-1' });
+    try {
+      await api.generateInviteCode({ email: 'p@t.com' });
+      const c = stub.getCaptured();
+      assert.ok(c.url.endsWith('/api/v1/patients/invite'));
+      assert.strictEqual(c.method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.getPatientSessions GETs /patients/:id/sessions', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.getPatientSessions('pt-9');
+      assert.ok(stub.getCaptured().url.includes('/api/v1/patients/pt-9/sessions'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getPatientCourses GETs /patients/:id/courses', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.getPatientCourses('pt-9');
+      assert.ok(stub.getCaptured().url.includes('/api/v1/patients/pt-9/courses'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getPatientAssessments GETs /patients/:id/assessments', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.getPatientAssessments('pt-9');
+      assert.ok(stub.getCaptured().url.includes('/api/v1/patients/pt-9/assessments'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getPatientReports GETs /patients/:id/reports', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.getPatientReports('pt-9');
+      assert.ok(stub.getCaptured().url.includes('/api/v1/patients/pt-9/reports'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getPatientMessages GETs /patients/:id/messages', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.getPatientMessages('pt-9');
+      assert.ok(stub.getCaptured().url.includes('/api/v1/patients/pt-9/messages'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.sendPatientMessage with string sends { body } payload', async () => {
+    const stub = stubFetch({ id: 'm1' });
+    try {
+      await api.sendPatientMessage('pt-1', 'Hello there');
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'POST');
+      const b = JSON.parse(c.body);
+      assert.strictEqual(b.body, 'Hello there');
+    } finally { stub.restore(); }
+  });
+
+  it('api.sendPatientMessage with object passes through', async () => {
+    const stub = stubFetch({ id: 'm1' });
+    try {
+      await api.sendPatientMessage('pt-1', { body: 'Hi', priority: 'high' });
+      const b = JSON.parse(stub.getCaptured().body);
+      assert.strictEqual(b.priority, 'high');
+    } finally { stub.restore(); }
+  });
+
+  it('api.markPatientMessageRead POSTs to threads/:id/messages/:id/mark-read', async () => {
+    // Note: a later definition in api.js overrides the earlier per-patient
+    // shape with this messages-router shape, which is the surviving export.
+    const stub = stubFetch({ ok: true });
+    try {
+      await api.markPatientMessageRead('thread-1', 'msg-9');
+      const c = stub.getCaptured();
+      assert.ok(c.url.includes('/api/v1/messages/threads/thread-1/messages/msg-9/mark-read'));
+      assert.strictEqual(c.method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.listCallRequests GETs with query params', async () => {
+    const stub = stubFetch({ items: [] });
+    try {
+      await api.listCallRequests({ status: 'open' });
+      assert.ok(stub.getCaptured().url.includes('status=open'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.resolveCallRequest PATCHes /resolve', async () => {
+    const stub = stubFetch({ ok: true });
+    try {
+      await api.resolveCallRequest('msg-1');
+      const c = stub.getCaptured();
+      assert.ok(c.url.includes('/api/v1/patients/call-requests/msg-1/resolve'));
+      assert.strictEqual(c.method, 'PATCH');
+    } finally { stub.restore(); }
+  });
+
+  it('api.getPatientConsentHistory adds limit param when provided', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.getPatientConsentHistory('pt-1', { limit: 25 });
+      assert.ok(stub.getCaptured().url.includes('limit=25'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.recordPatientProfileAuditEvent POSTs payload', async () => {
+    const stub = stubFetch({ event_id: 'ev-1' });
+    try {
+      await api.recordPatientProfileAuditEvent('pt-1', { action: 'view' });
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'POST');
+      assert.ok(c.url.includes('/audit-events'));
+      assert.strictEqual(JSON.parse(c.body).action, 'view');
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 3. Sessions — extra methods ────────────────────────────────────────────
+describe('sessions — extra methods', () => {
+  it('api.getCurrentSession GETs /api/v1/sessions/current', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getCurrentSession();
+      assert.ok(stub.getCaptured().url.includes('/api/v1/sessions/current'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.listSessionEvents GETs /sessions/:id/events', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listSessionEvents('sess-1');
+      assert.ok(stub.getCaptured().url.includes('/api/v1/sessions/sess-1/events'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.logSessionEvent POSTs normalized event body', async () => {
+    const stub = stubFetch({ id: 'ev' });
+    try {
+      await api.logSessionEvent('sess-1', { type: 'NOTE', message: 'paused' });
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'POST');
+      const body = JSON.parse(c.body);
+      assert.strictEqual(body.type, 'NOTE');
+      assert.strictEqual(body.note, 'paused');
+    } finally { stub.restore(); }
+  });
+
+  it('api.logSessionEvent defaults type=INFO and empty note', async () => {
+    const stub = stubFetch({ id: 'ev' });
+    try {
+      await api.logSessionEvent('sess-1', null);
+      const body = JSON.parse(stub.getCaptured().body);
+      assert.strictEqual(body.type, 'INFO');
+      assert.strictEqual(body.note, '');
+    } finally { stub.restore(); }
+  });
+
+  it('api.startVideoConsult POSTs /sessions/:id/video/start', async () => {
+    const stub = stubFetch({ url: 'wss://...' });
+    try {
+      await api.startVideoConsult('sess-1');
+      const c = stub.getCaptured();
+      assert.ok(c.url.includes('/api/v1/sessions/sess-1/video/start'));
+      assert.strictEqual(c.method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.endVideoConsult POSTs /sessions/:id/video/end', async () => {
+    const stub = stubFetch({ ended: true });
+    try {
+      await api.endVideoConsult('sess-1');
+      const c = stub.getCaptured();
+      assert.ok(c.url.includes('/api/v1/sessions/sess-1/video/end'));
+      assert.strictEqual(c.method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.remoteMonitorSnapshot GETs /remote-monitor-snapshot', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.remoteMonitorSnapshot('sess-1');
+      assert.ok(stub.getCaptured().url.includes('/remote-monitor-snapshot'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getSessionTelemetry GETs /telemetry', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getSessionTelemetry('sess-1');
+      assert.ok(stub.getCaptured().url.includes('/api/v1/sessions/sess-1/telemetry'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.recordSessionComfort POSTs payload', async () => {
+    const stub = stubFetch({ ok: true });
+    try {
+      await api.recordSessionComfort('sess-1', { score: 7 });
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'POST');
+      assert.strictEqual(JSON.parse(c.body).score, 7);
+    } finally { stub.restore(); }
+  });
+
+  it('api.setSessionImpedance POSTs impedance_kohm', async () => {
+    const stub = stubFetch({ ok: true });
+    try {
+      await api.setSessionImpedance('sess-1', 5.6);
+      const c = stub.getCaptured();
+      assert.ok(c.url.includes('/api/v1/sessions/sess-1/impedance'));
+      assert.strictEqual(JSON.parse(c.body).impedance_kohm, 5.6);
+    } finally { stub.restore(); }
+  });
+
+  it('api.updateSession PATCHes by id', async () => {
+    const stub = stubFetch({ id: 's1' });
+    try {
+      await api.updateSession('s1', { status: 'completed' });
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'PATCH');
+      assert.ok(c.url.endsWith('/api/v1/sessions/s1'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.deleteSession DELETEs by id', async () => {
+    const stub = stubFetch(null, 204);
+    try {
+      await api.deleteSession('s1');
+      assert.strictEqual(stub.getCaptured().method, 'DELETE');
+    } finally { stub.restore(); }
+  });
+
+  it('api.listSessions accepts patient_id string and adds limit/offset', async () => {
+    const stub = stubFetch({ items: [] });
+    try {
+      await api.listSessions('pt-77');
+      const url = stub.getCaptured().url;
+      assert.ok(url.includes('limit=100'));
+      assert.ok(url.includes('offset=0'));
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 4. Assessments v2 ──────────────────────────────────────────────────────
+describe('assessments v2', () => {
+  it('api.assessmentsV2Library GETs /assessments-v2/library', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.assessmentsV2Library();
+      assert.ok(stub.getCaptured().url.includes('/api/v1/assessments-v2/library'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.assessmentsV2LibraryById encodes id', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.assessmentsV2LibraryById('phq 9');
+      assert.ok(stub.getCaptured().url.includes('/api/v1/assessments-v2/library/phq%209'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.assessmentsV2ByCondition GETs by condition', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.assessmentsV2ByCondition('depression');
+      assert.ok(stub.getCaptured().url.includes('/by-condition/depression'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.assessmentsV2ByDomain GETs by domain', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.assessmentsV2ByDomain('mood');
+      assert.ok(stub.getCaptured().url.includes('/by-domain/mood'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.assessmentsV2AssignToPatient POSTs to /patients/:id/assign', async () => {
+    const stub = stubFetch({ id: 'asgn' });
+    try {
+      await api.assessmentsV2AssignToPatient('pt-1', { template: 'phq9' });
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'POST');
+      assert.ok(c.url.includes('/patients/pt-1/assign'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.assessmentsV2PatientQueue GETs /patients/:id/queue', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.assessmentsV2PatientQueue('pt-1');
+      assert.ok(stub.getCaptured().url.includes('/patients/pt-1/queue'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.assessmentsV2Queue GETs /assessments-v2/queue', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.assessmentsV2Queue();
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/assessments-v2/queue'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.assessmentsV2PatchAssignment PATCHes by assignment id', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.assessmentsV2PatchAssignment('a-1', { status: 'submitted' });
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'PATCH');
+    } finally { stub.restore(); }
+  });
+
+  it('api.assessmentsV2Score POSTs to /score', async () => {
+    const stub = stubFetch({ score: 5 });
+    try {
+      await api.assessmentsV2Score('a-1');
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'POST');
+      assert.ok(c.url.includes('/assignments/a-1/score'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.assessmentsV2GetScore GETs /score', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.assessmentsV2GetScore('a-1');
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'GET');
+    } finally { stub.restore(); }
+  });
+
+  it('api.assessmentsV2EvidenceHealth GETs evidence/health', async () => {
+    const stub = stubFetch({ status: 'ok' });
+    try {
+      await api.assessmentsV2EvidenceHealth();
+      assert.ok(stub.getCaptured().url.includes('/assessments-v2/evidence/health'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.assessmentsV2EvidenceSearch passes filters in querystring', async () => {
+    const stub = stubFetch({ items: [] });
+    try {
+      await api.assessmentsV2EvidenceSearch({ q: 'phq', limit: 5 });
+      const url = stub.getCaptured().url;
+      assert.ok(url.includes('q=phq'));
+      assert.ok(url.includes('limit=5'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.assessmentsV2Recommend POSTs payload', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.assessmentsV2Recommend({ patient_id: 'pt-1' });
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'POST');
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 5. Treatment courses ───────────────────────────────────────────────────
+describe('treatment courses', () => {
+  it('api.listCourses GETs /treatment-courses', async () => {
+    const stub = stubFetch({ items: [] });
+    try {
+      await api.listCourses();
+      assert.ok(stub.getCaptured().url.includes('/api/v1/treatment-courses'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.listCourses appends params', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.listCourses({ status: 'active' });
+      assert.ok(stub.getCaptured().url.includes('status=active'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.createCourse POSTs', async () => {
+    const stub = stubFetch({ id: 'c1' });
+    try {
+      await api.createCourse({ patient_id: 'pt-1' });
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.getCourse GETs by id', async () => {
+    const stub = stubFetch({ id: 'c1' });
+    try {
+      await api.getCourse('c1');
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/treatment-courses/c1'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.updateCourse PATCHes by id', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.updateCourse('c1', { status: 'paused' });
+      assert.strictEqual(stub.getCaptured().method, 'PATCH');
+    } finally { stub.restore(); }
+  });
+
+  it('api.activateCourse PATCHes /activate', async () => {
+    const stub = stubFetch({ activated: true });
+    try {
+      await api.activateCourse('c1', { override: true });
+      const c = stub.getCaptured();
+      assert.ok(c.url.includes('/c1/activate'));
+      assert.strictEqual(c.method, 'PATCH');
+    } finally { stub.restore(); }
+  });
+
+  it('api.courseSafetyPreflight GETs /safety-preflight', async () => {
+    const stub = stubFetch({ requires_review: false });
+    try {
+      await api.courseSafetyPreflight('c1');
+      assert.ok(stub.getCaptured().url.includes('/c1/safety-preflight'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.pauseCourse POSTs note', async () => {
+    const stub = stubFetch({ paused: true });
+    try {
+      await api.pauseCourse('c1', 'On break');
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'POST');
+      assert.strictEqual(JSON.parse(c.body).note, 'On break');
+    } finally { stub.restore(); }
+  });
+
+  it('api.resumeCourse POSTs note', async () => {
+    const stub = stubFetch({ resumed: true });
+    try {
+      await api.resumeCourse('c1', 'Resuming');
+      const c = stub.getCaptured();
+      assert.ok(c.url.includes('/c1/resume'));
+      assert.strictEqual(JSON.parse(c.body).note, 'Resuming');
+    } finally { stub.restore(); }
+  });
+
+  it('api.closeCourse POSTs note', async () => {
+    const stub = stubFetch({ closed: true });
+    try {
+      await api.closeCourse('c1', 'Done');
+      const c = stub.getCaptured();
+      assert.ok(c.url.includes('/c1/close'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.closeCourse with no note sends empty string', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.closeCourse('c1');
+      assert.strictEqual(JSON.parse(stub.getCaptured().body).note, '');
+    } finally { stub.restore(); }
+  });
+
+  it('api.logSession POSTs to /courses/:id/sessions', async () => {
+    const stub = stubFetch({ id: 's1' });
+    try {
+      await api.logSession('c1', { type: 'tx' });
+      assert.ok(stub.getCaptured().url.includes('/c1/sessions'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.listCourseSessions GETs', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listCourseSessions('c1');
+      assert.ok(stub.getCaptured().url.includes('/c1/sessions'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getCourseDetail GETs /detail', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getCourseDetail('c1');
+      assert.ok(stub.getCaptured().url.includes('/c1/detail'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getCourseSessionsSummary GETs /sessions/summary', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getCourseSessionsSummary('c1');
+      assert.ok(stub.getCaptured().url.includes('/sessions/summary'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.listCourseAuditEvents GETs with optional limit', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listCourseAuditEvents('c1', { limit: 20 });
+      const url = stub.getCaptured().url;
+      assert.ok(url.includes('/audit-events'));
+      assert.ok(url.includes('limit=20'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.recordCourseAuditEvent soft-fails on rejection', async () => {
+    const stub = stubFetch({ detail: 'broken' }, 500);
+    try {
+      const result = await api.recordCourseAuditEvent('c1', { action: 'open' });
+      assert.strictEqual(result, null);
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 6. Adverse events ──────────────────────────────────────────────────────
+describe('adverse events', () => {
+  it('api.reportAdverseEvent POSTs', async () => {
+    const stub = stubFetch({ id: 'ae-1' });
+    try {
+      await api.reportAdverseEvent({ severity: 'mild' });
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'POST');
+      assert.ok(c.url.endsWith('/api/v1/adverse-events'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.listAdverseEvents passes params', async () => {
+    const stub = stubFetch({ items: [] });
+    try {
+      await api.listAdverseEvents({ status: 'open' });
+      assert.ok(stub.getCaptured().url.includes('status=open'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getAdverseEvent GETs by id', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getAdverseEvent('ae-1');
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/adverse-events/ae-1'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getAdverseEventsSummary GETs /summary', async () => {
+    const stub = stubFetch({ total: 0 });
+    try {
+      await api.getAdverseEventsSummary();
+      assert.ok(stub.getCaptured().url.includes('/adverse-events/summary'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.patchAdverseEvent PATCHes by id', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.patchAdverseEvent('ae-1', { severity: 'severe' });
+      assert.strictEqual(stub.getCaptured().method, 'PATCH');
+    } finally { stub.restore(); }
+  });
+
+  it('api.reviewAdverseEvent POSTs to /review', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.reviewAdverseEvent('ae-1', { ok: true });
+      assert.ok(stub.getCaptured().url.includes('/ae-1/review'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.escalateAdverseEvent POSTs to /escalate', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.escalateAdverseEvent('ae-1');
+      assert.ok(stub.getCaptured().url.includes('/ae-1/escalate'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.resolveAdverseEvent PATCHes /resolve', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.resolveAdverseEvent('ae-1', { reason: 'self-resolved' });
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'PATCH');
+      assert.ok(c.url.includes('/ae-1/resolve'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.closeAdverseEvent POSTs to /close', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.closeAdverseEvent('ae-1', { note: 'closed' });
+      assert.ok(stub.getCaptured().url.includes('/ae-1/close'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.reopenAdverseEvent POSTs to /reopen', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.reopenAdverseEvent('ae-1', { reason: 'new info' });
+      assert.ok(stub.getCaptured().url.includes('/ae-1/reopen'));
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 7. Documents — extra ───────────────────────────────────────────────────
+describe('documents — extra', () => {
+  it('api.getDocument GETs /documents/:id', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getDocument('doc-1');
+      assert.ok(stub.getCaptured().url.includes('/documents/doc-1'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.createDocument POSTs', async () => {
+    const stub = stubFetch({ id: 'doc' });
+    try {
+      await api.createDocument({ title: 't' });
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.updateDocument PATCHes', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.updateDocument('doc-1', { title: 't' });
+      assert.strictEqual(stub.getCaptured().method, 'PATCH');
+    } finally { stub.restore(); }
+  });
+
+  it('api.deleteDocument DELETEs', async () => {
+    const stub = stubFetch(null, 204);
+    try {
+      await api.deleteDocument('doc-1');
+      assert.strictEqual(stub.getCaptured().method, 'DELETE');
+    } finally { stub.restore(); }
+  });
+
+  it('api.listPatientDocuments GETs /patients/:id/documents', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listPatientDocuments('pt-1');
+      assert.ok(stub.getCaptured().url.includes('/api/v1/patients/pt-1/documents'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getDocumentsSummary passes params in qs', async () => {
+    const stub = stubFetch({ total: 0 });
+    try {
+      await api.getDocumentsSummary({ kind: 'consent' });
+      assert.ok(stub.getCaptured().url.includes('kind=consent'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.supersedeDocument POSTs reason+new_title', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.supersedeDocument('doc-1', { reason: 'amend', new_title: 'v2' });
+      const body = JSON.parse(stub.getCaptured().body);
+      assert.strictEqual(body.reason, 'amend');
+      assert.strictEqual(body.new_title, 'v2');
+    } finally { stub.restore(); }
+  });
+
+  it('api.listDocumentTemplates GETs /documents/templates', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listDocumentTemplates();
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/documents/templates'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.createDocumentTemplate POSTs', async () => {
+    const stub = stubFetch({ id: 't1' });
+    try {
+      await api.createDocumentTemplate({ name: 'C' });
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.updateDocumentTemplate PATCHes by id', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.updateDocumentTemplate('t1', { name: 'New' });
+      assert.strictEqual(stub.getCaptured().method, 'PATCH');
+    } finally { stub.restore(); }
+  });
+
+  it('api.deleteDocumentTemplate DELETEs', async () => {
+    const stub = stubFetch(null, 204);
+    try {
+      await api.deleteDocumentTemplate('t1');
+      assert.strictEqual(stub.getCaptured().method, 'DELETE');
+    } finally { stub.restore(); }
+  });
+
+  it('api.logDocumentsAudit POSTs to /documents/audit-events', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.logDocumentsAudit({ action: 'view' });
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'POST');
+      assert.ok(c.url.includes('/documents/audit-events'));
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 8. Clinical text NLP — extra methods ───────────────────────────────────
+describe('clinical text NLP — extra', () => {
+  it('api.clinicalTextExtractPII POSTs analyze body', async () => {
+    const stub = stubFetch({ entities: [] });
+    try {
+      await api.clinicalTextExtractPII({ text: 'John Doe', sourceType: 'progress_note' });
+      const c = stub.getCaptured();
+      assert.ok(c.url.includes('/clinical-text/extract-pii'));
+      const body = JSON.parse(c.body);
+      assert.strictEqual(body.source_type, 'progress_note');
+    } finally { stub.restore(); }
+  });
+
+  it('api.clinicalTextDeidentify POSTs', async () => {
+    const stub = stubFetch({ deidentified: '...' });
+    try {
+      await api.clinicalTextDeidentify({ text: 'J', locale: 'en' });
+      assert.ok(stub.getCaptured().url.includes('/clinical-text/deidentify'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.clinicalTextAnalyzeNeuromodulation POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.clinicalTextAnalyzeNeuromodulation({ text: 'rTMS' });
+      assert.ok(stub.getCaptured().url.includes('/clinical-text/analyze-neuromodulation'));
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 9. Evidence research — extra ───────────────────────────────────────────
+describe('evidence / research — extra', () => {
+  it('api.listResearchDatasets GETs /datasets', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listResearchDatasets();
+      assert.ok(stub.getCaptured().url.includes('/research/datasets'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.downloadResearchDatasetUrl returns url string', () => {
+    const url = api.downloadResearchDatasetUrl('xyz');
+    assert.ok(url.includes('/research/datasets/xyz/download'));
+  });
+
+  it('api.listResearchConditions GETs /conditions', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listResearchConditions();
+      assert.ok(stub.getCaptured().url.includes('/research/conditions'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getResearchCondition GETs by slug', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getResearchCondition('mdd');
+      assert.ok(stub.getCaptured().url.includes('/research/conditions/mdd'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.listResearchExactProtocols passes params', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listResearchExactProtocols({ condition: 'mdd' });
+      assert.ok(stub.getCaptured().url.includes('condition=mdd'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.listResearchSafetySignals passes params', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listResearchSafetySignals({ severity: 'mod' });
+      assert.ok(stub.getCaptured().url.includes('severity=mod'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getResearchSummary calls /research/summary', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getResearchSummary({ condition: 'mdd' });
+      assert.ok(stub.getCaptured().url.includes('/research/summary'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.protocolCoverage GETs /protocol-coverage', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.protocolCoverage();
+      assert.ok(stub.getCaptured().url.includes('/research/protocol-coverage'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.evidenceIndications GETs /evidence/indications', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.evidenceIndications();
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/evidence/indications'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.searchEvidencePapers attaches expected params', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.searchEvidencePapers({
+        q: 'tDCS',
+        oa_only: true,
+        limit: 10,
+        has_abstract: true,
+      });
+      const url = stub.getCaptured().url;
+      assert.ok(url.includes('q=tDCS'));
+      assert.ok(url.includes('oa_only=true'));
+      assert.ok(url.includes('has_abstract=true'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.searchEvidencePapers omits has_abstract=false trickery', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.searchEvidencePapers({ has_abstract: false });
+      assert.ok(stub.getCaptured().url.includes('has_abstract=false'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.evidencePaperDetail GETs by id', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.evidencePaperDetail('p1');
+      assert.ok(stub.getCaptured().url.includes('/evidence/papers/p1'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.searchEvidenceTrials GETs with status param', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.searchEvidenceTrials({ status: 'recruiting', limit: 5 });
+      const url = stub.getCaptured().url;
+      assert.ok(url.includes('status=recruiting'));
+      assert.ok(url.includes('limit=5'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.searchEvidenceDevices GETs /evidence/devices', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.searchEvidenceDevices({ kind: 'tms' });
+      assert.ok(stub.getCaptured().url.includes('/evidence/devices'));
+      assert.ok(stub.getCaptured().url.includes('kind=tms'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.promoteEvidencePaper POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.promoteEvidencePaper('p1');
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+      assert.ok(stub.getCaptured().url.includes('/promote-to-library'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.evidenceSuggest GETs with modality+indication', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.evidenceSuggest({ modality: 'tdcs', indication: 'mdd' });
+      const url = stub.getCaptured().url;
+      assert.ok(url.includes('modality=tdcs'));
+      assert.ok(url.includes('indication=mdd'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.evidenceForProtocol GETs /for-protocol/:id', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.evidenceForProtocol('proto-1', { limit: 3 });
+      assert.ok(stub.getCaptured().url.includes('/for-protocol/proto-1'));
+      assert.ok(stub.getCaptured().url.includes('limit=3'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.evidenceQuery POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.evidenceQuery({ q: 'tms' });
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.saveEvidenceCitation POSTs', async () => {
+    const stub = stubFetch({ id: 'cit-1' });
+    try {
+      await api.saveEvidenceCitation({ paper_id: 'p1' });
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.evidenceStatus GETs /evidence/status', async () => {
+    const stub = stubFetch({ count: 0 });
+    try {
+      await api.evidenceStatus();
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/evidence/status'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.adminRefreshEvidence POSTs', async () => {
+    const stub = stubFetch({ ok: true });
+    try {
+      await api.adminRefreshEvidence();
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+      assert.ok(stub.getCaptured().url.includes('/evidence/admin/refresh'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.adminRefreshEvidenceStatus GETs status', async () => {
+    const stub = stubFetch({ status: 'idle' });
+    try {
+      await api.adminRefreshEvidenceStatus();
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/evidence/admin/refresh/status'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.evidenceIndicationsSummary GETs /summary', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.evidenceIndicationsSummary();
+      assert.ok(stub.getCaptured().url.includes('/evidence/indications/summary'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.evidenceIndicationDetail GETs with paper/trial/protocol limits', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.evidenceIndicationDetail('mdd', { paperLimit: 5, trialLimit: 3, protocolLimit: 2 });
+      const url = stub.getCaptured().url;
+      assert.ok(url.includes('paper_limit=5'));
+      assert.ok(url.includes('trial_limit=3'));
+      assert.ok(url.includes('protocol_limit=2'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.evidenceFTSSearch GETs /evidence/search', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.evidenceFTSSearch({ q: 'fft' });
+      assert.ok(stub.getCaptured().url.includes('/evidence/search'));
+      assert.ok(stub.getCaptured().url.includes('q=fft'));
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 10. Brain regions / targets ────────────────────────────────────────────
+describe('brain regions / targets', () => {
+  it('api.listBrainRegions GETs', async () => {
+    const stub = stubFetch({ items: [] });
+    try {
+      await api.listBrainRegions();
+      assert.ok(stub.getCaptured().url.includes('/api/v1/brain-regions'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.listBrainTargets GETs', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listBrainTargets();
+      assert.ok(stub.getCaptured().url.includes('/api/v1/brain-targets'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getBrainTarget GETs by id', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getBrainTarget('DLPFC-L');
+      assert.ok(stub.getCaptured().url.includes('/api/v1/brain-targets/DLPFC-L'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.listQEEGConditionMap GETs /qeeg/condition-map', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.listQEEGConditionMap();
+      assert.ok(stub.getCaptured().url.includes('/qeeg/condition-map'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.listTargets unwraps items array', async () => {
+    const stub = stubFetch({ items: [{ id: 1 }, { id: 2 }] });
+    try {
+      const out = await api.listTargets();
+      assert.deepStrictEqual(out, [{ id: 1 }, { id: 2 }]);
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 11. Protocols / handbooks / exports ────────────────────────────────────
+describe('protocols / handbooks / exports', () => {
+  it('api.intakePreview POSTs', async () => {
+    const stub = stubFetch({ preview: '...' });
+    try {
+      await api.intakePreview({ symptoms: 'anxiety' });
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'POST');
+      assert.ok(c.url.endsWith('/api/v1/intake/preview'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.generateProtocol POSTs to /protocols/generate-draft', async () => {
+    const stub = stubFetch({ protocol: {} });
+    try {
+      await api.generateProtocol({});
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/protocols/generate-draft'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.generateBrainScanProtocol POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.generateBrainScanProtocol({});
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/protocols/generate-brain-scan'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.generatePersonalizedProtocol POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.generatePersonalizedProtocol({});
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/protocols/generate-personalized'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.saveProtocol POSTs', async () => {
+    const stub = stubFetch({ id: 'p' });
+    try {
+      await api.saveProtocol({});
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.listSavedProtocols GETs with optional patient', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listSavedProtocols('pt-1');
+      assert.ok(stub.getCaptured().url.includes('patient_id=pt-1'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.updateSavedProtocol PATCHes', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.updateSavedProtocol('p-1', { active: false });
+      assert.strictEqual(stub.getCaptured().method, 'PATCH');
+    } finally { stub.restore(); }
+  });
+
+  it('api.generateHandbook POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.generateHandbook({});
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/handbooks/generate'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.caseSummary POSTs to uploads/case-summary', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.caseSummary({ text: 'x' });
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/uploads/case-summary'));
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 12. Audit trail ─────────────────────────────────────────────────────────
+describe('audit trail', () => {
+  it('api.auditTrail GETs with no filters', async () => {
+    const stub = stubFetch({ items: [] });
+    try {
+      await api.auditTrail();
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/audit-trail'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.auditTrail with filters builds qs', async () => {
+    const stub = stubFetch({ items: [] });
+    try {
+      await api.auditTrail({ q: 'login', actor: 'sys' });
+      const url = stub.getCaptured().url;
+      assert.ok(url.includes('q=login'));
+      assert.ok(url.includes('actor=sys'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.auditTrail filter skips empty/null values', async () => {
+    const stub = stubFetch({ items: [] });
+    try {
+      await api.auditTrail({ q: '', actor: null, k: 'v' });
+      const url = stub.getCaptured().url;
+      assert.ok(!url.includes('q='));
+      assert.ok(!url.includes('actor='));
+      assert.ok(url.includes('k=v'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.auditTrailSummary GETs /summary', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.auditTrailSummary();
+      assert.ok(stub.getCaptured().url.includes('/audit-trail/summary'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.auditTrailEvent GETs by id', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.auditTrailEvent('evt-1');
+      assert.ok(stub.getCaptured().url.includes('/audit-trail/evt-1'));
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 13. Payments ───────────────────────────────────────────────────────────
+describe('payments', () => {
+  it('api.paymentConfig GETs config', async () => {
+    const stub = stubFetch({ stripe_pk: 'pk_x' });
+    try {
+      await api.paymentConfig();
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/payments/config'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.createCheckout POSTs package_id', async () => {
+    const stub = stubFetch({ url: 'https://x' });
+    try {
+      await api.createCheckout('pkg-1');
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'POST');
+      assert.strictEqual(JSON.parse(c.body).package_id, 'pkg-1');
+    } finally { stub.restore(); }
+  });
+
+  it('api.createPortal POSTs (no body)', async () => {
+    const stub = stubFetch({ url: 'https://x' });
+    try {
+      await api.createPortal();
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 14. Chat ───────────────────────────────────────────────────────────────
+describe('chat', () => {
+  it('api.chatAgent POSTs default provider=anthropic', async () => {
+    const stub = stubFetch({ reply: 'hi' });
+    try {
+      await api.chatAgent([{ role: 'user', content: 'q' }]);
+      const body = JSON.parse(stub.getCaptured().body);
+      assert.strictEqual(body.provider, 'anthropic');
+    } finally { stub.restore(); }
+  });
+
+  it('api.chatAgent supports openai_key', async () => {
+    const stub = stubFetch({ reply: '' });
+    try {
+      await api.chatAgent([], 'openai', 'sk-xyz');
+      const body = JSON.parse(stub.getCaptured().body);
+      assert.strictEqual(body.openai_key, 'sk-xyz');
+      assert.strictEqual(body.provider, 'openai');
+    } finally { stub.restore(); }
+  });
+
+  it('api.chatClinician POSTs with patient_context', async () => {
+    const stub = stubFetch({ reply: '' });
+    try {
+      await api.chatClinician([], { patient_id: 'pt-1' });
+      const body = JSON.parse(stub.getCaptured().body);
+      assert.strictEqual(body.patient_context.patient_id, 'pt-1');
+    } finally { stub.restore(); }
+  });
+
+  it('api.chatPatient defaults language to en', async () => {
+    const stub = stubFetch({ reply: '' });
+    try {
+      await api.chatPatient([], {}, undefined);
+      const body = JSON.parse(stub.getCaptured().body);
+      assert.strictEqual(body.language, 'en');
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 15. DeepTwin ───────────────────────────────────────────────────────────
+describe('deeptwin', () => {
+  it('api.deeptwinAnalyze POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.deeptwinAnalyze({ patient_id: 'pt-1' });
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/deeptwin/analyze'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.deeptwinSimulate POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.deeptwinSimulate({});
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/deeptwin/simulate'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.deeptwinExplain POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.deeptwinExplain({});
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/deeptwin/explain'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.deeptwinReportPayload POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.deeptwinReportPayload({});
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/deeptwin/report-payload'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.brainTwinAnalyze POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.brainTwinAnalyze({});
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/brain-twin/analyze'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.brainTwinSimulate POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.brainTwinSimulate({});
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/brain-twin/simulate'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getTwinTimeline includes default 90 days', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getTwinTimeline('pt-1');
+      assert.ok(stub.getCaptured().url.includes('days=90'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getTwinPredictions encodes horizon', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getTwinPredictions('pt-1', '12w');
+      assert.ok(stub.getCaptured().url.includes('horizon=12w'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.runTwinSimulation POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.runTwinSimulation('pt-1', { protocol: 'rTMS' });
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'POST');
+      assert.ok(c.url.includes('/pt-1/simulations'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.deeptwinNeuroAiStatus GETs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.deeptwinNeuroAiStatus();
+      assert.ok(stub.getCaptured().url.includes('/deeptwin/neuroai/status'));
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 16. Registry ───────────────────────────────────────────────────────────
+describe('registry', () => {
+  it('api.conditions GETs /registry/conditions', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.conditions();
+      assert.ok(stub.getCaptured().url.includes('/registry/conditions'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.modalities GETs /registry/modalities', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.modalities();
+      assert.ok(stub.getCaptured().url.includes('/registry/modalities'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.protocols GETs /registry/protocols with params', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.protocols({ condition: 'mdd' });
+      assert.ok(stub.getCaptured().url.includes('condition=mdd'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.protocolDetail GETs by id', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.protocolDetail('p-1');
+      assert.ok(stub.getCaptured().url.includes('/registry/protocols/p-1'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.conditionPackage returns null on rejection', async () => {
+    const stub = stubFetch({ detail: 'not found' }, 404);
+    try {
+      const out = await api.conditionPackage('nope');
+      assert.strictEqual(out, null);
+    } finally { stub.restore(); }
+  });
+
+  it('api.conditionPackageSlugs returns { slugs: [] } fallback', async () => {
+    const stub = stubFetch({ detail: 'down' }, 500);
+    try {
+      const out = await api.conditionPackageSlugs();
+      assert.deepStrictEqual(out, { slugs: [] });
+    } finally { stub.restore(); }
+  });
+
+  it('api.phenotypes GETs /registry/phenotypes', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.phenotypes({ tag: 'X' });
+      assert.ok(stub.getCaptured().url.includes('tag=X'));
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 17. Outcomes ───────────────────────────────────────────────────────────
+describe('outcomes', () => {
+  it('api.recordOutcome POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.recordOutcome({ score: 1 });
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.listOutcomes GETs', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listOutcomes({ patient_id: 'pt-1' });
+      assert.ok(stub.getCaptured().url.includes('patient_id=pt-1'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.createOutcomeEvent POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.createOutcomeEvent({});
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/outcomes/events'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.aggregateOutcomes GETs /aggregate', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.aggregateOutcomes();
+      assert.ok(stub.getCaptured().url.includes('/outcomes/aggregate'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.courseOutcomeSummary GETs by course', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.courseOutcomeSummary('c-1');
+      assert.ok(stub.getCaptured().url.includes('/outcomes/summary/c-1'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.longitudinalReport GETs /outcomes/longitudinal', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.longitudinalReport({ patient_id: 'pt-1' });
+      assert.ok(stub.getCaptured().url.includes('/outcomes/longitudinal'));
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 18. QEEG analysis ──────────────────────────────────────────────────────
+describe('qeeg analysis', () => {
+  it('api.analyzeQEEG POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.analyzeQEEG('q-1');
+      const c = stub.getCaptured();
+      assert.ok(c.url.includes('/qeeg-analysis/q-1/analyze'));
+      assert.strictEqual(c.method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.runQEEGMNEPipeline POSTs analyze-mne', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.runQEEGMNEPipeline('q-1');
+      assert.ok(stub.getCaptured().url.includes('/qeeg-analysis/q-1/analyze-mne'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getQEEGAnalysisStatus GETs /status', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getQEEGAnalysisStatus('q-1');
+      assert.ok(stub.getCaptured().url.includes('/q-1/status'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.listPatientQEEGAnalyses uses default limit 50 offset 0', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listPatientQEEGAnalyses('pt-1');
+      const url = stub.getCaptured().url;
+      assert.ok(url.includes('limit=50'));
+      assert.ok(url.includes('offset=0'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.listPatientQEEGAnalyses honors custom limit/offset', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listPatientQEEGAnalyses('pt-1', { limit: 10, offset: 25 });
+      const url = stub.getCaptured().url;
+      assert.ok(url.includes('limit=10'));
+      assert.ok(url.includes('offset=25'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.generateQEEGAIReport POSTs body', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.generateQEEGAIReport('q-1', { template: 'short' });
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.amendQEEGReport PATCHes', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.amendQEEGReport('r-1', { note: 'fix' });
+      assert.strictEqual(stub.getCaptured().method, 'PATCH');
+    } finally { stub.restore(); }
+  });
+
+  it('api.createQEEGComparison POSTs to /compare', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.createQEEGComparison({ ids: ['a', 'b'] });
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/qeeg-analysis/compare'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getQEEGComparison GETs by id', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getQEEGComparison('cmp-1');
+      assert.ok(stub.getCaptured().url.includes('/qeeg-analysis/compare/cmp-1'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.listAnnotations passes patient/target params', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listAnnotations({ patientId: 'pt-1', targetType: 'qeeg', targetId: 'q-1' });
+      const url = stub.getCaptured().url;
+      assert.ok(url.includes('patient_id=pt-1'));
+      assert.ok(url.includes('target_type=qeeg'));
+      assert.ok(url.includes('target_id=q-1'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.createAnnotation POSTs', async () => {
+    const stub = stubFetch({ id: 'an-1' });
+    try {
+      await api.createAnnotation({ note: 'x' });
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.deleteAnnotation DELETEs', async () => {
+    const stub = stubFetch(null, 204);
+    try {
+      await api.deleteAnnotation('an-1');
+      assert.strictEqual(stub.getCaptured().method, 'DELETE');
+    } finally { stub.restore(); }
+  });
+
+  it('api.computeQEEGEmbedding POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.computeQEEGEmbedding('q-1');
+      assert.ok(stub.getCaptured().url.includes('/q-1/compute-embedding'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.predictQEEGBrainAge POSTs body', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.predictQEEGBrainAge('q-1', { age: 40 });
+      const c = stub.getCaptured();
+      assert.ok(c.url.includes('/q-1/predict-brain-age'));
+      assert.strictEqual(JSON.parse(c.body).age, 40);
+    } finally { stub.restore(); }
+  });
+
+  it('api.scoreQEEGConditions POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.scoreQEEGConditions('q-1');
+      assert.ok(stub.getCaptured().url.includes('/q-1/score-conditions'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.fetchQEEGSimilarCases attaches k', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.fetchQEEGSimilarCases('q-1', 25);
+      assert.ok(stub.getCaptured().url.includes('k=25'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.recommendQEEGProtocol POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.recommendQEEGProtocol('q-1');
+      assert.ok(stub.getCaptured().url.includes('/q-1/recommend-protocol'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getQEEGSafetyCockpit GETs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getQEEGSafetyCockpit('q-1');
+      assert.ok(stub.getCaptured().url.includes('/q-1/safety-cockpit'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getQEEGRedFlags GETs', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.getQEEGRedFlags('q-1');
+      assert.ok(stub.getCaptured().url.includes('/q-1/red-flags'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.signQEEGReport POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.signQEEGReport('r-1');
+      const c = stub.getCaptured();
+      assert.ok(c.url.includes('/reports/r-1/sign'));
+      assert.strictEqual(c.method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.getQEEGBrainMapReportURL returns html url by default', () => {
+    const url = api.getQEEGBrainMapReportURL('r-1');
+    assert.ok(url.endsWith('/api/v1/reports/qeeg/r-1.html'));
+  });
+
+  it('api.getQEEGBrainMapReportURL builds pdf url when requested', () => {
+    const url = api.getQEEGBrainMapReportURL('r-1', 'pdf');
+    assert.ok(url.endsWith('/api/v1/reports/qeeg/r-1.pdf'));
+  });
+
+  it('api.exportQEEGAnalysisCSV GETs export-csv', async () => {
+    const stub = stubFetch({ csv: 'ch,band' });
+    try {
+      await api.exportQEEGAnalysisCSV('q-1');
+      assert.ok(stub.getCaptured().url.includes('/q-1/export-csv'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.logAudit POSTs body', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.logAudit({ action: 'view' });
+      assert.ok(stub.getCaptured().url.includes('/qeeg-analysis/audit-events'));
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 19. MRI ────────────────────────────────────────────────────────────────
+describe('mri', () => {
+  it('api.getMRIStatus GETs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getMRIStatus('job-1');
+      assert.ok(stub.getCaptured().url.includes('/mri/status/job-1'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getMRIViewerPayload GETs viewer.json', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getMRIViewerPayload('m-1');
+      assert.ok(stub.getCaptured().url.includes('/mri/m-1/viewer.json'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getMRIMedRAG attaches top_k', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getMRIMedRAG('m-1', 5);
+      assert.ok(stub.getCaptured().url.includes('top_k=5'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.compareMRI GETs both ids in path', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.compareMRI('a', 'b');
+      assert.ok(stub.getCaptured().url.includes('/mri/compare/a/b'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getFusionRecommendation POSTs by patient', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getFusionRecommendation('pt-1');
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'POST');
+      assert.ok(c.url.includes('/fusion/recommend/pt-1'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.createFusionCase POSTs with patient_id in body', async () => {
+    const stub = stubFetch({ id: 'fc-1' });
+    try {
+      await api.createFusionCase('pt-1', { reviewer: 'r1' });
+      const body = JSON.parse(stub.getCaptured().body);
+      assert.strictEqual(body.patient_id, 'pt-1');
+      assert.strictEqual(body.reviewer, 'r1');
+    } finally { stub.restore(); }
+  });
+
+  it('api.listFusionCases GETs by patient', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listFusionCases('pt-1');
+      assert.ok(stub.getCaptured().url.includes('patient_id=pt-1'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.transitionFusionCase POSTs action+note', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.transitionFusionCase('fc-1', 'approve', 'looks ok', null);
+      const body = JSON.parse(stub.getCaptured().body);
+      assert.strictEqual(body.action, 'approve');
+      assert.strictEqual(body.note, 'looks ok');
+    } finally { stub.restore(); }
+  });
+
+  it('api.exportFusionCase POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.exportFusionCase('fc-1');
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 20. Patient portal — extra ─────────────────────────────────────────────
+describe('patient portal — extra', () => {
+  it('api.patientPortalSessions GETs /sessions', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.patientPortalSessions();
+      assert.ok(stub.getCaptured().url.includes('/patient-portal/sessions'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.patientPortalOutcomes GETs /outcomes', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.patientPortalOutcomes();
+      assert.ok(stub.getCaptured().url.includes('/patient-portal/outcomes'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.patientPortalReports GETs /reports', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.patientPortalReports();
+      assert.ok(stub.getCaptured().url.includes('/patient-portal/reports'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.patientPortalMessages GETs /messages', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.patientPortalMessages();
+      assert.ok(stub.getCaptured().url.includes('/patient-portal/messages'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.patientPortalSendMessage POSTs', async () => {
+    const stub = stubFetch({ id: 'm1' });
+    try {
+      await api.patientPortalSendMessage({ body: 'hi' });
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.sendPortalMessage alias POSTs to same endpoint', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.sendPortalMessage({ body: 'hi' });
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/patient-portal/messages'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.patientPortalMarkMessageRead PATCHes', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.patientPortalMarkMessageRead('m-1');
+      const c = stub.getCaptured();
+      assert.ok(c.url.includes('/messages/m-1/read'));
+      assert.strictEqual(c.method, 'PATCH');
+    } finally { stub.restore(); }
+  });
+
+  it('api.submitSelfAssessment POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.submitSelfAssessment({ score: 5 });
+      assert.ok(stub.getCaptured().url.includes('/patient-portal/self-assessments'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.patientPortalWearables GETs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.patientPortalWearables();
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/patient-portal/wearables'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.patientPortalWearableSummary defaults days=7', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.patientPortalWearableSummary();
+      assert.ok(stub.getCaptured().url.includes('days=7'));
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 21. Wearables / monitor ────────────────────────────────────────────────
+describe('wearables / monitor', () => {
+  it('api.getPatientWearableSummary GETs with days=30 default', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getPatientWearableSummary('pt-1');
+      assert.ok(stub.getCaptured().url.includes('days=30'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.dismissAlertFlag POSTs to /alerts/:id/dismiss', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.dismissAlertFlag('flag-1');
+      const c = stub.getCaptured();
+      assert.ok(c.url.includes('/wearables/alerts/flag-1/dismiss'));
+      assert.strictEqual(c.method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.monitorLiveSnapshot GETs /monitor/live', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.monitorLiveSnapshot();
+      assert.ok(stub.getCaptured().url.includes('/monitor/live'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.monitorLiveStreamUrl returns ws:// URL', () => {
+    const url = api.monitorLiveStreamUrl();
+    assert.ok(url.startsWith('ws://') || url.startsWith('wss://'));
+    assert.ok(url.includes('/api/v1/monitor/live/stream'));
+  });
+
+  it('api.connectWearableSource POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.connectWearableSource({ source: 'oura' });
+      assert.ok(stub.getCaptured().url.includes('/wearable-connect'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.disconnectWearableSource DELETEs', async () => {
+    const stub = stubFetch(null, 204);
+    try {
+      await api.disconnectWearableSource('conn-1');
+      assert.strictEqual(stub.getCaptured().method, 'DELETE');
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 22. Home device endpoints ──────────────────────────────────────────────
+describe('home device', () => {
+  it('api.listHomeDeviceSources GETs /source-registry', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listHomeDeviceSources();
+      assert.ok(stub.getCaptured().url.includes('/home-devices/source-registry'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.assignHomeDevice POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.assignHomeDevice({ device_id: 'd-1' });
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/home-devices/assign'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.acknowledgeAdherenceEvent PATCHes', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.acknowledgeAdherenceEvent('ev-1', { note: 'ok' });
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'PATCH');
+      assert.ok(c.url.includes('/adherence-events/ev-1/acknowledge'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.dismissHomeReviewFlag PATCHes /dismiss', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.dismissHomeReviewFlag('rf-1');
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'PATCH');
+      assert.ok(c.url.includes('/review-flags/rf-1/dismiss'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.generateHomeTherapySummary POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.generateHomeTherapySummary('a-1');
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'POST');
+      assert.ok(c.url.includes('/ai-summary/a-1'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.homeDevicesList soft-fails on rejection', async () => {
+    const stub = stubFetch({ detail: 'down' }, 500);
+    try {
+      const out = await api.homeDevicesList();
+      assert.strictEqual(out, null);
+    } finally { stub.restore(); }
+  });
+
+  it('api.homeDevicesGet soft-fails to null on rejection', async () => {
+    const stub = stubFetch({ detail: 'gone' }, 404);
+    try {
+      const out = await api.homeDevicesGet('d-1');
+      assert.strictEqual(out, null);
+    } finally { stub.restore(); }
+  });
+
+  it('api.homeDevicesRegister POSTs (no soft-fail)', async () => {
+    const stub = stubFetch({ id: 'd-1' });
+    try {
+      await api.homeDevicesRegister({ name: 'D1' });
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.homeDevicesDecommission POSTs reason', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.homeDevicesDecommission('d-1', 'broken');
+      const body = JSON.parse(stub.getCaptured().body);
+      assert.strictEqual(body.reason, 'broken');
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 23. Phenotype assignments ─────────────────────────────────────────────
+describe('phenotype assignments', () => {
+  it('api.assignPhenotype POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.assignPhenotype({ patient_id: 'pt-1', phenotype: 'X' });
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.listPhenotypeAssignments GETs', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listPhenotypeAssignments({ patient_id: 'pt-1' });
+      assert.ok(stub.getCaptured().url.includes('patient_id=pt-1'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.deletePhenotypeAssignment DELETEs', async () => {
+    const stub = stubFetch(null, 204);
+    try {
+      await api.deletePhenotypeAssignment('pa-1');
+      assert.strictEqual(stub.getCaptured().method, 'DELETE');
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 24. Consent records ────────────────────────────────────────────────────
+describe('consent records', () => {
+  it('api.createConsent POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.createConsent({ patient_id: 'pt-1' });
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.listConsents GETs with params', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listConsents({ status: 'active' });
+      assert.ok(stub.getCaptured().url.includes('status=active'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getConsent GETs by id', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getConsent('c-1');
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/consent-records/c-1'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.updateConsent PATCHes', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.updateConsent('c-1', { revoked: true });
+      assert.strictEqual(stub.getCaptured().method, 'PATCH');
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 25. Review queue ───────────────────────────────────────────────────────
+describe('review queue', () => {
+  it('api.listReviewQueue GETs', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listReviewQueue({ status: 'open' });
+      assert.ok(stub.getCaptured().url.includes('/review-queue'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.assignReviewer PATCHes /assign', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.assignReviewer('r-1', 'u-1');
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'PATCH');
+      assert.strictEqual(JSON.parse(c.body).assigned_to, 'u-1');
+    } finally { stub.restore(); }
+  });
+
+  it('api.assignReviewer with null resets to null', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.assignReviewer('r-1', null);
+      assert.strictEqual(JSON.parse(stub.getCaptured().body).assigned_to, null);
+    } finally { stub.restore(); }
+  });
+
+  it('api.postReviewQueueAction POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.postReviewQueueAction({ action: 'approve' });
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.submitReview normalizes course_id → review_item_id', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.submitReview({ course_id: 'c-1', action: 'approve', note: 'good' });
+      const body = JSON.parse(stub.getCaptured().body);
+      assert.strictEqual(body.review_item_id, 'c-1');
+      assert.strictEqual(body.notes, 'good');
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 26. Media queue / patient uploads ──────────────────────────────────────
+describe('media queue / patient uploads', () => {
+  it('api.listMediaQueue GETs', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listMediaQueue();
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/media/review-queue'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.reviewMediaUpload POSTs action+reason', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.reviewMediaUpload('up-1', 'reject', 'unclear');
+      const body = JSON.parse(stub.getCaptured().body);
+      assert.strictEqual(body.action, 'reject');
+      assert.strictEqual(body.reason, 'unclear');
+    } finally { stub.restore(); }
+  });
+
+  it('api.recordMediaConsent POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.recordMediaConsent({ patient_id: 'pt-1' });
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.getMediaConsents GETs by patient', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.getMediaConsents('pt-1');
+      assert.ok(stub.getCaptured().url.includes('/media/consent/pt-1'));
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 27. Library hub ────────────────────────────────────────────────────────
+describe('library hub', () => {
+  it('api.libraryOverview GETs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.libraryOverview();
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/library/overview'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.libraryConditionSummary GETs by id', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.libraryConditionSummary('mdd');
+      assert.ok(stub.getCaptured().url.includes('/library/conditions/mdd/summary'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.libraryExternalSearch POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.libraryExternalSearch({ q: 'tms', condition_id: 'mdd' });
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'POST');
+      const body = JSON.parse(c.body);
+      assert.strictEqual(body.q, 'tms');
+    } finally { stub.restore(); }
+  });
+
+  it('api.librarySummarizeEvidence POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.librarySummarizeEvidence({ paper_ids: ['p1'], focus: 'mdd' });
+      assert.ok(stub.getCaptured().url.includes('/library/ai/summarize-evidence'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.listLiterature GETs literature with params', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listLiterature({ topic: 'tms' });
+      assert.ok(stub.getCaptured().url.includes('topic=tms'));
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 28. Lit watch ──────────────────────────────────────────────────────────
+describe('lit watch', () => {
+  it('api.litWatchRefresh POSTs source/requested_by', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.litWatchRefresh('proto-1', { source: 'pubmed', requested_by: 'u-1' });
+      const body = JSON.parse(stub.getCaptured().body);
+      assert.strictEqual(body.source, 'pubmed');
+      assert.strictEqual(body.requested_by, 'u-1');
+    } finally { stub.restore(); }
+  });
+
+  it('api.litWatchJobs GETs', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.litWatchJobs('proto-1');
+      assert.ok(stub.getCaptured().url.includes('/refresh-literature/jobs'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.litWatchPending defaults limit/offset', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.litWatchPending();
+      const url = stub.getCaptured().url;
+      assert.ok(url.includes('limit=50'));
+      assert.ok(url.includes('offset=0'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.litWatchReview POSTs verdict', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.litWatchReview('PMID:123', { verdict: 'reject', protocol_id: 'p-1' });
+      const body = JSON.parse(stub.getCaptured().body);
+      assert.strictEqual(body.verdict, 'reject');
+    } finally { stub.restore(); }
+  });
+
+  it('api.litWatchSpend GETs /spend', async () => {
+    const stub = stubFetch({ usd: 0 });
+    try {
+      await api.litWatchSpend();
+      assert.ok(stub.getCaptured().url.includes('/literature-watch/spend'));
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 29. Clinician inbox / care team / agent brain ──────────────────────────
+describe('clinician inbox / care team / agent brain', () => {
+  it('api.clinicianInboxSummary GETs /summary', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.clinicianInboxSummary();
+      assert.ok(stub.getCaptured().url.includes('/clinician-inbox/summary'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.clinicianInboxBulkAcknowledge POSTs event_ids', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.clinicianInboxBulkAcknowledge(['e1', 'e2'], 'batch ack');
+      const body = JSON.parse(stub.getCaptured().body);
+      assert.deepStrictEqual(body.event_ids, ['e1', 'e2']);
+      assert.strictEqual(body.note, 'batch ack');
+    } finally { stub.restore(); }
+  });
+
+  it('api.clinicianInboxExportCsvUrl returns export.csv URL', () => {
+    const url = api.clinicianInboxExportCsvUrl();
+    assert.ok(url.endsWith('/api/v1/clinician-inbox/export.csv'));
+  });
+
+  it('api.careTeamCoverageSummary soft-fails on rejection', async () => {
+    const stub = stubFetch({ detail: 'no' }, 500);
+    try {
+      const out = await api.careTeamCoverageSummary();
+      assert.strictEqual(out, null);
+    } finally { stub.restore(); }
+  });
+
+  it('api.careTeamCoverageOncallNow soft-fails on rejection', async () => {
+    const stub = stubFetch({ detail: 'no' }, 500);
+    try {
+      const out = await api.careTeamCoverageOncallNow();
+      assert.strictEqual(out, null);
+    } finally { stub.restore(); }
+  });
+
+  it('api.getAgentBrainProviders GETs /agent-brain/providers', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.getAgentBrainProviders();
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/agent-brain/providers'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.writeAgentBrainMemory POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.writeAgentBrainMemory({ key: 'k', value: 'v' });
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/agent-brain/memory'));
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 30. Auto-page worker, escalation policy ────────────────────────────────
+describe('auto-page worker / escalation policy', () => {
+  it('api.autoPageWorkerStatus soft-fails to null', async () => {
+    const stub = stubFetch({ detail: 'no' }, 500);
+    try {
+      const out = await api.autoPageWorkerStatus();
+      assert.strictEqual(out, null);
+    } finally { stub.restore(); }
+  });
+
+  it('api.autoPageWorkerStart POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.autoPageWorkerStart();
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'POST');
+      assert.ok(c.url.includes('/auto-page-worker/start'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.autoPageWorkerStop POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.autoPageWorkerStop();
+      assert.ok(stub.getCaptured().url.includes('/auto-page-worker/stop'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.autoPageWorkerTickOnce POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.autoPageWorkerTickOnce();
+      assert.ok(stub.getCaptured().url.includes('/auto-page-worker/tick-once'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.escalationPolicyDispatchOrder soft-fails', async () => {
+    const stub = stubFetch({ detail: 'no' }, 500);
+    try {
+      const out = await api.escalationPolicyDispatchOrder();
+      assert.strictEqual(out, null);
+    } finally { stub.restore(); }
+  });
+
+  it('api.escalationPolicyTest POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.escalationPolicyTest({ surface: 'x' });
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.escalationPolicySetDispatchOrder POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.escalationPolicySetDispatchOrder({ order: ['a'] });
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 31. Caregiver consent / portal ─────────────────────────────────────────
+describe('caregiver consent / portal', () => {
+  it('api.caregiverConsentListGrants GETs with patient filter', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.caregiverConsentListGrants({ patient_id: 'pt-1' });
+      assert.ok(stub.getCaptured().url.includes('patient_id=pt-1'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.caregiverConsentGetGrant GETs by id', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.caregiverConsentGetGrant('g-1');
+      assert.ok(stub.getCaptured().url.includes('/grants/g-1'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.caregiverConsentCreateGrant POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.caregiverConsentCreateGrant({ patient_id: 'pt-1' });
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.caregiverConsentRevokeGrant POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.caregiverConsentRevokeGrant('g-1', { reason: 'r' });
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'POST');
+      assert.ok(c.url.includes('/g-1/revoke'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.caregiverConsentListByCaregiver GETs', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.caregiverConsentListByCaregiver();
+      assert.ok(stub.getCaptured().url.includes('/list-by-caregiver'));
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 32. Patient digest ─────────────────────────────────────────────────────
+describe('patient digest', () => {
+  it('api.patientDigestSummary GETs without range', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.patientDigestSummary();
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/patient-digest/summary'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.patientDigestSummary attaches range', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.patientDigestSummary('weekly');
+      assert.ok(stub.getCaptured().url.includes('range=weekly'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.patientDigestSections soft-fails to null', async () => {
+    const stub = stubFetch({ detail: 'no' }, 500);
+    try {
+      const out = await api.patientDigestSections('weekly');
+      assert.strictEqual(out, null);
+    } finally { stub.restore(); }
+  });
+
+  it('api.patientDigestSendEmail POSTs', async () => {
+    const stub = stubFetch({ ok: true });
+    try {
+      await api.patientDigestSendEmail({ to: 'a@b.com' });
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.patientDigestExportCsvUrl includes range', () => {
+    const url = api.patientDigestExportCsvUrl('weekly');
+    assert.ok(url.endsWith('/api/v1/patient-digest/export.csv?range=weekly'));
+  });
+});
+
+// ── 33. Cohorts / governance ───────────────────────────────────────────────
+describe('cohorts / governance', () => {
+  it('api.listCohorts GETs', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listCohorts();
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/cohorts'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.listGovernanceRules GETs registry', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listGovernanceRules();
+      assert.ok(stub.getCaptured().url.includes('/registries/governance-rules'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.listDevices GETs registry', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listDevices();
+      assert.ok(stub.getCaptured().url.includes('/registry/devices'));
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 34. Population analytics ───────────────────────────────────────────────
+describe('population analytics', () => {
+  it('api.getPopulationCohortSummary GETs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getPopulationCohortSummary({ condition: 'mdd' });
+      assert.ok(stub.getCaptured().url.includes('/cohorts/summary'));
+      assert.ok(stub.getCaptured().url.includes('condition=mdd'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getPopulationOutcomeTrend GETs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getPopulationOutcomeTrend({});
+      assert.ok(stub.getCaptured().url.includes('/outcomes/trend'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getPopulationAEIncidence GETs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getPopulationAEIncidence();
+      assert.ok(stub.getCaptured().url.includes('/adverse-events/incidence'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getPopulationTreatmentResponse GETs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getPopulationTreatmentResponse();
+      assert.ok(stub.getCaptured().url.includes('/treatment-response'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.logPopulationAnalyticsAudit POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.logPopulationAnalyticsAudit({ surface: 'x' });
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 35. Home program tasks ─────────────────────────────────────────────────
+describe('home program tasks', () => {
+  it('api.listHomeProgramTasks GETs with patientId mapped to patient_id', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listHomeProgramTasks({ patientId: 'pt-1' });
+      assert.ok(stub.getCaptured().url.includes('patient_id=pt-1'));
+      assert.ok(!stub.getCaptured().url.includes('patientId='));
+    } finally { stub.restore(); }
+  });
+
+  it('api.listHomeProgramTaskCompletions GETs with patient_id', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listHomeProgramTaskCompletions({ patient_id: 'pt-1' });
+      assert.ok(stub.getCaptured().url.includes('/home-program-tasks/completions'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.deleteHomeProgramTask DELETEs by id', async () => {
+    const stub = stubFetch(null, 204);
+    try {
+      await api.deleteHomeProgramTask('tk-1');
+      assert.strictEqual(stub.getCaptured().method, 'DELETE');
+    } finally { stub.restore(); }
+  });
+
+  it('api.postHomeProgramAuditAction POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.postHomeProgramAuditAction({ action: 'a' });
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('api.getHomeProgramTaskByServerId GETs by server id', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.getHomeProgramTaskByServerId('uuid-1');
+      assert.ok(stub.getCaptured().url.includes('/by-server-id/uuid-1'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.upsertHomeProgramTask PUTs', async () => {
+    const stub = stubFetch({ id: 'tk-1' });
+    try {
+      await api.upsertHomeProgramTask({ id: 'tk-1', title: 'go' });
+      assert.strictEqual(stub.getCaptured().method, 'PUT');
+    } finally { stub.restore(); }
+  });
+
+  it('api.upsertHomeProgramTask with force=true adds qs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.upsertHomeProgramTask({ id: 'tk-1', title: 'go' }, { force: true });
+      assert.ok(stub.getCaptured().url.includes('force=true'));
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 36. Medical history additional ─────────────────────────────────────────
+describe('medical history — extra', () => {
+  it('api.getPatientMedicalHistory soft-fails to null', async () => {
+    const stub = stubFetch({ detail: 'no' }, 500);
+    try {
+      const out = await api.getPatientMedicalHistory('pt-1');
+      assert.strictEqual(out, null);
+    } finally { stub.restore(); }
+  });
+
+  it('api.getPatientMedicalHistoryAIContext soft-fails to null', async () => {
+    const stub = stubFetch({ detail: 'no' }, 500);
+    try {
+      const out = await api.getPatientMedicalHistoryAIContext('pt-1');
+      assert.strictEqual(out, null);
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 37. Clinic day queue & misc ────────────────────────────────────────────
+describe('clinic day queue / misc', () => {
+  it('api.getClinicDayQueue GETs without date', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.getClinicDayQueue();
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/clinic/day-queue'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.getClinicDayQueue GETs with date', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.getClinicDayQueue('2026-01-01');
+      assert.ok(stub.getCaptured().url.includes('date=2026-01-01'));
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 38. Error handling ─────────────────────────────────────────────────────
+describe('error handling', () => {
+  it('apiFetch throws on 500 with API error message', async () => {
+    const stub = stubFetch({ detail: 'boom' }, 500);
+    try {
+      const e = await expectThrows(api.getPatient('pt-1'));
+      assert.strictEqual(e.status, 500);
+      assert.ok(/API error 500|boom/.test(e.message));
+    } finally { stub.restore(); }
+  });
+
+  it('apiFetch throws on 404 with API error', async () => {
+    const stub = stubFetch({ detail: 'not found' }, 404);
+    try {
+      const e = await expectThrows(api.getPatient('pt-missing'));
+      assert.strictEqual(e.status, 404);
+    } finally { stub.restore(); }
+  });
+
+  it('apiFetch attaches error code and details on JSON error body', async () => {
+    const stub = stubFetch({ message: 'invalid', code: 'INVALID', details: { field: 'x' } }, 400);
+    try {
+      const e = await expectThrows(api.getPatient('pt-1'));
+      assert.strictEqual(e.code, 'INVALID');
+      assert.deepStrictEqual(e.details, { field: 'x' });
+    } finally { stub.restore(); }
+  });
+
+  it('apiFetch returns null on 204 No Content', async () => {
+    const stub = stubFetch(null, 204);
+    try {
+      const out = await api.deletePatient('pt-1');
+      assert.strictEqual(out, null);
+    } finally { stub.restore(); }
+  });
+
+  it('apiFetch propagates network errors as Error{status:0}', async () => {
+    const stub = stubFetchNetworkError('disconnect');
+    try {
+      const e = await expectThrows(api.getPatient('pt-1'));
+      assert.strictEqual(e.status, 0);
+      assert.strictEqual(e.message, 'Network error');
+    } finally { stub.restore(); }
+  });
+
+  it('apiFetchWithRetry surfaces 4xx without retry', async () => {
+    const stub = stubFetch({ detail: 'no' }, 422);
+    try {
+      const e = await expectThrows(api.listPatients());
+      assert.strictEqual(e.status, 422);
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 39. Headers + auth ─────────────────────────────────────────────────────
+describe('request headers', () => {
+  it('attaches Authorization when token is set', async () => {
+    api.setToken('jwt-xxx');
+    const stub = stubFetch({});
+    try {
+      await api.me();
+      const auth = stub.getCaptured().headers.Authorization || stub.getCaptured().headers.authorization;
+      assert.strictEqual(auth, 'Bearer jwt-xxx');
+    } finally { stub.restore(); api.clearToken(); }
+  });
+
+  it('omits Authorization when no token', async () => {
+    api.clearToken();
+    const stub = stubFetch({});
+    try {
+      await api.me();
+      const auth = stub.getCaptured().headers.Authorization || stub.getCaptured().headers.authorization;
+      assert.ok(auth == null);
+    } finally { stub.restore(); }
+  });
+
+  it('sends Content-Type: application/json by default for JSON POST', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.createPatient({ name: 'X' });
+      const ct = stub.getCaptured().headers['Content-Type'];
+      assert.strictEqual(ct, 'application/json');
+    } finally { stub.restore(); }
+  });
+
+  it('does not send Content-Type when body is FormData', async () => {
+    const stub = stubFetch({});
+    try {
+      const fd = new globalThis.FormData();
+      fd.append('file', 'dummy');
+      await api.uploadQEEGRecording(fd);
+      const ct = stub.getCaptured().headers['Content-Type']
+        ?? stub.getCaptured().headers['content-type'];
+      assert.strictEqual(ct, undefined);
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 40. Audio analyze ──────────────────────────────────────────────────────
+describe('audio analyze', () => {
+  it('api.audioAnalyzeRecording POSTs with session_id', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.audioAnalyzeRecording('rec-1', { sessionId: 'ses-1', patientId: 'pt-1' });
+      const url = stub.getCaptured().url;
+      assert.ok(url.includes('/audio/analyze-recording/rec-1'));
+      assert.ok(url.includes('session_id=ses-1'));
+      assert.ok(url.includes('patient_id=pt-1'));
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 41. Scheduled / sundry ─────────────────────────────────────────────────
+describe('scheduled / sundry', () => {
+  it('api.getDeepTwinDataSources GETs', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.getDeepTwinDataSources('pt-1');
+      assert.ok(stub.getCaptured().url.includes('/data-sources'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.createAnalysisRun POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.createAnalysisRun('pt-1', { kind: 'k' });
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'POST');
+      assert.ok(c.url.includes('/analysis-runs'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.listAnalysisRuns GETs', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listAnalysisRuns('pt-1');
+      assert.ok(stub.getCaptured().url.includes('/analysis-runs'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.reviewAnalysisRun POSTs (empty body)', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.reviewAnalysisRun('run-1');
+      const c = stub.getCaptured();
+      assert.strictEqual(c.method, 'POST');
+      assert.ok(c.url.includes('/analysis-runs/run-1/review'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.createSimulationRun POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.createSimulationRun('pt-1', {});
+      assert.ok(stub.getCaptured().url.includes('/simulation-runs'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.listSimulationRuns GETs', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.listSimulationRuns('pt-1');
+      assert.ok(stub.getCaptured().url.includes('/simulation-runs'));
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 42. Module-level surface checks ────────────────────────────────────────
+describe('module-level surface', () => {
+  it('API_BASE is a non-empty http(s) URL', () => {
+    assert.ok(/^https?:\/\//.test(API_BASE));
+  });
+
+  it('api object has expected total method count (>900)', () => {
+    const keys = Object.keys(api);
+    assert.ok(keys.length > 900, `expected >900 keys, got ${keys.length}`);
+  });
+
+  it('protocolStudioRecommend POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.protocolStudioRecommend({ condition: 'mdd' });
+      assert.strictEqual(stub.getCaptured().method, 'POST');
+    } finally { stub.restore(); }
+  });
+
+  it('protocolStudioSimulate POSTs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.protocolStudioSimulate({});
+      assert.ok(stub.getCaptured().url.endsWith('/api/v1/protocol-studio/simulate'));
+    } finally { stub.restore(); }
+  });
+
+  it('protocolStudioPatientContext GETs', async () => {
+    const stub = stubFetch({});
+    try {
+      await api.protocolStudioPatientContext('pt-1');
+      assert.ok(stub.getCaptured().url.includes('/protocol-studio/patients/pt-1/context'));
+    } finally { stub.restore(); }
+  });
+
+  it('protocolStudioProtocols GETs with params', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.protocolStudioProtocols({ q: 'tms' });
+      assert.ok(stub.getCaptured().url.includes('q=tms'));
+    } finally { stub.restore(); }
+  });
+
+  it('protocolStudioEvidenceSearch GETs', async () => {
+    const stub = stubFetch([]);
+    try {
+      await api.protocolStudioEvidenceSearch({ q: 'tms' });
+      assert.ok(stub.getCaptured().url.includes('/protocol-studio/evidence/search'));
+    } finally { stub.restore(); }
+  });
+});
