@@ -89,6 +89,7 @@ jobs:
             --cov-fail-under=${{ env.COV_THRESHOLD_BACKEND }} \
             -o "addopts=" \
             --tb=short --timeout=120 --timeout-method=thread \
+            -n auto \
             -q
       - name: Upload coverage XML
         if: always()
