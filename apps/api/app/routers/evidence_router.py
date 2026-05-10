@@ -49,6 +49,10 @@ from app.auth import (
     require_patient_owner,
 )
 from app.database import get_db_session
+from app.services.consent_enforcement import (
+    require_ai_analysis_consent,
+    ConsentMissingError,
+)
 from app.errors import ApiServiceError
 from app.logging_setup import get_logger
 from app.persistence.models import AssessmentRecord, ClinicalSession, LiteraturePaper, OutcomeSeries, Patient, TreatmentCourse
@@ -3038,3 +3042,33 @@ def search_evidence(
     hits = [_paper_row_to_out(r, include_abstract=include_abstract) for r in ranked]
     _audit("search", actor, q=q, result_count=len(hits))
     return EvidenceSearchOut(query=q, total=len(hits), hits=hits)
+    # CONSENT ENFORCEMENT: ai_analysis (evidence)
+    try:
+        require_ai_analysis_consent(
+            session=db,
+            patient_id=request.patient_id,
+            clinic_id=actor.clinic_id,
+            actor_user_id=actor.user_id,
+            ai_modality="evidence",
+        )
+    except ConsentMissingError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Patient consent required for evidence search.",
+        )
+
+    # CONSENT ENFORCEMENT: ai_analysis (evidence)
+    try:
+        require_ai_analysis_consent(
+            session=db,
+            patient_id=body.patient_id,
+            clinic_id=actor.clinic_id,
+            actor_user_id=actor.user_id,
+            ai_modality="evidence",
+        )
+    except ConsentMissingError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Patient consent required for evidence search.",
+        )
+

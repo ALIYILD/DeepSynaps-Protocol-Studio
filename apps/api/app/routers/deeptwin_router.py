@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -19,6 +19,10 @@ from app.auth import (
     require_patient_owner,
 )
 from app.database import get_db_session
+from app.services.consent_enforcement import (
+    require_ai_analysis_consent,
+    ConsentMissingError,
+)
 from app.errors import ApiServiceError
 from app.persistence.models import (
     AssessmentRecord,
@@ -3143,3 +3147,18 @@ def deeptwin_list_clinician_notes(
         )
         for n in notes
     ]
+    # CONSENT ENFORCEMENT: ai_analysis (deeptwin)
+    try:
+        require_ai_analysis_consent(
+            session=db,
+            patient_id=body.patient_id,
+            clinic_id=actor.clinic_id,
+            actor_user_id=actor.user_id,
+            ai_modality="deeptwin",
+        )
+    except ConsentMissingError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Patient consent required for DeepTwin simulation.",
+        )
+
