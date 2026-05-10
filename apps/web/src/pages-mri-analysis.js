@@ -16,6 +16,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { api, downloadBlob, API_BASE } from './api.js';
 import { ensureAgentBrainStatus } from './agent-brain-status.js';
+import { isDemoSession } from './demo-session.js';
+import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 import { emptyState, showToast } from './helpers.js';
 import { EvidenceChip, createEvidenceQueryForTarget, initEvidenceDrawer, openEvidenceDrawer, wireEvidenceChips } from './evidence-intelligence.js';
 import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
@@ -1386,10 +1388,12 @@ export var DEMO_MRI_REPORT = {
 };
 
 function _mriDemoBanner() {
-  return '<div data-demo="true" data-testid="mri-demo-banner" role="note" class="ds-mri-demo-banner">'
+  const patientName = _report && _report.patient ? _report.patient.name : 'Demo Patient (synthetic)';
+  return DEMO_FIXTURE_BANNER_HTML
+    + '<div data-demo="true" data-testid="mri-demo-banner" role="note" class="ds-mri-demo-banner">'
     + '<span class="ds-mri-demo-banner__icon" aria-hidden="true">&#x1F4CB;</span>'
-    + '<span class="ds-mri-demo-banner__text"><strong>Sample MRI analysis — clinician review required.</strong> '
-    + 'Targets, QC, and literature below reflect <code>DEMO</code> data from <code>sample_mri_report.json</code> — not for clinical use. '
+    + '<span class="ds-mri-demo-banner__text"><strong>[DEMO] ' + esc(patientName) + ' — clinician review required.</strong> '
+    + 'This analysis reflects <code>DEMO</code> data from <code>sample_mri_report.json</code> — not for clinical use. '
     + 'Upload a real DICOM zip or NIfTI and run analysis for live pipeline output.</span></div>';
 }
 
