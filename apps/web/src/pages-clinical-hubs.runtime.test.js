@@ -2252,6 +2252,43 @@ test('pgDocumentsHubNew covers letters generation, draft save, uploads, and file
   }
 });
 
+test('pgDocumentsHubNew drill-in empty state keeps the filter honest and clears cleanly', async () => {
+  const dom = installDomHarness();
+  const originals = {
+    listDocuments: api.listDocuments,
+    getDocumentsSummary: api.getDocumentsSummary,
+    logDocumentsAudit: api.logDocumentsAudit,
+  };
+  const auditEvents = [];
+
+  try {
+    globalThis.window._docsHubTab = 'all';
+    globalThis.window.location.href = 'https://studio.local/?page=documents-v2&source_target_type=course_detail&source_target_id=course-42';
+    globalThis.window.location.search = '?page=documents-v2&source_target_type=course_detail&source_target_id=course-42';
+
+    api.listDocuments = async () => ({ items: [] });
+    api.getDocumentsSummary = async () => ({ total: 0, draft: 0, signed: 0, superseded: 0 });
+    api.logDocumentsAudit = async (payload) => {
+      auditEvents.push(payload);
+      return { ok: true };
+    };
+
+    await pgDocumentsHubNew(() => {}, globalThis.window._nav);
+    assert.match(dom.content.innerHTML, /No documents linked to this treatment course yet\./i);
+    assert.match(dom.content.innerHTML, /In-course session documents land here once attached\./);
+    assert.match(dom.content.innerHTML, /Clear filter/);
+
+    await globalThis.window._docsClearDrillIn();
+    assert.equal(globalThis.window._docsDrillInType, null);
+    assert.equal(globalThis.window._docsDrillInId, null);
+    assert.ok(dom.navCalls.length > 0);
+    assert.equal(auditEvents.at(-1)?.event, 'drill_in_cleared');
+  } finally {
+    Object.assign(api, originals);
+    dom.restore();
+  }
+});
+
 test('pgVirtualCareHub delegates into unified virtual care and renders the live-session empty state', async () => {
   const dom = installDomHarness();
   const originals = {

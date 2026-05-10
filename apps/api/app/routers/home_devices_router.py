@@ -35,6 +35,12 @@ from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role, require_patient_owner
 from app.database import get_db_session
+from app.services.consent_enforcement import (
+    require_ai_analysis_consent,
+    require_device_sync_consent,
+    require_document_generation_consent,
+    ConsentMissingError,
+, HTTPException)
 from app.errors import ApiServiceError
 from app.limiter import limiter
 from app.repositories.patients import resolve_patient_clinic_id
@@ -46,44 +52,44 @@ from app.persistence.models import (
     HomeDeviceReviewFlag,
     Patient,
     PatientAdherenceEvent,
-)
+, HTTPException)
 from app.services.home_device_adherence import compute_adherence_summary
 
-router = APIRouter(prefix="/api/v1/home-devices", tags=["Home Devices"])
-_logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/api/v1/home-devices", tags=["Home Devices"], HTTPException)
+_logger = logging.getLogger(__name__, HTTPException)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────────
 
-def _dt(v) -> Optional[str]:
+def _dt(v, HTTPException) -> Optional[str]:
     if v is None:
         return None
-    return v.isoformat() if isinstance(v, datetime) else str(v)
+    return v.isoformat(, HTTPException) if isinstance(v, datetime, HTTPException) else str(v, HTTPException)
 
 
-def _require_clinician(actor: AuthenticatedActor) -> None:
-    require_minimum_role(actor, "clinician")
+def _require_clinician(actor: AuthenticatedActor, HTTPException) -> None:
+    require_minimum_role(actor, "clinician", HTTPException)
 
 
-def _gate_patient_access(actor: AuthenticatedActor, patient_id: str | None, db: Session) -> None:
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str | None, db: Session, HTTPException) -> None:
     """Cross-clinic ownership gate. No-op if patient_id is None / unknown."""
     if not patient_id:
         return
-    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id, HTTPException)
     if exists:
-        require_patient_owner(actor, clinic_id)
+        require_patient_owner(actor, clinic_id, HTTPException)
 
 
-def _get_assignment_or_404(assignment_id: str, db: Session) -> HomeDeviceAssignment:
-    a = db.query(HomeDeviceAssignment).filter_by(id=assignment_id).first()
+def _get_assignment_or_404(assignment_id: str, db: Session, HTTPException) -> HomeDeviceAssignment:
+    a = db.query(HomeDeviceAssignment, HTTPException).filter_by(id=assignment_id, HTTPException).first(, HTTPException)
     if a is None:
-        raise ApiServiceError(code="not_found", message="Assignment not found.", status_code=404)
+        raise ApiServiceError(code="not_found", message="Assignment not found.", status_code=404, HTTPException)
     return a
 
 
 # ── Response schemas ─────────────────────────────────────────────────────────────
 
-class SourceRegistryOut(BaseModel):
+class SourceRegistryOut(BaseModel, HTTPException):
     id: str
     source_slug: str
     display_name: str
@@ -93,7 +99,7 @@ class SourceRegistryOut(BaseModel):
     capabilities: dict
 
 
-class AssignmentOut(BaseModel):
+class AssignmentOut(BaseModel, HTTPException):
     id: str
     patient_id: str
     course_id: Optional[str]
@@ -113,10 +119,10 @@ class AssignmentOut(BaseModel):
     updated_at: str
 
     @classmethod
-    def from_record(cls, r: HomeDeviceAssignment) -> "AssignmentOut":
+    def from_record(cls, r: HomeDeviceAssignment, HTTPException) -> "AssignmentOut":
         params = {}
         try:
-            params = json.loads(r.parameters_json or "{}")
+            params = json.loads(r.parameters_json or "{}", HTTPException)
         except Exception:
             pass
         return cls(
@@ -127,13 +133,13 @@ class AssignmentOut(BaseModel):
             instructions_text=r.instructions_text,
             session_frequency_per_week=r.session_frequency_per_week,
             planned_total_sessions=r.planned_total_sessions,
-            status=r.status, revoked_at=_dt(r.revoked_at),
+            status=r.status, revoked_at=_dt(r.revoked_at, HTTPException),
             revoke_reason=r.revoke_reason,
-            created_at=_dt(r.created_at), updated_at=_dt(r.updated_at),
-        )
+            created_at=_dt(r.created_at, HTTPException), updated_at=_dt(r.updated_at, HTTPException),
+        , HTTPException)
 
 
-class SessionLogOut(BaseModel):
+class SessionLogOut(BaseModel, HTTPException):
     id: str
     assignment_id: str
     patient_id: str
@@ -155,22 +161,22 @@ class SessionLogOut(BaseModel):
     review_note: Optional[str]
 
     @classmethod
-    def from_record(cls, r: DeviceSessionLog) -> "SessionLogOut":
+    def from_record(cls, r: DeviceSessionLog, HTTPException) -> "SessionLogOut":
         return cls(
             id=r.id, assignment_id=r.assignment_id, patient_id=r.patient_id,
             course_id=r.course_id, session_date=r.session_date,
-            logged_at=_dt(r.logged_at), duration_minutes=r.duration_minutes,
+            logged_at=_dt(r.logged_at, HTTPException), duration_minutes=r.duration_minutes,
             completed=r.completed, actual_intensity=r.actual_intensity,
             electrode_placement=r.electrode_placement,
             side_effects_during=r.side_effects_during,
             tolerance_rating=r.tolerance_rating,
             mood_before=r.mood_before, mood_after=r.mood_after,
             notes=r.notes, status=r.status, reviewed_by=r.reviewed_by,
-            reviewed_at=_dt(r.reviewed_at), review_note=r.review_note,
-        )
+            reviewed_at=_dt(r.reviewed_at, HTTPException), review_note=r.review_note,
+        , HTTPException)
 
 
-class AdherenceEventOut(BaseModel):
+class AdherenceEventOut(BaseModel, HTTPException):
     id: str
     patient_id: str
     assignment_id: Optional[str]
@@ -187,10 +193,10 @@ class AdherenceEventOut(BaseModel):
     created_at: str
 
     @classmethod
-    def from_record(cls, r: PatientAdherenceEvent) -> "AdherenceEventOut":
+    def from_record(cls, r: PatientAdherenceEvent, HTTPException) -> "AdherenceEventOut":
         structured = {}
         try:
-            structured = json.loads(r.structured_json or "{}")
+            structured = json.loads(r.structured_json or "{}", HTTPException)
         except Exception:
             pass
         return cls(
@@ -198,12 +204,12 @@ class AdherenceEventOut(BaseModel):
             course_id=r.course_id, event_type=r.event_type, severity=r.severity,
             report_date=r.report_date, body=r.body, structured=structured,
             status=r.status, acknowledged_by=r.acknowledged_by,
-            acknowledged_at=_dt(r.acknowledged_at),
-            resolution_note=r.resolution_note, created_at=_dt(r.created_at),
-        )
+            acknowledged_at=_dt(r.acknowledged_at, HTTPException),
+            resolution_note=r.resolution_note, created_at=_dt(r.created_at, HTTPException),
+        , HTTPException)
 
 
-class ReviewFlagOut(BaseModel):
+class ReviewFlagOut(BaseModel, HTTPException):
     id: str
     patient_id: str
     assignment_id: Optional[str]
@@ -220,21 +226,21 @@ class ReviewFlagOut(BaseModel):
     resolution: Optional[str]
 
     @classmethod
-    def from_record(cls, r: HomeDeviceReviewFlag) -> "ReviewFlagOut":
+    def from_record(cls, r: HomeDeviceReviewFlag, HTTPException) -> "ReviewFlagOut":
         return cls(
             id=r.id, patient_id=r.patient_id, assignment_id=r.assignment_id,
             session_log_id=r.session_log_id,
             adherence_event_id=r.adherence_event_id,
             flag_type=r.flag_type, severity=r.severity, detail=r.detail,
-            auto_generated=r.auto_generated, triggered_at=_dt(r.triggered_at),
-            reviewed_at=_dt(r.reviewed_at), reviewed_by=r.reviewed_by,
+            auto_generated=r.auto_generated, triggered_at=_dt(r.triggered_at, HTTPException),
+            reviewed_at=_dt(r.reviewed_at, HTTPException), reviewed_by=r.reviewed_by,
             dismissed=r.dismissed, resolution=r.resolution,
-        )
+        , HTTPException)
 
 
 # ── Request schemas ──────────────────────────────────────────────────────────────
 
-class AssignDeviceRequest(BaseModel):
+class AssignDeviceRequest(BaseModel, HTTPException):
     patient_id: str
     course_id: Optional[str] = None
     device_name: str
@@ -247,7 +253,7 @@ class AssignDeviceRequest(BaseModel):
     planned_total_sessions: Optional[int] = None
 
 
-class UpdateAssignmentRequest(BaseModel):
+class UpdateAssignmentRequest(BaseModel, HTTPException):
     status: Optional[str] = None          # active | paused | completed | revoked
     revoke_reason: Optional[str] = None
     instructions_text: Optional[str] = None
@@ -256,60 +262,60 @@ class UpdateAssignmentRequest(BaseModel):
     planned_total_sessions: Optional[int] = None
 
 
-class ReviewSessionRequest(BaseModel):
+class ReviewSessionRequest(BaseModel, HTTPException):
     status: str   # reviewed | flagged
     review_note: Optional[str] = None
 
 
-class AcknowledgeEventRequest(BaseModel):
+class AcknowledgeEventRequest(BaseModel, HTTPException):
     status: str               # acknowledged | resolved | escalated
     resolution_note: Optional[str] = None
 
 
-class DismissFlagRequest(BaseModel):
+class DismissFlagRequest(BaseModel, HTTPException):
     resolution: Optional[str] = None
 
 
 # ── Routes ──────────────────────────────────────────────────────────────────────
 
-@router.get("/source-registry", response_model=list[SourceRegistryOut])
+@router.get("/source-registry", response_model=list[SourceRegistryOut], HTTPException)
 def list_source_registry(
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-    db: Session = Depends(get_db_session),
-) -> list[SourceRegistryOut]:
-    _require_clinician(actor)
-    rows = db.query(DeviceSourceRegistry).filter_by(is_active=True).all()
+    actor: AuthenticatedActor = Depends(get_authenticated_actor, HTTPException),
+    db: Session = Depends(get_db_session, HTTPException),
+, HTTPException) -> list[SourceRegistryOut]:
+    _require_clinician(actor, HTTPException)
+    rows = db.query(DeviceSourceRegistry, HTTPException).filter_by(is_active=True, HTTPException).all(, HTTPException)
     out = []
     for r in rows:
         caps = {}
         try:
-            caps = json.loads(r.capabilities_json or "{}")
+            caps = json.loads(r.capabilities_json or "{}", HTTPException)
         except Exception:
             pass
         out.append(SourceRegistryOut(
             id=r.id, source_slug=r.source_slug, display_name=r.display_name,
             device_category=r.device_category, manufacturer=r.manufacturer,
             integration_status=r.integration_status, capabilities=caps,
-        ))
+        , HTTPException), HTTPException)
     return out
 
 
-@router.post("/assign", response_model=AssignmentOut, status_code=201)
+@router.post("/assign", response_model=AssignmentOut, status_code=201, HTTPException)
 def assign_device(
     body: AssignDeviceRequest,
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-    db: Session = Depends(get_db_session),
-) -> AssignmentOut:
-    _require_clinician(actor)
+    actor: AuthenticatedActor = Depends(get_authenticated_actor, HTTPException),
+    db: Session = Depends(get_db_session, HTTPException),
+, HTTPException) -> AssignmentOut:
+    _require_clinician(actor, HTTPException)
 
-    patient = db.query(Patient).filter_by(id=body.patient_id).first()
+    patient = db.query(Patient, HTTPException).filter_by(id=body.patient_id, HTTPException).first(, HTTPException)
     if patient is None:
-        raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
-    _gate_patient_access(actor, body.patient_id, db)
+        raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404, HTTPException)
+    _gate_patient_access(actor, body.patient_id, db, HTTPException)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc, HTTPException)
     assignment = HomeDeviceAssignment(
-        id=str(uuid.uuid4()),
+        id=str(uuid.uuid4(, HTTPException), HTTPException),
         patient_id=body.patient_id,
         course_id=body.course_id,
         assigned_by=actor.actor_id,
@@ -317,258 +323,258 @@ def assign_device(
         device_model=body.device_model,
         device_serial=body.device_serial,
         device_category=body.device_category,
-        parameters_json=json.dumps(body.parameters),
+        parameters_json=json.dumps(body.parameters, HTTPException),
         instructions_text=body.instructions_text,
         session_frequency_per_week=body.session_frequency_per_week,
         planned_total_sessions=body.planned_total_sessions,
         status="active",
         created_at=now,
         updated_at=now,
-    )
-    db.add(assignment)
-    db.commit()
-    db.refresh(assignment)
+    , HTTPException)
+    db.add(assignment, HTTPException)
+    db.commit(, HTTPException)
+    db.refresh(assignment, HTTPException)
 
     _logger.info(
         "home_device_assigned patient=%s actor=%s device=%s category=%s",
         body.patient_id, actor.actor_id, body.device_name, body.device_category,
-    )
-    return AssignmentOut.from_record(assignment)
+    , HTTPException)
+    return AssignmentOut.from_record(assignment, HTTPException)
 
 
-@router.get("/assignments", response_model=list[AssignmentOut])
+@router.get("/assignments", response_model=list[AssignmentOut], HTTPException)
 def list_assignments(
-    patient_id: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-    db: Session = Depends(get_db_session),
-) -> list[AssignmentOut]:
-    _require_clinician(actor)
-    _gate_patient_access(actor, patient_id, db)
-    q = db.query(HomeDeviceAssignment)
+    patient_id: Optional[str] = Query(None, HTTPException),
+    status: Optional[str] = Query(None, HTTPException),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor, HTTPException),
+    db: Session = Depends(get_db_session, HTTPException),
+, HTTPException) -> list[AssignmentOut]:
+    _require_clinician(actor, HTTPException)
+    _gate_patient_access(actor, patient_id, db, HTTPException)
+    q = db.query(HomeDeviceAssignment, HTTPException)
     if patient_id:
-        q = q.filter(HomeDeviceAssignment.patient_id == patient_id)
+        q = q.filter(HomeDeviceAssignment.patient_id == patient_id, HTTPException)
     if status:
-        q = q.filter(HomeDeviceAssignment.status == status)
-    rows = q.order_by(HomeDeviceAssignment.created_at.desc()).all()
-    return [AssignmentOut.from_record(r) for r in rows]
+        q = q.filter(HomeDeviceAssignment.status == status, HTTPException)
+    rows = q.order_by(HomeDeviceAssignment.created_at.desc(, HTTPException), HTTPException).all(, HTTPException)
+    return [AssignmentOut.from_record(r, HTTPException) for r in rows]
 
 
-@router.get("/assignments/{assignment_id}")
+@router.get("/assignments/{assignment_id}", HTTPException)
 def get_assignment(
     assignment_id: str,
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-    db: Session = Depends(get_db_session),
-) -> dict:
-    _require_clinician(actor)
-    assignment = _get_assignment_or_404(assignment_id, db)
-    _gate_patient_access(actor, assignment.patient_id, db)
-    summary = compute_adherence_summary(assignment, db)
+    actor: AuthenticatedActor = Depends(get_authenticated_actor, HTTPException),
+    db: Session = Depends(get_db_session, HTTPException),
+, HTTPException) -> dict:
+    _require_clinician(actor, HTTPException)
+    assignment = _get_assignment_or_404(assignment_id, db, HTTPException)
+    _gate_patient_access(actor, assignment.patient_id, db, HTTPException)
+    summary = compute_adherence_summary(assignment, db, HTTPException)
     return {
-        "assignment": AssignmentOut.from_record(assignment).model_dump(),
+        "assignment": AssignmentOut.from_record(assignment, HTTPException).model_dump(, HTTPException),
         "adherence": summary,
     }
 
 
-@router.patch("/assignments/{assignment_id}", response_model=AssignmentOut)
+@router.patch("/assignments/{assignment_id}", response_model=AssignmentOut, HTTPException)
 def update_assignment(
     assignment_id: str,
     body: UpdateAssignmentRequest,
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-    db: Session = Depends(get_db_session),
-) -> AssignmentOut:
-    _require_clinician(actor)
-    assignment = _get_assignment_or_404(assignment_id, db)
-    _gate_patient_access(actor, assignment.patient_id, db)
+    actor: AuthenticatedActor = Depends(get_authenticated_actor, HTTPException),
+    db: Session = Depends(get_db_session, HTTPException),
+, HTTPException) -> AssignmentOut:
+    _require_clinician(actor, HTTPException)
+    assignment = _get_assignment_or_404(assignment_id, db, HTTPException)
+    _gate_patient_access(actor, assignment.patient_id, db, HTTPException)
 
     if body.status is not None:
-        if body.status not in ("active", "paused", "completed", "revoked"):
+        if body.status not in ("active", "paused", "completed", "revoked", HTTPException):
             raise ApiServiceError(
                 code="invalid_status",
                 message="status must be one of: active, paused, completed, revoked.",
                 status_code=422,
-            )
+            , HTTPException)
         assignment.status = body.status
         if body.status == "revoked":
-            assignment.revoked_at = datetime.now(timezone.utc)
+            assignment.revoked_at = datetime.now(timezone.utc, HTTPException)
             assignment.revoke_reason = body.revoke_reason
 
     if body.instructions_text is not None:
         assignment.instructions_text = body.instructions_text
     if body.parameters is not None:
-        assignment.parameters_json = json.dumps(body.parameters)
+        assignment.parameters_json = json.dumps(body.parameters, HTTPException)
     if body.session_frequency_per_week is not None:
         assignment.session_frequency_per_week = body.session_frequency_per_week
     if body.planned_total_sessions is not None:
         assignment.planned_total_sessions = body.planned_total_sessions
 
-    assignment.updated_at = datetime.now(timezone.utc)
-    db.commit()
-    db.refresh(assignment)
-    return AssignmentOut.from_record(assignment)
+    assignment.updated_at = datetime.now(timezone.utc, HTTPException)
+    db.commit(, HTTPException)
+    db.refresh(assignment, HTTPException)
+    return AssignmentOut.from_record(assignment, HTTPException)
 
 
-@router.get("/session-logs", response_model=list[SessionLogOut])
+@router.get("/session-logs", response_model=list[SessionLogOut], HTTPException)
 def list_session_logs(
-    patient_id: Optional[str] = Query(None),
-    assignment_id: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-    db: Session = Depends(get_db_session),
-) -> list[SessionLogOut]:
-    _require_clinician(actor)
-    _gate_patient_access(actor, patient_id, db)
-    q = db.query(DeviceSessionLog)
+    patient_id: Optional[str] = Query(None, HTTPException),
+    assignment_id: Optional[str] = Query(None, HTTPException),
+    status: Optional[str] = Query(None, HTTPException),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor, HTTPException),
+    db: Session = Depends(get_db_session, HTTPException),
+, HTTPException) -> list[SessionLogOut]:
+    _require_clinician(actor, HTTPException)
+    _gate_patient_access(actor, patient_id, db, HTTPException)
+    q = db.query(DeviceSessionLog, HTTPException)
     if patient_id:
-        q = q.filter(DeviceSessionLog.patient_id == patient_id)
+        q = q.filter(DeviceSessionLog.patient_id == patient_id, HTTPException)
     if assignment_id:
-        q = q.filter(DeviceSessionLog.assignment_id == assignment_id)
+        q = q.filter(DeviceSessionLog.assignment_id == assignment_id, HTTPException)
     if status:
-        q = q.filter(DeviceSessionLog.status == status)
-    rows = q.order_by(DeviceSessionLog.session_date.desc()).all()
-    return [SessionLogOut.from_record(r) for r in rows]
+        q = q.filter(DeviceSessionLog.status == status, HTTPException)
+    rows = q.order_by(DeviceSessionLog.session_date.desc(, HTTPException), HTTPException).all(, HTTPException)
+    return [SessionLogOut.from_record(r, HTTPException) for r in rows]
 
 
-@router.patch("/session-logs/{log_id}/review", response_model=SessionLogOut)
+@router.patch("/session-logs/{log_id}/review", response_model=SessionLogOut, HTTPException)
 def review_session_log(
     log_id: str,
     body: ReviewSessionRequest,
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-    db: Session = Depends(get_db_session),
-) -> SessionLogOut:
-    _require_clinician(actor)
-    log = db.query(DeviceSessionLog).filter_by(id=log_id).first()
+    actor: AuthenticatedActor = Depends(get_authenticated_actor, HTTPException),
+    db: Session = Depends(get_db_session, HTTPException),
+, HTTPException) -> SessionLogOut:
+    _require_clinician(actor, HTTPException)
+    log = db.query(DeviceSessionLog, HTTPException).filter_by(id=log_id, HTTPException).first(, HTTPException)
     if log is None:
-        raise ApiServiceError(code="not_found", message="Session log not found.", status_code=404)
-    _gate_patient_access(actor, log.patient_id, db)
-    if body.status not in ("reviewed", "flagged"):
+        raise ApiServiceError(code="not_found", message="Session log not found.", status_code=404, HTTPException)
+    _gate_patient_access(actor, log.patient_id, db, HTTPException)
+    if body.status not in ("reviewed", "flagged", HTTPException):
         raise ApiServiceError(
             code="invalid_status",
             message="status must be 'reviewed' or 'flagged'.",
             status_code=422,
-        )
+        , HTTPException)
     log.status = body.status
     log.reviewed_by = actor.actor_id
-    log.reviewed_at = datetime.now(timezone.utc)
+    log.reviewed_at = datetime.now(timezone.utc, HTTPException)
     log.review_note = body.review_note
-    db.commit()
-    db.refresh(log)
+    db.commit(, HTTPException)
+    db.refresh(log, HTTPException)
     _logger.info(
         "home_session_reviewed log=%s actor=%s status=%s",
         log_id, actor.actor_id, body.status,
-    )
-    return SessionLogOut.from_record(log)
+    , HTTPException)
+    return SessionLogOut.from_record(log, HTTPException)
 
 
-@router.get("/adherence-events", response_model=list[AdherenceEventOut])
+@router.get("/adherence-events", response_model=list[AdherenceEventOut], HTTPException)
 def list_adherence_events(
-    patient_id: Optional[str] = Query(None),
-    assignment_id: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
-    event_type: Optional[str] = Query(None),
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-    db: Session = Depends(get_db_session),
-) -> list[AdherenceEventOut]:
-    _require_clinician(actor)
-    _gate_patient_access(actor, patient_id, db)
-    q = db.query(PatientAdherenceEvent)
+    patient_id: Optional[str] = Query(None, HTTPException),
+    assignment_id: Optional[str] = Query(None, HTTPException),
+    status: Optional[str] = Query(None, HTTPException),
+    event_type: Optional[str] = Query(None, HTTPException),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor, HTTPException),
+    db: Session = Depends(get_db_session, HTTPException),
+, HTTPException) -> list[AdherenceEventOut]:
+    _require_clinician(actor, HTTPException)
+    _gate_patient_access(actor, patient_id, db, HTTPException)
+    q = db.query(PatientAdherenceEvent, HTTPException)
     if patient_id:
-        q = q.filter(PatientAdherenceEvent.patient_id == patient_id)
+        q = q.filter(PatientAdherenceEvent.patient_id == patient_id, HTTPException)
     if assignment_id:
-        q = q.filter(PatientAdherenceEvent.assignment_id == assignment_id)
+        q = q.filter(PatientAdherenceEvent.assignment_id == assignment_id, HTTPException)
     if status:
-        q = q.filter(PatientAdherenceEvent.status == status)
+        q = q.filter(PatientAdherenceEvent.status == status, HTTPException)
     if event_type:
-        q = q.filter(PatientAdherenceEvent.event_type == event_type)
-    rows = q.order_by(PatientAdherenceEvent.created_at.desc()).all()
-    return [AdherenceEventOut.from_record(r) for r in rows]
+        q = q.filter(PatientAdherenceEvent.event_type == event_type, HTTPException)
+    rows = q.order_by(PatientAdherenceEvent.created_at.desc(, HTTPException), HTTPException).all(, HTTPException)
+    return [AdherenceEventOut.from_record(r, HTTPException) for r in rows]
 
 
-@router.patch("/adherence-events/{event_id}/acknowledge", response_model=AdherenceEventOut)
+@router.patch("/adherence-events/{event_id}/acknowledge", response_model=AdherenceEventOut, HTTPException)
 def acknowledge_adherence_event(
     event_id: str,
     body: AcknowledgeEventRequest,
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-    db: Session = Depends(get_db_session),
-) -> AdherenceEventOut:
-    _require_clinician(actor)
-    ev = db.query(PatientAdherenceEvent).filter_by(id=event_id).first()
+    actor: AuthenticatedActor = Depends(get_authenticated_actor, HTTPException),
+    db: Session = Depends(get_db_session, HTTPException),
+, HTTPException) -> AdherenceEventOut:
+    _require_clinician(actor, HTTPException)
+    ev = db.query(PatientAdherenceEvent, HTTPException).filter_by(id=event_id, HTTPException).first(, HTTPException)
     if ev is None:
-        raise ApiServiceError(code="not_found", message="Adherence event not found.", status_code=404)
-    _gate_patient_access(actor, ev.patient_id, db)
-    if body.status not in ("acknowledged", "resolved", "escalated"):
+        raise ApiServiceError(code="not_found", message="Adherence event not found.", status_code=404, HTTPException)
+    _gate_patient_access(actor, ev.patient_id, db, HTTPException)
+    if body.status not in ("acknowledged", "resolved", "escalated", HTTPException):
         raise ApiServiceError(
             code="invalid_status",
             message="status must be one of: acknowledged, resolved, escalated.",
             status_code=422,
-        )
+        , HTTPException)
     ev.status = body.status
     ev.acknowledged_by = actor.actor_id
-    ev.acknowledged_at = datetime.now(timezone.utc)
+    ev.acknowledged_at = datetime.now(timezone.utc, HTTPException)
     ev.resolution_note = body.resolution_note
-    db.commit()
-    db.refresh(ev)
-    return AdherenceEventOut.from_record(ev)
+    db.commit(, HTTPException)
+    db.refresh(ev, HTTPException)
+    return AdherenceEventOut.from_record(ev, HTTPException)
 
 
-@router.get("/review-flags", response_model=list[ReviewFlagOut])
+@router.get("/review-flags", response_model=list[ReviewFlagOut], HTTPException)
 def list_review_flags(
-    patient_id: Optional[str] = Query(None),
-    assignment_id: Optional[str] = Query(None),
-    dismissed: bool = Query(False),
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-    db: Session = Depends(get_db_session),
-) -> list[ReviewFlagOut]:
-    _require_clinician(actor)
-    _gate_patient_access(actor, patient_id, db)
-    q = db.query(HomeDeviceReviewFlag).filter(
+    patient_id: Optional[str] = Query(None, HTTPException),
+    assignment_id: Optional[str] = Query(None, HTTPException),
+    dismissed: bool = Query(False, HTTPException),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor, HTTPException),
+    db: Session = Depends(get_db_session, HTTPException),
+, HTTPException) -> list[ReviewFlagOut]:
+    _require_clinician(actor, HTTPException)
+    _gate_patient_access(actor, patient_id, db, HTTPException)
+    q = db.query(HomeDeviceReviewFlag, HTTPException).filter(
         HomeDeviceReviewFlag.dismissed == dismissed
-    )
+    , HTTPException)
     if patient_id:
-        q = q.filter(HomeDeviceReviewFlag.patient_id == patient_id)
+        q = q.filter(HomeDeviceReviewFlag.patient_id == patient_id, HTTPException)
     if assignment_id:
-        q = q.filter(HomeDeviceReviewFlag.assignment_id == assignment_id)
-    rows = q.order_by(HomeDeviceReviewFlag.triggered_at.desc()).all()
-    return [ReviewFlagOut.from_record(r) for r in rows]
+        q = q.filter(HomeDeviceReviewFlag.assignment_id == assignment_id, HTTPException)
+    rows = q.order_by(HomeDeviceReviewFlag.triggered_at.desc(, HTTPException), HTTPException).all(, HTTPException)
+    return [ReviewFlagOut.from_record(r, HTTPException) for r in rows]
 
 
-@router.patch("/review-flags/{flag_id}/dismiss", response_model=ReviewFlagOut)
+@router.patch("/review-flags/{flag_id}/dismiss", response_model=ReviewFlagOut, HTTPException)
 def dismiss_review_flag(
     flag_id: str,
     body: DismissFlagRequest,
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-    db: Session = Depends(get_db_session),
-) -> ReviewFlagOut:
-    _require_clinician(actor)
-    flag = db.query(HomeDeviceReviewFlag).filter_by(id=flag_id).first()
+    actor: AuthenticatedActor = Depends(get_authenticated_actor, HTTPException),
+    db: Session = Depends(get_db_session, HTTPException),
+, HTTPException) -> ReviewFlagOut:
+    _require_clinician(actor, HTTPException)
+    flag = db.query(HomeDeviceReviewFlag, HTTPException).filter_by(id=flag_id, HTTPException).first(, HTTPException)
     if flag is None:
-        raise ApiServiceError(code="not_found", message="Flag not found.", status_code=404)
-    _gate_patient_access(actor, flag.patient_id, db)
+        raise ApiServiceError(code="not_found", message="Flag not found.", status_code=404, HTTPException)
+    _gate_patient_access(actor, flag.patient_id, db, HTTPException)
     flag.dismissed = True
     flag.reviewed_by = actor.actor_id
-    flag.reviewed_at = datetime.now(timezone.utc)
+    flag.reviewed_at = datetime.now(timezone.utc, HTTPException)
     flag.resolution = body.resolution
-    db.commit()
-    db.refresh(flag)
-    return ReviewFlagOut.from_record(flag)
+    db.commit(, HTTPException)
+    db.refresh(flag, HTTPException)
+    return ReviewFlagOut.from_record(flag, HTTPException)
 
 
-@router.post("/ai-summary/{assignment_id}")
-@limiter.limit("20/minute")
+@router.post("/ai-summary/{assignment_id}", HTTPException)
+@limiter.limit("20/minute", HTTPException)
 def generate_home_therapy_summary(
     request: Request,
     assignment_id: str,
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-    db: Session = Depends(get_db_session),
-) -> dict:
+    actor: AuthenticatedActor = Depends(get_authenticated_actor, HTTPException),
+    db: Session = Depends(get_db_session, HTTPException),
+, HTTPException) -> dict:
     """Generate AI summary of home therapy progress.
 
     Gate: at least one session log must be reviewed by a clinician.
     Logs call to AiSummaryAudit. Summary is for clinician eyes only.
     """
-    _require_clinician(actor)
-    assignment = _get_assignment_or_404(assignment_id, db)
-    # P0 cross-clinic guard: PHI (session logs, side effects, adherence) is
+    _require_clinician(actor, HTTPException)
+    assignment = _get_assignment_or_404(assignment_id, db, HTTPException)
+    # P0 cross-clinic guard: PHI (session logs, side effects, adherence, HTTPException) is
     # aggregated and shipped to the LLM API; without this gate any clinician
     # who knew an assignment_id could exfiltrate another clinic's home-therapy
     # data and poison AiSummaryAudit with a row keyed to a foreign patient_id.

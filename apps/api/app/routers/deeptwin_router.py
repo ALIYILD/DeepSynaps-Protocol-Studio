@@ -3230,3 +3230,18 @@ def deeptwin_list_clinician_notes(
         )
         for n in notes
     ]
+    # CONSENT ENFORCEMENT: ai_analysis (deeptwin)
+    try:
+        require_ai_analysis_consent(
+            session=db,
+            patient_id=body.patient_id,
+            clinic_id=actor.clinic_id,
+            actor_user_id=actor.user_id,
+            ai_modality="deeptwin",
+        )
+    except ConsentMissingError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Patient consent required for DeepTwin simulation.",
+        )
+

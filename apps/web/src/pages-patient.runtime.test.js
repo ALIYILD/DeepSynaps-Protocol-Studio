@@ -56,6 +56,7 @@ if (typeof globalThis.fetch === 'undefined') {
 
 const mod = await import('./pages-patient.js');
 const { api } = await import('./api.js');
+const { resetEvidenceUiStatsCache } = await import('./evidence-ui-live.js');
 
 function resetHarness() {
   localStorageShim.clear();
@@ -67,6 +68,7 @@ function resetHarness() {
   window._showNotifToast = (payload) => { window._showNotifToastCalls.push(payload); };
   window._navPatient = (page) => { window._navPatientCalls.push(page); };
   window._ptTicketFilter = 'all';
+  resetEvidenceUiStatsCache();
 }
 
 test('pgPatientTickets covers local draft create, reply, and backend reply branches', async () => {
@@ -208,4 +210,50 @@ test('pgPatientAcademy covers search, filter, modal open, completion, and no-mat
   assert.equal(window._showNotifToastCalls.at(-1).title, 'Saved on this device');
   assert.deepEqual(JSON.parse(localStorage.getItem('ds_pt_academy_completed') || '[]'), ['c2']);
   assert.match(document.getElementById('patient-content').innerHTML, /local: 1 marked/);
+});
+
+test('pgPatientLearn covers backend progress, filtering, article open, and mark-read branches', async () => {
+  resetHarness();
+
+  const originals = {
+    patientPortalLearnProgress: api.patientPortalLearnProgress,
+    patientPortalMarkLearnRead: api.patientPortalMarkLearnRead,
+  };
+
+  api.patientPortalLearnProgress = async () => ({ read_article_ids: ['journal-network-depression'] });
+
+  const markCalls = [];
+  api.patientPortalMarkLearnRead = async (articleId) => {
+    markCalls.push(articleId);
+    return { ok: true };
+  };
+
+  try {
+    await mod.pgPatientLearn();
+    assert.match(document.getElementById('patient-content').innerHTML, /Education Library/);
+    assert.match(document.getElementById('patient-content').innerHTML, /peer-reviewed papers/i);
+    assert.match(document.getElementById('patient-content').innerHTML, /✓ Read/);
+
+    document.getElementById('learn-search').value = 'course';
+    window._learnSearch();
+    assert.match(document.getElementById('patient-content').innerHTML, /Udemy course: neuromodulation basics for patients and families/);
+
+    window._learnCat('Courses');
+    assert.match(document.getElementById('patient-content').innerHTML, /edX mini-course: brain stimulation and plasticity/);
+
+    window._openArticle('udemy-family-course');
+    assert.match(document.body.innerHTML, /Udemy course: neuromodulation basics for patients and families/);
+    assert.match(document.body.innerHTML, /Mark as Read|Already read/);
+
+    window._markArticleRead('udemy-family-course');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(markCalls, ['udemy-family-course']);
+    assert.deepEqual(JSON.parse(localStorage.getItem('ds_read_articles') || '[]').sort(), [
+      'journal-network-depression',
+      'udemy-family-course',
+    ].sort());
+    assert.match(document.getElementById('learn-mark-read-wrap').innerHTML, /Marked as read!/);
+  } finally {
+    Object.assign(api, originals);
+  }
 });

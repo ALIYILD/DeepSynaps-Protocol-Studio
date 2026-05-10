@@ -23,12 +23,18 @@ from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role, require_patient_owner
 from app.database import get_db_session
+from app.services.consent_enforcement import (
+    require_ai_analysis_consent,
+    require_device_sync_consent,
+    require_document_generation_consent,
+    ConsentMissingError,
+, HTTPException)
 from app.repositories.audit import create_audit_event
 from app.repositories.patients import resolve_patient_clinic_id
 from app.repositories.protocol_studio import (
     get_patient_context_record,
     get_patient_data_source_stats,
-)
+, HTTPException)
 from app.schemas.protocol_studio import (
     DataSourceAvailability,
     EvidenceHealthResponse,
@@ -46,7 +52,7 @@ from app.schemas.protocol_studio import (
     ProtocolStudioSimulateRequest,
     ProtocolStudioSimulateResponse,
     RankedProtocolOption,
-)
+, HTTPException)
 from app.services import evidence_rag
 from app.services.pgvector_bridge import HAS_PGVECTOR_RUNTIME, check_pgvector_enabled
 from app.services.protocol_studio_generation import DraftResponse as DraftResponseDict
@@ -59,13 +65,13 @@ from app.services.registries import get_protocol as registry_get_protocol
 from app.services.registries import list_protocols as registry_list_protocols
 from app.settings import get_settings
 
-router = APIRouter(prefix="/api/v1/protocol-studio", tags=["protocol-studio"])
+router = APIRouter(prefix="/api/v1/protocol-studio", tags=["protocol-studio"], HTTPException)
 
 
-# ── Audit helpers (PHI-safe) ──────────────────────────────────────────────────
+# ── Audit helpers (PHI-safe, HTTPException) ──────────────────────────────────────────────────
 
-def _iso_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+def _iso_now(, HTTPException) -> str:
+    return datetime.now(timezone.utc, HTTPException).replace(microsecond=0, HTTPException).isoformat(, HTTPException).replace("+00:00", "Z", HTTPException)
 
 
 def _audit(
@@ -76,7 +82,7 @@ def _audit(
     target_id: str,
     patient_id: str | None = None,
     note: str = "",
-) -> None:
+, HTTPException) -> None:
     # Note MUST remain PHI-safe and bounded; keep it short + structured.
     safe_note = (note or "")[:240]
     create_audit_event(
