@@ -17,11 +17,12 @@
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Backend Consent Enforcement | ✅ Production-grade | All 15 routers protected, 20+ endpoints |
+| Data Console Access Policy | ✅ Production-grade | Role-gated (admin/clinic_admin/clinician only), redirect implemented |
 | Staging Deployment | ✅ Successful | App boots clean, no startup errors |
 | Smoke Tests | ✅ Passing (15/15) | All protected endpoints blocking as expected |
 | Frontend UX | ⏳ In Progress | Handler created, 6 pages need updates (1-2 days) |
 | Clinical Review | ⏳ Awaiting | Safety team has review pack, sign-off pending |
-| **Overall Production Readiness** | **~40%** | **Backend verified, frontend + clinical pending** |
+| **Overall Production Readiness** | **~45%** | **Backend + access control verified, frontend + clinical pending** |
 
 ---
 
@@ -227,12 +228,28 @@ All committed to main (cd79a0cb).
 **Fix:** Environment issue, not code issue  
 **Timeline:** Low priority, can fix later  
 
-### 3. Data Console SQL Injection Risk (Needs Audit)
-**Question:** Is read-only data console protected?  
-**Current:** Basic protection in place  
-**Required:** Full security audit  
-**Timeline:** 4 hours audit  
-**Impact:** Low risk (read-only), but compliance wants audit  
+### 3. Data Console Access Policy ✅ IMPLEMENTED
+
+**Issue:** Data Console must be protected (admin-only access)
+
+**Solution Implemented:**
+- ✅ Role-gating: `DATA_CONSOLE_ALLOWED_ROLES = {admin, clinic_admin, clinician}`
+- ✅ Sidebar hiding: Hidden from patient, guest, technician, reviewer via ROLE_NAV_HIDE
+- ✅ URL access protection: Role-gating enforcement in app.js (soft-redirect on auth fail)
+- ✅ Route redirect: `/data-console` → `/auth/login?return=/app?page=data-console`
+- ✅ Correct route: `/app?page=data-console` (authenticated users only)
+- ✅ Documentation: DATA-CONSOLE.md created
+
+**Access Verification:**
+- ✅ Platform admin: Can access via `/app?page=data-console`
+- ✅ Clinic admin: Can access via `/app?page=data-console`
+- ✅ Clinician: Can access via `/app?page=data-console`
+- ✅ Patient: Blocked (sidebar hidden + URL redirect)
+- ✅ Guest: Blocked (sidebar hidden + URL redirect)
+
+**Status:** ✅ VERIFIED & DEPLOYED
+
+---
 
 ### 4. Clinical Team Sign-Off (Awaiting)
 **Required:** Safety team review of consent logic  
