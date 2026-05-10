@@ -105,7 +105,67 @@ function renderLaunchNotice(title, body, tone) {
 }
 
 function formatSupportedUploadTypes() {
-  return '.edf, .bdf, .vhdr (BrainVision header), .set';
+  return '.edf, .bdf, BrainVision (.vhdr + .vmrk + .eeg), .set + .fdt, .fif';
+}
+
+const QEEG_RAW_IMPORT_FORMATS = [
+  { exts: '.edf / .bdf', label: 'EDF/BDF', note: 'Native raw EEG recordings' },
+  { exts: '.vhdr + .vmrk + .eeg', label: 'BrainVision', note: 'Bundle all three files together' },
+  { exts: '.set + .fdt', label: 'EEGLAB', note: 'EEGLAB exports and derivatives' },
+  { exts: '.fif', label: 'FIF', note: 'MNE-native sessions' },
+];
+
+export function renderQEEGRawFlightDeck(patientId, analysisId) {
+  var recordingCount = Array.isArray(_analyses) ? _analyses.length : 0;
+  var selectedPatient = patientId ? 'Patient selected' : 'Pick a patient first';
+  var selectedAnalysis = analysisId ? 'Recording loaded' : 'No recording loaded';
+  var actionHint = analysisId
+    ? 'Open the raw workbench for the selected recording, then clean before any interpretation.'
+    : 'Start with a patient, upload the raw EEG, and the workbench will open from the same flow.';
+  var importButtons = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'
+    + '<button class="btn btn-sm btn-primary" onclick="window._qeegTab=\'patient\';window._nav(\'qeeg-analysis\')" data-testid="qeeg-flight-upload">Upload Raw EEG</button>'
+    + '<button class="btn btn-sm btn-outline" onclick="window._qeegTab=\'raw\';window._nav(\'qeeg-analysis\')" data-testid="qeeg-flight-raw">Open Raw Workbench</button>'
+    + '<button class="btn btn-sm btn-outline" onclick="window._qeegTab=\'learning\';window._nav(\'qeeg-analysis\')" data-testid="qeeg-flight-learn">Teach / Learn EEG</button>'
+    + (analysisId ? '<button class="btn btn-sm btn-outline" onclick="window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')" data-testid="qeeg-flight-report">Open AI Report</button>' : '')
+    + '</div>';
+  var formatBadges = QEEG_RAW_IMPORT_FORMATS.map(function (item) {
+    return '<span class="qeeg-flight-badge" style="display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:#fff;border:1px solid rgba(29,111,122,0.14);font-size:10px;font-weight:600;color:var(--text-primary)">'
+      + '<span style="color:var(--blue)">' + esc(item.exts) + '</span>'
+      + esc(item.label) + '</span>';
+  }).join('');
+  return card('Raw EEG Flight Deck',
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">'
+      + '<div style="padding:12px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
+        + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--blue)">Import</div>'
+        + '<div style="font-size:13px;line-height:1.55;color:var(--text-secondary);margin-top:6px">Upload the original raw EEG before AI cleaning. DeepSynaps accepts real clinical formats and keeps the raw recording separate from cleaning versions.</div>'
+        + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">' + formatBadges + '</div>'
+        + importButtons
+      + '</div>'
+      + '<div style="padding:12px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
+        + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--teal)">Live status</div>'
+        + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">'
+          + badge(selectedPatient, patientId ? 'var(--green)' : 'var(--amber)')
+          + badge(selectedAnalysis, analysisId ? 'var(--teal)' : 'var(--amber)')
+          + badge(recordingCount + ' sessions', 'var(--blue)')
+        + '</div>'
+        + '<div style="font-size:13px;line-height:1.55;color:var(--text-secondary);margin-top:10px">' + esc(actionHint) + '</div>'
+        + '<div style="margin-top:10px;padding:10px;border-radius:10px;background:rgba(0,212,188,0.06);border:1px solid rgba(0,212,188,0.15);font-size:12px;line-height:1.55;color:var(--text-secondary)">'
+          + 'Clinician review remains required. AI assists with cleaning, summarization, and interpretation support only.'
+        + '</div>'
+      + '</div>'
+      + '<div style="padding:12px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
+        + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--amber)">Workflow</div>'
+        + '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">'
+          + badge('Patient', 'var(--blue)')
+          + badge('Upload raw EEG', 'var(--teal)')
+          + badge('Raw workbench', 'var(--amber)')
+          + badge('AI analysis', 'var(--violet)')
+          + badge('Clinician report', 'var(--green)')
+        + '</div>'
+        + '<div style="font-size:13px;line-height:1.55;color:var(--text-secondary);margin-top:10px">Use the raw workbench to inspect montage, artefact, cleaning, and AI suggestions. Use the analysis tab for quantitative review, report generation, and comparison.</div>'
+      + '</div>'
+    + '</div>'
+  );
 }
 
 function _getContextPatientIdForQEEG() {
@@ -4830,12 +4890,12 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   pageHtml += '<div class="qeeg-hero"' + heroDemoFlag + '>'
     + '<div class="qeeg-hero__icon qeeg-hero__icon--3d">' + render3DBrainMapMini('alpha') + '</div>'
     + '<div><div class="qeeg-hero__title">qEEG Analyzer</div>'
-    + '<div class="qeeg-hero__sub">Spectral analysis &middot; AI interpretation &middot; Pre/post comparison</div>'
-    + '<div style="font-size:12px;color:var(--text-secondary);margin-top:8px;max-width:42rem;line-height:1.5">Continuous raw trace review, montage, and manual cleaning: use <strong>Open Raw Workbench</strong> — same recording, manual-first workflow.</div>'
+    + '<div class="qeeg-hero__sub">Raw EEG import &middot; spectral analysis &middot; AI interpretation &middot; pre/post comparison</div>'
+    + '<div style="font-size:12px;color:var(--text-secondary);margin-top:8px;max-width:46rem;line-height:1.5">Supported imports: <strong>' + esc(formatSupportedUploadTypes()) + '</strong>. Use the raw workbench for montage, cleaning, and teaching EEG before downstream interpretation.</div>'
     + '<div style="font-size:12px;color:var(--text-tertiary);margin-top:6px">Decision-support only. Review acquisition quality and clinician context before acting on AI summaries.</div></div>'
     + '<div class="qeeg-export-bar" style="margin-left:auto" data-testid="qeeg-hero-actions">'
     + '<button class="btn btn-sm btn-outline" aria-label="Open Source Localization viewer for this analysis" id="qeeg-hero-source-loc"' + heroExportDisabled + '>Source localization</button>'
-    + '<button class="btn btn-sm btn-outline" aria-label="Open the canonical Raw EEG Workbench for this recording" id="qeeg-hero-open-workbench"' + heroExportDisabled + '>Open Raw Workbench</button>'
+    + '<button class="btn btn-sm btn-outline" aria-label="Open the raw EEG workspace" id="qeeg-hero-open-workbench">Open Raw Workbench</button>'
     + '<button class="btn btn-sm btn-outline" aria-label="Export band powers and z-scores as CSV" id="qeeg-hero-export-csv"' + heroExportDisabled + '>CSV</button>'
     + '<button class="btn btn-sm btn-outline" aria-label="Export patient FHIR bundle" onclick="window._qeegExportFHIRBundle()"' + heroExportDisabled + '>FHIR</button>'
     + '<button class="btn btn-sm btn-outline" aria-label="Export patient BIDS derivatives package" onclick="window._qeegExportBIDSPackage()"' + heroExportDisabled + '>BIDS</button>'
@@ -4859,6 +4919,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       + (_isDemoPatientId(patientId) ? '<span class="badge" style="margin-left:auto;font-size:11px;font-weight:700;color:var(--amber);background:rgba(251,191,36,0.18);padding:3px 8px;border-radius:12px">Demo patient</span>' : '')
       + '</div>';
   }
+  pageHtml += renderQEEGRawFlightDeck(patientId, heroAnalysisId);
   pageHtml += renderPatientSelector(_patients, patientId);
   pageHtml += renderTabBar(tab);
   pageHtml += '<div id="ds-medical-image-card-qeeg-analysis" style="margin:12px 0 16px"></div>';
@@ -4911,23 +4972,13 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   }
   var _heroOpenBtn = document.getElementById('qeeg-hero-open-workbench');
   if (_heroOpenBtn) {
+    _heroOpenBtn.title = heroAnalysisId
+      ? 'Open the raw EEG workbench for this recording'
+      : 'Open the raw EEG workspace and choose a recording';
     _heroOpenBtn.addEventListener('click', function () {
-      if (!heroAnalysisId) {
-        showToast('Select or upload a recording first', 'warning');
-        return;
-      }
-      _qeegAudit('open_raw_workbench', { analysis_id: heroAnalysisId });
-      // Use the canonical helper if it has been wired by the raw tab, else
-      // do the navigation inline so this works from any tab.
-      if (typeof window._qeegOpenWorkbench === 'function') {
-        window._qeegOpenWorkbench(heroAnalysisId, heroIsDemo ? 'demo' : 'real');
-        return;
-      }
-      var hash = '#/qeeg-raw-workbench/' + encodeURIComponent(heroAnalysisId)
-        + '?mode=' + encodeURIComponent(heroIsDemo ? 'demo' : 'real')
-        + '&from=analyzer';
-      window.location.hash = hash;
-      if (typeof window._nav === 'function') window._nav('qeeg-raw-workbench');
+      _qeegAudit('open_raw_workbench', { analysis_id: heroAnalysisId || null, note: heroAnalysisId ? 'selected' : 'no-selection' });
+      window._qeegTab = 'raw';
+      if (typeof window._nav === 'function') window._nav('qeeg-analysis');
     });
   }
   var _heroCsvBtn = document.getElementById('qeeg-hero-export-csv');

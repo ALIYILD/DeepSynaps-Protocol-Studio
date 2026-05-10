@@ -41,7 +41,13 @@ const STEP_TOOLTIPS = [
   'Monitor analysis processing stages',
   'View and print the final qEEG report',
 ];
-const ACCEPTED_EXTENSIONS = ['.edf', '.edf+', '.bdf', '.bdf+', '.fif'];
+const ACCEPTED_EXTENSIONS = ['.edf', '.bdf', '.vhdr', '.vmrk', '.eeg', '.set', '.fdt', '.fif'];
+const RAW_FORMAT_GUIDE = [
+  { exts: '.edf / .bdf', title: 'EDF / BDF', detail: 'Native continuous raw EEG recordings from common clinical amplifiers.' },
+  { exts: '.vhdr + .vmrk + .eeg', title: 'BrainVision bundle', detail: 'Upload the header, marker, and binary EEG files from the same recording.' },
+  { exts: '.set + .fdt', title: 'EEGLAB export', detail: 'Useful when the dataset was prepared in EEGLAB or exported from another pipeline.' },
+  { exts: '.fif', title: 'FIF / MNE', detail: 'MNE-native recordings and derivatives.' },
+];
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB
 const CONDITIONS = ['Eyes Open', 'Eyes Closed', 'Task', 'Hyperventilation', 'Photic', 'Sleep', 'Custom'];
 const CONDITION_TO_BACKEND_ENUM = {
@@ -642,6 +648,12 @@ function _renderStep2() {
 function _renderStep3() {
   let html = '<div class="qeeg-uw-step3">';
   html += '<h4 style="font-size:14px;font-weight:600;margin:0 0 12px;color:var(--text-primary)">Upload EEG Files</h4>';
+  html += '<div style="margin-bottom:12px;padding:12px 14px;border-radius:10px;background:rgba(29,111,122,0.08);border:1px solid rgba(29,111,122,0.18);font-size:12px;line-height:1.55;color:var(--text-secondary)">'
+    + '<strong style="color:var(--text-primary)">Raw EEG first.</strong> Upload the original recording before any AI cleaning. DeepSynaps accepts real clinical formats including EDF, BDF, BrainVision bundles, EEGLAB exports, and FIF.'
+    + '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">'
+    + RAW_FORMAT_GUIDE.map(item => '<span class="badge" style="display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:#fff;border:1px solid rgba(29,111,122,0.15);color:var(--text-primary);font-size:10px;font-weight:600"><span style="color:var(--blue)">' + esc(item.exts) + '</span>' + esc(item.title) + '</span>').join('')
+    + '</div>'
+    + '</div>';
 
   // Dropzone
   html += '<div class="qeeg-uw-dropzone' + (_uwDragOver ? ' qeeg-uw-dropzone--dragover' : '') + '"'
@@ -658,12 +670,11 @@ function _renderStep3() {
   if (_uwFileQueue.length === 0) {
     html += '<div class="qeeg-uw-format-guide">'
       + '<div class="qeeg-uw-format-guide__title">Supported EEG Systems</div>'
-      + '<div class="qeeg-uw-format-guide__row"><span class="qeeg-uw-format-guide__ext">.edf</span> European Data Format &mdash; BioSemi, Nihon Kohden, Natus, Compumedics</div>'
-      + '<div class="qeeg-uw-format-guide__row"><span class="qeeg-uw-format-guide__ext">.bdf</span> BioSemi Data Format &mdash; BioSemi ActiveTwo</div>'
-      + '<div class="qeeg-uw-format-guide__row"><span class="qeeg-uw-format-guide__ext">.vhdr</span> BrainVision &mdash; Brain Products actiCHamp, LiveAmp</div>'
-      + '<div class="qeeg-uw-format-guide__row"><span class="qeeg-uw-format-guide__ext">.set</span> EEGLAB &mdash; Any system exported via EEGLAB</div>'
-      + '<div class="qeeg-uw-format-guide__row"><span class="qeeg-uw-format-guide__ext">.mff</span> MFF format &mdash; EGI/Philips Geodesic</div>'
-      + '<div class="qeeg-uw-format-guide__row"><span class="qeeg-uw-format-guide__ext">.cnt</span> Neuroscan &mdash; Compumedics Neuroscan</div>'
+      + '<div class="qeeg-uw-format-guide__row"><span class="qeeg-uw-format-guide__ext">.edf</span> European Data Format &mdash; common clinical raw EEG</div>'
+      + '<div class="qeeg-uw-format-guide__row"><span class="qeeg-uw-format-guide__ext">.bdf</span> BioSemi Data Format &mdash; 24-bit EDF variant</div>'
+      + '<div class="qeeg-uw-format-guide__row"><span class="qeeg-uw-format-guide__ext">.vhdr + .vmrk + .eeg</span> BrainVision bundle &mdash; upload the full set together</div>'
+      + '<div class="qeeg-uw-format-guide__row"><span class="qeeg-uw-format-guide__ext">.set + .fdt</span> EEGLAB export &mdash; compatible derived raw data</div>'
+      + '<div class="qeeg-uw-format-guide__row"><span class="qeeg-uw-format-guide__ext">.fif</span> MNE / FIF &mdash; preprocessed or canonical raw sessions</div>'
       + '</div>';
   }
 
