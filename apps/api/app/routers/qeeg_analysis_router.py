@@ -26,6 +26,10 @@ from app.auth import (
 )
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.services.consent_enforcement import (
+    require_ai_analysis_consent,
+    ConsentMissingError,
+)
 from app.limiter import limiter
 from app.persistence.models import (
     AiSummaryAudit,
@@ -848,6 +852,12 @@ async def analyze_edf(
     if analysis.analysis_status == "completed":
         return AnalysisOut.from_record(analysis)
 
+    # Enforce ai_analysis consent
+    try:
+        require_ai_analysis_consent(db, analysis.patient_id, actor, ai_modality="qeeg")
+    except ConsentMissingError:
+        raise ApiServiceError(code="consent_missing", message="ai_analysis consent required", status_code=403)
+
     # Update status with step indicator
     analysis.analysis_status = "processing:loading"
     db.commit()
@@ -1045,6 +1055,14 @@ async def analyze_edf_mne(
     analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
     if not analysis:
         raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    # Enforce ai_analysis consent
+    try:
+        require_ai_analysis_consent(db, analysis.patient_id, actor, ai_modality="qeeg")
+    except ConsentMissingError:
+        raise ApiServiceError(code="consent_missing", message="ai_analysis consent required", status_code=403)
 
     analysis.analysis_status = "processing:mne_pipeline"
     analysis.analysis_error = None

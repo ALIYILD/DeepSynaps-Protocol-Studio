@@ -10,7 +10,7 @@ never validated clinical findings.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -24,6 +24,10 @@ from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.limiter import limiter
 from app.repositories.patients import resolve_patient_clinic_id
+from app.services.consent_enforcement import (
+    require_ai_analysis_consent,
+    ConsentMissingError,
+)
 from app.services.openmed import adapter
 from app.services.openmed.schemas import (
     AnalyzeResponse,
@@ -95,6 +99,14 @@ def clinical_text_analyze(
 ) -> AnalyzeResponse:
     require_minimum_role(actor, "clinician")
     _gate_patient_context(actor, payload.patient_id, db)
+    
+    # Enforce ai_analysis consent if patient is specified
+    if payload.patient_id:
+        try:
+            require_ai_analysis_consent(db, payload.patient_id, actor, ai_modality="text")
+        except ConsentMissingError:
+            raise HTTPException(status_code=403, detail="ai_analysis consent required")
+    
     return adapter.analyze(_validated_input(payload))
 
 
@@ -108,6 +120,14 @@ def clinical_text_extract_pii(
 ) -> PIIExtractResponse:
     require_minimum_role(actor, "clinician")
     _gate_patient_context(actor, payload.patient_id, db)
+    
+    # Enforce ai_analysis consent if patient is specified
+    if payload.patient_id:
+        try:
+            require_ai_analysis_consent(db, payload.patient_id, actor, ai_modality="text")
+        except ConsentMissingError:
+            raise HTTPException(status_code=403, detail="ai_analysis consent required")
+    
     return adapter.extract_pii(_validated_input(payload))
 
 
@@ -121,6 +141,14 @@ def clinical_text_deidentify(
 ) -> DeidentifyResponse:
     require_minimum_role(actor, "clinician")
     _gate_patient_context(actor, payload.patient_id, db)
+    
+    # Enforce ai_analysis consent if patient is specified
+    if payload.patient_id:
+        try:
+            require_ai_analysis_consent(db, payload.patient_id, actor, ai_modality="text")
+        except ConsentMissingError:
+            raise HTTPException(status_code=403, detail="ai_analysis consent required")
+    
     return adapter.deidentify(_validated_input(payload))
 
 
@@ -134,6 +162,14 @@ def clinical_text_analyze_neuromodulation(
 ) -> NeuromodulationExtractResponse:
     require_minimum_role(actor, "clinician")
     _gate_patient_context(actor, payload.patient_id, db)
+    
+    # Enforce ai_analysis consent if patient is specified
+    if payload.patient_id:
+        try:
+            require_ai_analysis_consent(db, payload.patient_id, actor, ai_modality="text")
+        except ConsentMissingError:
+            raise HTTPException(status_code=403, detail="ai_analysis consent required")
+    
     return adapter.analyze_neuromodulation(_validated_input(payload))
 
 

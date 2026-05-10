@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path as FsPath
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, File, Form, Path as PathParam, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Path as PathParam, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -40,6 +40,10 @@ from app.repositories.audit import (
     video_assessment_historical_summary_audit_by_event_id,
 )
 from app.repositories.patients import resolve_patient_clinic_id
+from app.services.consent_enforcement import (
+    require_ai_analysis_consent,
+    ConsentMissingError,
+)
 from app.services import media_storage
 from app.services.video_assessment_seed import (
     PROTOCOL_NAME,
@@ -1287,7 +1291,14 @@ def generate_historical_ai_summary(
     db: Session = Depends(get_db_session),
 ) -> HistoricalSummaryResponse:
     require_minimum_role(actor, "clinician")
-    _, sessions, trend_sessions = _collect_prior_finalized_payload(actor, db, session_id)
+    row, sessions, trend_sessions = _collect_prior_finalized_payload(actor, db, session_id)
+    
+    # Enforce ai_analysis consent for video analysis
+    try:
+        require_ai_analysis_consent(db, row.patient_id, actor, ai_modality="video")
+    except ConsentMissingError:
+        raise HTTPException(status_code=403, detail="ai_analysis consent required")
+    
     selected_set = {str(value).strip() for value in (body.selected_session_ids or []) if str(value).strip()}
     selected_sessions = [item for item in sessions if not selected_set or item.session_id in selected_set]
     selected_trend_sessions = [item for item in trend_sessions if not selected_set or item.session_id in selected_set]

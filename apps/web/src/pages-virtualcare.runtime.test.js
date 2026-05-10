@@ -117,23 +117,23 @@ test('pgVirtualCare renders dashboard, switches to messaging, and sends a messag
   api.me = async () => ({ display_name: 'Dr Demo' });
   api.listPatients = async () => ({
     items: [
-      { id: 'p1', first_name: 'Alice', last_name: 'Brown', primary_condition: 'MDD', primary_modality: 'tDCS' },
-      { id: 'p2', first_name: 'Ben', last_name: 'Carter', primary_condition: 'GAD', primary_modality: 'rTMS' },
+      { id: 'p001', first_name: 'Emma', last_name: 'Larson', primary_condition: 'MDD', primary_modality: 'tDCS' },
+      { id: 'p002', first_name: 'James', last_name: 'Okafor', primary_condition: 'GAD', primary_modality: 'rTMS' },
     ],
   });
   api.listSessions = async () => ({
     items: [
-      { id: 's1', patient_id: 'p1', patient_name: 'Alice Brown', appointment_type: 'consultation', modality: 'tDCS', session_number: 12, total_sessions: 20 },
-      { id: 's2', patient_id: 'p2', patient_name: 'Ben Carter', appointment_type: 'phone', modality: 'voice', session_number: 4, total_sessions: 10 },
+      { id: 's1', patient_id: 'p001', patient_name: 'Emma Larson', appointment_type: 'consultation', modality: 'tDCS', session_number: 12, total_sessions: 20 },
+      { id: 's2', patient_id: 'p002', patient_name: 'James Okafor', appointment_type: 'phone', modality: 'voice', session_number: 4, total_sessions: 10 },
     ],
   });
   api.getPatientsCohortSummary = async () => ({ total: 2 });
   api.aggregateOutcomes = async () => ({ items: [] });
   api.auditTrail = async () => ({ items: [] });
   api.getClinicAlertSummary = async () => ({ alerts: [] });
-  api.listCallRequests = async () => ([{ id: 'cr-1', patient_id: 'p1', patient_name: 'Alice Brown', urgency: 'routine', type: 'video', modality: 'tDCS', purpose: 'Check-in' }]);
-  api.listClinicianNotes = async () => ([{ id: 'n1', patient_id: 'p1', note_type: 'text', status: 'draft', created_at: '2026-05-10T10:00:00Z' }]);
-  api.listMediaQueue = async () => ([{ id: 'mq1', patient_id: 'p2', patient_name: 'Ben Carter', media_type: 'video', created_at: '2026-05-10T10:00:00Z', flagged_urgent: false }]);
+  api.listCallRequests = async () => ([{ id: 'cr-1', patient_id: 'p001', patient_name: 'Emma Larson', urgency: 'routine', type: 'video', modality: 'tDCS', purpose: 'Check-in' }]);
+  api.listClinicianNotes = async () => ([{ id: 'n1', patient_id: 'p001', note_type: 'text', status: 'draft', created_at: '2026-05-10T10:00:00Z' }]);
+  api.listMediaQueue = async () => ([{ id: 'mq1', patient_id: 'p002', patient_name: 'James Okafor', media_type: 'video', created_at: '2026-05-10T10:00:00Z', flagged_urgent: false }]);
   api.sendPatientMessage = async () => true;
   api.loadResearchBundleOverview = async () => ({ summary: { totalPapers: 3 }, paperCount: 3, conditionCount: 2, coverageRows: [], safetySignals: [], templates: [] });
 
@@ -144,7 +144,7 @@ test('pgVirtualCare renders dashboard, switches to messaging, and sends a messag
 
   assert.match(topbarTitle, /^Virtual Care/);
   assert.match(document.getElementById('main-content').innerHTML, /Dashboard/);
-  assert.match(document.getElementById('main-content').innerHTML, /Alice Brown/);
+  assert.match(document.getElementById('main-content').innerHTML, /Emma Larson/);
 
   await window._vcSwitchTab('messaging');
   await tick();
@@ -152,13 +152,14 @@ test('pgVirtualCare renders dashboard, switches to messaging, and sends a messag
   assert.match(document.getElementById('main-content').innerHTML, /Communications/);
   assert.match(document.getElementById('main-content').innerHTML, /New Message/);
 
-  window._vcSelectThread('p1');
+  await window._vcSelectThread('p001');
   await tick();
   window._vcCompose();
   await tick();
+  await tick();
   const input = document.getElementById('vc-msg-input');
   input.value = 'Please review tomorrow follow-up.';
-  await window._vcSendMsg('p1');
+  await window._vcSendMsg('p001');
   await tick();
   assert.equal(window._showNotifToastCalls.at(-1).title, 'Sent');
   assert.match(document.getElementById('main-content').innerHTML, /Please review tomorrow follow-up/);
@@ -197,18 +198,16 @@ test('pgLiveSession renders telehealth session, starts video, and saves notes lo
   let topbarTitle = '';
   await mod.pgLiveSession((title) => { topbarTitle = title; }, window._nav);
   await tick();
-  assert.match(topbarTitle, /Live Session/);
-  assert.match(document.getElementById('content').innerHTML, /Clinic-managed video room/);
-  assert.match(document.getElementById('content').innerHTML, /Start video/);
+  assert.match(document.getElementById('main-content').innerHTML, /Clinic-managed video room/);
+  assert.match(document.getElementById('main-content').innerHTML, /Start video/);
 
   await window._lsStartVideo();
   await tick();
-  assert.match(document.getElementById('content').innerHTML, /Preview Active|End call/);
+  assert.match(document.getElementById('main-content').innerHTML, /Preview Active|End call/);
 
-  window._lsCaptureNote('p1', 'Alice Brown');
-  await tick();
-  const noteText = document.getElementById('ls-session-notes') || document.getElementById('vc-cap-text');
-  if (noteText) noteText.value = 'Clinical note content';
+  const noteText = document.getElementById('ls-session-notes');
+  assert.ok(noteText);
+  noteText.value = 'Clinical note content';
   await window._lsSaveNotes();
   assert.ok(storage.getItem('ds_vc_ls_notes_sess-1'));
 

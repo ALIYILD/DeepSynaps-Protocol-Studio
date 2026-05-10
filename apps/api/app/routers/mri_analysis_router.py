@@ -56,6 +56,10 @@ from app.persistence.models import (
     QEEGRecord,
 )
 from app.repositories.patients import resolve_patient_clinic_id
+from app.services.consent_enforcement import (
+    require_ai_analysis_consent,
+    ConsentMissingError,
+)
 from app.services.evidence_intelligence import list_saved_citations
 from app.services import mri_pipeline as mri_pipeline_facade
 from app.settings import get_settings
@@ -754,6 +758,12 @@ async def analyze_mri(
     """
     require_minimum_role(actor, "clinician")
     _gate_patient_access(actor, patient_id, db)
+
+    # ── Enforce AI analysis consent before processing patient data
+    try:
+        require_ai_analysis_consent(db, patient_id, actor, ai_modality="mri")
+    except ConsentMissingError:
+        return {"error": "Patient consent required for MRI analysis", "consent_type": "ai_analysis"}, 403
 
     condition_lower = (condition or "").strip().lower()
     if condition_lower not in _VALID_CONDITIONS:
