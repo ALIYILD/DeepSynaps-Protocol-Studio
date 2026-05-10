@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db_session
-from app.auth import require_authenticated_actor, AuthenticatedActor
+from app.auth import get_authenticated_actor, AuthenticatedActor
 from deepsynaps_core_schema import (
     DataSourceInfo,
     DataSourcesResponse,
@@ -21,8 +21,7 @@ from deepsynaps_core_schema import (
     PatientAuditLogResponse,
     AuditEventEntry,
 )
-from app.services.access_control_service import access_control_service
-from app.services.data_console_service import data_console_service
+from app.services.data_console_service import get_available_sources, get_patient_rows, get_patient_data_summary
 
 
 router = APIRouter(
@@ -49,16 +48,15 @@ SAFE_DATA_SOURCES = [
 )
 async def list_data_sources(
     patient_id: str = Query(..., description="Patient ID to filter by"),
-    actor: AuthenticatedActor = Depends(require_authenticated_actor),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> DataSourcesResponse:
     """List available data sources (clinic-scoped, audit-logged)."""
-    access_control_service.require_patient_access(session, actor.clinic_id, patient_id)
-    access_control_service.log_phi_access(
+    require_patient_access(session, actor.user_id, patient_id)
+    log_phi_access(
         session,
-        clinic_id=actor.clinic_id,
+        actor_user_id=actor.user_id,
         patient_id=patient_id,
-        actor_id=actor.id,
         action="list_data_sources",
         resource_type="data_console",
     )
@@ -90,19 +88,18 @@ async def list_data_sources(
 async def get_patient_data_summary(
     patient_id: str,
     source_name: str = Query(..., description="Data source name"),
-    actor: AuthenticatedActor = Depends(require_authenticated_actor),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> PatientDataSummary:
     """Get patient data summary (clinic-scoped, audit-logged)."""
     if source_name not in SAFE_DATA_SOURCES:
         raise HTTPException(status_code=400, detail=f"Unknown data source: {source_name}")
 
-    access_control_service.require_patient_access(session, actor.clinic_id, patient_id)
-    access_control_service.log_phi_access(
+    require_patient_access(session, actor.user_id, patient_id)
+    log_phi_access(
         session,
-        clinic_id=actor.clinic_id,
+        actor_user_id=actor.user_id,
         patient_id=patient_id,
-        actor_id=actor.id,
         action="view_data_summary",
         resource_type="data_console",
     )
@@ -125,19 +122,18 @@ async def get_patient_data_rows(
     table_name: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    actor: AuthenticatedActor = Depends(require_authenticated_actor),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> PatientRowsResponse:
     """Get patient data rows (clinic-scoped, masked, audit-logged)."""
     if table_name not in SAFE_DATA_SOURCES:
         raise HTTPException(status_code=400, detail=f"Unknown table: {table_name}")
 
-    access_control_service.require_patient_access(session, actor.clinic_id, patient_id)
-    access_control_service.log_phi_access(
+    require_patient_access(session, actor.user_id, patient_id)
+    log_phi_access(
         session,
-        clinic_id=actor.clinic_id,
+        actor_user_id=actor.user_id,
         patient_id=patient_id,
-        actor_id=actor.id,
         action="view_data_rows",
         resource_type="data_console",
     )
@@ -171,16 +167,15 @@ async def get_patient_data_rows(
 async def get_data_console_audit_log(
     patient_id: str,
     days: int = Query(30, ge=1, le=365),
-    actor: AuthenticatedActor = Depends(require_authenticated_actor),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> PatientAuditLogResponse:
     """Get audit trail (clinic-scoped, audit-logged)."""
-    access_control_service.require_patient_access(session, actor.clinic_id, patient_id)
-    access_control_service.log_phi_access(
+    require_patient_access(session, actor.user_id, patient_id)
+    log_phi_access(
         session,
-        clinic_id=actor.clinic_id,
+        actor_user_id=actor.user_id,
         patient_id=patient_id,
-        actor_id=actor.id,
         action="view_data_audit_log",
         resource_type="data_console",
     )

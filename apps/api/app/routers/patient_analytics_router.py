@@ -10,7 +10,8 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db_session
-from app.auth import require_authenticated_actor, AuthenticatedActor
+from app.auth import get_authenticated_actor, AuthenticatedActor
+from app.services.access_control_service import require_patient_access, log_phi_access
 from deepsynaps_core_schema import (
     AIAnalyticsSummary,
     DataAssetSummary,
@@ -25,7 +26,6 @@ from deepsynaps_core_schema import (
     RiskFlagDetail,
     SignalCount,
 )
-from app.services.access_control_service import access_control_service
 
 
 router = APIRouter(
@@ -42,16 +42,15 @@ router = APIRouter(
 )
 async def get_patient_analytics_summary(
     patient_id: str,
-    actor: AuthenticatedActor = Depends(require_authenticated_actor),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> PatientAnalyticsSummary:
     """Get patient analytics summary (clinic-scoped, audit-logged)."""
-    access_control_service.require_patient_access(session, actor.clinic_id, patient_id)
-    access_control_service.log_phi_access(
+    require_patient_access(session, actor.user_id, patient_id)
+    log_phi_access(
         session,
-        clinic_id=actor.clinic_id,
+        actor_user_id=actor.user_id,
         patient_id=patient_id,
-        actor_id=actor.id,
         action="view_analytics_summary",
         resource_type="patient_analytics",
     )
@@ -81,16 +80,15 @@ async def get_patient_analytics_summary(
 async def get_patient_analytics_timeline(
     patient_id: str,
     limit: int = Query(50, ge=1, le=200),
-    actor: AuthenticatedActor = Depends(require_authenticated_actor),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> PatientTimelineResponse:
     """Get patient timeline (clinic-scoped, audit-logged)."""
-    access_control_service.require_patient_access(session, actor.clinic_id, patient_id)
-    access_control_service.log_phi_access(
+    require_patient_access(session, actor.user_id, patient_id)
+    log_phi_access(
         session,
-        clinic_id=actor.clinic_id,
+        actor_user_id=actor.user_id,
         patient_id=patient_id,
-        actor_id=actor.id,
         action="view_analytics_timeline",
         resource_type="patient_analytics",
     )
@@ -121,16 +119,15 @@ async def get_patient_analytics_timeline(
 async def get_patient_analytics_audit_log(
     patient_id: str,
     days: int = Query(30, ge=1, le=365),
-    actor: AuthenticatedActor = Depends(require_authenticated_actor),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> PatientAuditLogResponse:
     """Get audit trail for patient PHI access (clinic-scoped, audit-logged)."""
-    access_control_service.require_patient_access(session, actor.clinic_id, patient_id)
-    access_control_service.log_phi_access(
+    require_patient_access(session, actor.user_id, patient_id)
+    log_phi_access(
         session,
-        clinic_id=actor.clinic_id,
+        actor_user_id=actor.user_id,
         patient_id=patient_id,
-        actor_id=actor.id,
         action="view_analytics_audit_log",
         resource_type="patient_analytics",
     )
@@ -162,16 +159,15 @@ async def get_patient_analytics_audit_log(
 )
 async def get_patient_analytics_signals(
     patient_id: str,
-    actor: AuthenticatedActor = Depends(require_authenticated_actor),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> PatientSignalsResponse:
     """Get patient safety signals (clinic-scoped, audit-logged)."""
-    access_control_service.require_patient_access(session, actor.clinic_id, patient_id)
-    access_control_service.log_phi_access(
+    require_patient_access(session, actor.user_id, patient_id)
+    log_phi_access(
         session,
-        clinic_id=actor.clinic_id,
+        actor_user_id=actor.user_id,
         patient_id=patient_id,
-        actor_id=actor.id,
         action="view_analytics_signals",
         resource_type="patient_analytics",
     )
