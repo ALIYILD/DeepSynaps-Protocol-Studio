@@ -15,6 +15,7 @@
 // the Fly API being online.
 // ─────────────────────────────────────────────────────────────────────────────
 import { api, downloadBlob, API_BASE } from './api.js';
+import { handleAPIError as handleConsentError, renderConsentStatusBadge, disableRunButton, enableRunButton } from './consent-error-handler.js';
 import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { emptyState, showToast } from './helpers.js';
 import { EvidenceChip, createEvidenceQueryForTarget, initEvidenceDrawer, openEvidenceDrawer, wireEvidenceChips } from './evidence-intelligence.js';
@@ -3057,11 +3058,18 @@ async function _handleFile(file, navigate) {
     _uploadId = (resp && resp.upload_id) || null;
     showToast('Upload complete (' + esc(file.name) + ')', 'success');
   } catch (err) {
-    if (_isDemoMode()) {
-      _uploadId = 'demo-' + Date.now();
-      showToast('Demo mode: using synthetic upload id', 'info');
+    // Check if this is a consent denial (403)
+    const { isConsent, html, message } = handleConsentError(err, 'MRI Analysis');
+    if (isConsent) {
+      showToast(message, 'error');
+      if (statusEl) statusEl.innerHTML = html;
     } else {
-      showToast('Upload failed: ' + (err && err.message ? err.message : err), 'error');
+      if (_isDemoMode()) {
+        _uploadId = 'demo-' + Date.now();
+        showToast('Demo mode: using synthetic upload id', 'info');
+      } else {
+        showToast('Upload failed: ' + (err && err.message ? err.message : err), 'error');
+      }
     }
   }
   navigate('mri-analysis');

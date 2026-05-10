@@ -6,6 +6,7 @@
 
 import { spinner } from './helpers.js';
 import { api, API_BASE } from './api.js';
+import { handleAPIError as handleConsentError, renderConsentStatusBadge, disableRunButton, enableRunButton } from './consent-error-handler.js';
 
 /* ── Design-v2 tokens (matches pages-brainmap.js pattern) ─────────────────── */
 const T = {

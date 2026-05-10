@@ -1,4 +1,5 @@
 import { api } from './api.js';
+import { handleAPIError as handleConsentError, renderConsentStatusBadge, disableRunButton, enableRunButton } from './consent-error-handler.js';
 
 /* ── Helpers ───────────────────────────────────────────────────────────────── */
 function esc(v) { return v == null ? '' : String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }

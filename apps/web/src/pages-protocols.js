@@ -10,7 +10,8 @@ import { EVIDENCE_SUMMARY, EVIDENCE_TOTAL_PAPERS, CONDITION_EVIDENCE, getConditi
 import { renderLiveEvidencePanel } from './live-evidence.js';
 import { renderPersonalizationWizard, bindPersonalizationActions } from './protocol-personalization-wizard.js';
 import { mountMedicalImageCard } from './medical-image-card.js';
-import { api } from './api.js';
+import { api, downloadBlob } from './api.js';
+import { handleAPIError as handleConsentError, renderConsentStatusBadge, disableRunButton, enableRunButton } from './consent-error-handler.js';
 import { ensureAgentBrainStatus } from './agent-brain-status.js';
 
 // Normalise a /api/v1/registry/protocols row into the shape pgProtocolSearch

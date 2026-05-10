@@ -38,6 +38,7 @@ import {
 import { decisionSupportBanner } from './deeptwin/safety.js';
 import { isDemoSession } from './demo-session.js';
 import { ensureAgentBrainStatus } from './agent-brain-status.js';
+import { handleAPIError as handleConsentError, renderConsentStatusBadge, disableRunButton, enableRunButton } from './consent-error-handler.js';
 import { VOICE_DEEPTWIN_DOMAIN_NOTE } from './voice-decision-support.js';
 import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
 import { buildReport, reportToMarkdown, reportToJSONString, downloadBlob, renderReportPreview } from './deeptwin/reports.js';
@@ -364,7 +365,11 @@ function _wireSimulationLab() {
       mountSimulation(HOST_SIM, STATE.scenarios);
       if (detail) detail.innerHTML = renderSimulationDetail(sim);
     } catch (e) {
-      if (detail) detail.innerHTML = errorBlock('Simulation failed: ' + (e.message || e));
+      // Check if this is a consent denial (403)
+      const { isConsent, html, message } = handleConsentError(e, 'DeepTwin Simulation');
+      const errorMsg = isConsent ? html : 'Simulation failed: ' + (e.message || e);
+      if (detail) detail.innerHTML = isConsent ? html : errorBlock(errorMsg);
+      if (isConsent) window._showToast?.(message, 'error');
     }
   };
   document.getElementById('dt-sim-run')?.addEventListener('click', () => run(false));

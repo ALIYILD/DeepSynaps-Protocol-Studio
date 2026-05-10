@@ -10,6 +10,7 @@
 import { api, downloadBlob, API_BASE } from './api.js';
 import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { isDemoSession } from './demo-session.js';
+import { handleAPIError as handleConsentError, renderConsentStatusBadge, disableRunButton, enableRunButton } from './consent-error-handler.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 import { renderBrainMap10_20, renderTopoHeatmap, renderConnectivityMatrix, renderConnectivityBrainMap, renderConnectivityChordLite, renderICAComponents, renderWaveletHeatmap, renderChannelQualityMap, renderAsymmetryMap, renderPowerBarChart, renderTBRBarChart, renderSignalDeviationChart, renderBiomarkerGauges, renderBrodmannTable, render3DBrainMap, render3DBrainMapMini } from './brain-map-svg.js';
 import { emptyState, showToast, spark } from './helpers.js';
@@ -4747,17 +4748,16 @@ async function handleUpload(file, patientId) {
     // Refresh analyses list
     refreshAnalysesList(patientId);
   } catch (err) {
-    const msg = String(err && err.message ? err.message : err || 'Unknown error');
+    // Check if this is a consent denial (403)
+    const { isConsent, html, message } = handleConsentError(err, 'qEEG Analysis');
+    const statusMsg = isConsent ? html : '<div style="color:var(--red);font-size:13px"><strong>Upload failed.</strong><div style="margin-top:4px">' + esc(String(err && err.message ? err.message : err || 'Unknown error')) + '</div></div>';
+    
     if (statusEl) {
       statusEl.setAttribute('role', 'alert');
       statusEl.removeAttribute('aria-live');
-      statusEl.innerHTML = '<div style="color:var(--red);font-size:13px">'
-        + '<strong>Upload failed.</strong>'
-        + '<div style="margin-top:4px">' + esc(msg) + '</div>'
-        + '<div style="margin-top:6px;font-size:12px;color:var(--text-tertiary)">Try refreshing the page. If the error persists, contact support.</div>'
-        + '</div>';
+      statusEl.innerHTML = statusMsg;
     }
-    showToast('Upload failed: ' + msg, 'error');
+    showToast(message || (String(err && err.message ? err.message : err || 'Upload failed')), 'error');
   }
 }
 
