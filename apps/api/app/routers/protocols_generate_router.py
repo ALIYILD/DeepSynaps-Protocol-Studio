@@ -8,9 +8,14 @@ protocol, then layer a structured enrichment block on top. No external AI
 calls are made — all logic is data-driven from the imported CSVs.
 """
 
+<<<<<<< HEAD
 from fastapi import APIRouter, Depends, Request, status
+=======
+from fastapi import APIRouter, Depends, HTTPException, Request
+>>>>>>> 4f0948e7... fix(tests): set valid Fernet keys in conftest to prevent 2FA/wearable test failures
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from sqlalchemy.orm import Session
 
 from deepsynaps_core_schema import (
     BrainScanProtocolRequest,
@@ -22,7 +27,12 @@ from deepsynaps_core_schema import (
 , HTTPException)
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.database import get_db_session
 from app.services.clinical_data import generate_protocol_draft_from_clinical_data
+from app.services.consent_enforcement import (
+    require_document_generation_consent,
+    ConsentMissingError,
+)
 
 router = APIRouter(prefix="", tags=["protocols-generate"], HTTPException)
 limiter = Limiter(key_func=get_remote_address, HTTPException)
@@ -199,6 +209,7 @@ def generate_brain_scan_protocol(
     request: Request,
     body: BrainScanProtocolRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> BrainScanProtocolResponse:
     """Generate a brain-scan-guided protocol draft.
 
@@ -207,6 +218,16 @@ def generate_brain_scan_protocol(
     adjustment logic. No external AI call — data-driven only.
     """
     require_minimum_role(actor, "clinician")
+
+    # ── Enforce document generation consent before processing patient data
+    if body.patient_id and not body.patient_id.lower().startswith("demo"):
+        try:
+            require_document_generation_consent(db, body.patient_id, actor, document_type="protocol")
+        except ConsentMissingError:
+            raise HTTPException(
+                status_code=403,
+                detail={"error": "Patient consent required for protocol generation", "consent_type": "document_generation"}
+            )
 
     modality = _map_scan_to_modality(body.scan_type)
     draft_request = ProtocolDraftRequest(
@@ -244,6 +265,7 @@ def generate_personalized_protocol(
     request: Request,
     body: PersonalizedProtocolRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> PersonalizedProtocolResponse:
     """Generate a patient-personalized protocol draft.
 
@@ -252,6 +274,16 @@ def generate_personalized_protocol(
     scores, chronotype and medication load. No external AI call.
     """
     require_minimum_role(actor, "clinician")
+
+    # ── Enforce document generation consent before processing patient data
+    if body.patient_id and not body.patient_id.lower().startswith("demo"):
+        try:
+            require_document_generation_consent(db, body.patient_id, actor, document_type="protocol")
+        except ConsentMissingError:
+            raise HTTPException(
+                status_code=403,
+                detail={"error": "Patient consent required for protocol generation", "consent_type": "document_generation"}
+            )
 
     draft_request = ProtocolDraftRequest(
         condition=body.condition,

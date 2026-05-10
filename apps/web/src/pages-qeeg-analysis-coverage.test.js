@@ -2146,6 +2146,46 @@ describe('pgQEEGAnalysis — deep render paths via patched api', () => {
     delete window._qeegSelectedReportId;
   });
 
+  it('report tab renders the deterministic fallback banner and printable viewer', async () => {
+    const analysis = _buildRichAnalysisFixture('report-fallback-1');
+    const report = Object.assign(_buildRichReportFixture('report-fallback-1', 'rep-fallback-1'), {
+      source: 'deterministic_stub',
+      model_used: null,
+      model_version: null,
+      ai_narrative: {
+        executive_summary: 'Fallback report narrative.',
+        findings: [],
+        confidence_level: 'low',
+      },
+    });
+    _patchApi({
+      listPatients: async () => [],
+      getPatient: async () => null,
+      getPatientMedicalHistory: async () => null,
+      listPatientQEEGAnalyses: async () => ({ items: [analysis] }),
+      getQEEGAnalysis: async () => null,
+      listQEEGAnalysisReports: async () => ({ reports: [report] }),
+      listEvidenceSavedCitations: async () => [],
+      getFusionRecommendation: async () => null,
+    });
+
+    window._qeegPatientId = 'demo-sarah-johnson';
+    window._qeegSelectedId = 'report-fallback-1';
+    window._qeegSelectedReportId = 'rep-fallback-1';
+    window._qeegTab = 'report';
+    await safeAwait(mod.pgQEEGAnalysis(() => {}, () => {}));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const tab = document.getElementById('qeeg-tab-content');
+    const html = (tab && tab.innerHTML) || '';
+    assert.match(html, /AI interpretation unavailable/);
+    assert.match(html, /Report Side Panel/);
+    assert.match(html, /Print HTML Report/);
+    delete window._qeegPatientId;
+    delete window._qeegSelectedId;
+    delete window._qeegSelectedReportId;
+  });
+
   it('report tab: renders the no-report workflow and generate action', async () => {
     const analysis = _buildRichAnalysisFixture('report-empty-1');
     let generateArgs = null;
