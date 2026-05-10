@@ -115,6 +115,68 @@ const QEEG_RAW_IMPORT_FORMATS = [
   { exts: '.fif', label: 'FIF', note: 'MNE-native sessions' },
 ];
 
+function _getQEEGClinicalNextStep(patientId, analysisId) {
+  if (!patientId) {
+    return {
+      title: 'Start with a patient',
+      body: 'Pick or create the patient record before raw EEG import.',
+      action: 'Select patient',
+      tone: 'var(--amber)',
+    };
+  }
+  if (!analysisId) {
+    return {
+      title: 'Upload the raw EEG',
+      body: 'Use the original recording first. Keep the raw file separate from any cleaned derivative.',
+      action: 'Upload raw EEG',
+      tone: 'var(--teal)',
+    };
+  }
+  return {
+    title: 'Open the raw workbench',
+    body: 'Inspect montage, artifact burden, cleaning steps, and readiness before downstream interpretation.',
+    action: 'Open raw workbench',
+    tone: 'var(--green)',
+  };
+}
+
+export function renderQEEGClinicalPathCard(patientId, analysisId) {
+  var next = _getQEEGClinicalNextStep(patientId, analysisId);
+  var checklist = [
+    { label: 'Patient selected', done: !!patientId },
+    { label: 'Raw EEG imported', done: !!analysisId },
+    { label: 'Artifacts reviewed', done: !!analysisId },
+    { label: 'Clinician review', done: !!analysisId },
+  ];
+  return card('Clinical workflow',
+    '<div style="display:grid;grid-template-columns:minmax(220px,1.1fr) minmax(220px,0.9fr);gap:12px">'
+      + '<div style="padding:12px;border-radius:12px;background:rgba(29,111,122,0.08);border:1px solid rgba(29,111,122,0.15)">'
+        + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:' + next.tone + '">Current next step</div>'
+        + '<div style="font-size:16px;font-weight:800;color:var(--text-primary);margin-top:6px">' + esc(next.title) + '</div>'
+        + '<div style="font-size:13px;line-height:1.55;color:var(--text-secondary);margin-top:6px">' + esc(next.body) + '</div>'
+        + '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">'
+          + '<button class="btn btn-sm btn-primary" onclick="window._qeegTab=\'' + (patientId ? (analysisId ? 'raw' : 'patient') : 'patient') + '\';window._nav(\'qeeg-analysis\')" data-testid="qeeg-clinical-next-action">' + esc(next.action) + '</button>'
+          + '<button class="btn btn-sm btn-outline" onclick="window._qeegTab=\'learning\';window._nav(\'qeeg-analysis\')" data-testid="qeeg-clinical-learn">Teach / Learn EEG</button>'
+        + '</div>'
+      + '</div>'
+      + '<div style="padding:12px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
+        + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-secondary)">Clinical gate</div>'
+        + '<div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">'
+          + checklist.map(function (item) {
+            return '<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:' + (item.done ? 'var(--text-primary)' : 'var(--text-secondary)') + '">'
+              + '<span aria-hidden="true" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:999px;background:' + (item.done ? 'rgba(47,107,58,0.16)' : 'rgba(184,116,26,0.12)') + ';border:1px solid ' + (item.done ? 'var(--green)' : 'var(--amber)') + ';color:' + (item.done ? 'var(--green)' : 'var(--amber)') + ';font-size:11px;font-weight:700;line-height:1">' + (item.done ? '&#x2713;' : '&#x25CB;') + '</span>'
+              + '<span>' + esc(item.label) + '</span>'
+              + '</div>';
+          }).join('')
+        + '</div>'
+        + '<div style="margin-top:10px;padding:10px;border-radius:10px;background:rgba(0,212,188,0.06);border:1px solid rgba(0,212,188,0.15);font-size:12px;line-height:1.5;color:var(--text-secondary)">'
+          + 'AI is decision-support only. Raw data, montage, artifact burden, and clinician review remain the gate before any report use.'
+        + '</div>'
+      + '</div>'
+    + '</div>'
+  );
+}
+
 export function renderQEEGRawFlightDeck(patientId, analysisId) {
   var recordingCount = Array.isArray(_analyses) ? _analyses.length : 0;
   var selectedPatient = patientId ? 'Patient selected' : 'Pick a patient first';
@@ -163,6 +225,9 @@ export function renderQEEGRawFlightDeck(patientId, analysisId) {
           + badge('Clinician report', 'var(--green)')
         + '</div>'
         + '<div style="font-size:13px;line-height:1.55;color:var(--text-secondary);margin-top:10px">Use the raw workbench to inspect montage, artefact, cleaning, and AI suggestions. Use the analysis tab for quantitative review, report generation, and comparison.</div>'
+        + '<div style="margin-top:10px;padding:10px;border-radius:10px;background:rgba(29,111,122,0.06);border:1px solid rgba(29,111,122,0.14);font-size:12px;line-height:1.5;color:var(--text-secondary)">'
+          + '<strong style="color:var(--text-primary)">Clinical sequence:</strong> patient → raw import → raw workbench → AI report → clinician sign-off.'
+        + '</div>'
       + '</div>'
     + '</div>'
   );
@@ -4920,6 +4985,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       + '</div>';
   }
   pageHtml += renderQEEGRawFlightDeck(patientId, heroAnalysisId);
+  pageHtml += renderQEEGClinicalPathCard(patientId, heroAnalysisId);
   pageHtml += renderPatientSelector(_patients, patientId);
   pageHtml += renderTabBar(tab);
   pageHtml += '<div id="ds-medical-image-card-qeeg-analysis" style="margin:12px 0 16px"></div>';

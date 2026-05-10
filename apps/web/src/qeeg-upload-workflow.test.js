@@ -366,6 +366,7 @@ test('renderUploadWorkflow advertises real EEG bundle formats', () => {
   assert.match(html, /\.vhdr \+ \.vmrk \+ \.eeg/i);
   assert.match(html, /\.set \+ \.fdt/i);
   assert.match(html, /\.fif/i);
+  assert.match(html, /Clinical import checklist/i);
 });
 
 // ── resetUploadWorkflow ───────────────────────────────────────────────────────

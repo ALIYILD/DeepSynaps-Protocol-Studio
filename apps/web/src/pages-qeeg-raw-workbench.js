@@ -3614,6 +3614,77 @@ function renderQEEGCapabilitiesPanel(state) {
     </div>`;
 }
 
+function _getClinicalNextAction(state) {
+  var readiness = _computeReportReadiness(state);
+  if (!state.cleaningVersion) {
+    return {
+      title: 'Clean the raw recording',
+      detail: 'Start with channel quality, artifact marking, and ICA review before any report generation.',
+      action: 'Save Cleaning Version',
+      tone: '#b8741a',
+    };
+  }
+  if (!readiness.icaReviewed || !readiness.hasFilters) {
+    return {
+      title: 'Review ICA and filters',
+      detail: 'Confirm the artifact removal and filter choices before re-running the analysis.',
+      action: 'Open ICA review',
+      tone: '#1d6f7a',
+    };
+  }
+  if (readiness.readiness !== 'Ready') {
+    return {
+      title: 'Resolve remaining quality flags',
+      detail: 'Check bad channels, rejected segments, and the report readiness score before sign-off.',
+      action: 'Inspect quality',
+      tone: '#b03434',
+    };
+  }
+  return {
+    title: 'Clinician sign-off',
+    detail: 'The cleaning looks ready. Sign off, then generate the qEEG report or compare with another session.',
+    action: 'Sign off',
+    tone: '#2f6b3a',
+  };
+}
+
+function renderClinicalNextActionPanel(state) {
+  var readiness = _computeReportReadiness(state);
+  var next = _getClinicalNextAction(state);
+  var statusItems = [
+    { label: 'Readiness score', value: readiness.score + '/100' },
+    { label: 'Retained data', value: readiness.retain + '%' },
+    { label: 'Bad channels', value: String(readiness.badChCount) },
+    { label: 'ICA reviewed', value: readiness.icaReviewed ? 'Yes' : 'No' },
+  ];
+  return `
+    <div class="qwb-side-section" data-testid="qwb-clinical-next-action">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
+        <h4 style="margin:0">Clinical next step</h4>
+        <span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;border:1px solid ${next.tone};background:${next.tone}18;color:${next.tone};font-size:10px;font-family:var(--qwb-mono)">${esc(readiness.readiness)}</span>
+      </div>
+      <div style="padding:10px 12px;border-radius:10px;background:${next.tone}10;border:1px solid ${next.tone}25">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:${next.tone}">Recommended now</div>
+        <div style="font-size:15px;font-weight:800;color:#1a1a1a;margin-top:5px">${esc(next.title)}</div>
+        <div style="font-size:12px;line-height:1.5;color:#3a3633;margin-top:6px">${esc(next.detail)}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">
+          <button class="qwb-side-btn ai" data-action="save-version">${esc(next.action)}</button>
+          <button class="qwb-side-btn" data-action="open-ica">Open ICA review</button>
+          <button class="qwb-side-btn" data-action="return-report">Generate report</button>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px">
+        ${statusItems.map(function (item) {
+          return '<div class="qwb-card" style="margin-bottom:0;padding:8px">'
+            + '<div style="font-size:10px;color:#6b6660">' + esc(item.label) + '</div>'
+            + '<div style="font-weight:600;font-size:14px;color:#1a1a1a">' + esc(item.value) + '</div>'
+            + '</div>';
+        }).join('')}
+      </div>
+      <div style="margin-top:10px;font-size:10px;color:#6b6660;line-height:1.45">Raw EEG remains the source of truth. The workbench only supports clinician review, cleaning, and downstream report preparation.</div>
+    </div>`;
+}
+
 function renderHelpPanel(state) {
   var r = _computeReportReadiness(state);
   var grade = r.score >= 80 ? 'PASS' : r.score >= 60 ? 'NEEDS REVIEW' : 'BLOCK';
@@ -3631,6 +3702,7 @@ function renderHelpPanel(state) {
     { label: 'Saved cleaned version', done: !!state.cleaningVersion },
   ];
   return `
+    ${renderClinicalNextActionPanel(state)}
     ${renderBandPowerSection(state)}
     ${renderQEEGCapabilitiesPanel(state)}
     <div class="qwb-side-section">

@@ -169,6 +169,21 @@ function _validateFile(file) {
   return { valid: errors.length === 0, errors };
 }
 
+function _uploadWorkflowChecklist() {
+  const names = new Set((_uwFileQueue || []).map((f) => String(f.file?.name || '').toLowerCase()));
+  const hasBrainVision = [...names].some((name) => name.endsWith('.vhdr') || name.endsWith('.vmrk') || name.endsWith('.eeg'));
+  const hasBrainVisionBundle = hasBrainVision
+    ? ['vhdr', 'vmrk', 'eeg'].every((ext) => [...names].some((name) => name.endsWith('.' + ext)))
+    : true;
+  const validFiles = (_uwFileQueue || []).filter((f) => f.status === 'pending' && _validateFile(f.file).valid).length;
+  return [
+    { label: 'Original raw recording uploaded', done: validFiles > 0 },
+    { label: 'BrainVision bundle complete', done: hasBrainVisionBundle },
+    { label: 'Patient context selected', done: !!_uwPatientId },
+    { label: 'Ready for analysis', done: validFiles > 0 && hasBrainVisionBundle },
+  ];
+}
+
 function _conditionToEnum(display) {
   return CONDITION_TO_BACKEND_ENUM[display] || display.toLowerCase().replace(/\s+/g, '_');
 }
@@ -652,6 +667,18 @@ function _renderStep3() {
     + '<strong style="color:var(--text-primary)">Raw EEG first.</strong> Upload the original recording before any AI cleaning. DeepSynaps accepts real clinical formats including EDF, BDF, BrainVision bundles, EEGLAB exports, and FIF.'
     + '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">'
     + RAW_FORMAT_GUIDE.map(item => '<span class="badge" style="display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:#fff;border:1px solid rgba(29,111,122,0.15);color:var(--text-primary);font-size:10px;font-weight:600"><span style="color:var(--blue)">' + esc(item.exts) + '</span>' + esc(item.title) + '</span>').join('')
+    + '</div>'
+    + '</div>';
+
+  html += '<div style="margin-bottom:12px;padding:12px 14px;border-radius:10px;background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.2);font-size:12px;line-height:1.55;color:var(--text-secondary)">'
+    + '<strong style="color:var(--text-primary)">Clinical import checklist.</strong> Upload the raw file, keep bundle files together, and confirm the recording is the one the clinician intends to review.'
+    + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">'
+      + _uploadWorkflowChecklist().map(function (item) {
+        return '<span class="badge" style="display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:#fff;border:1px solid rgba(255,181,71,0.25);color:var(--text-primary);font-size:10px;font-weight:600">'
+          + '<span style="color:' + (item.done ? 'var(--green)' : 'var(--amber)') + '">' + (item.done ? '&#x2713;' : '&#x25CB;') + '</span>'
+          + esc(item.label)
+          + '</span>';
+      }).join('')
     + '</div>'
     + '</div>';
 

@@ -105,6 +105,10 @@ describe('pages-qeeg-analysis public exports', () => {
     assert.strictEqual(typeof mod.renderQEEGRawFlightDeck, 'function');
   });
 
+  it('exports renderQEEGClinicalPathCard as a function', () => {
+    assert.strictEqual(typeof mod.renderQEEGClinicalPathCard, 'function');
+  });
+
   it('exports TAB_META as an object', () => {
     assert.strictEqual(typeof mod.TAB_META, 'object');
     assert.ok(mod.TAB_META !== null);
@@ -138,6 +142,16 @@ describe('renderQEEGRawFlightDeck', () => {
     const html = mod.renderQEEGRawFlightDeck('patient-1', 'analysis-1');
     assert.match(html, /Open AI Report/);
     assert.match(html, /Recording loaded/);
+  });
+});
+
+describe('renderQEEGClinicalPathCard', () => {
+  it('renders a clearer clinical sequence and next-step action', () => {
+    const html = mod.renderQEEGClinicalPathCard('patient-1', 'analysis-1');
+    assert.match(html, /Clinical workflow/);
+    assert.match(html, /Current next step/);
+    assert.match(html, /Open raw workbench/);
+    assert.match(html, /Clinical gate/);
   });
 });
 

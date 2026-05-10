@@ -254,6 +254,17 @@ await test('Best-Practice tab includes the cleaning quality checklist', () => {
   assert.ok(WORKBENCH_SRC.includes('data-testid="qwb-bp-checklist"'), 'checklist testid');
 });
 
+await test('Best-Practice tab exposes a clearer clinical next-step summary', () => {
+  for (const item of [
+    'Clinical next step',
+    'Recommended now',
+    'Readiness score',
+    'Raw EEG remains the source of truth',
+  ]) {
+    assert.ok(WORKBENCH_SRC.includes(item), 'clinical next-step item: ' + item);
+  }
+});
+
 await test('Audit tab declares the audit-log testid', () => {
   assert.ok(WORKBENCH_SRC.includes('data-testid="qwb-audit-log"'), 'audit-log testid');
 });
