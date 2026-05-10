@@ -20,6 +20,7 @@ import {
   CONDITION_REGISTRY, ASSESSMENT_REGISTRY, PROTOCOL_REGISTRY,
   DEVICE_REGISTRY, BRAIN_TARGET_REGISTRY,
 } from './registries.js';
+import { renderModuleClinicalDisclaimer } from './clinical-disclaimer.js';
 
 /* ── tiny helpers ──────────────────────────────────────────────────────────── */
 const esc = s => String(s == null ? '' : s)
@@ -160,6 +161,7 @@ function _resSourceStrip(stats) {
 function _resWorkspaceHeader(liveEvidence, { shortcuts = false } = {}) {
   return (
     _resClinicalDisclaimerBanner() +
+    renderModuleClinicalDisclaimer('evidence') +
     _resGovernanceBanner() +
     _resBundledDegradedBanner(liveEvidence) +
     _resSourceStrip(liveEvidence) +
