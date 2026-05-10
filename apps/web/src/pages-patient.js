@@ -8247,6 +8247,12 @@ export async function pgPatientMarketplace(_user) {
 function _wireMarketplace(CATALOG) {
   const root = document.querySelector('.mp-wrap');
   if (!root) return;
+  const esc = (v) => {
+    if (v == null) return '';
+    return String(v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
+  };
 
   const toast = document.getElementById('mp-toast');
   const toastText = document.getElementById('mp-toast-text');

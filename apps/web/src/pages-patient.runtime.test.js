@@ -28,6 +28,7 @@ globalThis.Event = dom.window.Event;
 globalThis.HTMLElement = dom.window.HTMLElement;
 globalThis.Node = dom.window.Node;
 globalThis.localStorage = localStorageShim;
+globalThis.FormData = dom.window.FormData;
 globalThis.CSS = globalThis.CSS || {};
 if (!globalThis.CSS.escape) {
   globalThis.CSS.escape = (value) => String(value);
@@ -75,6 +76,7 @@ function resetHarness() {
   document.getElementById('patient-page-title').textContent = '';
   document.getElementById('patient-topbar-actions').textContent = '';
   document.body.querySelectorAll('#pt-acad-modal').forEach((node) => node.remove());
+  document.body.querySelectorAll('#ed-detail-modal, #ed-acad-modal, #mp-details-panel, #mp-seller-panel').forEach((node) => node.remove());
   window._showNotifToastCalls = [];
   window._navPatientCalls = [];
   window._openCalls = [];
@@ -84,6 +86,8 @@ function resetHarness() {
   window._navPatient = (page) => { window._navPatientCalls.push(page); };
   window.open = (...args) => { window._openCalls.push(args); return null; };
   window.prompt = (...args) => { window._promptCalls.push(args); return 'prompt-default'; };
+  window.confirm = () => true;
+  globalThis.confirm = window.confirm;
   globalThis.URL.createObjectURL = () => 'blob:mock';
   globalThis.URL.revokeObjectURL = () => {};
   dom.window.HTMLAnchorElement.prototype.click = function click() {
@@ -92,6 +96,10 @@ function resetHarness() {
   window._ptTicketFilter = 'all';
   setCurrentUser(null);
   resetEvidenceUiStatsCache();
+}
+
+function flushUi() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 test('pgPatientTickets covers local draft create, reply, and backend reply branches', async () => {
@@ -888,6 +896,171 @@ test('pgPatientProfile covers refresh, prefs, password modal, and on-call action
     api.postPatientOncallAuditEvent = originals.postPatientOncallAuditEvent;
     api.patientOncallStatus = originals.patientOncallStatus;
     window.api = originals.windowApi;
+  }
+});
+
+test('pgPatientEducation covers library filters, save state, detail modal, and academy modal branches', async () => {
+  resetHarness();
+
+  await mod.pgPatientEducation();
+  assert.equal(document.getElementById('patient-page-title').textContent, 'Education Library');
+  assert.match(document.getElementById('patient-content').innerHTML, /The Science of Well-Being/);
+
+  window._edKindFilter('course');
+  assert.match(document.getElementById('el-lib-count').textContent, /filtered/);
+
+  window._edTopicFilter('qeeg');
+  assert.match(document.getElementById('patient-content').innerHTML, /What does a qEEG actually measure/);
+
+  window._edSourceFilter('synaps', document.querySelector('#el-sources .el-source-pill[data-source="synaps"]'));
+  assert.equal(document.querySelector('#el-sources .el-source-pill[data-source="synaps"]').classList.contains('active'), true);
+
+  window._edSearch('zzzz-no-match');
+  assert.equal(document.getElementById('el-empty').style.display, '');
+  assert.match(document.getElementById('el-lib-count').textContent, /^0 items/);
+
+  window._edKindFilter('all');
+  window._edTopicFilter('all');
+  window._edSourceFilter('synaps', document.querySelector('#el-sources .el-source-pill[data-source="synaps"]'));
+  window._edSearch('Headspace');
+  assert.match(document.getElementById('patient-content').innerHTML, /Headspace/);
+
+  const saveBtn = document.querySelector('#el-grid .el-card[data-item-id="ap01"] .el-card-saved');
+  const initialSavedCount = Number.parseInt(document.getElementById('el-saved-count').textContent, 10) || 0;
+  window._edToggleSave('ap01', saveBtn);
+  assert.equal(document.getElementById('el-saved-count').textContent, `${initialSavedCount + 1} saved`);
+  assert.equal(JSON.parse(localStorage.getItem('ds_edu_saved') || '[]').includes('ap01'), true);
+
+  window._edOpen('ap01');
+  assert.match(document.body.innerHTML, /Headspace/);
+  assert.match(document.getElementById('ed-detail-modal').innerHTML, /Open/);
+
+  window._edOpen('sv01');
+  assert.equal(document.getElementById('ed-detail-modal') !== null, true);
+
+  window._edAcadFilter('missing');
+  assert.equal(document.getElementById('el-acad-empty').style.display, '');
+  window._edAcadFilter('courses');
+  assert.equal(document.getElementById('el-acad-empty').style.display, 'none');
+  window._edAcadOpen('c6');
+  assert.match(document.body.innerHTML, /Home Device Safety Training/);
+  window._edAcadComplete('c6');
+  assert.equal(window._showNotifToastCalls.at(-1).title, 'Saved on this device');
+  assert.equal(JSON.parse(localStorage.getItem('ds_pt_academy_completed') || '[]').includes('c6'), true);
+});
+
+test('pgPatientMarketplace covers filters, details, external open, seller create, and my listings actions', async () => {
+  resetHarness();
+
+  const originals = {
+    marketplaceItems: api.marketplaceItems,
+    marketplaceSellerCreateItem: api.marketplaceSellerCreateItem,
+    marketplaceSellerMyItems: api.marketplaceSellerMyItems,
+    marketplaceSellerUpdateItem: api.marketplaceSellerUpdateItem,
+    marketplaceSellerDeleteItem: api.marketplaceSellerDeleteItem,
+  };
+  const createCalls = [];
+  const updateCalls = [];
+  const deleteCalls = [];
+
+  api.marketplaceItems = async () => ({
+    items: [
+      {
+        id: 'live-oura',
+        kind: 'product',
+        icon: '💍',
+        tone: 'blue',
+        name: 'Oura Ring Gen 4',
+        provider: 'Oura Health',
+        description: 'Live marketplace item.',
+        price: 349,
+        clinical: false,
+        featured: true,
+        tags: ['Wearable', 'Sleep tracking', 'HRV'],
+        external_url: 'https://example.test/oura',
+      },
+      {
+        id: 'live-book',
+        kind: 'product',
+        icon: '📚',
+        tone: 'amber',
+        name: 'Brain Book',
+        provider: 'DeepSynaps Store',
+        description: 'Brain health reading.',
+        price: 19,
+        clinical: false,
+        featured: false,
+        tags: ['Book', 'Neuroplasticity'],
+        external_url: 'https://example.test/book',
+        seller: { display_name: 'Clinic Seller' },
+      },
+    ],
+  });
+  api.marketplaceSellerCreateItem = async (payload) => {
+    createCalls.push(payload);
+    return { id: 'seller-1' };
+  };
+  api.marketplaceSellerMyItems = async () => ({
+    items: [
+      { id: 'seller-1', name: 'Calm Lamp', provider: 'Clinic Seller', active: true },
+    ],
+  });
+  api.marketplaceSellerUpdateItem = async (id, payload) => {
+    updateCalls.push({ id, payload });
+    return { ok: true };
+  };
+  api.marketplaceSellerDeleteItem = async (id) => {
+    deleteCalls.push(id);
+    return { ok: true };
+  };
+
+  try {
+    await mod.pgPatientMarketplace();
+    assert.equal(document.getElementById('patient-page-title').textContent, 'Marketplace');
+    assert.match(document.getElementById('patient-content').innerHTML, /Real products for your brain health journey/);
+
+    document.querySelector('[data-mp-filter="book"]').click();
+    assert.equal(document.getElementById('mp-section-book').style.display, '');
+    assert.equal(document.getElementById('mp-section-wearable').style.display, 'none');
+
+    document.querySelector('[data-mp-details="live-book"]').click();
+    assert.match(document.body.innerHTML, /Clinic Seller/);
+    document.getElementById('mp-details-close').click();
+
+    document.querySelector('[data-mp-buy="live-oura"]').click();
+    assert.deepEqual(window._openCalls.at(-1), ['https://example.test/oura', '_blank', 'noopener,noreferrer']);
+    assert.equal(document.getElementById('mp-toast-text').textContent, 'Opening Oura Ring Gen 4…');
+
+    document.getElementById('mp-become-seller').click();
+    const sellerForm = document.getElementById('mp-seller-form');
+    sellerForm.querySelector('[name="name"]').value = 'Focus Tracker';
+    sellerForm.querySelector('[name="provider"]').value = 'Clinic Seller';
+    sellerForm.querySelector('[name="description"]').value = 'A wearable for recovery.';
+    sellerForm.querySelector('[name="price"]').value = '42';
+    sellerForm.querySelector('[name="tags"]').value = 'Wearable, Recovery';
+    sellerForm.querySelector('[name="external_url"]').value = 'https://example.test/focus';
+    sellerForm.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
+    await flushUi();
+    assert.equal(createCalls[0].name, 'Focus Tracker');
+    assert.equal(document.getElementById('mp-toast-text').textContent, 'Product listed successfully!');
+
+    document.getElementById('mp-my-listings').click();
+    await flushUi();
+    assert.match(document.body.innerHTML, /Calm Lamp/);
+
+    document.querySelector('.mp-toggle-listing').click();
+    await flushUi();
+    await flushUi();
+    assert.deepEqual(updateCalls[0], { id: 'seller-1', payload: { active: false } });
+
+    document.getElementById('mp-my-listings').click();
+    await flushUi();
+    document.querySelector('.mp-delete-listing').click();
+    await flushUi();
+    await flushUi();
+    assert.equal(deleteCalls[0], 'seller-1');
+  } finally {
+    Object.assign(api, originals);
   }
 });
 
