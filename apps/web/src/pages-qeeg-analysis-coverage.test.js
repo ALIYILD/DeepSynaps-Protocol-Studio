@@ -2460,6 +2460,77 @@ describe('pgQEEGAnalysis — workflow + compare runtime branches', () => {
     delete window._qeegSelectedId;
     delete window._qeegComparisonId;
   });
+
+  it('compare tab creates a comparison from selected analyses and warns on short intervals', async () => {
+    const comparePatientId = 'pt-compare-create';
+    const baseline = Object.assign(_buildRichAnalysisFixture('cmp-create-1'), {
+      patient_id: comparePatientId,
+      analyzed_at: '2026-01-01T10:00:00Z',
+      original_filename: 'baseline.edf',
+    });
+    const followup = Object.assign(_buildRichAnalysisFixture('cmp-create-2'), {
+      patient_id: comparePatientId,
+      analyzed_at: '2026-01-04T10:00:00Z',
+      original_filename: 'followup.edf',
+    });
+    const created = { id: 'cmp-created-1' };
+    let createArgs = null;
+    let routedTo = null;
+    _patchApi({
+      listPatients: async () => [],
+      getPatient: async () => ({ id: comparePatientId, first_name: 'Rhea', last_name: 'Patient' }),
+      getPatientMedicalHistory: async () => null,
+      listPatientQEEGAnalyses: async () => ({ items: [baseline, followup] }),
+      getQEEGAnalysis: async () => followup,
+      getFusionRecommendation: async () => null,
+      createQEEGComparison: async (payload) => {
+        createArgs = payload;
+        return created;
+      },
+    });
+
+    window._nav = (route) => { routedTo = route; };
+    window._qeegPatientId = comparePatientId;
+    window._qeegSelectedId = 'cmp-create-2';
+    window._qeegComparisonId = null;
+    window._qeegTab = 'compare';
+    await safeAwait(mod.pgQEEGAnalysis(() => {}, window._nav));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const baselineSel = document.getElementById('qeeg-baseline-sel');
+    const followupSel = document.getElementById('qeeg-followup-sel');
+    const compareBtn = document.getElementById('qeeg-compare-btn');
+    const status = document.getElementById('qeeg-compare-status');
+    assert.ok(baselineSel, 'baseline selector should render');
+    assert.ok(followupSel, 'follow-up selector should render');
+    assert.ok(compareBtn, 'compare button should render');
+    assert.ok(baselineSel.options.length >= 3, 'baseline selector should list both analyses');
+    assert.ok(followupSel.options.length >= 3, 'follow-up selector should list both analyses');
+    assert.match((status && status.innerHTML) || '', /less than 7 days/i);
+
+    const baselineId = baselineSel.options[1].value;
+    const followupId = followupSel.options[2].value;
+    baselineSel.selectedIndex = 1;
+    followupSel.selectedIndex = 2;
+    baselineSel.dispatchEvent(new window.Event('change', { bubbles: true }));
+    followupSel.dispatchEvent(new window.Event('change', { bubbles: true }));
+    assert.strictEqual(baselineSel.value, baselineId);
+    assert.strictEqual(followupSel.value, followupId);
+    compareBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    assert.deepStrictEqual(createArgs, {
+      baseline_id: baselineId,
+      followup_id: followupId,
+    });
+    assert.strictEqual(window._qeegComparisonId, created.id);
+    assert.strictEqual(routedTo, 'qeeg-analysis');
+
+    delete window._qeegPatientId;
+    delete window._qeegSelectedId;
+    delete window._qeegComparisonId;
+    delete window._nav;
+  });
 });
 
 // ── 63. Source-pinned: ratio change formatting ───────────────────────────────

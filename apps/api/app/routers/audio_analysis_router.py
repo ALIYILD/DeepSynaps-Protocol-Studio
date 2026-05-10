@@ -23,6 +23,10 @@ from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import SessionRecording
 from app.repositories.patients import resolve_patient_clinic_id
+from app.services.consent_enforcement import (
+    require_ai_analysis_consent,
+    ConsentMissingError,
+)
 from app.routers.recordings_router import _scope_recordings_query_to_clinic
 from app.services import media_storage
 from app.services import audio_pipeline as audio_facade
@@ -169,6 +173,13 @@ def analyze_voice(
     if not patient_id:
         raise HTTPException(status_code=422, detail="patient_id is required for live analysis")
     _gate_patient_access(actor, patient_id, db)
+    
+    # Enforce ai_analysis consent
+    try:
+        require_ai_analysis_consent(db, patient_id, actor, ai_modality="audio")
+    except ConsentMissingError:
+        raise HTTPException(status_code=403, detail="ai_analysis consent required")
+    
     _require_pipeline()
 
     path = Path(_normalize_required_text(body.audio_path, field_name="audio_path"))
@@ -205,6 +216,13 @@ async def analyze_voice_upload(
     if not patient_id:
         raise HTTPException(status_code=422, detail="patient_id is required for live analysis")
     _gate_patient_access(actor, patient_id, db)
+    
+    # Enforce ai_analysis consent
+    try:
+        require_ai_analysis_consent(db, patient_id, actor, ai_modality="audio")
+    except ConsentMissingError:
+        raise HTTPException(status_code=403, detail="ai_analysis consent required")
+    
     _require_pipeline()
 
     settings = get_settings()
@@ -290,6 +308,13 @@ def analyze_voice_from_recording(
     if not effective_patient_id:
         raise HTTPException(status_code=422, detail="patient_id is required for live analysis")
     _gate_patient_access(actor, effective_patient_id, db)
+    
+    # Enforce ai_analysis consent
+    try:
+        require_ai_analysis_consent(db, effective_patient_id, actor, ai_modality="audio")
+    except ConsentMissingError:
+        raise HTTPException(status_code=403, detail="ai_analysis consent required")
+    
     _require_pipeline()
 
     mime = (record.mime_type or "").lower()

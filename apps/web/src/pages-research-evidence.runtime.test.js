@@ -493,6 +493,17 @@ test('pages-research-evidence runtime tab coverage', async (t) => {
       assert.match(html, /Live protocol coverage and safety triage/);
       assert.match(html, /Search name, condition, device, citation/);
     });
+
+    await t.test('review tab covers no-match search state over live coverage rows', async () => {
+      resetEnv();
+      resetEvidenceUiStatsCache();
+      setCurrentUser({ id: 'clin-8', role: 'clinician', display_name: 'Dr No Match' });
+      window._resEvidenceTab = 'review';
+      window._reSearch = { review: 'zzz-no-match' };
+      await pgResearchEvidence(() => {}, () => {});
+      const html = renderedBodyHtml();
+      assert.match(html, /No protocols match your search/);
+    });
   } finally {
     restore();
   }

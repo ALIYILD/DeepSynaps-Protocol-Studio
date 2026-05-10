@@ -856,8 +856,12 @@ async function _vcSwitchTab(tabId) {
 window._vcSwitchTab = _vcSwitchTab;
 
 export async function pgVirtualCare(setTopbar, navigate) {
-  const mount = document.getElementById('main-content') || document.getElementById('content');
-  if (!mount) return;
+  const root = document.getElementById('main-content') || document.getElementById('content');
+  if (!root) return;
+  if (root.id === 'content' && !document.getElementById('main-content')) {
+    root.innerHTML = '<div id="main-content"></div>';
+  }
+  const mount = document.getElementById('main-content') || root;
 
   // Reset unified state
   _vcUnifiedState.setTopbar = setTopbar;
