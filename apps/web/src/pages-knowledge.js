@@ -12946,6 +12946,12 @@ export async function pgLiteratureLibrary(setTopbar) {
   }
 
   function rlBadge() { const c=rl().length; return c>0?`<span style="font-size:10px;background:var(--violet,#9b7fff);color:#fff;padding:1px 5px;border-radius:10px;margin-left:4px">${c}</span>`:''; }
+  function sortNote() {
+    if (_sort === 'cited') return 'Citation-first view';
+    if (_sort === 'effect') return 'Effect-size-first view';
+    if (_sort === 'alpha') return 'Alphabetical catalog';
+    return 'Newest evidence first';
+  }
 
   function render() {
     const n=filtered().length;
@@ -12956,7 +12962,10 @@ export async function pgLiteratureLibrary(setTopbar) {
           <button class="nnnd-tab ${_tab==='library'?'active':''}" onclick="window._litTab('library')">Papers</button>
           <button class="nnnd-tab ${_tab==='reading-list'?'active':''}" id="nnnd-rlt" onclick="window._litTab('reading-list')">Reading List${rlBadge()}</button>
           <button class="nnnd-tab ${_tab==='evidence-map'?'active':''}" onclick="window._litTab('evidence-map')">Evidence Map</button>
-          <div class="nnnd-count" id="nnnd-cnt">${_tab==='library'?`${n} paper${n!==1?'s':''}`:''}</div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+            <div class="nnnd-count" id="nnnd-cnt">${_tab==='library'?`${n} paper${n!==1?'s':''}`:''}</div>
+            <div id="nnnd-sort-note" style="font-size:10px;color:var(--text-muted)">${sortNote()}</div>
+          </div>
         </div>
         <div class="nnnd-content-area" id="nnnd-ca">${tabContent()}</div>
       </div>
@@ -12969,6 +12978,8 @@ export async function pgLiteratureLibrary(setTopbar) {
     ca.innerHTML=tabContent();
     const cnt=document.getElementById('nnnd-cnt');
     if(cnt){const n=filtered().length;cnt.textContent=_tab==='library'?`${n} paper${n!==1?'s':''}`:''}
+    const note=document.getElementById('nnnd-sort-note');
+    if(note) note.textContent = sortNote();
     const rlt=document.getElementById('nnnd-rlt');
     if(rlt) rlt.innerHTML=`Reading List${rlBadge()}`;
   }
@@ -13035,7 +13046,11 @@ export async function pgLiteratureLibrary(setTopbar) {
     if(k==='ev')   _evLevel  = v;
     if(k==='ymin') _yMin     = parseInt(v)||1990;
     if(k==='ymax') _yMax     = parseInt(v)||2025;
-    if(k==='sort') _sort     = v;
+    if(k==='sort') {
+      _sort = v;
+      const note = document.getElementById('nnnd-sort-note');
+      if (note) note.textContent = sortNote();
+    }
     if(_tab==='library'){const ca=document.getElementById('nnnd-ca'); if(ca) ca.innerHTML=libView(); const cnt=document.getElementById('nnnd-cnt'); if(cnt){const n=filtered().length;cnt.textContent=`${n} paper${n!==1?'s':''}`}}
   };
 

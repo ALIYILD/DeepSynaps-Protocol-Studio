@@ -7835,12 +7835,25 @@ function _wireSettingsPageLegacy() {
 
   const saveBtn = document.getElementById('st-save');
   const discardBtn = document.getElementById('st-discard');
+  let toggleIndex = 0;
+  function togglePrefKey(toggleEl) {
+    const row = toggleEl.closest('.st-row');
+    const label = row?.querySelector('.st-row-label')?.textContent?.trim();
+    if (label) {
+      return label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    }
+    const fallback = `toggle_${toggleIndex}`;
+    toggleIndex += 1;
+    return fallback;
+  }
   if (saveBtn) saveBtn.addEventListener('click', async () => {
     clearDirty();
     try {
       if (api.updatePatientPreferences) {
         const prefs = {};
-        st.querySelectorAll('[data-st-toggle]').forEach(t => { prefs[t.dataset.stToggle] = t.classList.contains('on'); });
+        st.querySelectorAll('[data-st-toggle]').forEach(t => {
+          prefs[t.dataset.stToggle || togglePrefKey(t)] = t.classList.contains('on');
+        });
         await api.updatePatientPreferences(prefs);
       }
       stToast('Settings saved in this browser');
@@ -9153,12 +9166,25 @@ function _wireSettingsPage() {
 
   const saveBtn = document.getElementById('st-save');
   const discardBtn = document.getElementById('st-discard');
+  let toggleIndex = 0;
+  function togglePrefKey(toggleEl) {
+    const row = toggleEl.closest('.st-row');
+    const label = row?.querySelector('.st-row-label')?.textContent?.trim();
+    if (label) {
+      return label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    }
+    const fallback = `toggle_${toggleIndex}`;
+    toggleIndex += 1;
+    return fallback;
+  }
   if (saveBtn) saveBtn.addEventListener('click', async () => {
     clearDirty();
     try {
       if (api.updatePatientPreferences) {
         const prefs = {};
-        st.querySelectorAll('[data-st-toggle]').forEach(t => { prefs[t.dataset.stToggle] = t.classList.contains('on'); });
+        st.querySelectorAll('[data-st-toggle]').forEach(t => {
+          prefs[t.dataset.stToggle || togglePrefKey(t)] = t.classList.contains('on');
+        });
         await api.updatePatientPreferences(prefs);
       }
       stToast('Settings saved in this browser');
@@ -14805,6 +14831,9 @@ export async function pgPatientAcademy() {
 export async function pgPatientHelp() {
   const el = document.getElementById('patient-content');
   if (!el) return;
+  const helpNav = typeof window._navPatient === 'function'
+    ? `<button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">Message your care team</button>`
+    : `<div style="padding:10px 12px;border:1px solid var(--border);border-radius:10px;color:var(--text-secondary);font-size:12.5px">Clinic messaging is unavailable in this browser session.</div>`;
   const faqs = [
     { q: 'How do I complete an assessment?', a: 'Go to <strong>Assessments</strong> in the menu. Click on any due assessment, answer each question, and press Submit. When portal sync is available, your responses are shared with your clinic from there.' },
     { q: 'How do I contact my care team?', a: 'Use the <strong>Messages</strong> or <strong>Support</strong> section to contact your clinic. Some beta environments store requests only on this device, so call your clinic directly for anything urgent or time-sensitive.' },
@@ -14842,7 +14871,7 @@ export async function pgPatientHelp() {
         </div>
       </div>
       <div style="margin-top:20px">
-        <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">Message your care team</button>
+        ${helpNav}
       </div>
     </div>`;
 }

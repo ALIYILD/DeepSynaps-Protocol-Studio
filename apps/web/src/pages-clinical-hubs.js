@@ -11453,6 +11453,10 @@ export async function pgFinanceHub(setTopbar, navigate) {
       : 'Internal clinic ledger (API + database). This is not your SaaS subscription; use Billing for Stripe checkout and the customer portal.';
   const financeDisclaimer =
     'Finance data may include provider-sourced billing records, internal estimates, or demo data. This page is for clinic administration only and does not provide tax, legal, financial, clinical, or treatment guidance.';
+  const financeRoleLabel = canManageFinance ? 'Admin finance controls' : 'View-only finance access';
+  const financeRoleDetail = canManageFinance
+    ? 'Create, reconcile, and remove ledger records.'
+    : 'Review ledger rows without invoice, payment, or claim mutations.';
 
   const invoices = Array.isArray(invoicesResp.items) ? invoicesResp.items : [];
   const payments = Array.isArray(paymentsResp.items) ? paymentsResp.items : [];
@@ -11506,6 +11510,8 @@ export async function pgFinanceHub(setTopbar, navigate) {
         ${demoChipHtml}
         <div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Data source</div>
         <div style="font-size:12.5px;color:var(--text-primary);line-height:1.55">${sourceBlurb}</div>
+        <div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.06em;margin-top:10px;margin-bottom:4px">${financeRoleLabel}</div>
+        <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5">${financeRoleDetail}</div>
         <div style="font-size:11px;color:var(--text-tertiary);margin-top:10px;line-height:1.5">${financeDisclaimer}</div>
         <div style="font-size:11px;color:var(--text-tertiary);margin-top:8px;line-height:1.45">VAT/tax is not calculated as legal advice here — confirm amounts with accounting or your payments provider. Finance audit events are not recorded separately; use the Audit Trail for governance review where your deployment enables it.</div>
       </div>
@@ -13991,6 +13997,11 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
         '</div>' +
         renderGrid(list) +
       '</div>';
+    const sellerRoleNote = role === 'admin'
+      ? 'Admin accounts can manage every listing and review catalog visibility.'
+      : canSeller
+        ? 'Clinician seller accounts manage their own listings.'
+        : 'Guest and technician roles can browse only.';
     const sellerDisabledNote = canSeller ? '' : '<p class="mp-seller-gate-note">Listing management requires a clinician (or admin) account. Guest and technician roles can browse only.</p>';
     const sellerButtons = canSeller
       ? '<div class="mp-cta-btns"><button type="button" class="btn btn-primary mp-cta-btn" data-test="mp-seller-new" onclick="window._mpListNew()">Request / manage listings</button><button type="button" class="btn mp-cta-btn mp-cta-btn--secondary" data-test="mp-seller-my" onclick="window._mpMyListings()">My listings</button></div>'
@@ -14002,6 +14013,7 @@ export async function pgMarketplaceHub(setTopbar, navigate) {
           '<div class="mp-cta-body">' +
             '<h3>Clinic catalogue listings</h3>' +
             '<p>Seller endpoints persist listings server-side (subject to role checks). This is not an app-store purchase flow.</p>' +
+            '<p class="mp-seller-role-note">' + esc(sellerRoleNote) + '</p>' +
             sellerDisabledNote +
           '</div>' +
           sellerButtons +

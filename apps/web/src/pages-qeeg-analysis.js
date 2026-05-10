@@ -418,6 +418,9 @@ function _formatReportVersionLabel(report, index, total) {
 }
 
 function renderAnalysisWorkflowCard(mneButtonHtml, aiButtonsHtml, compareAction, annotationButtonHtml) {
+  var compareNote = compareAction && compareAction.indexOf("window._qeegComparisonId='demo'") !== -1
+    ? '<div class="qeeg-workflow-step__note">Demo comparisons stay in demo mode.</div>'
+    : '<div class="qeeg-workflow-step__note">Live comparisons pull a real follow-up session.</div>';
   return card('Workflow Actions',
     '<div class="qeeg-workflow-grid">'
       + '<div class="qeeg-workflow-step">'
@@ -435,6 +438,7 @@ function renderAnalysisWorkflowCard(mneButtonHtml, aiButtonsHtml, compareAction,
         + '<div class="qeeg-workflow-step__body">'
         + '<button class="btn btn-primary" onclick="window._qeegTab=\'report\';window._nav(\'qeeg-analysis\')">Generate AI Report</button>'
         + '<button class="btn btn-outline" onclick="' + compareAction + '">Compare with Another</button>'
+        + compareNote
         + (annotationButtonHtml || '')
         + '</div></div>'
     + '</div>'
@@ -5107,12 +5111,17 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
     // Render the unified 6-step upload workflow
     const patients = _patients || [];
     const analyses = _analyses.length === 0 && _isDemoMode() ? [DEMO_ANALYSIS_ENTRY] : _analyses;
+    const uploadContextHtml = !patientId
+      ? '<div style="margin:0 0 12px;padding:12px 14px;border-radius:12px;background:rgba(255,179,71,0.12);border:1px solid rgba(255,179,71,0.22);font-size:12px;line-height:1.55;color:var(--text-secondary)">Select a patient to unlock upload and chart-linked review.</div>'
+      : _isDemoPatientId(patientId)
+        ? '<div style="margin:0 0 12px;padding:12px 14px;border-radius:12px;background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.18);font-size:12px;line-height:1.55;color:var(--text-secondary)">Demo patient loaded. Use this preview flow to explore upload and analysis without affecting live records.</div>'
+        : '<div style="margin:0 0 12px;padding:12px 14px;border-radius:12px;background:rgba(29,111,122,0.08);border:1px solid rgba(29,111,122,0.18);font-size:12px;line-height:1.55;color:var(--text-secondary)">Clinical patient loaded. Raw EEG uploads will stay linked to this chart for review and follow-up.</div>';
     tabEl.innerHTML = renderUploadWorkflow({
       patientId: patientId || null,
       patients: patients,
       analyses: analyses,
       patient: _patient || null,
-    });
+    }) + uploadContextHtml;
     mountUploadWorkflow(tabEl);
     return;
   }

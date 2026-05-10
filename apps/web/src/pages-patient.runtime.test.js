@@ -28,6 +28,10 @@ globalThis.Event = dom.window.Event;
 globalThis.HTMLElement = dom.window.HTMLElement;
 globalThis.Node = dom.window.Node;
 globalThis.localStorage = localStorageShim;
+globalThis.CSS = globalThis.CSS || {};
+if (!globalThis.CSS.escape) {
+  globalThis.CSS.escape = (value) => String(value);
+}
 globalThis.MutationObserver = dom.window.MutationObserver || class MutationObserver {
   constructor() {}
   observe() {}
@@ -714,12 +718,14 @@ test('pgPatientAssessments covers tabs, daily check-in, history export, and self
 
     window._asSelfStart('weekly_wellness');
     assert.match(document.getElementById('as-selfassess-form-wrap').innerHTML, /Weekly Wellness Check-in/);
-    window._asSelfPick('weekly_wellness', 'overall', 4);
-    window._asSelfSlider('weekly_wellness', 'stress', 6);
-    window._asSelfText('weekly_wellness', 'note', 'Steadier this week.');
+    window._asSelfSlider('weekly_wellness', 'sleep', 4);
+    window._asSelfSlider('weekly_wellness', 'anxiety', 2);
+    window._asSelfSlider('weekly_wellness', 'social', 4);
+    window._asSelfSlider('weekly_wellness', 'focus', 3);
+    window._asSelfCheck('weekly_wellness', 'side_effects', 'None', true);
     await window._asSelfSubmit('weekly_wellness');
     assert.equal(selfSubmitCalls.length, 1);
-    assert.equal(selfSubmitCalls[0].responses.note, 'Steadier this week.');
+    assert.deepEqual(selfSubmitCalls[0].responses.side_effects, ['None']);
     assert.match(document.getElementById('as-toast-text').textContent, /submitted for processing/);
 
     window._asToggleRaw();
@@ -729,5 +735,277 @@ test('pgPatientAssessments covers tabs, daily check-in, history export, and self
   } finally {
     Object.assign(api, originals);
     setCurrentUser(null);
+  }
+});
+
+test('pgPatientVirtualCare covers demo thread selection, filtering, quick compose, send, menus, crisis, and call overlay', async () => {
+  resetHarness();
+
+  const originals = {
+    patientPortalMessages: api.patientPortalMessages,
+    patientPortalSessions: api.patientPortalSessions,
+    patientPortalWearableSummary: api.patientPortalWearableSummary,
+    patientPortalWearables: api.patientPortalWearables,
+    sendPortalMessage: api.sendPortalMessage,
+    virtualCareCreateSession: api.virtualCareCreateSession,
+    virtualCareStartSession: api.virtualCareStartSession,
+    virtualCareEndSession: api.virtualCareEndSession,
+    virtualCareGetAnalysis: api.virtualCareGetAnalysis,
+  };
+  api.patientPortalMessages = async () => [];
+  api.patientPortalSessions = async () => [];
+  api.patientPortalWearableSummary = async () => [];
+  api.patientPortalWearables = async () => [];
+  api.sendPortalMessage = async () => ({ ok: true });
+  api.virtualCareCreateSession = async () => ({ session: { id: 'vc-1' } });
+  api.virtualCareStartSession = async () => ({ ok: true });
+  api.virtualCareEndSession = async () => ({ ok: true });
+  api.virtualCareGetAnalysis = async () => ({ voice_summary: { avg_stress: 22 } });
+  setCurrentUser({ id: 'patient-1', patient_id: 'patient-1', display_name: 'Demo Patient' });
+
+  try {
+    await mod.pgPatientVirtualCare();
+    assert.equal(document.getElementById('patient-page-title').textContent, 'Virtual Care');
+    assert.match(document.getElementById('patient-content').innerHTML, /Demo data/);
+    assert.match(document.getElementById('patient-content').innerHTML, /Dr\. Julia Kolmar/);
+
+    window._vcPickThread('ai');
+    assert.match(document.getElementById('patient-content').innerHTML, /Synaps AI/);
+
+    window._vcThreadFilter('ai');
+    assert.equal(document.querySelector('.vc-thread[data-tid="ai"]').style.display, '');
+    assert.equal(document.querySelector('.vc-thread[data-tid="kolmar"]').style.display, 'none');
+
+    window._vcSearch('billing');
+    assert.equal(document.querySelector('.vc-thread[data-tid="billing"]').style.display, '');
+    assert.equal(document.querySelector('.vc-thread[data-tid="ai"]').style.display, 'none');
+
+    window._vcQuick('good');
+    assert.match(document.getElementById('vc-input').value, /Feeling better today/);
+    assert.equal(document.getElementById('vc-send').disabled, false);
+
+    await window._vcSend();
+    assert.match(document.getElementById('vc-conv-scroll').innerHTML, /Feeling better today/);
+
+    window._vcMoreActions();
+    assert.match(document.body.innerHTML, /View sessions/);
+    window._vcMoreActions();
+    assert.equal(document.getElementById('vc-more-menu'), null);
+
+    window._vcCrisis('dismiss');
+    assert.equal(document.getElementById('vc-crisis').classList.contains('hidden'), true);
+
+    window._vcAcceptSchedule();
+    await new Promise((resolve) => setTimeout(resolve, 850));
+    assert.equal(window._navPatientCalls.at(-1), 'patient-sessions');
+
+    await window._vcCall('video');
+    assert.match(document.body.innerHTML, /vc-jitsi-modal/);
+    assert.equal(window._vcActiveSessionId, 'vc-1');
+    await window._vcHangup();
+    assert.equal(document.getElementById('vc-jitsi-modal'), null);
+    assert.match(document.getElementById('vc-toast-text').textContent, /Call ended/);
+  } finally {
+    if (window._vcPollTimer) {
+      clearInterval(window._vcPollTimer);
+      window._vcPollTimer = null;
+    }
+    if (window._vcBioTimer) {
+      clearInterval(window._vcBioTimer);
+      window._vcBioTimer = null;
+    }
+    if (window._vcVoiceTimer) {
+      clearInterval(window._vcVoiceTimer);
+      window._vcVoiceTimer = null;
+    }
+    Object.assign(api, originals);
+    setCurrentUser(null);
+  }
+});
+
+test('pgPatientProfile covers refresh, prefs, password modal, and on-call actions', async () => {
+  resetHarness();
+
+  const originals = {
+    me: api.me,
+    postPatientOncallAuditEvent: api.postPatientOncallAuditEvent,
+    patientOncallStatus: api.patientOncallStatus,
+    windowApi: window.api,
+  };
+  const oncallAuditCalls = [];
+  api.me = async () => ({ display_name: 'Updated Patient', email: 'updated@example.test' });
+  api.postPatientOncallAuditEvent = async (payload) => {
+    oncallAuditCalls.push(payload);
+    return { ok: true };
+  };
+  api.patientOncallStatus = async () => ({
+    coverage_hours: 'Mon-Fri 09:00-17:00',
+    in_hours_now: true,
+    oncall_now: true,
+    urgent_path: 'patient-portal-message',
+    emergency_line_number: '+1 555 0100',
+    has_coverage_configured: true,
+    is_demo: false,
+    disclaimers: ['Portal replies are not instant.'],
+  });
+  window.api = api;
+
+  try {
+    await mod.pgPatientProfile({ display_name: 'Alice Patient', email: 'alice@example.test' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(document.getElementById('patient-page-title').textContent.length > 0, true);
+    assert.match(document.getElementById('patient-content').innerHTML, /Alice Patient/);
+    assert.match(document.getElementById('patient-content').innerHTML, /Care team contact/);
+    assert.match(document.getElementById('pt-oncall-card-body').innerHTML, /Mon-Fri 09:00-17:00/);
+
+    await window._ptRefreshProfile();
+    assert.equal(document.getElementById('pt-profile-name').textContent, 'Updated Patient');
+    assert.equal(document.getElementById('pt-profile-email').textContent, 'updated@example.test');
+    assert.match(document.getElementById('pt-profile-refresh-notice').textContent, /Profile refreshed successfully/);
+
+    window._ptUpdatePrefs();
+    assert.match(document.getElementById('pt-profile-refresh-notice').textContent, /Preferences updated in this portal view/);
+
+    window._ptChangePassword();
+    assert.match(document.body.innerHTML, /Change password/);
+    document.querySelector('.modal-fix .btn.btn-ghost').click();
+    document.querySelector('.modal-fix')?.remove();
+    assert.equal(document.querySelector('.modal-fix'), null);
+
+    window._ptOncallLearnMore();
+    assert.match(document.body.innerHTML, /How on-call works/);
+    document.querySelector('.modal-fix .btn.btn-primary').click();
+    document.querySelector('.modal-fix')?.remove();
+    assert.equal(document.querySelector('.modal-fix'), null);
+
+    window._ptOncallUrgentMessage();
+    assert.equal(window._navPatientCalls.at(-1), 'patient-messages?category=urgent');
+    assert.equal(oncallAuditCalls.some((payload) => payload.event === 'view'), true);
+    assert.equal(oncallAuditCalls.some((payload) => payload.event === 'learn_more_clicked'), true);
+    assert.equal(oncallAuditCalls.some((payload) => payload.event === 'urgent_message_started'), true);
+  } finally {
+    api.me = originals.me;
+    api.postPatientOncallAuditEvent = originals.postPatientOncallAuditEvent;
+    api.patientOncallStatus = originals.patientOncallStatus;
+    window.api = originals.windowApi;
+  }
+});
+
+test('pgPatientReports covers report actions, ask-about prefill, and patient report workflows', async () => {
+  resetHarness();
+
+  const originals = {
+    patientPortalOutcomes: api.patientPortalOutcomes,
+    patientPortalAssessments: api.patientPortalAssessments,
+    patientPortalCourses: api.patientPortalCourses,
+    patientPortalSessions: api.patientPortalSessions,
+    patientPortalWearableSummary: api.patientPortalWearableSummary,
+    patientPortalReports: api.patientPortalReports,
+    listPatientReports: api.listPatientReports,
+    getPatientReportsSummary: api.getPatientReportsSummary,
+    acknowledgePatientReport: api.acknowledgePatientReport,
+    requestPatientReportShareBack: api.requestPatientReportShareBack,
+    startPatientReportQuestion: api.startPatientReportQuestion,
+    postPatientReportsAuditEvent: api.postPatientReportsAuditEvent,
+  };
+  const auditCalls = [];
+  const shareCalls = [];
+  const questionCalls = [];
+  api.patientPortalOutcomes = async () => ([
+    {
+      id: 'o1',
+      template_id: 'phq9',
+      template_title: 'PHQ-9',
+      administered_at: '2026-05-01T10:00:00Z',
+      score: 9,
+      plain_language: {
+        what: 'A depression questionnaire',
+        why: 'Tracks changes in mood over time.',
+        range: [],
+      },
+      clinician_notes: 'Symptoms are improving.',
+      status: 'completed',
+    },
+  ]);
+  api.patientPortalAssessments = async () => [];
+  api.patientPortalCourses = async () => [];
+  api.patientPortalSessions = async () => [];
+  api.patientPortalWearableSummary = async () => [];
+  api.patientPortalReports = async () => ([
+    {
+      id: 'r1',
+      title: 'Week 6 Progress Summary',
+      report_type: 'letter',
+      created_at: '2026-05-02T10:00:00Z',
+      file_url: 'https://example.test/report.pdf',
+      status: 'available',
+      text_content: 'Clinician summary text.',
+    },
+  ]);
+  api.listPatientReports = async () => ({
+    items: [{ id: 'r1', acknowledged_at: null, share_back_requested_at: null }],
+    consent_active: true,
+    is_demo: false,
+  });
+  api.getPatientReportsSummary = async () => ({});
+  api.acknowledgePatientReport = async () => ({ accepted: true });
+  api.requestPatientReportShareBack = async (...args) => {
+    shareCalls.push(args);
+    return { accepted: true };
+  };
+  api.startPatientReportQuestion = async (...args) => {
+    questionCalls.push(args);
+    return { accepted: true };
+  };
+  api.postPatientReportsAuditEvent = async (payload) => {
+    auditCalls.push(payload);
+    return { ok: true };
+  };
+  window.prompt = (...args) => {
+    window._promptCalls.push(args);
+    if (/Who should receive/.test(args[0])) return 'GP';
+    if (/Add a short note/.test(args[0])) return 'Please share with my GP.';
+    if (/What is your question/.test(args[0])) return 'What changed in week 6?';
+    return 'ok';
+  };
+
+  try {
+    await mod.pgPatientReports();
+    assert.equal(document.getElementById('patient-page-title').textContent, 'My Reports');
+    assert.match(document.getElementById('patient-content').innerHTML, /Week 6 Progress Summary/);
+    assert.match(document.getElementById('patient-content').innerHTML, /PHQ-9/);
+
+    assert.equal(document.querySelector('#pt-doc-pl-o1').hasAttribute('hidden'), false);
+    window._ptToggleDocPl('o1');
+    assert.equal(document.querySelector('#pt-doc-pl-o1').hasAttribute('hidden'), true);
+
+    window._ptViewDoc('r1');
+    assert.deepEqual(window._openCalls.at(-1), ['https://example.test/report.pdf', '_blank', 'noopener,noreferrer']);
+
+    window._ptAskAbout('r1', 'Week 6 Progress Summary');
+    assert.match(document.getElementById('pt-docs-ask-anchor').innerHTML, /Your question is ready/);
+    assert.match(window._ptPendingAsk, /Week 6 Progress Summary/);
+
+    window._ptReportOpened('r1', 'open_link');
+    window._ptReportDownloaded('r1');
+    assert.equal(auditCalls.some((payload) => payload.event === 'report_opened'), true);
+    assert.equal(auditCalls.some((payload) => payload.event === 'report_downloaded'), true);
+
+    await window._ptAcknowledgeReport('r1', 'Week 6 Progress Summary');
+    assert.match(document.body.innerHTML, /Acknowledged/);
+
+    await window._ptShareBackReport('r1', 'Week 6 Progress Summary');
+    assert.deepEqual(shareCalls[0], ['r1', 'GP', 'Please share with my GP.']);
+
+    await window._ptStartQuestionForReport('r1', 'Week 6 Progress Summary');
+    assert.deepEqual(questionCalls[0], ['r1', 'What changed in week 6?']);
+    assert.equal(window._navPatientCalls.at(-1), 'patient-messages');
+
+    assert.equal(auditCalls.some((payload) => payload.event === 'ask_clicked'), true);
+    assert.equal(auditCalls.some((payload) => payload.event === 'acknowledge_clicked'), true);
+    assert.equal(auditCalls.some((payload) => payload.event === 'share_back_clicked'), true);
+    assert.equal(auditCalls.some((payload) => payload.event === 'question_clicked'), true);
+  } finally {
+    Object.assign(api, originals);
   }
 });

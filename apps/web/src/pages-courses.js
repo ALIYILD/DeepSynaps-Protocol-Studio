@@ -2416,6 +2416,8 @@ function renderCourseAssessmentsTab(course, assessmentSummary) {
 // ── Course detail tab: Home Programs ─────────────────────────────────────────
 function renderCourseHomeProgramsTab(course) {
   const programs = course.home_programs || [];
+  const onboardingPrograms = programs.filter(p => !!p.clinic_onboarding_required);
+  const selfManagedPrograms = programs.filter(p => !p.clinic_onboarding_required);
   const PROGRAM_TYPES = [
     { id: 'mindfulness', icon: '🧘', label: 'Mindfulness' },
     { id: 'breathing',   icon: '💨', label: 'Breathing Exercises' },
@@ -2432,6 +2434,13 @@ function renderCourseHomeProgramsTab(course) {
       </div>
       <button class="btn btn-primary btn-sm" onclick="window._nav?.('home-tasks-v2')" title="Open the Home Task Manager to build / assign a home program">+ Add Program</button>
     </div>
+    ${programs.length > 0 ? `<div style="padding:10px 12px;margin-bottom:14px;border:1px solid var(--border);border-radius:var(--radius-md);background:rgba(0,212,188,0.04);font-size:12px;color:var(--text-secondary)">
+      ${onboardingPrograms.length && !selfManagedPrograms.length
+        ? 'Clinic onboarding is required before these home programs can start.'
+        : selfManagedPrograms.length && !onboardingPrograms.length
+          ? 'These home programs are self-managed and ready for the patient to use.'
+          : 'Mixed home program assignment: some activities need clinic onboarding while others are self-managed.'}
+    </div>` : ''}
     ${programs.length === 0
       ? `<div>
           <div style="text-align:center;padding:32px 20px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);margin-bottom:20px">
@@ -13111,6 +13120,9 @@ function _cwhRenderSummaryStrip(s) {
       ${card('Escalation candidates', s.escalation_candidates ?? 0, 'open + severe')}
       ${card('Response rate', `${responseStr}%`, 'actioned')}
     </div>
+    ${Number(s.escalation_candidates ?? 0) > 0
+      ? '<div class="notice notice-warning" style="margin:0 0 14px;font-size:12px;line-height:1.5"><strong>Triage note.</strong> Escalation candidates are present, so this queue needs clinician review before the next shift handoff.</div>'
+      : '<div class="notice notice-info" style="margin:0 0 14px;font-size:12px;line-height:1.5"><strong>Triage note.</strong> No escalation candidates are currently flagged in this digest window.</div>'}
     ${lowMoodHtml}
     ${streakHtml}
   `;

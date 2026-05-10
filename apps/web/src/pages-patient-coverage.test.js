@@ -258,6 +258,29 @@ describe('pgPatientHelp()', () => {
     assert.ok(html.includes('assessment') || html.includes('care team'));
   });
 
+  it('toggles the first FAQ body open and closed', () => {
+    const btn = document.querySelector('#patient-content button');
+    const body = document.querySelector('.pt-help-body');
+    assert.ok(btn && body, 'help accordion should render a button and body');
+    btn.click();
+    assert.strictEqual(body.style.display, 'block');
+    btn.click();
+    assert.strictEqual(body.style.display, 'none');
+  });
+
+  it('shows an unavailable note when patient nav is missing', async () => {
+    const origNav = window._navPatient;
+    try {
+      window._navPatient = undefined;
+      resetDom();
+      await ppModule.pgPatientHelp();
+      const html = document.getElementById('patient-content').innerHTML;
+      assert.ok(html.includes('Clinic messaging is unavailable'));
+    } finally {
+      window._navPatient = origNav;
+    }
+  });
+
   it('handles missing #patient-content node by returning early', async () => {
     const orig = document.getElementById('patient-content');
     orig.id = '__hidden';
@@ -295,6 +318,50 @@ describe('pgPatientBilling() in beta-no-backend mode', () => {
     } finally {
       orig.id = 'patient-content';
     }
+  });
+});
+
+describe('pgPatientBilling() live-data branch', () => {
+  before(async () => {
+    resetDom();
+    stubApi({
+      patientInvoices: async () => ([
+        {
+          id: 'inv-1',
+          description: 'tDCS sessions',
+          date: '2026-05-01T00:00:00Z',
+          due: '2026-05-15T00:00:00Z',
+          amount: 120,
+          vat: 24,
+          currency: 'USD',
+          status: 'overdue',
+        },
+      ]),
+      patientPayments: async () => ([
+        {
+          amount: 50,
+          method: 'Card',
+          ref: 'pi_1',
+          invoice: 'inv-1',
+          date: '2026-05-02T00:00:00Z',
+        },
+      ]),
+    });
+    await ppModule.pgPatientBilling();
+  });
+
+  it('renders invoice totals from backend data', () => {
+    const html = document.getElementById('patient-content').innerHTML;
+    assert.ok(html.includes('Overdue'));
+    assert.ok(html.includes('$144.00'));
+  });
+
+  it('switches to payment history tab', () => {
+    assert.strictEqual(typeof window._ptBillingTab, 'function');
+    window._ptBillingTab('payments');
+    const html = document.getElementById('patient-content').innerHTML;
+    assert.ok(html.includes('Payment History'));
+    assert.ok(html.includes('Card'));
   });
 });
 
@@ -428,6 +495,36 @@ describe('pgPatientTickets() in beta-no-backend mode', () => {
     const modal = document.getElementById('pt-tk-modal');
     assert.ok(modal, 'modal should still be present when validation failed');
     modal.remove();
+  });
+});
+
+describe('pgPatientTickets() live backend branch', () => {
+  before(async () => {
+    resetDom();
+    stubApi({
+      patientTickets: async () => [],
+      patientTicketReply: async (_id, message) => ({ ok: true, echoed: message }),
+      patientTicketCreate: async (payload) => ({ id: 'TK-2001', ...payload }),
+    });
+    await ppModule.pgPatientTickets();
+  });
+
+  it('renders the live-support copy and creates backend tickets', async () => {
+    const html = document.getElementById('patient-content').innerHTML;
+    assert.ok(html.includes('Track your questions and requests to the care team.'));
+    assert.ok(html.includes('New Request'));
+
+    window._ptNewTicket();
+    document.getElementById('pt-tk-cat').value = 'bug';
+    document.getElementById('pt-tk-title').value = 'Login issue';
+    document.getElementById('pt-tk-body').value = 'I cannot open my support thread.';
+    await window._ptSubmitTicket();
+
+    const reply = document.getElementById('pt-tk-reply');
+    assert.ok(reply, 'newly created ticket should be selected');
+    reply.value = 'Thanks for the update.';
+    await window._ptReplyTicket();
+    assert.ok(document.getElementById('patient-content').innerHTML.includes('Thanks for the update.'));
   });
 });
 
@@ -607,6 +704,30 @@ describe('pgPatientLearn()', () => {
   });
 });
 
+describe('pgPatientLearn() local fallback branch', () => {
+  before(async () => {
+    resetDom();
+    _lsShim.setItem('ds_read_articles', JSON.stringify(['c1']));
+    stubApi({
+      patientPortalLearnProgress: undefined,
+    });
+    await ppModule.pgPatientLearn();
+  });
+
+  it('hydrates read articles from localStorage when the API is unavailable', () => {
+    const html = document.getElementById('patient-content').innerHTML;
+    assert.ok(html.includes('✓ Read') || html.includes('Already read'));
+  });
+
+  it('marks an article as read locally', () => {
+    assert.strictEqual(typeof window._markArticleRead, 'function');
+    window._openArticle('c2');
+    window._markArticleRead('c2');
+    const stored = JSON.parse(_lsShim.getItem('ds_read_articles') || '[]');
+    assert.ok(stored.includes('c2'));
+  });
+});
+
 // ── 10. pgPatientHomework — error-path fallback ───────────────────────────────
 describe('pgPatientHomework() error fallback path', () => {
   before(async () => {
@@ -729,6 +850,58 @@ describe('pgPatientCareTeam() demo fallback', () => {
   });
 });
 
+describe('pgPatientCareTeam() live data branch', () => {
+  before(async () => {
+    resetDom();
+    stubApi({
+      patientPortalCourses: async () => ([
+        {
+          id: 'course-1',
+          status: 'active',
+          started_at: '2026-04-01T00:00:00Z',
+          care_team: [
+            {
+              id: 'jk',
+              name: 'Dr. Julia Kolmar',
+              role: 'Lead clinician',
+              credentials: 'MD',
+              is_primary: true,
+              presence_text: 'Online',
+              online: 'online',
+              next_sync_at: '2026-05-11T10:30:00Z',
+              shared_since: '2026-04-01T00:00:00Z',
+              tags: [{ k: 'teal', l: 'Mood disorders' }],
+            },
+          ],
+        },
+      ]),
+      patientPortalSessions: async () => ([
+        { id: 'sess-1', scheduled_at: '2026-05-12T12:00:00Z', location: 'Clinic A', session_number: 12, duration_minutes: 45, clinician_name: 'Dr. Julia Kolmar', modality_slug: 'tdcs' },
+      ]),
+      patientPortalMessages: async () => ([
+        { id: 'msg-1', text: 'Hello', from: 'care_team' },
+      ]),
+    });
+    await ppModule.pgPatientCareTeam();
+  });
+
+  it('renders the live care team member instead of the demo squad', () => {
+    const html = document.getElementById('patient-content').innerHTML;
+    assert.ok(html.includes('Dr. Julia Kolmar'));
+    assert.ok(html.includes('Mood disorders'));
+    assert.ok(html.includes('shared since') || html.includes('Shared since'));
+  });
+
+  it('wires the message button to the patient-messages route', () => {
+    let routed = null;
+    window._navPatient = (route) => { routed = route; };
+    const btn = document.querySelector('.hw-care-btn');
+    assert.ok(btn, 'care-team message button should render');
+    btn.click();
+    assert.strictEqual(routed, 'patient-messages');
+  });
+});
+
 // ── 14. pgPatientMarketplace demo render ─────────────────────────────────────
 describe('pgPatientMarketplace()', () => {
   before(async () => {
@@ -796,6 +969,45 @@ describe('pgPatientSettings()', () => {
   it('renders settings markup into #patient-content', () => {
     const html = document.getElementById('patient-content').innerHTML;
     assert.ok(typeof html === 'string');
+  });
+});
+
+describe('pgPatientSettings() interactions', () => {
+  before(async () => {
+    resetDom();
+    await ppModule.pgPatientSettings({ display_name: 'Test User', email: 't@example.test' });
+  });
+
+  it('saves toggles under stable preference keys', async () => {
+    let prefs = null;
+    stubApi({
+      updatePatientPreferences: async (next) => {
+        prefs = next;
+        return next;
+      },
+    });
+
+    const toggle = document.querySelector('[data-st-toggle]');
+    assert.ok(toggle, 'at least one settings toggle should render');
+    toggle.click();
+    assert.ok(document.getElementById('st-savebar').classList.contains('show'));
+
+    const edit = document.querySelector('[data-st-action="edit-profile"]');
+    const changePw = document.querySelector('[data-st-action="change-password"]');
+    const backup = document.querySelector('[data-st-action="backup-codes"]');
+    edit.click();
+    assert.ok(document.getElementById('st-toast-text').textContent.includes('managed by your clinic'));
+    changePw.click();
+    assert.ok(document.getElementById('st-toast-text').textContent.includes('unavailable'));
+    backup.click();
+    assert.ok(document.getElementById('st-toast-text').textContent.includes('unavailable'));
+
+    document.getElementById('st-save').click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    assert.ok(prefs, 'preference payload should be submitted');
+    assert.ok(Object.prototype.hasOwnProperty.call(prefs, 'session_reminders'));
+    assert.strictEqual(document.getElementById('st-savebar').classList.contains('show'), false);
   });
 });
 
