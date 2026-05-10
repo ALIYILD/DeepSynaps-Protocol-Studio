@@ -5861,7 +5861,7 @@ async function _pgPatientCareTeamImpl() {
           </div>
           <div class="ct-cc-form-row">
             <button class="btn btn-primary btn-sm" id="ct-cc-grant-btn"><svg width="13" height="13"><use href="#i-check"/></svg>Grant access</button>
-            <span class="ct-cc-hint">Until you grant ``digest`` scope, share-with-caregiver from your digest stays queued (intent audited; not delivered).</span>
+            <span class="ct-cc-hint">Until you grant <code>digest</code> scope, share-with-caregiver from your digest stays queued (intent audited; not delivered).</span>
           </div>
         </div>
       </div>

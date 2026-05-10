@@ -102,6 +102,10 @@ function flushUi() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function waitMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 test('pgPatientTickets covers local draft create, reply, and backend reply branches', async () => {
   resetHarness();
 
@@ -899,6 +903,37 @@ test('pgPatientProfile covers refresh, prefs, password modal, and on-call action
   }
 });
 
+test('pgPatientBrainMap covers signed-out, empty, analyzing, and error branches', async () => {
+  resetHarness();
+
+  const originals = {
+    listPatientQEEGAnalyses: api.listPatientQEEGAnalyses,
+  };
+
+  try {
+    delete api.listPatientQEEGAnalyses;
+
+    await mod.pgPatientBrainMap();
+    assert.equal(document.getElementById('patient-page-title').textContent, 'My Brain Map');
+    assert.match(document.getElementById('patient-content').innerHTML, /Please sign in to view your brain map/);
+
+    setCurrentUser({ id: 'pt-1', patient_id: 'pt-1' });
+    api.listPatientQEEGAnalyses = async () => [];
+    await mod.pgPatientBrainMap();
+    assert.match(document.getElementById('patient-content').innerHTML, /No brain map yet/);
+
+    api.listPatientQEEGAnalyses = async () => ([{ id: 'qa-1' }]);
+    await mod.pgPatientBrainMap();
+    assert.match(document.getElementById('patient-content').innerHTML, /being analyzed\. Check back shortly/);
+
+    api.listPatientQEEGAnalyses = async () => ([{ id: 'qa-2', report_id: 'report-1' }]);
+    await mod.pgPatientBrainMap();
+    assert.match(document.getElementById('patient-content').innerHTML, /Unable to load patient report/);
+  } finally {
+    Object.assign(api, originals);
+  }
+});
+
 test('pgPatientEducation covers library filters, save state, detail modal, and academy modal branches', async () => {
   resetHarness();
 
@@ -947,6 +982,104 @@ test('pgPatientEducation covers library filters, save state, detail modal, and a
   window._edAcadComplete('c6');
   assert.equal(window._showNotifToastCalls.at(-1).title, 'Saved on this device');
   assert.equal(JSON.parse(localStorage.getItem('ds_pt_academy_completed') || '[]').includes('c6'), true);
+});
+
+test('pgPatientCareTeam covers demo roster, profile modal, CTA routing, downloads, and caregiver grant actions', async () => {
+  resetHarness();
+
+  const originals = {
+    patientPortalCourses: api.patientPortalCourses,
+    patientPortalSessions: api.patientPortalSessions,
+    patientPortalMessages: api.patientPortalMessages,
+    caregiverConsentListGrants: api.caregiverConsentListGrants,
+    caregiverConsentCreateGrant: api.caregiverConsentCreateGrant,
+    caregiverConsentRevokeGrant: api.caregiverConsentRevokeGrant,
+    postCaregiverConsentAuditEvent: api.postCaregiverConsentAuditEvent,
+  };
+  const auditCalls = [];
+  const createCalls = [];
+  const revokeCalls = [];
+  let grants = [
+    {
+      id: 'grant-1',
+      caregiver_user_id: 'caregiver-1',
+      caregiver_email: 'caregiver-1@example.test',
+      is_active: true,
+      granted_at: '2026-05-01T10:00:00Z',
+      scope: { digest: true, reports: true },
+    },
+  ];
+
+  api.patientPortalCourses = async () => [];
+  api.patientPortalSessions = async () => [];
+  api.patientPortalMessages = async () => [];
+  api.caregiverConsentListGrants = async () => ({ items: grants });
+  api.caregiverConsentCreateGrant = async (payload) => {
+    createCalls.push(payload);
+    grants = grants.concat({
+      id: `grant-${grants.length + 1}`,
+      caregiver_user_id: payload.caregiver_user_id,
+      caregiver_email: `${payload.caregiver_user_id}@example.test`,
+      is_active: true,
+      granted_at: '2026-05-10T11:00:00Z',
+      scope: payload.scope,
+    });
+    return { ok: true };
+  };
+  api.caregiverConsentRevokeGrant = async (id, payload) => {
+    revokeCalls.push({ id, payload });
+    grants = grants.map((grant) => grant.id === id
+      ? { ...grant, is_active: false, revoked_at: '2026-05-10T12:00:00Z', revocation_reason: payload.reason }
+      : grant);
+    return { ok: true };
+  };
+  api.postCaregiverConsentAuditEvent = async (payload) => {
+    auditCalls.push(payload);
+    return { ok: true };
+  };
+  window.prompt = (...args) => {
+    window._promptCalls.push(args);
+    return 'No longer needed';
+  };
+
+  try {
+    await mod.pgPatientCareTeam();
+    await flushUi();
+    assert.equal(document.getElementById('patient-page-title').textContent, 'Care Team');
+    assert.match(document.getElementById('patient-content').innerHTML, /Dr\. Julia Kolmar/);
+    assert.match(document.getElementById('patient-content').innerHTML, /Synaps AI/);
+
+    window._ctProfile('jk');
+    assert.equal(document.getElementById('ct-modal-bd').classList.contains('open'), true);
+    assert.equal(document.getElementById('ct-modal-name').textContent, 'Dr. Julia Kolmar');
+    window._ctCloseModal();
+    assert.equal(document.getElementById('ct-modal-bd').classList.contains('open'), false);
+
+    window._ctMessage('jk');
+    await waitMs(450);
+    assert.equal(window._navPatientCalls.at(-1), 'patient-virtualcare');
+
+    window._ctDownload('Home device safety checklist');
+    assert.deepEqual(window._openCalls.at(-1), ['https://www.fda.gov/medical-devices/general-hospital-devices-and-supplies/electrical-stimulation-devices-ess', '_blank', 'noopener,noreferrer']);
+
+    document.getElementById('ct-cc-cg-id').value = 'caregiver-2';
+    document.getElementById('ct-cc-sc-messages').checked = true;
+    document.getElementById('ct-cc-grant-btn').click();
+    await flushUi();
+    await flushUi();
+    assert.equal(createCalls[0].caregiver_user_id, 'caregiver-2');
+    assert.equal(createCalls[0].scope.messages, true);
+    assert.equal(auditCalls.some((payload) => payload.event === 'caregiver_consent.grant_created_ui'), true);
+
+    document.querySelector('[data-cc-revoke="grant-1"]').click();
+    await flushUi();
+    await flushUi();
+    assert.deepEqual(revokeCalls[0], { id: 'grant-1', payload: { reason: 'No longer needed' } });
+    assert.equal(auditCalls.some((payload) => payload.event === 'caregiver_consent.grant_revoked_ui'), true);
+    assert.match(document.getElementById('ct-cc-grants').innerHTML, /Revoked/);
+  } finally {
+    Object.assign(api, originals);
+  }
 });
 
 test('pgPatientMarketplace covers filters, details, external open, seller create, and my listings actions', async () => {
