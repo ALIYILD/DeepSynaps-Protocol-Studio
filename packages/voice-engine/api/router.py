@@ -360,5 +360,5 @@ async def get_voice_result(
         "flags": blob.get("flags") or blob.get("raw_flags"),
         "data_quality_notes": blob.get("data_quality_notes"),
         "disclaimer": _CLINICAL_DISCLAIMER,
-        "engine_version": persisted_version,
+        "engine_version": _ENGINE_VERSION,
     }

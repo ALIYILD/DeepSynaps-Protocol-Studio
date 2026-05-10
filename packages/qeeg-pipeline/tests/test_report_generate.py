@@ -48,6 +48,7 @@ def test_build_renders_raw_review_and_local_grounding(monkeypatch, tmp_path: Pat
 
     assert pdf_path is None
     assert "Clinical review summary" in html
-    assert "Bad channels excluded during preprocessing: Fp1, T7" in html
+    assert "Rejected channels" in html
+    assert "Fp1, T7" in html
     assert "Machine-readable summary" in html
     assert (tmp_path / "report.html").exists()
