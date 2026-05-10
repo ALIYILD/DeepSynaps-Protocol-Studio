@@ -96,7 +96,7 @@ if (files.length === 0) {
 }
 
 const passthroughArgs = process.argv.slice(2);
-const args = ['--test', '--test-concurrency=1', ...passthroughArgs, ...files];
+const args = ['--test', '--test-concurrency=4', ...passthroughArgs, ...files];
 
 console.log(`[run-unit-tests] running ${files.length} test files (${QUARANTINE.size} quarantined)`);
 
