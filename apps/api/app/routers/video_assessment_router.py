@@ -63,6 +63,12 @@ _DEMO_ALLOWED_ENVS = frozenset({"development", "test"})
 
 _MAX_TASK_VIDEO_BYTES = 120 * 1024 * 1024  # 120 MB per task clip
 _ALLOWED_VIDEO_MIME = frozenset({"video/webm", "video/mp4", "video/quicktime"})
+_PATIENT_ALLOWED_TASK_FIELDS = frozenset(
+    {"task_id", "recording_status", "skip_reason", "unsafe_flag", "video_capture_meta"}
+)
+_PATIENT_ALLOWED_RECORDING_STATUSES = frozenset(
+    {"pending", "pending_review", "recorded", "skipped", "unsafe_skipped"}
+)
 _HISTORICAL_SUMMARY_LOGIC_VERSION = "video_assessment_historical_summary_v2"
 _ALLOWED_HISTORICAL_FEEDBACK_STATUS = frozenset({"accepted", "partially_accepted", "disagreed", "not_useful"})
 _MAX_HISTORICAL_FEEDBACK_NOTE_CHARS = 300
