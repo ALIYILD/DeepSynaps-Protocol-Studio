@@ -22,7 +22,7 @@ import { emptyState, showToast } from './helpers.js';
 import { EvidenceChip, createEvidenceQueryForTarget, initEvidenceDrawer, openEvidenceDrawer, wireEvidenceChips } from './evidence-intelligence.js';
 import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
 import { mountQuickPreviewSection } from './mri-quick-preview-section.js';
-import { renderClinicalDisclaimer } from './clinical-disclaimer.js';
+import { renderClinicalDisclaimer, renderModuleClinicalDisclaimer } from './clinical-disclaimer.js';
 
 // Cornerstone3D viewer is loaded dynamically — the @cornerstonejs/* packages
 // are optional and may not be installed.  When absent the build still succeeds
@@ -2821,6 +2821,7 @@ export function renderFullView(state) {
 
   return '<div class="ch-shell ds-mri-shell">'
     + renderClinicalDisclaimer()
+    + renderModuleClinicalDisclaimer('mri')
     + renderDemoLiveBanner()
     + (showDemoBanner ? _mriDemoBanner() : '')
     + renderMRILinkedModules({ patientId: state.patientId || null, report: report })

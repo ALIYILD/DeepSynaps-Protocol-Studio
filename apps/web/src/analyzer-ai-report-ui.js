@@ -10,6 +10,7 @@
 // pages-digital-phenotyping-analyzer, pages-deeptwin, pages-treatment-sessions-analyzer.
 
 import { api, downloadBlob } from './api.js';
+import { renderAiOutputDisclaimer } from './clinical-disclaimer.js';
 
 const STYLE_ID = 'ds-aar-styles';
 
@@ -158,6 +159,7 @@ function _renderReportModal(result, ctx) {
         <button class="ds-aar-mclose" aria-label="Close">×</button>
       </div>
       <div class="ds-aar-mbody">
+        ${renderAiOutputDisclaimer({ variant: ctx.patientFacing ? 'patient' : 'default' })}
         <div class="ds-aar-section"><h4>Executive summary</h4>
           <div class="ds-aar-callout">${_esc(data.executive_summary || 'Not produced.')}</div></div>
         <div class="ds-aar-section"><h4>Key findings</h4>${_findingsHTML(data.key_findings)}</div>
