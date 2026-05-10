@@ -5,6 +5,9 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // ── Browser stubs ─────────────────────────────────────────────────────────────
 if (typeof globalThis.window === 'undefined') globalThis.window = globalThis;
@@ -39,6 +42,8 @@ if (typeof globalThis.fetch === 'undefined') {
 }
 
 const mod = await import('./pages-virtualcare.js');
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const SRC = readFileSync(join(__dirname, 'pages-virtualcare.js'), 'utf8');
 
 // ── 1. Export presence ────────────────────────────────────────────────────────
 describe('pages-virtualcare public exports', () => {
@@ -84,6 +89,17 @@ describe('pgVirtualCare graceful no-DOM', () => {
       threw = true;
     }
     assert.strictEqual(threw, false);
+  });
+
+  it('recreates #main-content when only #content exists', () => {
+    assert.ok(
+      SRC.includes("root.id === 'content' && !document.getElementById('main-content')"),
+      'expected pgVirtualCare to detect content-only mounts',
+    );
+    assert.ok(
+      SRC.includes("root.innerHTML = '<div id=\"main-content\"></div>'"),
+      'expected pgVirtualCare to recreate #main-content for flows/e2e compatibility',
+    );
   });
 });
 
