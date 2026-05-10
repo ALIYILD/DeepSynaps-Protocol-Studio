@@ -1229,7 +1229,7 @@ class AIAnalysisRun(Base):
     output_artifact_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)  # links to GeneratedDocument or result storage
     evidence_refs_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # [{doi, pmid, url, evidence_grade}]
     risk_flags_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # [{flag_type, severity, message}]
-    status: Mapped[str] = mapped_column(String(30), default="pending", index=True)  # pending, processing, completed, failed, errored
+    status: Mapped[str] = mapped_column(String(30), default="pending")  # pending, processing, completed, failed, errored
     clinician_review_status: Mapped[str] = mapped_column(String(30), default="not_required")  # not_required, pending, approved, rejected, needs_revision
     clinician_notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     reviewed_by_user_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
