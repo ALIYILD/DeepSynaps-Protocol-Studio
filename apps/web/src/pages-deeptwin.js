@@ -40,6 +40,7 @@ import { isDemoSession } from './demo-session.js';
 import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { VOICE_DEEPTWIN_DOMAIN_NOTE } from './voice-decision-support.js';
 import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
+import { renderModuleClinicalDisclaimer } from './clinical-disclaimer.js';
 import { buildReport, reportToMarkdown, reportToJSONString, downloadBlob, renderReportPreview } from './deeptwin/reports.js';
 import { startHandoff } from './deeptwin/handoff.js';
 import { PRESET_SCENARIOS } from './deeptwin/mockData.js';
@@ -176,6 +177,7 @@ function _renderAll() {
     <div class="dt-page">
       ${_renderTabStrip(STATE.activeTab || 'overview')}
       ${decisionSupportBanner()}
+      ${renderModuleClinicalDisclaimer('deeptwin')}
       ${renderNeuroAiLabSection({
         patientId: STATE.patientId,
         timeline: STATE.timeline,
@@ -669,6 +671,7 @@ async function _renderActiveTab(setTopbar) {
         <div class="dt-page">
           ${_renderTabStrip('notes')}
           ${decisionSupportBanner()}
+          ${renderModuleClinicalDisclaimer('deeptwin')}
           ${renderClinicianNotesPanel({ notes: STATE.clinicianNotes })}
           ${renderSafetyFooter()}
         </div>`;
@@ -683,6 +686,7 @@ async function _renderActiveTab(setTopbar) {
         <div class="dt-page">
           ${_renderTabStrip('review')}
           ${decisionSupportBanner()}
+          ${renderModuleClinicalDisclaimer('deeptwin')}
           ${renderHistoryPanel({ analysisRuns: STATE.analysisRuns, simulationRuns: STATE.simulationRuns })}
           <section class="card dt-section" role="region" aria-label="Audit trail">
             <header class="dt-section-h"><h3>Audit trail (this browser)</h3>
@@ -701,6 +705,7 @@ async function _renderActiveTab(setTopbar) {
       <div class="dt-page">
         ${_renderTabStrip('simulations')}
         ${decisionSupportBanner()}
+        ${renderModuleClinicalDisclaimer('deeptwin')}
         <section class="card dt-section">
           <h3 style="margin:0 0 8px">Simulation workspace</h3>
           <p style="margin:0 0 12px;color:var(--text-secondary);font-size:13px;line-height:1.5">

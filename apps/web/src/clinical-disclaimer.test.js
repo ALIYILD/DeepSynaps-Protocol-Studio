@@ -5,6 +5,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   renderClinicalDisclaimer,
+  renderAiOutputDisclaimer,
+  renderModuleClinicalDisclaimer,
   renderPHIWarningBadge,
   renderNLPStatusBadge,
 } from './clinical-disclaimer.js';
@@ -17,6 +19,20 @@ test('renderClinicalDisclaimer includes required disclaimer text', () => {
   assert.ok(html.includes('require clinician review'));
   assert.ok(html.includes('role="region"'));
   assert.ok(html.includes('aria-label="Clinical disclaimer"'));
+});
+
+test('renderAiOutputDisclaimer renders patient-facing copy', () => {
+  const html = renderAiOutputDisclaimer({ variant: 'patient' });
+  assert.ok(html.includes('Not medical advice'));
+  assert.ok(html.includes('education only'));
+  assert.ok(html.includes('patient-ai-output-disclaimer'));
+});
+
+test('renderModuleClinicalDisclaimer renders MRI copy', () => {
+  const html = renderModuleClinicalDisclaimer('mri');
+  assert.ok(html.includes('Imaging support only'));
+  assert.ok(html.includes('radiology report'));
+  assert.ok(html.includes('module-disclaimer-mri'));
 });
 
 test('renderClinicalDisclaimer HTML is valid and escaped', () => {

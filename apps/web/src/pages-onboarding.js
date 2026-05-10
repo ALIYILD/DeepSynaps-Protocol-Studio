@@ -4,6 +4,7 @@ import {
   EVIDENCE_TOTAL_PAPERS,
   EVIDENCE_SUMMARY,
 } from './evidence-dataset.js';
+import { renderClinicalDisclaimer } from './clinical-disclaimer.js';
 
 // HTML escape helper used by the wizard's input value bindings.
 function _obEsc(v) {
@@ -43,6 +44,8 @@ function step1Html() {
         <h1 class="ff-page-title">Welcome to DeepSynaps Protocol Studio</h1>
         <p class="ff-page-sub">Let's set up your clinic in a few quick steps so you can start treating patients right away.</p>
       </div>
+
+      ${renderClinicalDisclaimer()}
 
       <div class="ff-card">
         <div class="ff-card-title">About your practice</div>

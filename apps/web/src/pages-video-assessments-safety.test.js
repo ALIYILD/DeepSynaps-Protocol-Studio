@@ -12,7 +12,7 @@ test('VA — Clinical Disclaimer Present & Safe', (t) => {
   // Verify required clinical preview disclaimer
   assert.match(VA_SRC, /This is a controlled preview/);
   assert.match(VA_SRC, /does not diagnose/);
-  assert.match(VA_SRC, /does not prescribe/);
+  assert.match(VA_SRC, /does not diagnose, prescribe/);
   assert.match(VA_SRC, /act autonomously/);
   assert.match(VA_SRC, /All outputs require clinician review/);
 });
