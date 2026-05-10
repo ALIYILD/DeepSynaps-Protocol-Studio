@@ -170,6 +170,8 @@ async function loadBrainTwin()  { return (_modBrainTwin ??= await import('./page
 async function loadKnowledge()  { return (_modKnowledge ??= await import('./pages-knowledge.js')); }
 let _modBiomarkers = null;
 async function loadBiomarkers() { return (_modBiomarkers ??= await import('./pages-biomarkers.js')); }
+let _modDataConsole = null;
+async function loadDataConsole() { return (_modDataConsole ??= await import('./pages-data-console.js')); }
 async function loadVoiceAnalyzer() { return (_modVoiceAnalyzer ??= await import('./pages-voice-analyzer.js')); }
 let _modTextAnalyzer = null;
 async function loadTextAnalyzer() { return (_modTextAnalyzer ??= await import('./pages-text-analyzer.js')); }
@@ -603,6 +605,7 @@ const NAV = [
   { section: 'Admin', sectionId: 'admin', collapsed: true },
   { id: 'reports-v2',         label: 'Reports',           icon: '📈' },
   { id: 'finance-v2',         label: 'Finance',           icon: '💰' },
+  { id: 'data-console',       label: 'Data Console',      icon: '📋' },
   // Research has moved into Reports (Reports → Research tab).
   // Settings is rendered pinned at the sidebar bottom (outside NAV sections).
   { id: 'tickets',            label: 'Tickets',           icon: '🎫' },
@@ -2023,6 +2026,7 @@ async function renderPage() {
     case 'consent-management': { window._docsHubTab = 'consent'; navigate('documents-hub'); break; }
     case 'research-evidence':  { const m = await loadResearchEvidence(); await m.pgResearchEvidence(setTopbar, navigate); break; }
     case 'system-health':      { window._settingsHubTab = 'system-health'; const m = await loadPractice(); await m.pgSettingsHub(setTopbar, navigate); break; }
+    case 'data-console':       { const m = await loadDataConsole(); await m.pgDataConsole(setTopbar, navigate); break; }
     default:
       el.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-tertiary)">Page not found.</div>`;
   }

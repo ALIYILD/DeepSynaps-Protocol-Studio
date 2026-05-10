@@ -1196,6 +1196,27 @@ export const api = {
       body: JSON.stringify(payload || {}),
     }),
 
+  // ── Patient Analytics API (clinical data platform) ───────────────────────
+  // Comprehensive analytics dashboard for patient data and access audit trail
+  getPatientAnalyticsSummary: (patientId) =>
+    apiFetch(`/api/v1/patients/${encodeURIComponent(patientId)}/analytics/summary`),
+  getPatientAnalyticsTimeline: (patientId, opts = {}) => {
+    const params = new URLSearchParams();
+    if (opts.days) params.append('days', String(opts.days));
+    if (opts.limit) params.append('limit', String(opts.limit));
+    const qs = params.toString();
+    return apiFetch(`/api/v1/patients/${encodeURIComponent(patientId)}/analytics/timeline${qs ? '?' + qs : ''}`);
+  },
+  getPatientAnalyticsAuditLog: (patientId, opts = {}) => {
+    const params = new URLSearchParams();
+    if (opts.days) params.append('days', String(opts.days));
+    if (opts.limit) params.append('limit', String(opts.limit));
+    const qs = params.toString();
+    return apiFetch(`/api/v1/patients/${encodeURIComponent(patientId)}/analytics/audit-log${qs ? '?' + qs : ''}`);
+  },
+  getPatientAnalyticsSignals: (patientId) =>
+    apiFetch(`/api/v1/patients/${encodeURIComponent(patientId)}/analytics/signals`),
+
   // ── Protocol Studio thin facades (doctor-ready scaffolding) ─────────────
   protocolStudioEvidenceHealth: () =>
     apiFetchWithRetry('/api/v1/protocol-studio/evidence/health'),
