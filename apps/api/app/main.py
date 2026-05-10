@@ -1015,6 +1015,16 @@ def qeeg_condition_map() -> QEEGConditionMapListResponse:
     return list_qeeg_condition_map()
 
 
+# Data Console redirect — protect by redirecting to login with return path
+@app.get("/data-console")
+def data_console_redirect():
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(
+        url="/auth/login?return=/app?page=data-console",
+        status_code=303
+    )
+
+
 @app.post("/api/v1/uploads/case-summary", response_model=CaseSummaryResponse)
 def case_summary(
     payload: CaseSummaryRequest,

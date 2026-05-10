@@ -511,12 +511,16 @@ let currentPage = 'dashboard';
 
 // ── Role-based nav visibility ─────────────────────────────────────────────────
 const ROLE_NAV_HIDE = {
-  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'finance-v2', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'risk-analyzer', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
-  reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'finance-v2', 'population-analytics', 'brain-map-planner', 'brainmap-v2'],
-  patient:    ['finance-v2'],
-  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-v2', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'treatment-sessions-analyzer', 'audittrail', 'billing', 'finance-v2', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report', 'tickets'],
+  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'finance-v2', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'risk-analyzer', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report', 'data-console'],
+  reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'finance-v2', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'data-console'],
+  patient:    ['finance-v2', 'data-console'],
+  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-v2', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'treatment-sessions-analyzer', 'audittrail', 'billing', 'finance-v2', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report', 'tickets', 'data-console'],
   clinician:  ['population-analytics'],
 };
+
+// Routes that admin/clinic_admin/clinician get; everyone else lands on a safe
+// fallback if they direct-navigate via ?page=… or _nav('data-console').
+const DATA_CONSOLE_ALLOWED_ROLES = new Set(['admin', 'clinic_admin', 'clinician']);
 
 // Routes that admin/clinic_admin/clinician get; everyone else lands on a safe
 // fallback if they direct-navigate via ?page=… or _nav('finance-v2').
@@ -2026,7 +2030,16 @@ async function renderPage() {
     case 'consent-management': { window._docsHubTab = 'consent'; navigate('documents-hub'); break; }
     case 'research-evidence':  { const m = await loadResearchEvidence(); await m.pgResearchEvidence(setTopbar, navigate); break; }
     case 'system-health':      { window._settingsHubTab = 'system-health'; const m = await loadPractice(); await m.pgSettingsHub(setTopbar, navigate); break; }
-    case 'data-console':       { const m = await loadDataConsole(); await m.pgDataConsole(setTopbar, navigate); break; }
+    case 'data-console':       {
+      if (!DATA_CONSOLE_ALLOWED_ROLES.has(currentUser?.role)) {
+        // Soft-redirect non-admin roles away from direct ?page=data-console navigation
+        // (sidebar entry is already hidden via ROLE_NAV_HIDE; this guards URL access).
+        const fallback = currentUser?.role === 'patient' ? 'home' : 'home';
+        if (typeof window._nav === 'function') { await window._nav(fallback); return; }
+        break;
+      }
+      const m = await loadDataConsole(); await m.pgDataConsole(setTopbar, navigate); break;
+    }
     default:
       el.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-tertiary)">Page not found.</div>`;
   }

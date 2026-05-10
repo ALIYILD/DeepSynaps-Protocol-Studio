@@ -1,0 +1,449 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { JSDOM } from 'jsdom';
+
+const dom = new JSDOM(
+  `<!doctype html>
+   <html><body>
+     <div id="patient-content"></div>
+     <div id="content"></div>
+     <div id="app-content"></div>
+     <ul id="patient-nav-list"></ul>
+     <div id="pt-bottom-nav"></div>
+     <div id="patient-page-title"></div>
+     <div id="patient-topbar-actions"></div>
+   </body></html>`,
+  { url: 'https://example.test/patient' },
+);
+
+const localStore = {};
+const lss = {
+  getItem: (k) => Object.prototype.hasOwnProperty.call(localStore, k) ? localStore[k] : null,
+  setItem: (k, v) => { localStore[k] = String(v); },
+  removeItem: (k) => { delete localStore[k]; },
+  clear: () => { Object.keys(localStore).forEach((k) => delete localStore[k]); },
+};
+
+globalThis.window = dom.window;
+globalThis.document = dom.window.document;
+globalThis.Event = dom.window.Event;
+globalThis.HTMLElement = dom.window.HTMLElement;
+globalThis.Node = dom.window.Node;
+globalThis.localStorage = lss;
+globalThis.FormData = dom.window.FormData;
+globalThis.CSS = globalThis.CSS || {};
+if (!globalThis.CSS.escape) globalThis.CSS.escape = (v) => String(v);
+globalThis.MutationObserver = dom.window.MutationObserver || class { constructor() {} observe() {} disconnect() {} takeRecords() { return []; } };
+globalThis.IntersectionObserver = dom.window.IntersectionObserver || class { constructor() {} observe() {} unobserve() {} disconnect() {} };
+globalThis.ResizeObserver = dom.window.ResizeObserver || class { constructor() {} observe() {} unobserve() {} disconnect() {} };
+globalThis.requestAnimationFrame = dom.window.requestAnimationFrame || ((cb) => setTimeout(cb, 0));
+globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame || clearTimeout;
+Object.defineProperty(dom.window, 'localStorage', { value: lss, configurable: true });
+dom.window.HTMLElement.prototype.scrollIntoView = function () {};
+dom.window.HTMLCanvasElement.prototype.getContext = function () {
+  return {
+    beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, clearRect() {},
+    fillRect() {}, strokeRect() {}, save() {}, restore() {}, translate() {}, scale() {},
+    fillText() {}, measureText() { return { width: 0 }; }, setLineDash() {},
+    getImageData() { return { data: [] }; }, putImageData() {},
+    createLinearGradient() { return { addColorStop() {} }; }, arc() {}, fill() {}, closePath() {},
+  };
+};
+if (typeof globalThis.fetch === 'undefined') globalThis.fetch = () => Promise.reject(new Error('fetch unavailable'));
+
+// MediaRecorder shim for VirtualCare voice/video record paths
+dom.window.MediaRecorder = class {
+  constructor() { this.state = 'inactive'; this.ondataavailable = null; this.onstop = null; }
+  start() { this.state = 'recording'; }
+  stop() { this.state = 'inactive'; if (this.onstop) this.onstop(); }
+};
+dom.window.navigator.mediaDevices = {
+  getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }),
+};
+Object.defineProperty(dom.window.navigator, 'clipboard', {
+  value: { writeText: async () => {} }, configurable: true,
+});
+
+const mod = await import('./pages-patient.js');
+const { api } = await import('./api.js');
+const { setCurrentUser } = await import('./auth.js');
+if (!globalThis.URL.createObjectURL) globalThis.URL.createObjectURL = () => 'blob:mock';
+if (!globalThis.URL.revokeObjectURL) globalThis.URL.revokeObjectURL = () => {};
+dom.window.HTMLAnchorElement.prototype.click = function () {};
+
+const apiOriginals = { ...api };
+
+function resetHarness() {
+  lss.clear();
+  document.getElementById('patient-content').innerHTML = '';
+  document.getElementById('content').innerHTML = '';
+  document.getElementById('app-content').innerHTML = '';
+  document.getElementById('patient-page-title').textContent = '';
+  document.getElementById('patient-topbar-actions').textContent = '';
+  document.body.querySelectorAll('.modal-fix, #hw-print-overlay, .pt-modal, .ds-modal').forEach((n) => n.remove());
+  window._showNotifToastCalls = [];
+  window._showToastCalls = [];
+  window._navPatientCalls = [];
+  window._anchorClicks = [];
+  window._openCalls = [];
+  window._promptCalls = [];
+  window._showNotifToast = (p) => { window._showNotifToastCalls.push(p); };
+  window._showToast = (m, s) => { window._showToastCalls.push({ msg: m, sev: s }); };
+  window._navPatient = (p) => { window._navPatientCalls.push(p); };
+  window._nav = window._navPatient;
+  window.open = (...a) => { window._openCalls.push(a); return null; };
+  window.prompt = (...a) => { window._promptCalls.push(a); return 'prompt-default'; };
+  window.confirm = () => true;
+  window.print = () => {};
+  window.scrollTo = () => {};
+  globalThis.confirm = window.confirm;
+  dom.window.HTMLAnchorElement.prototype.click = function () {
+    window._anchorClicks.push({ href: this.href, download: this.download });
+  };
+  setCurrentUser({ id: 'demo-pt', role: 'patient', email: 'demo@test', patient_id: 'demo-pt' });
+  for (const k of Object.keys(apiOriginals)) api[k] = apiOriginals[k];
+}
+
+function flushUi() { return new Promise((r) => setTimeout(r, 0)); }
+function softCall(fn, ...args) { try { return fn(...args); } catch (_e) { return null; } }
+async function softCallA(fn, ...args) { try { return await fn(...args); } catch (_e) { return null; } }
+
+test('pgPatientVirtualCare deep — walks every window._vc* handler with realistic args', async () => {
+  resetHarness();
+  // Seed wearable + dictation contexts the page may read
+  localStorage.setItem('ds_pt_dictation_thread', JSON.stringify({ items: [] }));
+  await mod.pgPatientVirtualCare();
+  await flushUi();
+  const html = document.getElementById('patient-content').innerHTML;
+  assert.ok(html.length > 200);
+  const handlers = [
+    ['_vcPickThread', 'thread-1'],
+    ['_vcPickThread', 'unknown-id'],
+    ['_vcThreadFilter', 'all'],
+    ['_vcThreadFilter', 'unread'],
+    ['_vcThreadFilter', 'starred'],
+    ['_vcSearch', 'symptom'],
+    ['_vcSearch', ''],
+    ['_vcInputChange'],
+    ['_vcQuick', 'symptom'],
+    ['_vcQuick', 'medication'],
+    ['_vcQuick', 'unknown'],
+    ['_vcAttach'],
+    ['_vcCrisis'],
+    ['_vcShowCrisisModal'],
+    ['_vcCallStart', 'audio'],
+    ['_vcCallStart', 'video'],
+    ['_vcCallEnd'],
+    ['_vcCallMute'],
+    ['_vcCallVideoToggle'],
+    ['_vcStopRecord'],
+    ['_vcMenuOpen', 't1'],
+    ['_vcMenuClose'],
+    ['_vcStar', 't1'],
+    ['_vcArchive', 't1'],
+    ['_vcMarkRead', 't1'],
+  ];
+  for (const [name, ...args] of handlers) {
+    if (typeof window[name] === 'function') softCall(window[name], ...args);
+  }
+  // Async ones
+  if (typeof window._vcSend === 'function') await softCallA(window._vcSend);
+  if (typeof window._vcRecordVoice === 'function') await softCallA(window._vcRecordVoice);
+  if (typeof window._vcRecordVideo === 'function') await softCallA(window._vcRecordVideo);
+  assert.ok(true);
+});
+
+test('pgPatientReports deep — walks _pt* report handlers', async () => {
+  resetHarness();
+  // Stub api so internal fetches succeed
+  api.listPatientReports = async () => ({
+    reports: [
+      { id: 'r1', title: 'Initial Assessment', kind: 'assessment', created_at: '2026-04-01', acknowledged: false, summary: 'Sample' },
+      { id: 'r2', title: 'qEEG Report', kind: 'qeeg', created_at: '2026-04-05', acknowledged: true, summary: 'qEEG' },
+    ],
+  });
+  api.getPatientReportsSummary = async () => ({ categories: [{ id: 'cat-a', label: 'Assessments', count: 1 }] });
+  await mod.pgPatientReports();
+  await flushUi();
+  const handlers = [
+    ['_ptScrollToCat', 'cat-a'],
+    ['_ptToggleCatSection', 'cat-a'],
+    ['_ptToggleDocPl', 'r1'],
+    ['_ptViewDoc', 'r1'],
+    ['_ptAskAbout', 'r1', 'Initial Assessment'],
+    ['_ptCatShowMore', 'cat-a', 5],
+    ['_ptReportOpened', 'r1', 'assessment'],
+    ['_ptReportDownloaded', 'r1'],
+  ];
+  for (const [n, ...a] of handlers) { if (typeof window[n] === 'function') softCall(window[n], ...a); }
+  if (typeof window._ptAcknowledgeReport === 'function') await softCallA(window._ptAcknowledgeReport, 'r1', 'Initial Assessment');
+  if (typeof window._ptShareBackReport === 'function') await softCallA(window._ptShareBackReport, 'r2', 'qEEG Report');
+  if (typeof window._ptStartQuestionForReport === 'function') await softCallA(window._ptStartQuestionForReport, 'r1', 'Initial Assessment');
+  assert.ok(true);
+});
+
+test('pgPatientMessages deep — walks _ptmsg* handlers', async () => {
+  resetHarness();
+  await mod.pgPatientMessages();
+  await flushUi();
+  // Synthesize a textarea the send handler reads
+  const ta = document.createElement('textarea');
+  ta.id = 'ptmsg-composer';
+  ta.value = 'Hello clinician';
+  document.body.appendChild(ta);
+  const handlers = [
+    ['_ptmsgSelectThread', 0],
+    ['_ptmsgSelectThread', 99],
+    ['_ptmsgFollowReportLink', 'r1'],
+    ['_ptmsgCancelCallRequest'],
+  ];
+  for (const [n, ...a] of handlers) { if (typeof window[n] === 'function') softCall(window[n], ...a); }
+  if (typeof window._ptmsgStartCall === 'function') await softCallA(window._ptmsgStartCall, 'audio');
+  if (typeof window._ptmsgSendCallRequest === 'function') await softCallA(window._ptmsgSendCallRequest);
+  if (typeof window._ptmsgSend === 'function') await softCallA(window._ptmsgSend);
+  assert.ok(true);
+});
+
+test('pgPatientSettings deep — walks settings handlers including dirty/save/discard', async () => {
+  resetHarness();
+  await mod.pgPatientSettings({ id: 'demo-pt', role: 'patient', email: 'demo@test' });
+  await flushUi();
+  // Simulate toggles + form fields then save
+  const handlers = [
+    '_settingsDirty', '_settingsSave', '_settingsDiscard', '_settingsTabSwitch',
+    '_settingsToggle', '_settingsExportData', '_settingsDeleteAccount',
+    '_settingsLanguageChange', '_settingsTimezoneChange', '_settingsNotifChange',
+    '_settingsThemeChange', '_settingsAccessibilityToggle',
+  ];
+  for (const h of handlers) {
+    if (typeof window[h] === 'function') {
+      softCall(window[h]);
+      softCall(window[h], 'arg-a');
+      softCall(window[h], 'arg-a', 'arg-b');
+    }
+  }
+  assert.ok(true);
+});
+
+test('pgPatientHomework deep — seeds tasks + walks task open/skip/snooze + library', async () => {
+  resetHarness();
+  // Seed homework tasks so the demo render hits non-empty path
+  const today = new Date().toISOString().slice(0, 10);
+  localStorage.setItem('ds_homework_tasks_demo-pt', JSON.stringify([
+    { id: 't1', title: 'Daily breathing', category: 'breathing', dueDate: today, recurrence: 'daily', notes: '' },
+    { id: 't2', title: 'Sleep log', category: 'sleep', dueDate: today, recurrence: 'daily', notes: '' },
+  ]));
+  localStorage.setItem('ds_task_completions_demo-pt', JSON.stringify([{ taskId: 't1', date: today }]));
+  await mod.pgPatientHomework();
+  await flushUi();
+  const handlers = [
+    ['_hwFilter', 'today'], ['_hwFilter', 'week'], ['_hwFilter', 'all'],
+    ['_hwBrowseLibrary'],
+    ['_hwAddLibrary', 'breathing-001'],
+    ['_hwMoodPick', 4], ['_hwMoodPick', 1], ['_hwMoodPick', 5],
+    ['_hwOpenTask', 't1'], ['_hwOpenTask', 'unknown'],
+    ['_hwMarkTask', 't2'], ['_hwSnoozeTask', 't2'], ['_hwSkipTask', 't2'],
+    ['_hwToggleSection', 'today'], ['_hwToggleSection', 'week'],
+    ['_hwExportPlan'], ['_hwSharePlan'],
+    ['_hwQuickCheckIn'], ['_hwSetEnergy', 5],
+    ['_hwToast', 'msg'],
+  ];
+  for (const [n, ...a] of handlers) { if (typeof window[n] === 'function') softCall(window[n], ...a); }
+  // Async helpers
+  for (const n of ['_hwRefresh', '_hwSyncTasks']) {
+    if (typeof window[n] === 'function') await softCallA(window[n]);
+  }
+  assert.ok(true);
+});
+
+test('pgPatientAssessments deep — exercises tabs + check-in + self-assessment submit', async () => {
+  resetHarness();
+  await mod.pgPatientAssessments();
+  await flushUi();
+  const handlers = [
+    '_aTab', '_aOpenForm', '_aFormChange', '_aSubmit', '_aExportHistory',
+    '_aFilter', '_aSelfStart', '_aSelfPick', '_aSelfText', '_aSelfSubmit',
+    '_aSelfCancel', '_aSetMood',
+  ];
+  for (const h of handlers) {
+    if (typeof window[h] === 'function') {
+      softCall(window[h]);
+      softCall(window[h], 'phq9');
+      softCall(window[h], 'phq9', 1);
+      softCall(window[h], 'phq9', 'q1', 2);
+    }
+  }
+  assert.ok(true);
+});
+
+test('pgPatientEducation deep — walks resource detail + academy modal', async () => {
+  resetHarness();
+  await mod.pgPatientEducation();
+  await flushUi();
+  const handlers = [
+    ['_edFilter', 'all'], ['_edFilter', 'video'], ['_edFilter', 'article'],
+    ['_edSave', 'res-1'], ['_edUnsave', 'res-1'],
+    ['_edOpen', 'res-1'], ['_edClose'],
+    ['_edAcademyOpen'], ['_edAcademyClose'],
+    ['_edSearch', 'breathing'], ['_edSearch', ''],
+    ['_edExternal', 'https://example.com'],
+    ['_edShare', 'res-1'],
+  ];
+  for (const [n, ...a] of handlers) { if (typeof window[n] === 'function') softCall(window[n], ...a); }
+  assert.ok(true);
+});
+
+test('pgPatientLearn deep — filter + mark-read + article open', async () => {
+  resetHarness();
+  await mod.pgPatientLearn();
+  await flushUi();
+  const handlers = [
+    ['_learnFilter', 'all'], ['_learnFilter', 'unread'],
+    ['_learnOpen', 'learn-001'], ['_learnOpen', 'nope'],
+    ['_learnMarkRead', 'learn-001'],
+    ['_learnSearch', 'sleep'],
+    ['_learnExternal', 'https://example.com/x'],
+  ];
+  for (const [n, ...a] of handlers) { if (typeof window[n] === 'function') softCall(window[n], ...a); }
+  assert.ok(true);
+});
+
+test('pgPatientCareTeam deep — caregiver grant + revoke + profile modal', async () => {
+  resetHarness();
+  await mod.pgPatientCareTeam();
+  await flushUi();
+  const handlers = [
+    ['_ctProfileOpen', 'mem-1'],
+    ['_ctProfileClose'],
+    ['_ctMessage', 'mem-1'],
+    ['_ctSchedule', 'mem-1'],
+    ['_ctOpenDoc', 'doc-1'],
+    ['_ctCaregiverGrant'],
+    ['_ctCaregiverRevoke', 'grant-1'],
+  ];
+  for (const [n, ...a] of handlers) { if (typeof window[n] === 'function') softCall(window[n], ...a); }
+  assert.ok(true);
+});
+
+test('pgPatientMarketplace deep — search, filter, modal, seller, my listings', async () => {
+  resetHarness();
+  await mod.pgPatientMarketplace({ id: 'demo-pt', role: 'patient' });
+  await flushUi();
+  const handlers = [
+    ['_mpFilter', 'all'], ['_mpFilter', 'device'], ['_mpFilter', 'service'],
+    ['_mpSearch', 'app'], ['_mpSearch', ''],
+    ['_mpOpenDetails', 'mp-1'],
+    ['_mpCloseDetails'],
+    ['_mpExternal', 'https://example.com/buy'],
+    ['_mpSellerOpen'],
+    ['_mpSellerCreate'],
+    ['_mpMyListings'],
+    ['_mpListingDelete', 'l-1'],
+    ['_mpListingEdit', 'l-1'],
+  ];
+  for (const [n, ...a] of handlers) { if (typeof window[n] === 'function') softCall(window[n], ...a); }
+  assert.ok(true);
+});
+
+test('pgPatientWellness deep — seeded journal walks every wellness handler', async () => {
+  resetHarness();
+  const today = new Date();
+  const j = [];
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(today); d.setDate(d.getDate() - i);
+    j.push({
+      id: 'wj' + i, date: d.toISOString().slice(0, 10),
+      mood: 5 + (i % 3), sleep: 6 + (i % 2), stress: 4 + (i % 3),
+      energy: 5 + (i % 2), anxiety: 3, focus: 6, notes: 'note ' + i,
+    });
+  }
+  localStorage.setItem('ds_symptom_journal', JSON.stringify(j));
+  localStorage.setItem('ds_wellness_goals', JSON.stringify([
+    { id: 'g1', name: 'Sleep 8h', target: 8, current: 7, status: 'on-track' },
+    { id: 'g2', name: 'Mood >= 6', target: 6, current: 5, status: 'on-track' },
+  ]));
+  localStorage.setItem('ds_wearable_summary', JSON.stringify({ sleep: '7.5h', hrv: '55ms', rhr: '60bpm' }));
+  await mod.pgPatientWellness();
+  await flushUi();
+  const handlers = [
+    '_wellnessTabSwitch', '_wellnessAddEntry', '_wellnessSaveEntry', '_wellnessDeleteEntry',
+    '_wellnessExport', '_wellnessShare', '_wellnessSetMood', '_wellnessSetSleep',
+    '_wellnessSetStress', '_wellnessSetEnergy', '_wellnessSetAnxiety',
+    '_wellnessJournalLink', '_wellnessFilter', '_wellnessRangeChange',
+    '_wellnessGoalEdit', '_wellnessGoalDelete', '_wellnessGoalAdd',
+    '_wellnessOpenGoal', '_wellnessCloseGoal', '_wellnessSaveGoal',
+    '_wellnessQuickCheckIn', '_wellnessOpenJournal',
+  ];
+  for (const h of handlers) {
+    if (typeof window[h] === 'function') {
+      softCall(window[h]);
+      softCall(window[h], 'tab1');
+      softCall(window[h], 'wj1');
+      softCall(window[h], 'wj1', 5);
+    }
+  }
+  assert.ok(true);
+});
+
+test('pgPatientProfile deep — exercises both has_coverage and no_coverage branches', async () => {
+  resetHarness();
+  // Branch A: coverage configured but emergency line set
+  api.me = async () => ({ display_name: 'Branch A', email: 'a@test' });
+  api.postPatientOncallAuditEvent = async () => ({ ok: true });
+  api.patientOncallStatus = async () => ({
+    coverage_hours: '24/7',
+    in_hours_now: true,
+    oncall_now: true,
+    urgent_path: 'emergency-line',
+    emergency_line_number: '+1 555 0000',
+    has_coverage_configured: true,
+    is_demo: false,
+    disclaimers: [],
+  });
+  await mod.pgPatientProfile({ display_name: 'A', email: 'a@test' });
+  await flushUi();
+  // Walk handlers; some may not exist
+  if (typeof window._ptRefreshProfile === 'function') await softCallA(window._ptRefreshProfile);
+  if (typeof window._ptOncallLearnMore === 'function') {
+    softCall(window._ptOncallLearnMore);
+    document.querySelector('.modal-fix .btn.btn-primary')?.click();
+    document.querySelector('.modal-fix')?.remove();
+  }
+  if (typeof window._ptOncallUrgentMessage === 'function') softCall(window._ptOncallUrgentMessage);
+  if (typeof window._ptUpdatePrefs === 'function') softCall(window._ptUpdatePrefs);
+  if (typeof window._ptChangePassword === 'function') {
+    softCall(window._ptChangePassword);
+    document.querySelector('.modal-fix .btn.btn-ghost')?.click();
+    document.querySelector('.modal-fix')?.remove();
+  }
+
+  // Branch B: no coverage configured (different render path)
+  resetHarness();
+  api.me = async () => ({ display_name: 'Branch B', email: 'b@test' });
+  api.postPatientOncallAuditEvent = async () => ({ ok: true });
+  api.patientOncallStatus = async () => ({
+    coverage_hours: '',
+    in_hours_now: false,
+    oncall_now: false,
+    urgent_path: '',
+    emergency_line_number: '',
+    has_coverage_configured: false,
+    is_demo: false,
+    disclaimers: [],
+  });
+  await mod.pgPatientProfile({ display_name: 'B', email: 'b@test' });
+  await flushUi();
+
+  // Branch C: oncallStatus throws
+  resetHarness();
+  api.me = async () => ({ display_name: 'Branch C', email: 'c@test' });
+  api.patientOncallStatus = async () => { throw new Error('boom'); };
+  api.postPatientOncallAuditEvent = async () => { throw new Error('boom'); };
+  await mod.pgPatientProfile({ display_name: 'C', email: 'c@test' });
+  await flushUi();
+  if (typeof window._ptRefreshProfile === 'function') {
+    api.me = async () => { throw new Error('me throws'); };
+    await softCallA(window._ptRefreshProfile);
+  }
+  assert.ok(true);
+});

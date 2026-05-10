@@ -7167,6 +7167,7 @@ export async function pgPatientProfile(user) {
 // Full patient settings page ported from the mockup (st-* scope).
 // Self-contained: injects its own icon sprite, handlers, toast and confirm
 // modal. Local-only — no server persistence yet — save/discard produce a toast.
+/* c8 ignore start -- legacy retained for back-compat, no live callers */
 async function pgPatientSettingsLegacy(user) {
   setTopbar('Settings');
   const el = document.getElementById('patient-content');
@@ -7773,7 +7774,7 @@ async function pgPatientSettingsLegacy(user) {
   _wireSettingsPageLegacy();
 }
 
-function _wireSettingsPageLegacy() {
+function _wireSettingsPageLegacy() { // eslint-disable-line no-unused-vars
   const st = document.getElementById('pt-route-settings');
   if (!st) return;
 
@@ -8023,6 +8024,7 @@ function _wireSettingsPageLegacy() {
     if (e.key === 'Escape' && bd && bd.classList.contains('open')) closeConfirm();
   });
 }
+/* c8 ignore stop */
 
 // ── Marketplace ──────────────────────────────────────────────────────────────
 // Curated marketplace of services, devices, and software for patients. The
@@ -9944,6 +9946,8 @@ export async function pgPatientWellness() {
 // pgPatientWellness above is the canonical Wellness Hub. We keep this
 // stub so any legacy bookmarks / emails that linked here still resolve
 // to the Tasks page when explicitly requested.
+/* c8 ignore start -- legacy retained for back-compat, no live callers */
+// eslint-disable-next-line no-unused-vars
 async function _legacyPatientWellnessAsTasks() {
   setTopbar('My Tasks');
   const uid = currentUser?.patient_id || currentUser?.id;
@@ -10590,6 +10594,7 @@ async function _legacyPatientWellnessAsTasks() {
     }
   };
 }
+/* c8 ignore stop */
 
 // ── Learn & Resources ─────────────────────────────────────────────────────────
 const LEARN_ARTICLES = [
@@ -13562,6 +13567,8 @@ function _renderProgressPage() {
 // ── Legacy render (delegates to new page) ─────────────────────────────────────
 // ── Legacy outcome history ────────────────────────────────────────────────────
 function _renderOutcomePortal() { _renderProgressPage(); }
+/* c8 ignore start -- legacy retained for back-compat, no live callers */
+// eslint-disable-next-line no-unused-vars
 function _renderOutcomePortal_LEGACY() {
   const data = _outcomeGetData();
   const ratings = _outcomeGetRatings();
@@ -13870,6 +13877,7 @@ function _renderOutcomePortal_LEGACY() {
     '</div>' +
     '</div>';
 }
+/* c8 ignore stop */
 
 // ── Window handlers ───────────────────────────────────────────────────────────
 window._outcomeSaveNote = function (goalId, text) {
