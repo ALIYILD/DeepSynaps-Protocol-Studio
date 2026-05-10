@@ -309,6 +309,7 @@ def build(
     narrative_html = None
     narrative_refs: list[dict[str, Any]] = []
     enriched_findings: list[dict[str, Any]] = []
+    medication_confounds: list[dict[str, Any]] = []
     try:
         from ..knowledge import enhance_findings
         from ..narrative import extract_findings, generate_safe_narrative, retrieve_evidence
@@ -341,7 +342,6 @@ def build(
             )
             narrative_html = _markdown_to_html(report.discussion_markdown)
             # Extract consolidated medication confounds from first enriched finding
-            medication_confounds: list[dict[str, Any]] = []
             if enriched_findings and enriched_findings[0].get("medication_summary"):
                 medication_confounds = enriched_findings[0]["medication_summary"]
             narrative_refs = [

@@ -6,7 +6,11 @@ build-backend = "setuptools.build_meta"
 name = "deepsynaps-voice-engine"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "fastapi",
+    "python-multipart",
+    "pydub",
+]
 
 # voice-engine has a flat layout (.py files at the package root with their own
 # __init__.py) and relies on tests/conftest.py to prepend the package dir to
