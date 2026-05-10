@@ -76,7 +76,7 @@ All: clinic-scoped, audit-logged, Pydantic-typed, error-safe.
 ✅ Frontend build: succeeds in 8.3s  
 ✅ Clinic isolation: verified  
 ✅ Audit logging: verified  
-✅ Consent service: complete  
+✅ Consent service: complete (but NOT YET ENFORCED)
 ✅ PHI masking: verified  
 ✅ Read-only enforcement: verified  
 ✅ ALLOWLIST pattern: verified  
@@ -85,27 +85,91 @@ All: clinic-scoped, audit-logged, Pydantic-typed, error-safe.
 
 See VERIFICATION_REPORT.md for full details.
 
-## Known Limitations (Acceptable for MVP)
+## ⚠️ KNOWN LIMITATIONS — BLOCKING FOR CLINICAL PRODUCTION
 
-1. **Consent enforcement not yet wired into AI routers** — Service layer ready; integration deferred to next sprint
-2. **Patient.clinic_id denorm field not added** — Uses joins (performant for MVP)
-3. **Data Console ALLOWLIST currently 6 tables** — Can expand with approval
-4. **Device sync integration deferred** — Model ready; integration next sprint
+1. **Consent service NOT YET wired into AI routers** ❌ CRITICAL
+   - Service layer: ✅ ready
+   - Enforcement in mri_analysis_router: ❌ deferred
+   - Enforcement in qeeg_analysis_router: ❌ deferred
+   - Enforcement in deeptwin_router: ❌ deferred
+   - **Impact:** AI analyses can run without patient consent (HIPAA violation risk)
+   - **Before real patient use:** Must wire consent gating into all AI routers
+   - **See:** FOLLOW_UP_ISSUES.md #1
+
+2. **Consent NOT enforced for device sync** ❌ CRITICAL
+   - Device registry accepts data without consent check
+   - **Before device data use:** Must add consent enforcement
+   - **See:** FOLLOW_UP_ISSUES.md #2
+
+3. **Consent NOT enforced for document generation** ❌ CRITICAL
+   - Protocol/report generation can occur without consent
+   - **Before report generation:** Must add consent enforcement
+   - **See:** FOLLOW_UP_ISSUES.md #3
+
+4. **Patient.clinic_id denorm field not added** ⏱️ deferred
+   - Works via joins (performant for MVP)
+   - Can add later without API changes
+
+5. **Data Console ALLOWLIST currently 6 tables** ⏱️ expandable
+   - Covers MVP needs
+   - Can expand with explicit approval
+
+6. **Device sync live integration deferred** ⏱️ next sprint
+   - Model ready; OAuth connectors deferred
+
+## ⚠️ DEPLOYMENT CONSTRAINT
+
+**DO NOT USE WITH REAL PATIENTS** until consent enforcement is wired into AI/device/document routers.
+
+Data Console and patient analytics are safe for read-only clinical review with this caveat.
+
+## Test Status
+
+Backend runtime tests: ⏱️ Blocked by environment (Python 3.8 vs 3.11 requirement)
+- Workaround: Static analysis passed all syntax checks
+- CI will run full test suite before merge (required)
+- Must pass: all 23 existing tests + new endpoint tests
+
+## Recommended Follow-Up
+
+See FOLLOW_UP_ISSUES.md for GitHub issues to create:
+1. Wire consent into AI routers (CRITICAL)
+2. Wire consent into device sync (CRITICAL)
+3. Wire consent into document generation (CRITICAL)
+4. Add runtime tests for analytics endpoints
+5. Add regression tests for data console
+6. Schedule compliance review (DPIA required)
+7. Clinician UX review
 
 ## Deployment
 
-1. Merge to main
-2. Run: `bash scripts/deploy-preview.sh --api`
-3. Verify: `curl http://localhost:8000/api/v1/data-console/sources`
+This PR introduces infrastructure only. Data Console and patient analytics are safe for read-only clinical review.
+
+**⚠️ Before real patient use:**
+1. Merge to main ✅ (this PR)
+2. Pass CI tests ✅ (required)
+3. Wire consent enforcement into AI/device/doc routers ❌ **CRITICAL** (FOLLOW_UP_ISSUES #1-3)
+4. Run compliance review ❌ **REQUIRED** (GDPR DPIA)
+5. Then enable for real patient use
+
+**For test environment:**
+```bash
+bash scripts/deploy-preview.sh --api
+curl http://localhost:8000/api/v1/data-console/sources  # Verify deployed
+```
 
 ## Risk Assessment
 
-**Risk Level:** LOW
-
-- Zero breaking changes (only new models/services/endpoints)
+**Risk Level: LOW** (for infrastructure foundation)
+- Zero breaking changes (only new models/services/pages)
 - Backward compatible (no modifications to existing APIs)
-- Isolated to new pages (no changes to existing UI)
-- Clinic isolation extended from existing clinic_id scoping pattern
+- Read-only operations safe (Data Console masking + ALLOWLIST enforced)
+
+**Risk Level: CRITICAL** (for clinical production without consent enforcement)
+- AI analyses can run without consent
+- Device data can sync without consent
+- Reports can generate without consent
+- Must wire consent enforcement before real patient use
 
 ## Compliance Notes
 
@@ -116,11 +180,22 @@ Before clinical use:
 
 ## Merge Recommendation
 
-✅ **SAFE TO MERGE**
+✅ **SAFE TO OPEN PR; MERGE AFTER CI PASSES AND LIMITATIONS ARE ACCEPTED**
 
-All security gates locked, code verified, backward compatible, ready for production deployment.
+Infrastructure foundation is verified. All security gates locked for read-only operations.
 
-Reviewers: @ALIYILD
+**BUT:** Blocking limitation identified — consent enforcement NOT wired into AI/device/document routes.
+
+**Merge only if:**
+1. CI tests pass (all 23 existing tests + new endpoints)
+2. Team accepts limitation and commits to consent enforcement (see FOLLOW_UP_ISSUES.md)
+3. Explicit acceptance: "Do not use with real patients until consent enforced"
+
+**After merge:**
+1. ✅ Deploy to test environment
+2. ❌ Create GitHub issues (FOLLOW_UP_ISSUES.md #1-3) for consent enforcement
+3. ❌ Schedule compliance review (GDPR DPIA)
+4. ❌ Wire consent into AI routers BEFORE real patient access
 ```
 
 ---

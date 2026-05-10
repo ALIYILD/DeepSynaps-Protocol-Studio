@@ -1,7 +1,8 @@
 # QUICK REFERENCE: Verification Complete ✅
 
 ## Status
-✅ **SAFE TO MERGE** — All 9 gates passed
+✅ **SAFE TO OPEN PR** — Foundation ready for review after CI passes
+⚠️ **NOT YET CLINICAL PRODUCTION-READY** — Consent enforcement must be wired into AI/device/doc routes before real patient use
 
 ## What's in This Branch
 - 5 new database models (AIAnalysisRun, ProtocolGenerationRun, GeneratedDocument, PatientDataAsset, SafetyFlag)
@@ -29,11 +30,13 @@
 
 All acceptable for MVP.
 
-## To Merge
-1. Create PR (use PR_SUBMISSION_READY.md body)
-2. Wait for CI
-3. Merge to main
-4. Deploy: `bash scripts/deploy-preview.sh --api`
+## To Proceed
+1. Create PR (use PR_SUBMISSION_READY.md body with limitations)
+2. Wait for CI (must pass)
+3. **Review consent enforcement limitation** — Accept as known follow-up
+4. **Merge ONLY after accepting limitation**
+5. Deploy: `bash scripts/deploy-preview.sh --api` (test environment)
+6. **DO NOT use with real patients until consent wired into AI routers**
 
 ## Key Docs
 - VERIFICATION_COMPLETE.md — Master summary

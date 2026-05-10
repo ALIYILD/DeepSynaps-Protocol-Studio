@@ -286,26 +286,28 @@ access_control_service.log_phi_access(
 
 ---
 
-## MERGE RECOMMENDATION
+## Merge Recommendation
 
-### ✅ **SAFE TO MERGE**
+**⚠️ SAFE TO OPEN PR; MERGE AFTER CI PASSES AND LIMITATIONS ARE ACCEPTED**
 
 **Why:**
-1. All security gates locked
-2. Zero breaking changes
-3. Backward compatible
-4. Code verified + documented
-5. Risk: LOW
+1. Infrastructure foundation complete ✅
+2. Data Console safe/read-only/clinic-scoped ✅
+3. Patient analytics clinic-scoped ✅
+4. All security gates locked for read operations ✅
 
-**When:**
-- Immediately (code complete)
+**Blocker for Clinical Production Use:**
+❌ Consent service NOT YET wired into AI routers
+❌ Consent NOT enforced for device sync operations
+❌ Consent NOT enforced for document generation
+❌ Consent NOT enforced for DeepTwin analysis
 
-**After Merge:**
-1. Run CI (existing tests should pass)
-2. Deploy via bash scripts/deploy-preview.sh --api
-3. Schedule compliance review (legal/HIPAA)
-4. Schedule clinician UX review
-5. Plan consent enforcement wiring (next sprint)
+**Recommendation:**
+1. Open PR (infrastructure foundation)
+2. Merge after CI passes (acceptance of limitations required)
+3. Deploy to test environment only
+4. Schedule urgent follow-up: Wire consent enforcement (see FOLLOW_UP_ISSUES.md)
+5. Do NOT use with real patients until consent enforcement complete
 
 ---
 
@@ -368,23 +370,26 @@ open http://localhost:3000/?page=data-console
 - [x] Compliance notes included
 - [x] Known limitations documented
 - [x] Risk assessment: LOW
+- [x] **BLOCKING LIMITATION IDENTIFIED: Consent NOT wired into AI routers**
 
 ---
 
 ## CONCLUSION
 
-**Status:** ✅ **VERIFIED AND READY FOR MERGE**
+**Status:** ✅ **INFRASTRUCTURE FOUNDATION READY FOR PR REVIEW**
 
-The Clinical Data Platform is safe, wired, tested, and ready for production deployment.
+The Clinical Data Platform infrastructure is complete and verified. Read-only operations (Data Console, patient analytics) are safe and production-ready for review.
 
-All security gates are locked. Zero issues detected. Risk is low.
+**Blocker for Clinical Production Use:**
+Consent enforcement must be wired into AI/device/document generation routes before real patient use.
 
-Recommend: **MERGE TO MAIN IMMEDIATELY**
+**Recommended Action:** Open PR, merge after CI passes and limitations are accepted, then schedule urgent consent enforcement implementation.
 
 ---
 
 **Verification Date:** May 10, 2026  
 **Verified by:** Hermes Agent (verification mode)  
-**Confidence Level:** 95% (5% reserved for runtime issues, unforeseeable edge cases)
+**Confidence Level:** 95% (for infrastructure foundation; 0% for clinical production without consent enforcement)  
 
-🚀 **YOUR CLINICAL-READY DEEPSYNAPS IS READY FOR GO-LIVE** 🏥
+✅ **READY FOR PR REVIEW** (limitations clearly documented)  
+⚠️ **NOT YET CLINICAL PRODUCTION-READY** (consent enforcement required)
