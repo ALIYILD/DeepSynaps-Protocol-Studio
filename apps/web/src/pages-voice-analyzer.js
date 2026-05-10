@@ -16,7 +16,7 @@ import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixture
 import { drHero, clinicalBand, trajectoryChip } from './helpers.js';
 import { loadPatientFlagSummary } from './dr-friendly-flags.js';
 import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
-import { renderModuleClinicalDisclaimer } from './clinical-disclaimer.js';
+import { renderClinicalDisclaimer, renderModuleClinicalDisclaimer } from './clinical-disclaimer.js';
 
 // Clinical question this page actually answers — surfaced in topbar + drHero
 // so a doctor lands on "what am I looking at?" instead of "upload audio".
@@ -60,9 +60,6 @@ export function esc(s) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
-
-// Full clinical disclaimer required on all AI/analyzer pages per overnight sprint 2026-05-08
-const DISCLAIMER = 'This is a controlled preview using synthetic or clinician-provided data where applicable. This page supports clinical review and decision support only. It does not diagnose, prescribe, triage emergencies, approve treatment, or act autonomously. All outputs require clinician review.';
 
 export function voiceAnalyzerAllowsLiveRole(role) {
   return CLINICAL_VOICE_ANALYZER_ROLES.has(String(role || '').trim().toLowerCase());
@@ -557,10 +554,8 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
         flagCount: 0,
         flagSummary: '',
       })}</div>
-      <div style="padding:14px 16px;border-radius:12px;border:1px solid rgba(246,178,60,.35);background:rgba(246,178,60,.09);margin-bottom:18px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
-        <strong style="color:var(--text-primary)">Clinical decision-support.</strong> ${DISCLAIMER}
-      </div>
-      ${renderModuleClinicalDisclaimer('voice')}
+      ${renderClinicalDisclaimer()}
+      ${renderModuleClinicalDisclaimer('voice', { compact: true, marginBottom: 18 })}
 
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px" class="va-linked-modules" aria-label="Linked clinical modules">
         <button type="button" class="btn btn-ghost btn-sm" data-va-nav="patient-profile">Patient profile</button>

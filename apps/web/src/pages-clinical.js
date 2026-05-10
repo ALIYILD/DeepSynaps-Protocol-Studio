@@ -11135,6 +11135,12 @@ export async function pgDecisionSupport(setTopbar) {
     const base = _dsRecCard(rec);
     const ctx = _dsFindLiveContext(rec.modality, rec.conditions);
     if (!ctx.coverage.length && !ctx.templates.length && !ctx.safety.length) return base;
+    const _escapeLiveBit = (value) => String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
     const liveBits = [];
     if (ctx.coverage.length) {
       const row = ctx.coverage[0];
@@ -11149,7 +11155,7 @@ export async function pgDecisionSupport(setTopbar) {
     }
     return base.replace(
       '</button>\n  </div>',
-      `${liveBits.length ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:var(--text-secondary);line-height:1.5">${liveBits.map(_esc).join('<br>')}</div>` : ''}<button class="btn btn-primary btn-sm" onclick="window._applyModalityRecommendation('${rec.modality}')"${rec.matchScore === 0 ? ' disabled' : ''}>
+      `${liveBits.length ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:var(--text-secondary);line-height:1.5">${liveBits.map(_escapeLiveBit).join('<br>')}</div>` : ''}<button class="btn btn-primary btn-sm" onclick="window._applyModalityRecommendation('${rec.modality}')"${rec.matchScore === 0 ? ' disabled' : ''}>
       Use This Modality &rarr;
     </button>
   </div>`

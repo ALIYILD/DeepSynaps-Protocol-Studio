@@ -183,7 +183,7 @@ def dashboard_overview(
     if actor.clinic_id:
         clinic = session.scalar(select(Clinic).where(Clinic.id == actor.clinic_id))
 
-    patients = list_patients(session, actor.actor_id)
+    patients = list_patients(session, actor.actor_id, clinic_id=actor.clinic_id)
     patient_ids = [p.id for p in patients]
     patient_map = {p.id: p for p in patients}
 
@@ -470,7 +470,7 @@ def dashboard_search(
     if not query:
         return SearchResponseOut(query="", groups={}, total=0)
 
-    patients = list_patients(session, actor.actor_id)
+    patients = list_patients(session, actor.actor_id, clinic_id=actor.clinic_id)
     patient_ids = [p.id for p in patients]
 
     groups: Dict[str, List[SearchResultOut]] = {

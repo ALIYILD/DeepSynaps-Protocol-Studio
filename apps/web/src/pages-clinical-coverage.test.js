@@ -463,6 +463,82 @@ describe('pgDecisionSupport', () => {
     // The page should mention evidence, modality, or decision support
     assert.ok(/evidence|modality|symptom|recommend|contraind/i.test(html));
   });
+
+  it('covers recommendation, contraindication, apply, and evidence filter branches', async () => {
+    const navCalls = [];
+    const toasts = [];
+    window._nav = (route) => navCalls.push(route);
+    window._showNotifToast = (payload) => toasts.push(payload);
+
+    realApi.protocolCoverage = async () => ({
+      rows: [
+        { modality: 'tdcs', condition: 'depression', coverage: 82, paper_count: 24, gap: 'Maintenance data' },
+      ],
+    });
+    realApi.listResearchProtocolTemplates = async () => ([
+      {
+        modality: 'tdcs',
+        indication: 'depression',
+        evidence_tier: 'EV-A',
+        paper_count: 14,
+        target: 'Left DLPFC',
+      },
+      {
+        modality: 'rtms',
+        indication: 'anxiety',
+        evidence_tier: 'EV-B',
+        paper_count: 8,
+        target: 'Right DLPFC',
+      },
+    ]);
+    realApi.listResearchSafetySignals = async () => ([
+      {
+        canonical_modalities: ['tdcs'],
+        indication_tags: ['depression'],
+        safety_signal_tags: ['Skin irritation'],
+      },
+    ]);
+
+    await mod.pgDecisionSupport(() => {});
+
+    window._generateRecommendations();
+    assert.match(document.getElementById('ds-rec-panel').textContent, /Please select at least one symptom/i);
+
+    const symptom = document.querySelector('[data-ds="symptom"][value="depression"]');
+    assert.ok(symptom);
+    symptom.checked = true;
+    window._generateRecommendations();
+    const panelText = document.getElementById('ds-rec-panel').textContent;
+    assert.match(panelText, /Showing/i);
+    assert.match(panelText, /Template:/i);
+    assert.match(panelText, /Safety:/i);
+
+    window._applyModalityRecommendation('tdcs');
+    assert.ok(navCalls.includes('protocol-wizard'));
+    assert.ok(toasts.some((toast) => /selected/i.test(toast.title)));
+
+    window._checkContraindications();
+    assert.match(document.getElementById('ds-contra-results').textContent, /select a modality/i);
+
+    document.getElementById('ds-contra-modality').value = 'tdcs';
+    window._checkContraindications();
+    assert.match(document.getElementById('ds-contra-results').textContent, /at least one patient flag/i);
+
+    document.getElementById('ds-contra-modality').value = 'tms';
+    document.getElementById('ds-contra-flags').value = 'pacemaker';
+    window._checkContraindications();
+    assert.match(document.getElementById('ds-contra-results').textContent, /pacemaker/i);
+
+    document.getElementById('ds-contra-modality').value = 'tdcs';
+    document.getElementById('ds-contra-flags').value = 'seasonal allergies';
+    window._checkContraindications();
+    assert.match(document.getElementById('ds-contra-results').textContent, /No contraindications detected/i);
+
+    window._filterEvidenceLibrary('tdcs', 'A');
+    const evidenceText = document.getElementById('ds-ev-table').textContent;
+    assert.match(evidenceText, /Left DLPFC/i);
+    assert.match(evidenceText, /Level A/i);
+  });
 });
 
 // ── 7. pgProtocols (Protocol Intelligence — library + wizard) ────────────────
@@ -567,6 +643,54 @@ describe('pgPatients', () => {
     await mod.pgPatients(() => {}, () => {});
     const html = document.getElementById('content').innerHTML;
     assert.ok(html.length > 50);
+  });
+
+  it('covers invite, filter, quick-filter, cohort, and contextual navigation handlers', async () => {
+    const toasts = [];
+    const navCalls = [];
+    window._showNotifToast = (payload) => toasts.push(payload);
+    window._nav = (route) => navCalls.push(route);
+
+    const origGenerateInvite = realApi.generatePatientInvite;
+    realApi.generatePatientInvite = async () => ({});
+
+    await mod.pgPatients(() => {}, () => {});
+
+    await window._patGetInviteLink('p1');
+    assert.strictEqual(toasts.at(-1).title, 'No code returned');
+
+    realApi.generatePatientInvite = async () => ({ invite_code: 'LIVE-42' });
+    await window._patGetInviteLink('p1');
+    assert.match(document.body.textContent, /Patient Invite Code/i);
+    document.querySelectorAll('div[style*="position:fixed"]').forEach((el) => el.remove());
+
+    realApi.generatePatientInvite = async () => { throw new Error('invite broke'); };
+    await window._patGetInviteLink('p1');
+    assert.strictEqual(toasts.at(-1).title, 'Invite failed');
+
+    window._patNavWithCtx('p1', 'messaging');
+    assert.strictEqual(window._selectedPatientId, 'p1');
+    assert.strictEqual(window._profilePatientId, 'p1');
+    assert.ok(navCalls.includes('messaging'));
+
+    window._patSetQuick('assessment');
+    assert.strictEqual(window._patQuickFilter, 'assessment');
+    assert.doesNotThrow(() => window.filterPatients());
+
+    window._patSetCohort('review');
+    assert.strictEqual(window._patCohortFilter, 'review');
+    assert.strictEqual(window._patSelected, null);
+    assert.doesNotThrow(() => window.filterPatients());
+
+    document.getElementById('pt-search').value = 'sam';
+    document.getElementById('pt-status-filter').value = '';
+    document.getElementById('pt-modality-filter').value = '';
+    window._patCohortFilter = 'all';
+    window.filterPatients();
+    assert.match(document.getElementById('pt-count').textContent, /1 of/i);
+    assert.match(document.getElementById('pat-roster').textContent, /Sam Lee/i);
+
+    realApi.generatePatientInvite = origGenerateInvite;
   });
 });
 

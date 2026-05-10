@@ -55,24 +55,60 @@ def create_patient(
     return patient
 
 
-def get_patient(session: Session, patient_id: str, clinician_id: str) -> Optional[Patient]:
+def get_patient(
+    session: Session,
+    patient_id: str,
+    clinician_id: str,
+    clinic_id: str | None = None,
+) -> Optional[Patient]:
+    """Return a patient scoped either to one clinician or one clinic.
+
+    The legacy path keeps clinician-only behaviour for call sites that still
+    depend on it. Passing ``clinic_id`` switches the lookup to clinic scope so
+    same-clinic colleagues can resolve each other's patients without exposing
+    cross-clinic data.
+    """
+    if clinic_id is None:
+        return session.scalar(
+            select(Patient).where(Patient.id == patient_id, Patient.clinician_id == clinician_id)
+        )
+
     return session.scalar(
-        select(Patient).where(Patient.id == patient_id, Patient.clinician_id == clinician_id)
+        select(Patient)
+        .join(User, User.id == Patient.clinician_id, isouter=True)
+        .where(Patient.id == patient_id, User.clinic_id == clinic_id)
     )
 
 
-def list_patients(session: Session, clinician_id: str) -> list[Patient]:
+def list_patients(
+    session: Session,
+    clinician_id: str,
+    clinic_id: str | None = None,
+) -> list[Patient]:
+    """List patients either by owner clinician or by clinic membership."""
+    query = select(Patient)
+    if clinic_id is None:
+        query = query.where(Patient.clinician_id == clinician_id)
+    else:
+        query = (
+            query.join(User, User.id == Patient.clinician_id, isouter=True)
+            .where(User.clinic_id == clinic_id)
+        )
     return list(
         session.scalars(
-            select(Patient)
-            .where(Patient.clinician_id == clinician_id)
-            .order_by(Patient.last_name, Patient.first_name)
+            query.order_by(Patient.last_name, Patient.first_name)
         ).all()
     )
 
 
-def update_patient(session: Session, patient_id: str, clinician_id: str, **kwargs) -> Optional[Patient]:
-    patient = get_patient(session, patient_id, clinician_id)
+def update_patient(
+    session: Session,
+    patient_id: str,
+    clinician_id: str,
+    clinic_id: str | None = None,
+    **kwargs,
+) -> Optional[Patient]:
+    patient = get_patient(session, patient_id, clinician_id, clinic_id=clinic_id)
     if patient is None:
         return None
     if "secondary_conditions" in kwargs and isinstance(kwargs["secondary_conditions"], list):
@@ -85,8 +121,13 @@ def update_patient(session: Session, patient_id: str, clinician_id: str, **kwarg
     return patient
 
 
-def delete_patient(session: Session, patient_id: str, clinician_id: str) -> bool:
-    patient = get_patient(session, patient_id, clinician_id)
+def delete_patient(
+    session: Session,
+    patient_id: str,
+    clinician_id: str,
+    clinic_id: str | None = None,
+) -> bool:
+    patient = get_patient(session, patient_id, clinician_id, clinic_id=clinic_id)
     if patient is None:
         return False
     session.delete(patient)

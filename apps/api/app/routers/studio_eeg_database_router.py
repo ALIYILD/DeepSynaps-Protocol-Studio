@@ -13,7 +13,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.eeg_database.exporters.csv_export import edf_to_csv_bytes
 from app.eeg_database.exporters.edf_plus import export_raw_edf_bytes
@@ -35,7 +40,7 @@ from app.eeg_database.recordings import (
     seed_placeholder_derivatives,
 )
 from app.persistence.models import EegStudioRecording, Patient
-from app.repositories.patients import get_patient
+from app.repositories.patients import get_patient, resolve_patient_clinic_id
 
 router = APIRouter(prefix="/api/v1/studio/eeg-database", tags=["studio-eeg-database"])
 
@@ -65,21 +70,28 @@ class ExportRecordingsIn(BaseModel):
 
 
 def _require_owner_patient(
-    db: Session, actor_id: str, patient_id: str
+    db: Session, actor: AuthenticatedActor, patient_id: str
 ) -> Patient:
-    p = get_patient(db, patient_id, actor_id)
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if not exists:
+        raise HTTPException(status_code=404, detail="patient_not_found")
+    require_patient_owner(actor, clinic_id)
+    if actor.role == "admin":
+        p = db.get(Patient, patient_id)
+    else:
+        p = get_patient(db, patient_id, actor.actor_id, clinic_id=actor.clinic_id)
     if p is None:
         raise HTTPException(status_code=404, detail="patient_not_found")
     return p
 
 
 def _get_recording_owned(
-    db: Session, actor_id: str, recording_id: str
+    db: Session, actor: AuthenticatedActor, recording_id: str
 ) -> tuple[EegStudioRecording, Patient]:
     row = db.get(EegStudioRecording, recording_id)
     if row is None or row.deleted_at is not None:
         raise HTTPException(status_code=404, detail="recording_not_found")
-    p = _require_owner_patient(db, actor_id, row.patient_id)
+    p = _require_owner_patient(db, actor, row.patient_id)
     return row, p
 
 
@@ -103,7 +115,7 @@ def list_patients_api(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> dict[str, Any]:
     require_minimum_role(actor, "clinician")
-    rows = list_patients_rows(db, actor.actor_id, q, smart, limit, offset)
+    rows = list_patients_rows(db, actor.actor_id, q, smart, limit, offset, clinic_id=actor.clinic_id)
     ids = [p.id for p, _ in rows]
     counts: dict[str, int] = {}
     if ids:
@@ -157,7 +169,7 @@ def get_card(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> dict[str, Any]:
     require_minimum_role(actor, "clinician")
-    p = _require_owner_patient(db, actor.actor_id, patient_id)
+    p = _require_owner_patient(db, actor, patient_id)
     return get_merged_card(db, p)
 
 
@@ -169,7 +181,7 @@ def patch_card_profile(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> dict[str, Any]:
     require_minimum_role(actor, "clinician")
-    p = _require_owner_patient(db, actor.actor_id, patient_id)
+    p = _require_owner_patient(db, actor, patient_id)
     merged = patch_profile(db, p, body.patch, actor.actor_id)
     db.commit()
     return {"profile": merged}
@@ -183,7 +195,7 @@ def profile_history(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> dict[str, Any]:
     require_minimum_role(actor, "clinician")
-    _require_owner_patient(db, actor.actor_id, patient_id)
+    _require_owner_patient(db, actor, patient_id)
     revs = list_revisions(db, patient_id, limit=limit)
     return {
         "items": [
@@ -205,7 +217,7 @@ def recordings_for_patient(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> dict[str, Any]:
     require_minimum_role(actor, "clinician")
-    _require_owner_patient(db, actor.actor_id, patient_id)
+    _require_owner_patient(db, actor, patient_id)
     recs = list_for_patient(db, patient_id)
     out = []
     for r in recs:
@@ -226,7 +238,7 @@ async def import_edf(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> dict[str, Any]:
     require_minimum_role(actor, "clinician")
-    _require_owner_patient(db, actor.actor_id, patient_id)
+    _require_owner_patient(db, actor, patient_id)
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="empty_file")
@@ -273,7 +285,7 @@ def soft_delete_recording(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> dict[str, str]:
     require_minimum_role(actor, "clinician")
-    row, _ = _get_recording_owned(db, actor.actor_id, recording_id)
+    row, _ = _get_recording_owned(db, actor, recording_id)
     row.deleted_at = datetime.now(timezone.utc)
     db.commit()
     return {"ok": "true"}
@@ -292,7 +304,7 @@ def export_recordings(
             detail="export_currently_supports_single_recording",
         )
     rid = body.recording_ids[0]
-    row, patient = _get_recording_owned(db, actor.actor_id, rid)
+    row, patient = _get_recording_owned(db, actor, rid)
     card = get_merged_card(db, patient)
 
     if body.format == "edf":
@@ -330,8 +342,8 @@ def merge_patients(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> dict[str, Any]:
     require_minimum_role(actor, "clinician")
-    primary = _require_owner_patient(db, actor.actor_id, body.primary_patient_id)
-    dup = _require_owner_patient(db, actor.actor_id, body.duplicate_patient_id)
+    primary = _require_owner_patient(db, actor, body.primary_patient_id)
+    dup = _require_owner_patient(db, actor, body.duplicate_patient_id)
     if primary.id == dup.id:
         raise HTTPException(status_code=400, detail="same_patient")
 

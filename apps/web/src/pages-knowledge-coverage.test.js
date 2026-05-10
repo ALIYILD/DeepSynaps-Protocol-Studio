@@ -496,6 +496,124 @@ describe('pgDevices — mount', () => {
   });
 });
 
+describe('pgEvidence — filter and modal branches', () => {
+  before(_resetContent);
+
+  it('filters populated evidence rows and opens the detail modal', async () => {
+    const oldFetch = global.fetch;
+    global.fetch = async (input) => {
+      if (String(input).includes('/api/v1/literature')) {
+        return new Response(JSON.stringify({
+          items: [
+            {
+              title: 'Accelerated TMS for Depression',
+              condition: 'Depression',
+              modality: 'TMS',
+              summary: 'Rapid symptom improvement after accelerated protocol.',
+              evidence_level: 'A',
+              symptom_cluster: 'mood',
+              setting: 'outpatient',
+              regulatory_status: 'FDA cleared',
+              reference: 'Demo Reference',
+              doi: '10.1000/demo',
+            },
+            {
+              title: 'taVNS for Insomnia',
+              condition: 'Insomnia',
+              modality: 'taVNS',
+              summary: 'Sleep-quality gains over 4 weeks.',
+              evidence_level: 'C',
+            },
+          ],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return oldFetch(input);
+    };
+
+    const tb = makeTopbar();
+    await mod.pgEvidence(tb.fn);
+    document.getElementById('ev-search').value = 'depression';
+    document.getElementById('ev-level').value = 'A';
+    document.getElementById('ev-modality').value = 'TMS';
+    window.filterEvidence();
+    assert.match(document.getElementById('ev-count').textContent, /1 of 2 evidence records/);
+
+    document.getElementById('ev-search').value = 'no-match';
+    window.filterEvidence();
+    assert.match(document.getElementById('ev-body').textContent, /No records match filter/i);
+
+    document.getElementById('ev-search').value = '';
+    document.getElementById('ev-level').value = '';
+    document.getElementById('ev-modality').value = '';
+    window.filterEvidence();
+    window._openEvidenceDetail(0);
+    assert.ok(document.getElementById('ds-evidence-modal'));
+    document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));
+    assert.strictEqual(document.getElementById('ds-evidence-modal'), null);
+    assert.doesNotThrow(() => window._openEvidenceDetail(99));
+    global.fetch = oldFetch;
+  });
+});
+
+describe('pgDevices — filter and modal branches', () => {
+  before(_resetContent);
+
+  it('filters devices and opens a device detail modal', async () => {
+    const oldFetch = global.fetch;
+    global.fetch = async (input) => {
+      if (String(input).includes('/api/v1/registry/devices')) {
+        return new Response(JSON.stringify({
+          items: [
+            {
+              id: 'tms',
+              name: 'MagVenture X100',
+              modality: 'TMS',
+              manufacturer: 'MagVenture',
+              summary: 'High-output TMS device with figure-8 coil.',
+              regulatory_status: 'FDA cleared',
+              max_intensity_ma: 120,
+              frequency_hz_range: '1-20',
+              pulse_width_us: 250,
+              channels: 8,
+            },
+            {
+              id: 'tdcs-demo',
+              name: 'FocusTDCS',
+              modality: 'tDCS',
+              manufacturer: 'Demo Devices',
+              summary: 'Portable direct-current stimulation unit.',
+              regulatory_status: '',
+            },
+          ],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return oldFetch(input);
+    };
+
+    const tb = makeTopbar();
+    await mod.pgDevices(tb.fn);
+    document.getElementById('dev-search').value = 'magventure';
+    document.getElementById('dev-modality').value = 'TMS';
+    window.filterDevices();
+    assert.match(document.getElementById('dev-body').textContent, /MagVenture X100/);
+
+    document.getElementById('dev-search').value = 'missing';
+    window.filterDevices();
+    assert.match(document.getElementById('dev-body').textContent, /No devices match filter/i);
+
+    document.getElementById('dev-search').value = '';
+    document.getElementById('dev-modality').value = '';
+    window.filterDevices();
+    window._openDeviceDetail(0);
+    const overlay = document.getElementById('ds-device-modal');
+    assert.ok(overlay);
+    overlay.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    assert.strictEqual(document.getElementById('ds-device-modal'), null);
+    assert.doesNotThrow(() => window._openDeviceDetail(99));
+    global.fetch = oldFetch;
+  });
+});
+
 // ── pgAuditTrail — mount + filter / view toggle handlers ──────────────────────
 describe('pgAuditTrail — handler smoke tests', () => {
   before(_resetContent);
@@ -961,35 +1079,53 @@ describe('pgClinicAnalytics — mount best-effort', () => {
   });
 });
 
-// ── pgDeviceManagement — source-only checks (mount fails on missing helper) ───
-// pgDeviceManagement references a `getDevices` helper that is declared in a
-// different module slice; calling it at runtime throws ReferenceError. The
-// existing pinning test in pages-knowledge.test.js asserts on source text for
-// the same reason. We follow that contract here and add a few additional
-// surface-level checks that strengthen coverage of the contract surface.
-describe('pgDeviceManagement — source contract pinning', () => {
-  it('declares the device tab triplet (registry / logs / alerts)', () => {
-    assert.ok(_src.includes("tabBtn('registry'"));
-    assert.ok(_src.includes("tabBtn('logs'"));
-    assert.ok(_src.includes("tabBtn('alerts'"));
+// ── pgDeviceManagement — runtime smoke ───────────────────────────────────────
+describe('pgDeviceManagement — runtime smoke', () => {
+  before(_resetContent);
+
+  it('mounts and switches between registry, logs, and alerts tabs', async () => {
+    const tb = makeTopbar();
+    await assert.doesNotReject(() => mod.pgDeviceManagement(tb.fn));
+    assert.ok(tb.title.includes('Device'));
+    assert.match(document.getElementById('content').innerHTML, /Device Registry/);
+    assert.match(document.getElementById('content').innerHTML, /Maintenance Log/);
+    assert.match(document.getElementById('content').innerHTML, /Alerts/);
+
+    assert.equal(typeof globalThis.window._deviceTab, 'function');
+    globalThis.window._deviceTab('logs');
+    assert.match(document.getElementById('content').innerHTML, /Maintenance Log/);
+    globalThis.window._deviceTab('alerts');
+    assert.match(document.getElementById('content').innerHTML, /Alerts/);
   });
 
-  it('exposes the alert severity ladder used by the renderer', () => {
-    assert.ok(_src.includes("a.severity === 'critical'"));
-    assert.ok(_src.includes("a.severity === 'warning'"));
-    assert.ok(_src.includes("a.severity === 'info'"));
-  });
+  it('covers device modal save, log save, scheduling, and dismiss actions', async () => {
+    const tb = makeTopbar();
+    await assert.doesNotReject(() => mod.pgDeviceManagement(tb.fn));
 
-  it('lists the canonical device types', () => {
-    for (const t of ['neurofeedback-amp', 'tms-coil', 'tdcs-device', 'eeg-cap', 'biofeedback-sensor']) {
-      assert.ok(_src.includes(t), `device type ${t} missing`);
-    }
-  });
+    globalThis.window._deviceNew();
+    document.getElementById('dm-f-name').value = 'Gamma Sensor';
+    document.getElementById('dm-f-type').value = 'biofeedback-sensor';
+    document.getElementById('dm-f-room').value = 'Portable';
+    globalThis.window._deviceSave();
+    assert.match(document.getElementById('content').innerHTML, /Gamma Sensor/);
 
-  it('lists the canonical log types', () => {
-    for (const t of ['calibration', 'maintenance', 'repair', 'inspection', 'session-use']) {
-      assert.ok(_src.includes(t), `log type ${t} missing`);
-    }
+    globalThis.window._deviceLogNew('dev-1');
+    document.getElementById('dm-log-device').value = 'dev-1';
+    document.getElementById('dm-log-type').value = 'inspection';
+    document.getElementById('dm-log-notes').value = 'Routine check';
+    globalThis.window._deviceLogSave();
+    globalThis.window._deviceTab('logs');
+    assert.match(document.getElementById('content').innerHTML, /Routine check/);
+
+    globalThis.window._deviceTab('registry');
+    globalThis.window._deviceSchedule('dev-1', 'calibration');
+    document.getElementById('dm-sched-date').value = '2026-06-18';
+    globalThis.window._deviceScheduleSave('dev-1', 'calibration');
+    assert.match(document.getElementById('content').innerHTML, /2026-06-18/);
+
+    globalThis.window._deviceTab('alerts');
+    globalThis.window._deviceDismissInfo();
+    assert.match(document.getElementById('content').innerHTML, /No active alerts|device/);
   });
 });
 

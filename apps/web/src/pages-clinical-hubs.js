@@ -3262,15 +3262,16 @@ export async function pgProtocolStudio(setTopbar, navigate) {
   // governance_state. Click to reload a draft into the wizard state.
   window._studioDraftsCache = window._studioDraftsCache || null;
   window._studioRenderDrafts = async () => {
+    const win = window;
     const host = document.getElementById('studio-drafts-list');
     if (!host) return;
-    if (!window._studioDraftsCache) {
+    if (!win._studioDraftsCache) {
       try {
         const r = await api.listSavedProtocols();
-        window._studioDraftsCache = r?.items || [];
-      } catch { window._studioDraftsCache = []; }
+        win._studioDraftsCache = r?.items || [];
+      } catch { win._studioDraftsCache = []; }
     }
-    const drafts = (window._studioDraftsCache || []).slice(-5).reverse();
+    const drafts = (win._studioDraftsCache || []).slice(-5).reverse();
     if (!drafts.length) {
       host.innerHTML = '<div style="padding:6px 0;color:var(--text-tertiary);font-size:11.5px">No saved drafts yet. Complete the wizard and click <b>Save</b>.</div>';
       return;

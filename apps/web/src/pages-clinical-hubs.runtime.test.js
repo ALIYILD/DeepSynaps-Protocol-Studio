@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+process.on('unhandledRejection', () => {});
+
 function makeNode(id = '', extra = {}) {
   const classes = new Set();
-  return {
+  let innerHTML = '';
+  const node = {
     id,
     tagName: 'DIV',
-    innerHTML: '',
     textContent: '',
     value: '',
     checked: false,
@@ -30,6 +32,7 @@ function makeNode(id = '', extra = {}) {
     },
     appendChild(child) {
       this.children.push(child);
+      if (typeof extra._onAppendChild === 'function') extra._onAppendChild(child);
       return child;
     },
     removeChild(child) {
@@ -58,6 +61,17 @@ function makeNode(id = '', extra = {}) {
     },
     ...extra,
   };
+  Object.defineProperty(node, 'innerHTML', {
+    get() {
+      return innerHTML;
+    },
+    set(value) {
+      innerHTML = String(value ?? '');
+      if (typeof extra._onInnerHTML === 'function') extra._onInnerHTML(innerHTML);
+    },
+  });
+  if (extra.innerHTML != null) node.innerHTML = extra.innerHTML;
+  return node;
 }
 
 function installDomHarness() {
@@ -68,9 +82,13 @@ function installDomHarness() {
     confirm: globalThis.confirm,
     prompt: globalThis.prompt,
     URL: globalThis.URL,
+    requestAnimationFrame: globalThis.requestAnimationFrame,
+    cancelAnimationFrame: globalThis.cancelAnimationFrame,
   };
 
   const nodes = new Map();
+  const anonymousNodes = [];
+  const listeners = new Map();
   const localStore = new Map();
   const navCalls = [];
   const toastCalls = [];
@@ -80,21 +98,55 @@ function installDomHarness() {
   let confirmResult = true;
   let promptResult = '';
 
-  const content = makeNode('content');
+  function registerNode(node) {
+    if (node?.id) nodes.set(node.id, node);
+    else if (node) anonymousNodes.push(node);
+    return node;
+  }
+
+  function registerMarkup(markup) {
+    if (typeof markup !== 'string' || !markup) return;
+    const tagPattern = /<([a-z0-9-]+)([^>]*?)>/gi;
+    let match;
+    while ((match = tagPattern.exec(markup))) {
+      const [, tagName, attrs] = match;
+      const idMatch = attrs.match(/\bid="([^"]+)"/i);
+      const classMatch = attrs.match(/\bclass="([^"]+)"/i);
+      const testIdMatch = attrs.match(/\bdata-testid="([^"]+)"/i);
+      const valueMatch = attrs.match(/\bvalue="([^"]*)"/i);
+      const node = makeNode(idMatch?.[1] || '', {
+        tagName: String(tagName).toUpperCase(),
+        className: classMatch?.[1] || '',
+        dataset: testIdMatch ? { testid: testIdMatch[1] } : {},
+        value: valueMatch?.[1] || '',
+        _onInnerHTML: registerMarkup,
+        _onAppendChild(child) {
+          registerNode(child);
+          if (typeof child?.innerHTML === 'string') registerMarkup(child.innerHTML);
+        },
+      });
+      if (classMatch?.[1]) {
+        node.classList.add(...classMatch[1].split(/\s+/).filter(Boolean));
+        node.className = classMatch[1];
+      }
+      registerNode(node);
+    }
+  }
+
+  const content = makeNode('content', {
+    _onInnerHTML: registerMarkup,
+    _onAppendChild(child) {
+      registerNode(child);
+      if (typeof child?.innerHTML === 'string') registerMarkup(child.innerHTML);
+    },
+  });
   nodes.set('content', content);
 
   const body = makeNode('body', {
     appendChild(child) {
       bodyChildren.push(child);
-      if (child?.id) nodes.set(child.id, child);
-      if (typeof child?.innerHTML === 'string') {
-        const idPattern = /id="([^"]+)"/g;
-        let match;
-        while ((match = idPattern.exec(child.innerHTML))) {
-          const nestedId = match[1];
-          if (!nodes.has(nestedId)) nodes.set(nestedId, makeNode(nestedId));
-        }
-      }
+      registerNode(child);
+      if (typeof child?.innerHTML === 'string') registerMarkup(child.innerHTML);
       return child;
     },
     removeChild(child) {
@@ -111,7 +163,14 @@ function installDomHarness() {
       return nodes.get(id) || null;
     },
     createElement(tag) {
-      const el = makeNode('', { tagName: String(tag).toUpperCase() });
+      const el = makeNode('', {
+        tagName: String(tag).toUpperCase(),
+        _onInnerHTML: registerMarkup,
+        _onAppendChild(child) {
+          registerNode(child);
+          if (typeof child?.innerHTML === 'string') registerMarkup(child.innerHTML);
+        },
+      });
       if (tag === 'a') {
         el.click = () => {
           clickedDownload = { href: el.href, download: el.download };
@@ -120,15 +179,38 @@ function installDomHarness() {
       }
       return el;
     },
-    querySelector() {
+    addEventListener(type, fn) {
+      listeners.set(type, fn);
+    },
+    removeEventListener(type, fn) {
+      if (!fn || listeners.get(type) === fn) listeners.delete(type);
+    },
+    dispatchEvent(event) {
+      const fn = listeners.get(event?.type);
+      if (typeof fn === 'function') {
+        fn(event);
+        return true;
+      }
+      return false;
+    },
+    querySelector(selector) {
+      const allNodes = [...nodes.values(), ...anonymousNodes];
+      if (selector === '.d2p7-wrap') {
+        return allNodes.find((node) => (node.className || '').split(/\s+/).includes('d2p7-wrap')) || null;
+      }
+      const testIdMatch = /^\[data-testid="([^"]+)"\]$/.exec(selector);
+      if (testIdMatch) {
+        return allNodes.find((node) => node?.dataset?.testid === testIdMatch[1]) || null;
+      }
       return null;
     },
     querySelectorAll(selector) {
       if (selector === '.lib-ai-pick:checked') {
-        return Array.from(nodes.values()).filter((node) =>
+        return [...nodes.values(), ...anonymousNodes].filter((node) =>
           node && (node.className || '').split(/\s+/).includes('lib-ai-pick') && node.checked
         );
       }
+      if (selector === '.d2p7-tabrow button') return [];
       return [];
     },
   };
@@ -161,6 +243,8 @@ function installDomHarness() {
   globalThis.confirm = () => confirmResult;
   globalThis.prompt = () => promptResult;
   globalThis.URL = { ...saved.URL, ...urlStub };
+  globalThis.requestAnimationFrame = (fn) => setTimeout(() => fn?.(), 0);
+  globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
   globalThis.window = {
     _nav(page) {
       navCalls.push(page);
@@ -205,13 +289,25 @@ function installDomHarness() {
       globalThis.confirm = saved.confirm;
       globalThis.prompt = saved.prompt;
       globalThis.URL = saved.URL;
+      globalThis.requestAnimationFrame = saved.requestAnimationFrame;
+      globalThis.cancelAnimationFrame = saved.cancelAnimationFrame;
     },
   };
 }
 
 const authMod = await import('./auth.js');
 const { api } = await import('./api.js');
-const { pgFinanceHub, pgReportsHubNew, pgSchedulingHub, pgLibraryHub, pgMonitorHub, pgMarketplaceHub } = await import('./pages-clinical-hubs.js');
+const {
+  pgClinicalHub,
+  pgFinanceHub,
+  pgPatientHub,
+  pgProtocolStudio,
+  pgReportsHubNew,
+  pgSchedulingHub,
+  pgLibraryHub,
+  pgMonitorHub,
+  pgMarketplaceHub,
+} = await import('./pages-clinical-hubs.js');
 
 function sampleFinanceApi() {
   return {
@@ -1134,6 +1230,211 @@ test('pgSchedulingHub covers calendar, referrals, wizard, and shift actions', as
   }
 });
 
+test('pgPatientHub covers registry actions, quick filters, note submit, and drill-outs', async () => {
+  const dom = installDomHarness();
+  const originalUser = authMod.currentUser;
+  const originals = {
+    getPatientsCohortSummary: api.getPatientsCohortSummary,
+    listPatients: api.listPatients,
+    createClinicianNote: api.createClinicianNote,
+    recordPatientProfileAuditEvent: api.recordPatientProfileAuditEvent,
+    getNotificationsUnreadCount: api.getNotificationsUnreadCount,
+  };
+  const listCalls = [];
+  const notePayloads = [];
+  const auditEvents = [];
+  const todayAt = (hour) => {
+    const d = new Date();
+    d.setHours(hour, 0, 0, 0);
+    return d.toISOString();
+  };
+  const patients = [
+    {
+      id: 'pat-1',
+      first_name: 'Alex',
+      last_name: 'Harper',
+      status: 'active',
+      primary_modality: 'tms',
+      condition_slug: 'depression',
+      planned_sessions_total: 20,
+      sessions_delivered: 8,
+      primary_scale: 'PHQ-9',
+      baseline_score: 18,
+      current_score: 10,
+      next_session_at: todayAt(9),
+      assigned_clinician_name: 'Dr Ada',
+      home_adherence: 0.88,
+      created_at: new Date(Date.now() - (2 * 86400000)).toISOString(),
+    },
+    {
+      id: 'pat-2',
+      first_name: 'Bianca',
+      last_name: 'Stone',
+      status: 'active',
+      primary_modality: 'tdcs',
+      condition_slug: 'anxiety',
+      planned_sessions_total: 12,
+      sessions_delivered: 12,
+      outcome_trend: 'improved',
+      next_session_id: 'sess-200',
+      assigned_clinician_name: 'Dr Turing',
+      created_at: new Date(Date.now() - (20 * 86400000)).toISOString(),
+      is_responder: true,
+    },
+    {
+      id: 'pat-3',
+      first_name: 'Jordan',
+      last_name: 'Miles',
+      status: 'intake',
+      primary_modality: 'qeeg',
+      condition_slug: 'adhd',
+      planned_sessions_total: 0,
+      sessions_delivered: 0,
+      has_adverse_event: true,
+      assessment_overdue: true,
+      assigned_clinician_name: 'Dr Ada',
+      created_at: new Date(Date.now() - 86400000).toISOString(),
+    },
+  ];
+
+  authMod.setCurrentUser({ role: 'clinician', id: 'clin-1' });
+  Object.assign(api, {
+    getPatientsCohortSummary: async () => ({
+      total: 60,
+      status_counts: { all: 60, active: 42, intake: 8, discharging: 5, on_hold: 3, archived: 2 },
+      distinct: {
+        conditions: [{ value: 'depression', label: 'Depression', count: 20 }],
+        modalities: [{ value: 'tms', label: 'TMS', count: 18 }],
+        clinicians: [{ value: 'Dr Ada', label: 'Dr Ada', count: 22 }],
+      },
+      kpis: {
+        active_courses: 42,
+        active_courses_delta_7d: 3,
+        phq_delta_avg: -5.4,
+        phq_delta_n: 17,
+        responder_rate_pct: 61,
+        responder_n: 17,
+        homework_adherence_pct: 81,
+        homework_adherence_n: 28,
+        follow_up_count: 4,
+        follow_up_overdue_7d: 1,
+        discharged_this_quarter: 6,
+      },
+    }),
+    listPatients: async (params = {}) => {
+      listCalls.push({ ...params });
+      return { items: patients, total: 60 };
+    },
+    createClinicianNote: async (payload) => {
+      notePayloads.push(payload);
+      return { id: `note-${notePayloads.length}`, ...payload };
+    },
+    recordPatientProfileAuditEvent: async (pid, payload) => {
+      auditEvents.push({ pid, ...payload });
+      return { ok: true };
+    },
+    getNotificationsUnreadCount: async () => ({ count: 2 }),
+  });
+
+  let topbarTitle = '';
+  let topbarActions = '';
+  try {
+    await pgPatientHub((title, actions = '') => {
+      topbarTitle = title;
+      topbarActions = actions;
+    }, globalThis.window._nav);
+    for (let i = 0; i < 10; i += 1) {
+      if (globalThis.document.getElementById('d2p7-list')?.innerHTML) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+
+    assert.equal(topbarTitle, 'Patients');
+    assert.match(topbarActions, /DeepTwin/);
+    assert.match(topbarActions, /Add patient/);
+    assert.match(globalThis.document.getElementById('d2p7-list').innerHTML, /Alex Harper/);
+    assert.match(globalThis.document.getElementById('d2p7-list').innerHTML, /Jordan Miles/);
+    assert.match(globalThis.document.getElementById('d2p7-kpi-grid').innerHTML, /Active course/);
+    assert.match(globalThis.document.getElementById('ds-pt-right').innerHTML, /Today's Queue/);
+
+    window._phSetQuickFilter('adverse');
+    assert.equal(window._phState.activeQuickFilter, 'adverse');
+    assert.match(globalThis.document.getElementById('d2p7-list').innerHTML, /Jordan Miles/);
+
+    window._phToggleDensity();
+    assert.equal(globalThis.localStorage.getItem('ds.patients.density'), 'comfortable');
+
+    await window._phSetStatus('active');
+    await window._phSetFacet('condition', 'depression');
+    await window._phSetFacet('sort', 'name');
+    await window._phGoPage(1);
+    assert.equal(window._phState.page, 2);
+    assert.deepEqual(listCalls.at(-1), {
+      status: 'active',
+      q: undefined,
+      condition: 'depression',
+      modality: undefined,
+      clinician: undefined,
+      sort: 'name',
+      limit: 10,
+      offset: 10,
+    });
+
+    window._phQuickNote('pat-1');
+    const quickNote = globalThis.document.getElementById('ds-pt-quicknote-text');
+    assert.ok(quickNote);
+    quickNote.value = 'Sleep improved after session.';
+    await window._phSubmitQuickNote('pat-1');
+    assert.deepEqual(notePayloads, [{
+      patient_id: 'pat-1',
+      content: 'Sleep improved after session.',
+      body: 'Sleep improved after session.',
+    }]);
+    assert.equal(dom.toastCalls.at(-1).title, 'Patients');
+    assert.match(dom.toastCalls.at(-1).body, /clinician-notes pipeline/);
+
+    window._phStartSession('pat-2');
+    assert.equal(dom.navCalls.at(-1), 'session-runner');
+    window._phStartSession('pat-1');
+    assert.equal(dom.navCalls.at(-1), 'scheduling-hub');
+    window._phStartSession('pat-3');
+    assert.equal(dom.toastCalls.at(-1).title, 'Patients');
+    assert.match(dom.toastCalls.at(-1).body, /No session scheduled for Jordan Miles today/);
+
+    window._phMessage('pat-3');
+    assert.equal(dom.navCalls.at(-1), 'messaging');
+    window._phOpenChart('pat-1');
+    assert.equal(dom.navCalls.at(-1), 'patient-profile');
+    window._phOpenAnalytics('pat-2');
+    assert.equal(dom.navCalls.at(-1), 'patient-analytics');
+    window._phNavigatePatientModule('pat-1', 'protocol-studio', 'registry_open_protocol');
+    assert.equal(dom.navCalls.at(-1), 'protocol-studio');
+    window._phNavigatePatientModule('pat-1', 'not-a-real-route', 'registry_bad_route');
+    assert.ok(dom.toastCalls.some((toast) =>
+      toast?.title === 'Module unavailable'
+      || /module is not available/i.test(toast?.body || '')
+    ));
+
+    window._phToggleShortcuts();
+    assert.equal(window._phState.shortcutsOpen, true);
+    assert.match(globalThis.document.getElementById('ds-pt-overlay').innerHTML, /Keyboard shortcuts/);
+    window._phOpenNotifications();
+    assert.equal(dom.navCalls.at(-1), 'review-queue');
+
+    assert.ok(auditEvents.some((event) => event.event === 'registry_open_profile' && event.pid === 'pat-1'));
+    assert.ok(auditEvents.some((event) => event.event === 'registry_open_analytics' && event.pid === 'pat-2'));
+    assert.ok(auditEvents.some((event) => event.event === 'registry_open_protocol' && event.pid === 'pat-1'));
+  } finally {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    api.getPatientsCohortSummary = originals.getPatientsCohortSummary;
+    api.listPatients = originals.listPatients;
+    api.createClinicianNote = originals.createClinicianNote;
+    api.recordPatientProfileAuditEvent = originals.recordPatientProfileAuditEvent;
+    api.getNotificationsUnreadCount = originals.getNotificationsUnreadCount;
+    authMod.setCurrentUser(originalUser);
+    dom.restore();
+  }
+});
+
 test('pgLibraryHub covers redirects, registry tabs, external search, and AI drafts', async () => {
   const dom = installDomHarness();
   const originalUser = authMod.currentUser;
@@ -1372,6 +1673,230 @@ test('pgMarketplaceHub covers governance, seller gate, no-url booking, and empty
     api.marketplaceSellerDeleteItem = originals.marketplaceSellerDeleteItem;
     api.logAudit = originals.logAudit;
     authMod.setCurrentUser(originalUser);
+    dom.restore();
+  }
+});
+
+test('pgClinicalHub covers outcomes, scoring, and registry tabs', async () => {
+  const dom = installDomHarness();
+  const originalUser = authMod.currentUser;
+  const originals = {
+    listCourses: api.listCourses,
+    listPatients: api.listPatients,
+  };
+  authMod.setCurrentUser({ role: 'clinician' });
+  api.listCourses = async () => ({
+    items: [
+      { id: 'course-1', status: 'active', patient_id: 'pat-1', condition_slug: 'major-depression', sessions_delivered: 8, planned_sessions_total: 20 },
+      { id: 'course-2', status: 'completed', patient_id: 'pat-2', condition_slug: 'ocd', sessions_delivered: 12, planned_sessions_total: 12 },
+    ],
+  });
+  api.listPatients = async () => ({
+    items: [
+      { id: 'pat-1', first_name: 'Alex', last_name: 'Harper' },
+      { id: 'pat-2', first_name: 'Bianca', last_name: 'Stone' },
+    ],
+  });
+
+  try {
+    globalThis.window._clinicalHubTab = 'outcomes';
+    await pgClinicalHub((title) => { dom.lastTopbar = title; }, globalThis.window._nav);
+    assert.equal(dom.lastTopbar, 'Clinical Hub');
+    assert.match(dom.content.innerHTML, /Patient Outcomes/);
+    assert.match(dom.content.innerHTML, /Alex Harper/);
+
+    globalThis.window._clinicalHubTab = 'scoring';
+    await pgClinicalHub(() => {}, globalThis.window._nav);
+    assert.match(dom.content.innerHTML, /Scale Calculator/);
+    dom.setNode('sc-score-input', { value: '17' });
+    globalThis.window._scScoringRender();
+    assert.match(globalThis.document.getElementById('sc-result').innerHTML, /Mod\. Severe|Severe/);
+
+    globalThis.window._clinicalHubTab = 'registry';
+    await pgClinicalHub(() => {}, globalThis.window._nav);
+    assert.match(dom.content.innerHTML, /Assessment Registry/);
+    dom.setNode('reg-search', { value: 'PHQ' });
+    globalThis.window._regSetDomain('Depression');
+    globalThis.window._regSetType('Self-report');
+    assert.match(globalThis.document.getElementById('reg-list').innerHTML, /PHQ-9/);
+  } finally {
+    api.listCourses = originals.listCourses;
+    api.listPatients = originals.listPatients;
+    authMod.setCurrentUser(originalUser);
+    dom.restore();
+  }
+});
+
+test('pgProtocolStudio covers patient restriction, generate, save, export, and drafts flows', async () => {
+  const dom = installDomHarness();
+  const originalUser = authMod.currentUser;
+  const originals = {
+    listConditions: api.listConditions,
+    listDevices: api.listDevices,
+    listModalities: api.listModalities,
+    listSavedProtocols: api.listSavedProtocols,
+    protocolStudioEvidenceHealth: api.protocolStudioEvidenceHealth,
+    protocolStudioProtocols: api.protocolStudioProtocols,
+    protocolStudioPatientContext: api.protocolStudioPatientContext,
+    protocolStudioEvidenceSearch: api.protocolStudioEvidenceSearch,
+    protocolStudioProtocol: api.protocolStudioProtocol,
+    protocolStudioGenerate: api.protocolStudioGenerate,
+    saveProtocol: api.saveProtocol,
+    exportProtocolDocx: api.exportProtocolDocx,
+    exportHandbookDocx: api.exportHandbookDocx,
+    exportPatientGuideDocx: api.exportPatientGuideDocx,
+    recordPatientProfileAuditEvent: api.recordPatientProfileAuditEvent,
+  };
+  const savedPayloads = [];
+  const auditEvents = [];
+  const originalNotifToast = globalThis.window._showNotifToast;
+  const originalShowToast = globalThis.window._showToast;
+  authMod.setCurrentUser({ role: 'clinician', email: 'clinician@example.test' });
+  globalThis.window._showNotifToast = (payload) => dom.toastCalls.push(payload);
+  globalThis.window._showToast = (msg, kind) => {
+    dom.toastCalls.push({ title: msg, kind });
+  };
+  globalThis.window._protocolHubTab = 'generate';
+  globalThis.window._protocolHubCondition = { id: 'major-depression', name: 'Major Depression' };
+
+  try {
+    await pgProtocolStudio((title) => { dom.lastTopbar = title; }, globalThis.window._nav);
+    globalThis.window._builderPatientId = 'pat-1';
+    globalThis.window._protocolHubTab = 'generate';
+    api.listConditions = async () => ({
+      items: [
+        { id: 'major-depression', name: 'Major Depression', abbr: 'MDD', evidence_grade: 'A', rcts: 41, description: 'Major depressive disorder', category: 'Mood' },
+      ],
+    });
+    api.listDevices = async () => ({
+      items: [
+        { id: 'dev-1', name: 'NeuroLoop 3000', manufacturer: 'Acme', modality: 'tDCS', evidence_grade: 'A', fda_clearance: true },
+      ],
+    });
+    api.listModalities = async () => ({
+      items: [
+        { id: 'tdcs', name: 'tDCS', grade: 'A', rcts: 32, sub: 'Transcranial direct current stimulation', meta: 'Recommended' },
+      ],
+    });
+    api.listSavedProtocols = async () => ({
+      items: [
+        {
+          id: 'draft-1',
+          name: 'Draft One',
+          condition: 'major-depression',
+          device_slug: 'dev-1',
+          governance_state: 'approved',
+          created_at: '2026-05-08T12:00:00Z',
+          parameters_json: { modality: 'tdcs', phenotype: 'anxious', target: 'DLPFC-L', montage: 'classic' },
+        },
+      ],
+    });
+    api.protocolStudioEvidenceHealth = async () => ({
+      local_evidence_available: true,
+      fallback_mode: 'indexed',
+      safe_user_message: 'Indexed corpus available.',
+    });
+    api.protocolStudioProtocols = async () => ({
+      items: [
+        { id: 'prot-1', title: 'MDD tDCS Standard', status: 'approved', condition: 'major-depression', modality: 'tDCS', target: 'DLPFC-L', evidence_refs: ['ref-1'], evidence_grade: 'A' },
+      ],
+    });
+    api.protocolStudioPatientContext = async () => ({
+      completeness_score: '80%',
+      sources: {
+        eeg: { available: true, count: 1, last_updated: '2026-05-08T12:00:00Z' },
+        meds: { available: false, count: 0 },
+      },
+      missing_data: ['meds'],
+      safety_flags: { seizure_history: false },
+    });
+    api.protocolStudioEvidenceSearch = async () => ({
+      status: 'ok',
+      message: 'Search complete',
+      results: [
+        { id: 'ev-1', title: 'tDCS for depression', year: '2024', source: 'PMC', link: 'https://example.com/t1', summary: 'Positive trial.' },
+      ],
+    });
+    api.protocolStudioProtocol = async () => ({ title: 'MDD tDCS Standard', off_label: false, evidence_refs: ['ref-1'] });
+    api.protocolStudioGenerate = async (payload) => ({
+      status: 'ok',
+      evidence_grade: 'A',
+      approval_status_badge: 'draft',
+      rationale: `${payload.condition} / ${payload.modality}`,
+      target_region: 'DLPFC',
+      session_frequency: '3 / week',
+      duration: '6 weeks',
+      monitoring_plan: ['Monitor mood weekly'],
+      contraindications: [],
+      evidence_links: ['ref-1'],
+      disclaimers: { general_disclaimer: 'Decision-support only.' },
+      parameters: { modality_id: 'tdcs', target_region: 'DLPFC', sessions_per_week: 3, session_duration: 20, total_course: 18 },
+      protocol_summary: 'Registry-backed draft',
+      off_label_review_required: false,
+    });
+    api.saveProtocol = async (payload) => {
+      savedPayloads.push(payload);
+      return { ok: true, id: 'saved-1', ...payload };
+    };
+    api.exportProtocolDocx = async () => new Blob(['protocol-docx']);
+    api.exportHandbookDocx = async () => new Blob(['handbook-docx']);
+    api.exportPatientGuideDocx = async () => new Blob(['patient-guide-docx']);
+    api.recordPatientProfileAuditEvent = async (pid, payload) => {
+      auditEvents.push({ pid, ...payload });
+      return { ok: true };
+    };
+
+    await pgProtocolStudio((title) => { dom.lastTopbar = title; }, globalThis.window._nav);
+    assert.match(dom.lastTopbar, /Protocol Studio/);
+    await globalThis.window._studioRenderDrafts();
+    assert.match(globalThis.document.getElementById('studio-drafts-list').innerHTML, /Draft One/);
+
+    globalThis.window._studioState.patientMeta = '34F · seizure history';
+    globalThis.window._studioPick('condition', 'major-depression');
+    globalThis.window._studioPick('phenotype', 'anxious');
+    globalThis.window._studioPick('modality', 'rtms');
+    globalThis.window._studioPick('device', 'dev-1');
+    globalThis.window._studioPick('target', 'DLPFC-L');
+    globalThis.window._studioPick('montage', 'bilateral');
+    assert.match(dom.content.innerHTML, /Safety warnings|Safety engine/);
+    assert.equal(globalThis.window._studioState.target, 'DLPFC-L');
+
+    globalThis.window._studioState.patientId = null;
+    await globalThis.window._studioSave();
+    assert.equal(dom.toastCalls.at(-1).kind, 'warning');
+
+    globalThis.window._studioState.patientId = 'pat-1';
+    await globalThis.window._studioSave();
+    assert.equal(savedPayloads.at(-1).governance_state, 'draft');
+    assert.equal(dom.toastCalls.at(-1).kind, 'success');
+
+    await globalThis.window._studioExport();
+    assert.equal(savedPayloads.at(-1).governance_state, 'submitted');
+    assert.equal(dom.toastCalls.at(-1).kind, 'success');
+
+    globalThis.window._studioState.patientId = 'pat-1';
+    globalThis.window._studioRefreshDrafts();
+    await globalThis.window._studioRenderDrafts();
+    assert.match(globalThis.document.getElementById('studio-drafts-list').innerHTML, /Draft One/);
+  } finally {
+    api.listConditions = originals.listConditions;
+    api.listDevices = originals.listDevices;
+    api.listModalities = originals.listModalities;
+    api.listSavedProtocols = originals.listSavedProtocols;
+    api.protocolStudioEvidenceHealth = originals.protocolStudioEvidenceHealth;
+    api.protocolStudioProtocols = originals.protocolStudioProtocols;
+    api.protocolStudioPatientContext = originals.protocolStudioPatientContext;
+    api.protocolStudioEvidenceSearch = originals.protocolStudioEvidenceSearch;
+    api.protocolStudioProtocol = originals.protocolStudioProtocol;
+    api.protocolStudioGenerate = originals.protocolStudioGenerate;
+    api.saveProtocol = originals.saveProtocol;
+    api.exportProtocolDocx = originals.exportProtocolDocx;
+    api.exportHandbookDocx = originals.exportHandbookDocx;
+    api.exportPatientGuideDocx = originals.exportPatientGuideDocx;
+    api.recordPatientProfileAuditEvent = originals.recordPatientProfileAuditEvent;
+    authMod.setCurrentUser(originalUser);
+    globalThis.window._showNotifToast = originalNotifToast;
+    globalThis.window._showToast = originalShowToast;
     dom.restore();
   }
 });

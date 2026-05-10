@@ -7,6 +7,7 @@ import {
   renderClinicalDisclaimer,
   renderAiOutputDisclaimer,
   renderModuleClinicalDisclaimer,
+  renderPatientFacingDisclaimer,
   renderPHIWarningBadge,
   renderNLPStatusBadge,
 } from './clinical-disclaimer.js';
@@ -14,25 +15,32 @@ import {
 test('renderClinicalDisclaimer includes required disclaimer text', () => {
   const html = renderClinicalDisclaimer();
   assert.ok(html.includes('Clinical disclaimer'));
-  assert.ok(html.includes('does not diagnose'));
-  assert.ok(html.includes('prescribe'));
-  assert.ok(html.includes('require clinician review'));
+  assert.ok(html.includes('Clinical decision-support only'));
+  assert.ok(html.includes('does not provide a diagnosis'));
+  assert.ok(html.includes('prescribe treatment'));
+  assert.ok(html.includes('Human review required'));
+  assert.ok(html.includes('Clinician review required'));
   assert.ok(html.includes('role="region"'));
   assert.ok(html.includes('aria-label="Clinical disclaimer"'));
 });
 
-test('renderAiOutputDisclaimer renders patient-facing copy', () => {
-  const html = renderAiOutputDisclaimer({ variant: 'patient' });
-  assert.ok(html.includes('Not medical advice'));
-  assert.ok(html.includes('education only'));
-  assert.ok(html.includes('patient-ai-output-disclaimer'));
+test('renderAiOutputDisclaimer uses the AI-generated draft copy', () => {
+  const html = renderAiOutputDisclaimer();
+  assert.ok(html.includes('AI-generated draft'));
+  assert.ok(html.includes('verify before use'));
+  assert.ok(html.includes('Do not rely on this output as the sole basis'));
 });
 
-test('renderModuleClinicalDisclaimer renders MRI copy', () => {
-  const html = renderModuleClinicalDisclaimer('mri');
-  assert.ok(html.includes('Imaging support only'));
-  assert.ok(html.includes('radiology report'));
-  assert.ok(html.includes('module-disclaimer-mri'));
+test('renderModuleClinicalDisclaimer emits module-specific copy', () => {
+  const html = renderModuleClinicalDisclaimer('protocol');
+  assert.ok(html.includes('Protocol drafting support only'));
+  assert.ok(html.includes('off-label'));
+});
+
+test('renderPatientFacingDisclaimer emits simplified patient copy', () => {
+  const html = renderPatientFacingDisclaimer();
+  assert.ok(html.includes('Not medical advice'));
+  assert.ok(html.includes('education only'));
 });
 
 test('renderClinicalDisclaimer HTML is valid and escaped', () => {

@@ -4797,7 +4797,7 @@ async function _pgPatientVirtualCareImpl() {
   function _convHeaderHtml(tid) {
     const t = threads[tid] || { name:'—', role:'' };
     const ava = t.avatar || t.name.slice(0,2).toUpperCase();
-    const onlineText = t.online === 'ai' ? 'AI assistant \u00b7 answers may not be medical advice'
+    const onlineText = t.online === 'ai' ? 'AI assistant \u00b7 education only, not medical advice'
       : t.online === 'true' ? 'Online \u00b7 usually replies within 2 hours'
       : t.online === 'busy' ? 'Busy \u00b7 replies later today'
       : 'Offline \u00b7 leave a message';

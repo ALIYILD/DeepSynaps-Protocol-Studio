@@ -11,9 +11,11 @@ Usage:
     python3 services/evidence-pipeline/extract_protocols.py [--dry] [--limit N]
                                                             [--csv PATH] [--all-trials]
 
-`--all-trials` runs against every trial with a non-empty interventions_json
-(falls back to text-based modality inference when trial_indications is empty,
-which is the current state on the canonical DB).
+Default trial extraction joins through `trial_indications`, and default paper
+extraction joins through `paper_indications`, so extracted protocols stay wired
+to the routed evidence graph. `--all-trials` is still available for manual
+recovery passes when `trial_indications` is empty, but it should not be the
+standing upkeep path.
 """
 from __future__ import annotations
 

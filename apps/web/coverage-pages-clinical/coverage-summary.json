@@ -1,3 +1,0 @@
-{"total": {"lines":{"total":12831,"covered":6170,"skipped":0,"pct":48.08},"statements":{"total":12831,"covered":6170,"skipped":0,"pct":48.08},"functions":{"total":406,"covered":168,"skipped":0,"pct":41.37},"branches":{"total":1531,"covered":640,"skipped":0,"pct":41.8},"branchesTrue":{"total":0,"covered":0,"skipped":0,"pct":"Unknown"}}
-,"/Users/aliyildirim/DeepSynaps-Protocol-Studio/apps/web/src/pages-clinical.js": {"lines":{"total":12831,"covered":6170,"skipped":0,"pct":48.08},"functions":{"total":406,"covered":168,"skipped":0,"pct":41.37},"statements":{"total":12831,"covered":6170,"skipped":0,"pct":48.08},"branches":{"total":1531,"covered":640,"skipped":0,"pct":41.8}}
-}

@@ -40,7 +40,6 @@ import { isDemoSession } from './demo-session.js';
 import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { VOICE_DEEPTWIN_DOMAIN_NOTE } from './voice-decision-support.js';
 import { mountAnalyzerAIReportStrip } from './analyzer-ai-report-ui.js';
-import { renderModuleClinicalDisclaimer } from './clinical-disclaimer.js';
 import { buildReport, reportToMarkdown, reportToJSONString, downloadBlob, renderReportPreview } from './deeptwin/reports.js';
 import { startHandoff } from './deeptwin/handoff.js';
 import { PRESET_SCENARIOS } from './deeptwin/mockData.js';
@@ -51,6 +50,7 @@ import {
 } from './deeptwin/dashboard360.js';
 import { renderNeuroAiLabSection, wireNeuroAiLab } from './deeptwin/neuroai-lab.js';
 import { mountMedicalImageCard } from './medical-image-card.js';
+import { renderClinicalDisclaimer, renderModuleClinicalDisclaimer } from './clinical-disclaimer.js';
 
 const HOST_TIMELINE = 'dt-timeline-host';
 const HOST_CORR     = 'dt-corr-host';
@@ -104,6 +104,14 @@ function _injectStylesOnce() {
   // Styles are added permanently in styles.css; this is a noop guard.
   if (window.__dtStylesChecked) return;
   window.__dtStylesChecked = true;
+}
+
+function _deepTwinComplianceStack() {
+  return `
+    ${renderClinicalDisclaimer()}
+    ${renderModuleClinicalDisclaimer('deeptwin', { compact: true, marginBottom: 16 })}
+    ${decisionSupportBanner()}
+  `;
 }
 
 const STATE = {
@@ -176,8 +184,7 @@ function _renderAll() {
   const html = `
     <div class="dt-page">
       ${_renderTabStrip(STATE.activeTab || 'overview')}
-      ${decisionSupportBanner()}
-      ${renderModuleClinicalDisclaimer('deeptwin')}
+      ${_deepTwinComplianceStack()}
       ${renderNeuroAiLabSection({
         patientId: STATE.patientId,
         timeline: STATE.timeline,
@@ -629,7 +636,7 @@ function _wireTabStrip(setTopbar) {
       if (!deeptwinHasPatientScope(STATE.patientId)) {
         STATE.activeTab = 'overview';
         try { sessionStorage.setItem('ds_dt_active_tab', 'overview'); } catch {}
-        _setMain(`<div class="dt-page">${_renderTabStrip('overview')}${decisionSupportBanner()}${emptyPatientBlock()}${renderSafetyFooter()}</div>`);
+        _setMain(`<div class="dt-page">${_renderTabStrip('overview')}${_deepTwinComplianceStack()}${emptyPatientBlock()}${renderSafetyFooter()}</div>`);
         _wireTabStrip(_setTopbarRef);
         window._showToast?.('Select a patient first.', 'warning');
         return;
@@ -646,7 +653,7 @@ async function _renderActiveTab(setTopbar) {
   const active = deeptwinResolvedTab(patientId, STATE.activeTab);
   STATE.activeTab = active;
   if (!deeptwinHasPatientScope(patientId)) {
-    _setMain(`<div class="dt-page">${_renderTabStrip('overview')}${decisionSupportBanner()}${emptyPatientBlock()}${renderSafetyFooter()}</div>`);
+    _setMain(`<div class="dt-page">${_renderTabStrip('overview')}${_deepTwinComplianceStack()}${emptyPatientBlock()}${renderSafetyFooter()}</div>`);
     _wireTabStrip(setTopbar);
     return;
   }
@@ -670,8 +677,7 @@ async function _renderActiveTab(setTopbar) {
       const html = `
         <div class="dt-page">
           ${_renderTabStrip('notes')}
-          ${decisionSupportBanner()}
-          ${renderModuleClinicalDisclaimer('deeptwin')}
+          ${_deepTwinComplianceStack()}
           ${renderClinicianNotesPanel({ notes: STATE.clinicianNotes })}
           ${renderSafetyFooter()}
         </div>`;
@@ -685,8 +691,7 @@ async function _renderActiveTab(setTopbar) {
       const html = `
         <div class="dt-page">
           ${_renderTabStrip('review')}
-          ${decisionSupportBanner()}
-          ${renderModuleClinicalDisclaimer('deeptwin')}
+          ${_deepTwinComplianceStack()}
           ${renderHistoryPanel({ analysisRuns: STATE.analysisRuns, simulationRuns: STATE.simulationRuns })}
           <section class="card dt-section" role="region" aria-label="Audit trail">
             <header class="dt-section-h"><h3>Audit trail (this browser)</h3>
@@ -704,8 +709,7 @@ async function _renderActiveTab(setTopbar) {
     _setMain(`
       <div class="dt-page">
         ${_renderTabStrip('simulations')}
-        ${decisionSupportBanner()}
-        ${renderModuleClinicalDisclaimer('deeptwin')}
+        ${_deepTwinComplianceStack()}
         <section class="card dt-section">
           <h3 style="margin:0 0 8px">Simulation workspace</h3>
           <p style="margin:0 0 12px;color:var(--text-secondary);font-size:13px;line-height:1.5">
@@ -739,7 +743,7 @@ export async function pgDeeptwin(setTopbar /* , navigate */) {
   _setTopbar(setTopbar);
 
   if (!deeptwinHasPatientScope(patientId)) {
-    _setMain(`<div class="dt-page">${_renderTabStrip('overview')}${decisionSupportBanner()}${emptyPatientBlock()}${renderSafetyFooter()}</div>`);
+    _setMain(`<div class="dt-page">${_renderTabStrip('overview')}${_deepTwinComplianceStack()}${emptyPatientBlock()}${renderSafetyFooter()}</div>`);
     _wireTabStrip(setTopbar);
     return;
   }
@@ -750,7 +754,7 @@ export async function pgDeeptwin(setTopbar /* , navigate */) {
     _setTopbar(setTopbar);
     _wireTabStrip(setTopbar);
   } catch (e) {
-    _setMain(`<div class="dt-page">${_renderTabStrip(STATE.activeTab)}${decisionSupportBanner()}${errorBlock('Failed to load DeepTwin: ' + (e.message || e))}${renderSafetyFooter()}</div>`);
+    _setMain(`<div class="dt-page">${_renderTabStrip(STATE.activeTab)}${_deepTwinComplianceStack()}${errorBlock('Failed to load DeepTwin: ' + (e.message || e))}${renderSafetyFooter()}</div>`);
     _wireTabStrip(setTopbar);
   }
 }

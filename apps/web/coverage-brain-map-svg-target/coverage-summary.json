@@ -1,3 +1,0 @@
-{"total": {"lines":{"total":2279,"covered":2053,"skipped":0,"pct":90.08},"statements":{"total":2279,"covered":2053,"skipped":0,"pct":90.08},"functions":{"total":40,"covered":36,"skipped":0,"pct":90},"branches":{"total":492,"covered":375,"skipped":0,"pct":76.21},"branchesTrue":{"total":0,"covered":0,"skipped":0,"pct":"Unknown"}}
-,"/Users/aliyildirim/DeepSynaps-Protocol-Studio/apps/web/src/brain-map-svg.js": {"lines":{"total":2279,"covered":2053,"skipped":0,"pct":90.08},"functions":{"total":40,"covered":36,"skipped":0,"pct":90},"statements":{"total":2279,"covered":2053,"skipped":0,"pct":90.08},"branches":{"total":492,"covered":375,"skipped":0,"pct":76.21}}
-}

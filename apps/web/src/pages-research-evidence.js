@@ -16,11 +16,11 @@ import {
 import { getEvidenceUiStats } from './evidence-ui-live.js';
 import { renderLiveEvidencePanel } from './live-evidence.js';
 import { loadResearchBundleWorkspace } from './research-bundle-workspace.js';
+import { renderClinicalDisclaimer, renderModuleClinicalDisclaimer } from './clinical-disclaimer.js';
 import {
   CONDITION_REGISTRY, ASSESSMENT_REGISTRY, PROTOCOL_REGISTRY,
   DEVICE_REGISTRY, BRAIN_TARGET_REGISTRY,
 } from './registries.js';
-import { renderModuleClinicalDisclaimer } from './clinical-disclaimer.js';
 
 /* ── tiny helpers ──────────────────────────────────────────────────────────── */
 const esc = s => String(s == null ? '' : s)
@@ -72,13 +72,7 @@ function _resDemoBuild() {
 
 /** Clinical disclaimer — mandated on Evidence Research page at mount (Class A requirement) */
 function _resClinicalDisclaimerBanner() {
-  return (
-    '<div class="ch-card" role="region" aria-label="Clinical disclaimer" style="margin-bottom:14px;border-left:3px solid var(--rose);background:rgba(244,63,94,0.08);padding:12px 14px">' +
-    '<div style="font-size:12px;line-height:1.55;color:var(--text-secondary)">' +
-    '<strong style="color:var(--rose)">Clinical disclaimer.</strong> ' +
-    'This page supports clinical review and decision support only. It does not diagnose, prescribe, or replace clinician judgment.' +
-    '</div></div>'
-  );
+  return renderClinicalDisclaimer();
 }
 
 /** Governance + safety framing — shown on key tabs */
@@ -161,7 +155,7 @@ function _resSourceStrip(stats) {
 function _resWorkspaceHeader(liveEvidence, { shortcuts = false } = {}) {
   return (
     _resClinicalDisclaimerBanner() +
-    renderModuleClinicalDisclaimer('evidence') +
+    renderModuleClinicalDisclaimer('evidence', { compact: true, marginBottom: 14 }) +
     _resGovernanceBanner() +
     _resBundledDegradedBanner(liveEvidence) +
     _resSourceStrip(liveEvidence) +
