@@ -9,12 +9,16 @@ from __future__ import annotations
 
 from typing import Any, Optional, Union
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor
 from app.database import get_db_session
+from app.services.consent_enforcement import (
+    require_ai_analysis_consent,
+    ConsentMissingError,
+)
 from app.services.evidence_intelligence import EvidenceResult
 from app.services.biometrics_evidence_bridge import (
     BiometricsEvidenceRequest,
