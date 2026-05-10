@@ -152,9 +152,10 @@ test('pgVirtualCare renders dashboard, switches to messaging, and sends a messag
   assert.match(document.getElementById('main-content').innerHTML, /Communications/);
   assert.match(document.getElementById('main-content').innerHTML, /New Message/);
 
-  window._vcSelectThread('p1');
+  await window._vcSelectThread('p1');
   await tick();
   window._vcCompose();
+  await tick();
   await tick();
   const input = document.getElementById('vc-msg-input');
   input.value = 'Please review tomorrow follow-up.';
@@ -206,6 +207,8 @@ test('pgLiveSession renders telehealth session, starts video, and saves notes lo
   assert.match(document.getElementById('content').innerHTML, /Preview Active|End call/);
 
   window._lsCaptureNote('p1', 'Alice Brown');
+  await tick();
+  window._lsCapType('text');
   await tick();
   const noteText = document.getElementById('ls-session-notes') || document.getElementById('vc-cap-text');
   if (noteText) noteText.value = 'Clinical note content';

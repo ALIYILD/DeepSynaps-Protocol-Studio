@@ -97,6 +97,7 @@ function installDomHarness() {
   let clickedDownload = null;
   let confirmResult = true;
   let promptResult = '';
+  let promptQueue = [];
 
   function registerNode(node) {
     if (node?.id) nodes.set(node.id, node);
@@ -241,7 +242,7 @@ function installDomHarness() {
   globalThis.document = documentStub;
   globalThis.localStorage = localStorageStub;
   globalThis.confirm = () => confirmResult;
-  globalThis.prompt = () => promptResult;
+  globalThis.prompt = () => (promptQueue.length ? promptQueue.shift() : promptResult);
   globalThis.URL = { ...saved.URL, ...urlStub };
   globalThis.requestAnimationFrame = (fn) => setTimeout(() => fn?.(), 0);
   globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
@@ -276,6 +277,10 @@ function installDomHarness() {
     },
     setPromptResult(value) {
       promptResult = value;
+      promptQueue = [];
+    },
+    setPromptResults(values) {
+      promptQueue = Array.isArray(values) ? values.slice() : [];
     },
     setNode(id, extra = {}) {
       const node = makeNode(id, extra);
@@ -307,6 +312,7 @@ const {
   pgLibraryHub,
   pgMonitorHub,
   pgMarketplaceHub,
+  pgDocumentsHubNew,
 } = await import('./pages-clinical-hubs.js');
 
 function sampleFinanceApi() {
@@ -1897,6 +1903,206 @@ test('pgProtocolStudio covers patient restriction, generate, save, export, and d
     authMod.setCurrentUser(originalUser);
     globalThis.window._showNotifToast = originalNotifToast;
     globalThis.window._showToast = originalShowToast;
+    dom.restore();
+  }
+});
+
+test('pgDocumentsHubNew covers documents lifecycle, template flows, downloads, and export', async () => {
+  const dom = installDomHarness();
+  const originals = {
+    listDocuments: api.listDocuments,
+    listPatients: api.listPatients,
+    getDocumentsSummary: api.getDocumentsSummary,
+    logDocumentsAudit: api.logDocumentsAudit,
+    listDocumentTemplates: api.listDocumentTemplates,
+    createDocumentTemplate: api.createDocumentTemplate,
+    deleteDocumentTemplate: api.deleteDocumentTemplate,
+    createDocument: api.createDocument,
+    documentDownloadUrl: api.documentDownloadUrl,
+    getDocument: api.getDocument,
+    signDocument: api.signDocument,
+    supersedeDocument: api.supersedeDocument,
+    deleteDocument: api.deleteDocument,
+    exportDocumentsZip: api.exportDocumentsZip,
+  };
+  const auditEvents = [];
+  const createdTemplates = [];
+  const createdDocuments = [];
+  const signCalls = [];
+  const supersedeCalls = [];
+  const deleteCalls = [];
+  const deleteTemplateCalls = [];
+
+  try {
+    globalThis.window._docsHubTab = 'all';
+    globalThis.window.location.href = 'https://studio.local/?page=documents-v2';
+    globalThis.window.location.search = '?page=documents-v2';
+
+    api.listDocuments = async () => ({
+      items: [
+        {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          title: 'Intake Note',
+          doc_type: 'clinical',
+          patient_id: 'pat-1',
+          updated_at: '2026-05-10T08:00:00Z',
+          status: 'pending',
+          file_ref: 'file-1',
+          notes: 'Observed stable mood and adequate sleep.',
+          revision: 1,
+        },
+      ],
+    });
+    api.listPatients = async () => ({
+      items: [{ id: 'pat-1', first_name: 'Alex', last_name: 'Harper' }],
+    });
+    api.getDocumentsSummary = async () => ({
+      total: 1,
+      draft: 1,
+      signed: 0,
+      superseded: 0,
+      demo: 0,
+      disclaimers: ['Custom disclaimer'],
+    });
+    api.logDocumentsAudit = async (payload) => {
+      auditEvents.push(payload);
+      return { ok: true };
+    };
+    api.listDocumentTemplates = async () => ({
+      items: [
+        {
+          id: 'tpl-custom-1',
+          name: 'GP Letter Custom',
+          doc_type: 'letter',
+          body_markdown: 'Dear {{patient_name}},\\n\\nFollow-up note.',
+        },
+      ],
+    });
+    api.createDocumentTemplate = async (payload) => {
+      createdTemplates.push(payload);
+      return { id: 'tpl-created' };
+    };
+    api.deleteDocumentTemplate = async (id) => {
+      deleteTemplateCalls.push(id);
+      return { ok: true };
+    };
+    api.createDocument = async (payload) => {
+      createdDocuments.push(payload);
+      return { id: `doc-${createdDocuments.length}` };
+    };
+    api.documentDownloadUrl = (id) => `https://download.local/${id}`;
+    api.getDocument = async () => ({
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      title: 'Intake Note',
+      notes: 'Observed stable mood and adequate sleep.',
+    });
+    api.signDocument = async (docId, note) => {
+      signCalls.push({ docId, note });
+      return { ok: true };
+    };
+    api.supersedeDocument = async (docId, payload) => {
+      supersedeCalls.push({ docId, payload });
+      return { revision: 2 };
+    };
+    api.deleteDocument = async (docId) => {
+      deleteCalls.push(docId);
+      return { ok: true };
+    };
+    api.exportDocumentsZip = async () => new Blob(['zip']);
+
+    let topbarTitle = '';
+    await pgDocumentsHubNew((title) => { topbarTitle = title; }, globalThis.window._nav);
+    assert.equal(topbarTitle, 'Documents');
+    assert.match(dom.content.innerHTML, /Clinical document workspace/);
+    assert.match(dom.content.innerHTML, /Intake Note/);
+    assert.match(dom.content.innerHTML, /Custom disclaimer/);
+
+    await globalThis.window._docsPreviewNotes('123e4567-e89b-12d3-a456-426614174000');
+    assert.ok(dom.bodyChildren.some((child) => child.id === 'docs-notes-preview-modal'));
+
+    globalThis.window._docsOpenPatient('pat-1');
+    assert.equal(dom.navCalls.at(-1), 'patients-v2');
+
+    globalThis.window._docsOpenSourceModule('schedule');
+    assert.equal(dom.navCalls.at(-1), 'schedule-v2');
+    globalThis.window._docsOpenSourceModule('unknown');
+    assert.equal(dom.toastCalls.at(-1).title, 'Open module');
+
+    globalThis.window._docsDownload('123e4567-e89b-12d3-a456-426614174000', 'Intake Note', true);
+    assert.equal(dom.clickedDownload?.href, 'https://download.local/123e4567-e89b-12d3-a456-426614174000');
+    assert.equal(dom.clickedDownload?.download, 'Intake Note');
+
+    globalThis.window._docsDownload('tpl-custom-1', 'Custom Template', false);
+    assert.equal(dom.clickedDownload?.download, 'Custom Template.txt');
+
+    dom.setPromptResult('Final clinician review');
+    await globalThis.window._docsSign('123e4567-e89b-12d3-a456-426614174000');
+    assert.deepStrictEqual(signCalls.at(-1), {
+      docId: '123e4567-e89b-12d3-a456-426614174000',
+      note: 'Final clinician review',
+    });
+    assert.equal(dom.toastCalls.at(-1).title, 'Signed');
+
+    dom.setPromptResult('no');
+    await globalThis.window._docsSupersede('123e4567-e89b-12d3-a456-426614174000', 'Intake Note');
+    assert.equal(dom.toastCalls.at(-1).title, 'Reason required');
+
+    dom.setPromptResults(['Correction after review', 'Intake Note v2']);
+    await globalThis.window._docsSupersede('123e4567-e89b-12d3-a456-426614174000', 'Intake Note');
+    assert.deepStrictEqual(supersedeCalls.at(-1), {
+      docId: '123e4567-e89b-12d3-a456-426614174000',
+      payload: { reason: 'Correction after review', new_title: 'Intake Note v2' },
+    });
+    assert.equal(dom.toastCalls.at(-1).title, 'Revision created');
+
+    dom.setConfirmResult(true);
+    await globalThis.window._docsDelete('123e4567-e89b-12d3-a456-426614174000', 'Intake Note');
+    assert.equal(deleteCalls.at(-1), '123e4567-e89b-12d3-a456-426614174000');
+    assert.equal(dom.toastCalls.at(-1).title, 'Deleted');
+
+    await globalThis.window._docsExport();
+    assert.equal(dom.clickedDownload?.download, 'documents-export.zip');
+    assert.equal(dom.toastCalls.at(-1).title, 'Export ready');
+    assert.ok(auditEvents.some((evt) => evt?.event === 'exported'));
+
+    globalThis.window._docsHubTab = 'templates';
+    await pgDocumentsHubNew(() => {}, globalThis.window._nav);
+    assert.match(dom.content.innerHTML, /Document Templates/);
+    assert.match(dom.content.innerHTML, /GP Letter Custom/);
+
+    globalThis.window._docOpenTemplateBuilder();
+    await globalThis.window._docSaveTemplate();
+    assert.equal(dom.toastCalls.at(-1).title, 'Name required');
+
+    globalThis.document.getElementById('tpl-builder-name').value = 'Clinic Summary Template';
+    globalThis.document.getElementById('tpl-builder-type').value = 'report';
+    globalThis.document.getElementById('tpl-builder-body').value = '## Summary';
+    await globalThis.window._docSaveTemplate();
+    assert.deepStrictEqual(createdTemplates.at(-1), {
+      name: 'Clinic Summary Template',
+      doc_type: 'report',
+      body_markdown: '## Summary',
+    });
+    assert.equal(dom.toastCalls.at(-1).title, 'Template saved');
+
+    globalThis.window._docsPreview('tpl-custom-1');
+    assert.ok(dom.bodyChildren.some((child) => child.id === 'docs-preview-modal'));
+
+    await globalThis.window._docsSendTemplate('tpl-custom-1');
+    assert.deepStrictEqual(createdDocuments.at(-1), {
+      title: 'GP Letter Custom',
+      doc_type: 'clinical',
+      template_id: 'tpl-custom-1',
+      status: 'pending',
+      notes: 'Sent from Documents Hub template',
+    });
+    assert.equal(dom.toastCalls.at(-1).title, 'Sent');
+
+    await globalThis.window._docDeleteTemplate('tpl-custom-1');
+    assert.equal(deleteTemplateCalls.at(-1), 'tpl-custom-1');
+    assert.equal(dom.toastCalls.at(-1).title, 'Template deleted');
+  } finally {
+    Object.assign(api, originals);
     dom.restore();
   }
 });
