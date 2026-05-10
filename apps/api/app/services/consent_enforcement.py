@@ -13,7 +13,6 @@ Hard Rules:
 
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
-from fastapi import HTTPException, status
 from app.persistence.models import (
     ConsentRecord,
     AuditEventRecord,
@@ -57,13 +56,10 @@ def require_ai_analysis_consent(
     - Demo patients use demo consent only
     """
     
-    # Check if demo mode
-    is_demo = patient_id.lower().startswith("demo-")
-    
     # Find active ai_analysis consent
     consent = session.query(ConsentRecord).filter(
-        ConsentRecord.clinic_id == actor.clinic_id,
         ConsentRecord.patient_id == patient_id,
+        ConsentRecord.clinician_id == actor.actor_id,
         ConsentRecord.consent_type == "ai_analysis",
         ConsentRecord.status == "active"
     ).first()
@@ -73,12 +69,11 @@ def require_ai_analysis_consent(
         # Log denial
         _log_consent_denial(
             session,
-            clinic_id=actor.clinic_id,
-            patient_id=patient_id,
-            actor_user_id=actor.user_id,
-            action="ai_analysis_attempted",
-            resource_type=ai_modality
-        )
+        patient_id=patient_id,
+        actor=actor,
+        action="ai_analysis_attempted",
+        resource_type=ai_modality
+    )
         raise ConsentMissingError(
             f"ai_analysis consent missing for patient {patient_id}"
         )
@@ -87,9 +82,8 @@ def require_ai_analysis_consent(
     if consent.expires_at and consent.expires_at < datetime.now(timezone.utc):
         _log_consent_denial(
             session,
-            clinic_id=actor.clinic_id,
             patient_id=patient_id,
-            actor_user_id=actor.user_id,
+            actor=actor,
             action="ai_analysis_attempted",
             resource_type=ai_modality,
             reason="consent_expired"
@@ -102,9 +96,8 @@ def require_ai_analysis_consent(
     if consent.status == "withdrawn":
         _log_consent_denial(
             session,
-            clinic_id=actor.clinic_id,
             patient_id=patient_id,
-            actor_user_id=actor.user_id,
+            actor=actor,
             action="ai_analysis_attempted",
             resource_type=ai_modality,
             reason="consent_withdrawn"
@@ -115,13 +108,14 @@ def require_ai_analysis_consent(
     
     # Consent is valid, log allowed access
     audit_event = AuditEventRecord(
-        clinic_id=actor.clinic_id,
-        patient_id=patient_id,
-        actor_id=actor.id,
+        event_id=f"consent-allow-{patient_id}-{ai_modality}-{int(datetime.now(timezone.utc).timestamp() * 1000)}",
+        target_id=patient_id,
+        target_type=ai_modality,
         action="ai_analysis_allowed",
-        resource_type=ai_modality,
-        result="allowed",
-        consent_record_id=consent.id
+        role=actor.role,
+        actor_id=actor.actor_id,
+        note=f"allowed consent for {ai_modality}",
+        created_at=datetime.now(timezone.utc).isoformat(),
     )
     session.add(audit_event)
     session.commit()
@@ -154,8 +148,8 @@ def require_device_sync_consent(
     
     # Find active device_sync consent
     consent = session.query(ConsentRecord).filter(
-        ConsentRecord.clinic_id == actor.clinic_id,
         ConsentRecord.patient_id == patient_id,
+        ConsentRecord.clinician_id == actor.actor_id,
         ConsentRecord.consent_type == "device_sync",
         ConsentRecord.status == "active"
     ).first()
@@ -163,9 +157,8 @@ def require_device_sync_consent(
     if not consent:
         _log_consent_denial(
             session,
-            clinic_id=actor.clinic_id,
             patient_id=patient_id,
-            actor_user_id=actor.user_id,
+            actor=actor,
             action="device_sync_attempted",
             resource_type=device_type
         )
@@ -176,9 +169,8 @@ def require_device_sync_consent(
     if consent.expires_at and consent.expires_at < datetime.now(timezone.utc):
         _log_consent_denial(
             session,
-            clinic_id=actor.clinic_id,
             patient_id=patient_id,
-            actor_user_id=actor.user_id,
+            actor=actor,
             action="device_sync_attempted",
             resource_type=device_type,
             reason="consent_expired"
@@ -190,9 +182,8 @@ def require_device_sync_consent(
     if consent.status == "withdrawn":
         _log_consent_denial(
             session,
-            clinic_id=actor.clinic_id,
             patient_id=patient_id,
-            actor_user_id=actor.user_id,
+            actor=actor,
             action="device_sync_attempted",
             resource_type=device_type,
             reason="consent_withdrawn"
@@ -203,13 +194,14 @@ def require_device_sync_consent(
     
     # Log allowed access
     audit_event = AuditEventRecord(
-        clinic_id=actor.clinic_id,
-        patient_id=patient_id,
-        actor_id=actor.id,
+        event_id=f"consent-allow-{patient_id}-{device_type}-{int(datetime.now(timezone.utc).timestamp() * 1000)}",
+        target_id=patient_id,
+        target_type=device_type,
         action="device_sync_allowed",
-        resource_type=device_type,
-        result="allowed",
-        consent_record_id=consent.id
+        role=actor.role,
+        actor_id=actor.actor_id,
+        note=f"allowed consent for {device_type}",
+        created_at=datetime.now(timezone.utc).isoformat(),
     )
     session.add(audit_event)
     session.commit()
@@ -242,8 +234,8 @@ def require_document_generation_consent(
     
     # Find active document_generation consent
     consent = session.query(ConsentRecord).filter(
-        ConsentRecord.clinic_id == actor.clinic_id,
         ConsentRecord.patient_id == patient_id,
+        ConsentRecord.clinician_id == actor.actor_id,
         ConsentRecord.consent_type == "document_generation",
         ConsentRecord.status == "active"
     ).first()
@@ -251,9 +243,8 @@ def require_document_generation_consent(
     if not consent:
         _log_consent_denial(
             session,
-            clinic_id=actor.clinic_id,
             patient_id=patient_id,
-            actor_user_id=actor.user_id,
+            actor=actor,
             action="document_generation_attempted",
             resource_type=document_type
         )
@@ -264,9 +255,8 @@ def require_document_generation_consent(
     if consent.expires_at and consent.expires_at < datetime.now(timezone.utc):
         _log_consent_denial(
             session,
-            clinic_id=actor.clinic_id,
             patient_id=patient_id,
-            actor_user_id=actor.user_id,
+            actor=actor,
             action="document_generation_attempted",
             resource_type=document_type,
             reason="consent_expired"
@@ -278,9 +268,8 @@ def require_document_generation_consent(
     if consent.status == "withdrawn":
         _log_consent_denial(
             session,
-            clinic_id=actor.clinic_id,
             patient_id=patient_id,
-            actor_user_id=actor.user_id,
+            actor=actor,
             action="document_generation_attempted",
             resource_type=document_type,
             reason="consent_withdrawn"
@@ -291,13 +280,14 @@ def require_document_generation_consent(
     
     # Log allowed access
     audit_event = AuditEventRecord(
-        clinic_id=actor.clinic_id,
-        patient_id=patient_id,
-        actor_id=actor.id,
+        event_id=f"consent-allow-{patient_id}-{document_type}-{int(datetime.now(timezone.utc).timestamp() * 1000)}",
+        target_id=patient_id,
+        target_type=document_type,
         action="document_generation_allowed",
-        resource_type=document_type,
-        result="allowed",
-        consent_record_id=consent.id
+        role=actor.role,
+        actor_id=actor.actor_id,
+        note=f"allowed consent for {document_type}",
+        created_at=datetime.now(timezone.utc).isoformat(),
     )
     session.add(audit_event)
     session.commit()
@@ -307,9 +297,8 @@ def require_document_generation_consent(
 
 def _log_consent_denial(
     session: Session,
-    clinic_id: str,
     patient_id: str,
-    actor_user_id: str,
+    actor: AuthenticatedActor,
     action: str,
     resource_type: str,
     reason: str = "missing"
@@ -322,19 +311,21 @@ def _log_consent_denial(
     
     # Create AuditEvent
     audit_event = AuditEventRecord(
-        clinic_id=clinic_id,
-        patient_id=patient_id,
-        actor_user_id=actor_user_id,
+        event_id=f"consent-deny-{patient_id}-{resource_type}-{int(datetime.now(timezone.utc).timestamp() * 1000)}",
+        target_id=patient_id,
+        target_type=resource_type,
         action=action,
-        resource_type=resource_type,
-        result="denied_no_consent"
+        role=actor.role,
+        actor_id=actor.actor_id,
+        note=f"denied_no_consent:{reason}",
+        created_at=datetime.now(timezone.utc).isoformat(),
     )
     session.add(audit_event)
     session.flush()
     
     # Create SafetyFlag
     safety_flag = SafetyFlag(
-        clinic_id=clinic_id,
+        clinic_id=actor.clinic_id or "unknown-clinic",
         patient_id=patient_id,
         flag_type="consent_missing",
         severity="high",

@@ -23,6 +23,7 @@ from app.database import SessionLocal
 from app.persistence.models import (
     AssessmentRecord,
     ClinicalSession,
+    ConsentRecord,
     DeepTwinAnalysisRun,
     DeepTwinClinicianNote,
     DeepTwinSimulationRun,
@@ -128,6 +129,16 @@ def test_deeptwin_simulate_returns_503_when_no_validated_engine_is_connected(
     client: TestClient,
     auth_headers: dict[str, dict[str, str]],
 ) -> None:
+    session = SessionLocal()
+    try:
+        _seed_ai_analysis_consent(
+            session,
+            clinic_id="clinic-demo-default",
+            patient_id="patient-deeptwin-1",
+            granted_by_user_id="actor-clinician-demo",
+        )
+    finally:
+        session.close()
     resp = client.post(
         "/api/v1/deeptwin/simulate",
         json={
@@ -155,6 +166,33 @@ def test_deeptwin_simulate_returns_503_when_no_validated_engine_is_connected(
     assert body["details"]["placeholder_simulations_disabled"] is True
 
 
+def test_real_patient_simulate_requires_ai_analysis_consent(
+    client: TestClient,
+) -> None:
+    patient_id = "pat-real-sim-no-consent"
+    user_id = "user-real-sim-no-consent"
+
+    session = SessionLocal()
+    try:
+        user = _seed_real_clinician(session, user_id=user_id)
+        _seed_real_patient(session, patient_id=patient_id, clinician_id=user.id)
+    finally:
+        session.close()
+
+    response = client.post(
+        "/api/v1/deeptwin/simulate",
+        headers=_real_headers(user_id),
+        json={
+            "patient_id": patient_id,
+            "protocol_id": "rtms_fp2_10hz",
+            "horizon_days": 35,
+        },
+    )
+
+    assert response.status_code == 403
+    assert "consent" in response.text.lower()
+
+
 def test_real_patient_simulate_and_brain_twin_alias_withhold_legacy_outputs(
     client: TestClient,
 ) -> None:
@@ -165,6 +203,12 @@ def test_real_patient_simulate_and_brain_twin_alias_withhold_legacy_outputs(
     try:
         user = _seed_real_clinician(session, user_id=user_id)
         _seed_real_patient(session, patient_id=patient_id, clinician_id=user.id)
+        _seed_ai_analysis_consent(
+            session,
+            clinic_id=user.clinic_id,
+            patient_id=patient_id,
+            granted_by_user_id=user.id,
+        )
     finally:
         session.close()
 
@@ -266,6 +310,27 @@ def _real_headers(user_id: str, clinic_id: str = CLINIC_REAL) -> dict[str, str]:
         clinic_id=clinic_id,
     )
     return {"Authorization": f"Bearer {token}"}
+
+
+def _seed_ai_analysis_consent(
+    session,
+    *,
+    clinic_id: str,
+    patient_id: str,
+    granted_by_user_id: str,
+) -> ConsentRecord:
+    consent = ConsentRecord(
+        id=f"consent-{patient_id}",
+        patient_id=patient_id,
+        clinician_id=granted_by_user_id,
+        consent_type="ai_analysis",
+        status="active",
+        signed=True,
+        signed_at=datetime.now(timezone.utc),
+    )
+    session.add(consent)
+    session.commit()
+    return consent
 
 
 def test_summary_endpoint(client: TestClient, auth_headers: dict[str, dict[str, str]]) -> None:

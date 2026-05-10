@@ -105,14 +105,11 @@ def post_biometrics_sync(
 ) -> dict[str, Any]:
     """Persist normalized observation rows or daily summaries; optional HK/HC bridge."""
     patient_id = resolve_analytics_patient_id(actor, db, patient_id=body.patient_id)
-    
-    # CONSENT ENFORCEMENT: ai_analysis (biometric)
     try:
         require_ai_analysis_consent(
             session=db,
             patient_id=patient_id,
-            clinic_id=actor.clinic_id,
-            actor_user_id=actor.user_id,
+            actor=actor,
             ai_modality="biometric",
         )
     except ConsentMissingError:
@@ -120,7 +117,7 @@ def post_biometrics_sync(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Patient consent required for biometric analysis.",
         )
-    
+
     stats = persist_biometric_sync_batch(
         db,
         patient_id,

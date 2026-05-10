@@ -32,6 +32,7 @@ from app.persistence.models import (
     DeepTwinSimulationRun,
     MriAnalysis,
     OutcomeEvent,
+    Patient,
     QEEGAnalysis,
     WearableObservation,
 )
@@ -98,6 +99,10 @@ def _gate_patient_access(
     finally:
         if owns_session and db is not None:
             db.close()
+
+
+def _real_patient_row(db: Session, patient_id: str) -> Patient | None:
+    return db.query(Patient).filter(Patient.id == patient_id).first()
 
 
 ModalityKey = Literal[
@@ -691,6 +696,63 @@ def _try_autoresearch_simulate(inputs: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _real_patient_analyze_payload(
+    payload: DeeptwinAnalyzeRequest,
+) -> DeeptwinAnalyzeResponse:
+    inputs = {
+        "patient_id": payload.patient_id,
+        "as_of": payload.as_of,
+        "modalities": list(payload.modalities or []),
+        "analysis_modes": list(payload.analysis_modes or []),
+        "combine": payload.combine,
+    }
+    limitations = [
+        "No validated DeepTwin exploratory analysis model is connected for real patient rows.",
+        "Exploratory multimodal inference is intentionally withheld for persisted patient records.",
+        "DeepTwin must not invent patient-specific analysis outputs in the legacy workflow.",
+    ]
+    withheld_block = {
+        "status": "withheld",
+        "reason": _REAL_PATIENT_ANALYZE_REASON,
+        "summary": _REAL_PATIENT_ANALYZE_SUMMARY,
+    }
+    return DeeptwinAnalyzeResponse(
+        patient_id=payload.patient_id,
+        as_of=payload.as_of,
+        used_modalities=[],
+        analysis_modes=payload.analysis_modes,
+        correlation=dict(withheld_block),
+        prediction=dict(withheld_block),
+        causation=dict(withheld_block),
+        engine={
+            "combine": payload.combine,
+            "weights": {},
+            "mode": "withheld",
+            "requested_modalities": list(payload.modalities or []),
+            "notes": [
+                "DeepTwin is decision-support only and does not make diagnostic claims.",
+                "Exploratory outputs for real patient rows are withheld until a validated model is connected.",
+            ],
+        },
+        provenance=build_provenance(
+            surface="analyze.withheld",
+            inputs=inputs,
+            schema_version=ANALYZE_SCHEMA_VERSION,
+            extra={
+                "model_id": "deeptwin.analyze.withheld",
+                "engine_mode": "withheld",
+            },
+        ),
+        schema_version=ANALYZE_SCHEMA_VERSION,
+        decision_support_only=True,
+        available=False,
+        status="withheld",
+        reason=_REAL_PATIENT_ANALYZE_REASON,
+        summary=_REAL_PATIENT_ANALYZE_SUMMARY,
+        limitations=limitations,
+    )
+
+
 @router.post("/analyze", response_model=DeeptwinAnalyzeResponse)
 def deeptwin_analyze(
     payload: DeeptwinAnalyzeRequest,
@@ -774,7 +836,20 @@ def deeptwin_simulate(
 ) -> DeeptwinSimulateResponse:
     _require_clinician_review_actor(_actor)
     _gate_patient_access(_actor, payload.patient_id, db=session)
-    if _real_patient_row(session, payload.patient_id) is not None:
+    real_patient = _real_patient_row(session, payload.patient_id)
+    if real_patient is not None:
+        try:
+            require_ai_analysis_consent(
+                session=session,
+                patient_id=payload.patient_id,
+                actor=_actor,
+                ai_modality="deeptwin",
+            )
+        except ConsentMissingError:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Patient consent required for DeepTwin simulation.",
+            )
         inputs = {
             "patient_id": payload.patient_id,
             "protocol_id": payload.protocol_id,
@@ -1001,6 +1076,14 @@ def brain_twin_evidence(
 _REAL_PATIENT_PREDICTION_REASON = "no_validated_prediction_model"
 _REAL_PATIENT_PREDICTION_SUMMARY = (
     "DeepTwin prediction output is withheld until a validated model is connected."
+)
+_REAL_PATIENT_ANALYZE_REASON = "no_validated_analysis_model"
+_REAL_PATIENT_ANALYZE_SUMMARY = (
+    "DeepTwin exploratory analysis output is withheld until a validated model is connected."
+)
+_REAL_PATIENT_SIMULATION_REASON = "no_validated_simulation_engine"
+_REAL_PATIENT_SIMULATION_SUMMARY = (
+    "DeepTwin simulation output is withheld until a validated engine is connected."
 )
 _REAL_PATIENT_SOURCE_EXCLUDE_KEYS = frozenset({"identity", "twin_predictions"})
 _REAL_PATIENT_SEVERE_FLAGS = frozenset({"serious", "severe", "urgent", "high", "critical"})
@@ -3147,18 +3230,3 @@ def deeptwin_list_clinician_notes(
         )
         for n in notes
     ]
-
-    # CONSENT ENFORCEMENT: ai_analysis
-    try:
-        require_ai_analysis_consent(
-            session=db,
-            patient_id=body.patient_id,
-            clinic_id=actor.clinic_id,
-            actor_user_id=actor.user_id,
-            ai_modality="deeptwin",
-        )
-    except ConsentMissingError:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Patient consent required for DeepTwin simulation.",
-        )

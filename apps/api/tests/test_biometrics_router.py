@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
-from app.persistence.models import Clinic, Patient, User, WearableDailySummary
+from app.persistence.models import Clinic, ConsentRecord, Patient, User, WearableDailySummary
 from app.services.auth_service import create_access_token
 
 
@@ -55,6 +55,26 @@ def _clinician_headers(clinician_id: str) -> dict[str, str]:
         clinician_id, email, "clinician", "explorer", clinic_id
     )
     return {"Authorization": f"Bearer {token}"}
+
+
+def _seed_ai_analysis_consent(*, clinic_id: str, patient_id: str) -> None:
+    db = SessionLocal()
+    try:
+        patient = db.query(Patient).filter_by(id=patient_id).first()
+        db.add(
+            ConsentRecord(
+                id=str(uuid.uuid4()),
+                patient_id=patient_id,
+                clinician_id=patient.clinician_id if patient else "unknown-clinician",
+                consent_type="ai_analysis",
+                status="active",
+                signed=True,
+                signed_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
 
 
 class TestBiometricsAuth:
@@ -135,7 +155,9 @@ class TestBiometricsData:
     ) -> None:
         pid = clinic_and_patient["patient_id"]
         clin_id = clinic_and_patient["clinician_id"]
+        clinic_id = clinic_and_patient["clinic_id"]
         headers = _clinician_headers(clin_id)
+        _seed_ai_analysis_consent(clinic_id=clinic_id, patient_id=pid)
         ts = datetime.now(timezone.utc).isoformat()
         r = client.post(
             "/api/biometrics/sync",
@@ -158,3 +180,30 @@ class TestBiometricsData:
         j = r.json()
         assert j["created_observations"] == 1
         assert j["patient_id"] == pid
+
+    def test_sync_observation_requires_ai_analysis_consent(
+        self, client: TestClient, clinic_and_patient: dict[str, str]
+    ) -> None:
+        pid = clinic_and_patient["patient_id"]
+        clin_id = clinic_and_patient["clinician_id"]
+        headers = _clinician_headers(clin_id)
+        ts = datetime.now(timezone.utc).isoformat()
+        r = client.post(
+            "/api/biometrics/sync",
+            headers=headers,
+            json={
+                "patient_id": pid,
+                "provider": "apple_health",
+                "batch": [
+                    {
+                        "source": "apple_health",
+                        "metric_type": "heart_rate",
+                        "value": 72.0,
+                        "unit": "bpm",
+                        "observed_at": ts,
+                    }
+                ],
+            },
+        )
+        assert r.status_code == 403
+        assert "consent" in str(r.json()).lower()
