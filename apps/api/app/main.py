@@ -862,6 +862,14 @@ _frontend_dist = Path(__file__).resolve().parents[3] / "apps" / "web" / "dist"
 
 @app.middleware("http")
 async def spa_fallback_middleware(request: Request, call_next):
+    # Data Console redirect — protect by redirecting to login with return path
+    if request.url.path == "/data-console":
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(
+            url="/auth/login?return=/app?page=data-console",
+            status_code=303
+        )
+    
     response = await call_next(request)
     if response.status_code == 404:
         path = request.url.path
@@ -1013,16 +1021,6 @@ def qeeg_biomarkers() -> QEEGBiomarkerListResponse:
 @app.get("/api/v1/qeeg/condition-map", response_model=QEEGConditionMapListResponse)
 def qeeg_condition_map() -> QEEGConditionMapListResponse:
     return list_qeeg_condition_map()
-
-
-# Data Console redirect — protect by redirecting to login with return path
-@app.get("/data-console")
-def data_console_redirect():
-    from fastapi.responses import RedirectResponse
-    return RedirectResponse(
-        url="/auth/login?return=/app?page=data-console",
-        status_code=303
-    )
 
 
 @app.post("/api/v1/uploads/case-summary", response_model=CaseSummaryResponse)
