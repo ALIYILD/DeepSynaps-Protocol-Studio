@@ -120,3 +120,13 @@ media_uploads/
 /deepsynaps-protocol-studio/
 /deepsynaps-protocol-studio-v1/
 .claude-audit-findings.md
+
+# ── Hermes Agent worktrees / local agent tooling ───────────────────────────────
+# Agent orchestration systems use temporary worktrees and sandboxes; never commit these.
+.hermes_worktrees/
+.hermes_worktrees/*
+**/.hermes_worktrees/
+**/.hermes_worktrees/*
+.claude_worktrees/
+.qoder_worktrees/
+.codex_worktrees/
