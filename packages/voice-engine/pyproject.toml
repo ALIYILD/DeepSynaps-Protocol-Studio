@@ -10,6 +10,7 @@ dependencies = [
     "fastapi",
     "python-multipart",
     "pydub",
+    "httpx",
 ]
 
 # voice-engine has a flat layout (.py files at the package root with their own
