@@ -597,7 +597,10 @@ async function _pgPatientHomeworkImpl() {
     homeTasksPortalRaw === null &&
     coursesRaw === null &&
     sessionsRaw === null;
-  const _hwDemoEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1';
+  const _hwDemoEnabled =
+    typeof import.meta !== 'undefined'
+    && import.meta.env
+    && (import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1');
   const _hwIsDemo = _homeworkLoadFailed && _hwDemoEnabled && isDemoPatient(user, { getToken: api.getToken });
   if (_homeworkLoadFailed && !_hwIsDemo) {
     throw new Error('homework_data_unavailable');
