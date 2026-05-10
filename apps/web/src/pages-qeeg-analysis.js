@@ -9,6 +9,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { api, downloadBlob, API_BASE } from './api.js';
 import { ensureAgentBrainStatus } from './agent-brain-status.js';
+import { isDemoSession } from './demo-session.js';
+import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 import { renderBrainMap10_20, renderTopoHeatmap, renderConnectivityMatrix, renderConnectivityBrainMap, renderConnectivityChordLite, renderICAComponents, renderWaveletHeatmap, renderChannelQualityMap, renderAsymmetryMap, renderPowerBarChart, renderTBRBarChart, renderSignalDeviationChart, renderBiomarkerGauges, renderBrodmannTable, render3DBrainMap, render3DBrainMapMini } from './brain-map-svg.js';
 import { emptyState, showToast, spark } from './helpers.js';
 import { DK_LOBES, groupROIsByLobe, formatDKLabel } from './qeeg-dk-atlas.js';
@@ -4845,12 +4847,15 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   // a clinician always knows when they are looking at synthetic data.
   var _demoActive = _isDemoMode() || _isDemoPatientId(patientId) || window._qeegSelectedId === 'demo';
   if (_demoActive) {
+    var demoPatientName = _patient ? _patient.name : (patientId && ANALYZER_DEMO_FIXTURES.patients ? 
+      (ANALYZER_DEMO_FIXTURES.patients.find(p => p.id === patientId) || {}).name : 'Demo Patient (synthetic)');
+    pageHtml += DEMO_FIXTURE_BANNER_HTML;
     pageHtml += '<div role="status" aria-live="polite" style="margin-bottom:12px;padding:10px 14px;border-radius:10px;'
       + 'background:rgba(251,191,36,0.10);border:1px solid rgba(251,191,36,0.40);'
       + 'display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:13px;color:var(--text-primary)">'
       + '<span style="font-size:14px">⚠️</span>'
-      + '<strong>DEMO MODE</strong>'
-      + '<span style="color:var(--text-secondary)">— synthetic patients and synthetic EEG data. Not for clinical use.</span>'
+      + '<strong>[DEMO] ' + esc(demoPatientName) + ' — synthetic EEG analysis</strong>'
+      + '<span style="color:var(--text-secondary)">— Not for clinical use.</span>'
       + (_isDemoPatientId(patientId) ? '<span class="badge" style="margin-left:auto;font-size:11px;font-weight:700;color:var(--amber);background:rgba(251,191,36,0.18);padding:3px 8px;border-radius:12px">Demo patient</span>' : '')
       + '</div>';
   }
