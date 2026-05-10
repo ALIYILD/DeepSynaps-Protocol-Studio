@@ -313,6 +313,7 @@ const {
   pgMonitorHub,
   pgMarketplaceHub,
   pgDocumentsHubNew,
+  pgVirtualCareHub,
 } = await import('./pages-clinical-hubs.js');
 
 function sampleFinanceApi() {
@@ -2101,6 +2102,134 @@ test('pgDocumentsHubNew covers documents lifecycle, template flows, downloads, a
     await globalThis.window._docDeleteTemplate('tpl-custom-1');
     assert.equal(deleteTemplateCalls.at(-1), 'tpl-custom-1');
     assert.equal(dom.toastCalls.at(-1).title, 'Template deleted');
+  } finally {
+    Object.assign(api, originals);
+    dom.restore();
+  }
+});
+
+test('pgDocumentsHubNew covers letters generation, draft save, uploads, and file-post success toasts', async () => {
+  const dom = installDomHarness();
+  const originals = {
+    listDocuments: api.listDocuments,
+    listPatients: api.listPatients,
+    getDocumentsSummary: api.getDocumentsSummary,
+    chatClinician: api.chatClinician,
+    createDocument: api.createDocument,
+    uploadDocument: api.uploadDocument,
+    logDocumentsAudit: api.logDocumentsAudit,
+    listDocumentTemplates: api.listDocumentTemplates,
+  };
+  const createdDocuments = [];
+  const uploadCalls = [];
+  const auditEvents = [];
+
+  try {
+    globalThis.window._docsHubTab = 'letters';
+    globalThis.window.location.href = 'https://studio.local/?page=documents-v2';
+    globalThis.window.location.search = '?page=documents-v2';
+
+    api.listDocuments = async () => ({
+      items: [
+        {
+          id: 'letter-1',
+          title: 'Prior Letter',
+          doc_type: 'letter',
+          patient_id: 'pat-1',
+          updated_at: '2026-05-10T08:00:00Z',
+          status: 'pending',
+          notes: 'Stored draft body',
+        },
+      ],
+    });
+    api.listPatients = async () => ({
+      items: [{ id: 'pat-1', first_name: 'Alex', last_name: 'Harper' }],
+    });
+    api.getDocumentsSummary = async () => ({ total: 1, draft: 1, signed: 0, superseded: 0 });
+    api.chatClinician = async () => ({ message: 'Draft GP letter for Alex Harper' });
+    api.createDocument = async (payload) => {
+      createdDocuments.push(payload);
+      return { id: `doc-${createdDocuments.length}` };
+    };
+    api.uploadDocument = async (formData) => {
+      uploadCalls.push(formData.get('title'));
+      return { id: `upload-${uploadCalls.length}` };
+    };
+    api.logDocumentsAudit = async (payload) => {
+      auditEvents.push(payload);
+      return { ok: true };
+    };
+    api.listDocumentTemplates = async () => ({ items: [] });
+
+    await pgDocumentsHubNew(() => {}, globalThis.window._nav);
+    assert.match(dom.content.innerHTML, /AI-assisted letter draft/);
+    assert.match(dom.content.innerHTML, /Letter records/);
+
+    dom.setNode('letter-patient', {
+      value: 'pat-1',
+      selectedIndex: 0,
+      options: [{ text: 'Alex Harper', value: 'pat-1' }],
+    });
+    dom.setNode('letter-template', {
+      value: 'gp-letter',
+      selectedIndex: 0,
+      options: [{ text: 'GP Letter', value: 'gp-letter' }],
+    });
+    globalThis.document.getElementById('letter-recipient').value = 'Dr GP';
+    globalThis.document.getElementById('letter-notes').value = 'Please mention sleep improvement.';
+    await globalThis.window._genLetter();
+    assert.equal(globalThis.document.getElementById('letter-output').style.display, '');
+    assert.match(globalThis.document.getElementById('letter-content').textContent, /Draft GP letter/);
+
+    await globalThis.window._docsSaveGenerated(
+      'letter',
+      'Referral Letter',
+      globalThis.document.getElementById('letter-content').textContent,
+      'pat-1',
+      globalThis.document.getElementById('letter-template')?.value
+    );
+    assert.equal(dom.toastCalls.at(-1).title, 'Saved as draft');
+    assert.match(createdDocuments.at(-1).notes, /AI-assisted draft/);
+    assert.equal(createdDocuments.at(-1).doc_type, 'generated');
+
+    globalThis.window._docsHubTab = 'uploads';
+    await pgDocumentsHubNew(() => {}, globalThis.window._nav);
+    assert.match(dom.content.innerHTML, /Upload Document/);
+    assert.match(dom.content.innerHTML, /Recent Uploads/);
+
+    const fakeFiles = [
+      new File(['visit summary'], 'visit-summary.pdf', { type: 'application/pdf' }),
+      new File(['consent image'], 'consent.png', { type: 'image/png' }),
+    ];
+    await globalThis.window._docsHandleUpload(fakeFiles);
+    assert.equal(uploadCalls.length, 2);
+    assert.equal(dom.toastCalls.at(-1).title, 'Uploaded');
+    assert.ok(auditEvents.some((evt) => evt?.event === 'uploaded'));
+  } finally {
+    Object.assign(api, originals);
+    dom.restore();
+  }
+});
+
+test('pgVirtualCareHub delegates into unified virtual care and renders the live-session empty state', async () => {
+  const dom = installDomHarness();
+  const originals = {
+    getCurrentSession: api.getCurrentSession,
+  };
+  let topbarTitle = '';
+
+  try {
+    globalThis.window._vcUnifiedDefaultTab = 'livesession';
+    api.getCurrentSession = async () => null;
+
+    await pgVirtualCareHub((title) => { topbarTitle = title; }, globalThis.window._nav);
+
+    assert.match(dom.content.innerHTML, /Virtual Care/);
+    assert.match(globalThis.document.getElementById('vc-panel-livesession').innerHTML, /No active or upcoming session/);
+    assert.match(topbarTitle, /Virtual Care — Live Session/);
+
+    await globalThis.window._vcSwitchTab('dashboard');
+    assert.match(topbarTitle, /Virtual Care — Dashboard/);
   } finally {
     Object.assign(api, originals);
     dom.restore();

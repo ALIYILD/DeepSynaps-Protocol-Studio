@@ -205,12 +205,9 @@ test('pgLiveSession renders telehealth session, starts video, and saves notes lo
   await tick();
   assert.match(document.getElementById('main-content').innerHTML, /Preview Active|End call/);
 
-  window._lsCaptureNote('p1', 'Alice Brown');
-  await tick();
-  window._lsCapType('text');
-  await tick();
-  const noteText = document.getElementById('ls-session-notes') || document.getElementById('vc-cap-text');
-  if (noteText) noteText.value = 'Clinical note content';
+  const noteText = document.getElementById('ls-session-notes');
+  assert.ok(noteText);
+  noteText.value = 'Clinical note content';
   await window._lsSaveNotes();
   assert.ok(storage.getItem('ds_vc_ls_notes_sess-1'));
 

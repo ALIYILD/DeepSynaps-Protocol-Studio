@@ -47,7 +47,7 @@ test('_renderEvidenceLinkedClaims is called inside renderIndicationsSpine with d
   const src = read('./pages-research-evidence.js');
   assert.match(src, /_renderEvidenceLinkedClaims\(detail\.papers/, 'must call with detail.papers from indication detail API');
   assert.match(src, /evidenceLinkedClaimsHtml/, 'variable must exist');
-  assert.match(src, /headerHtml \+ evidenceLinkedClaimsHtml/, 'must be included in detailEl.innerHTML assembly');
+  assert.match(src, /headerHtml \+ terminalMetaHtml \+ evidenceLinkedClaimsHtml/, 'must be included in detailEl.innerHTML assembly');
 });
 
 // ── _renderPaperRow PMID/DOI chip enhancement ─────────────────────────────

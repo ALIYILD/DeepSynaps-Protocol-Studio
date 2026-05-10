@@ -25,12 +25,12 @@ test('Evidence Search doctor card renderer and wiring strings', () => {
   assert.match(src, /literature-index summaries, not clinical recommendations/);
   assert.match(src, /Related trials\/devices signals/);
   assert.match(src, /re-ev-filter-modality/);
-  assert.match(src, /searchEvidencePapers\(/);
-  assert.match(src, /libraryExternalSearch/);
-  assert.match(src, /listResearchEvidenceGraph/);
-  assert.match(src, /searchEvidenceTrials/);
-  assert.match(src, /searchEvidenceDevices/);
-  assert.match(src, /searchResearchPapers/);
+  assert.match(src, /evidenceTerminalSearch\(/);
+  assert.match(src, /re-ev-paper-detail/);
+  assert.match(src, /evidenceTerminalPaper/);
+  assert.match(src, /evidenceTerminalIndication/);
+  assert.match(src, /re-ev-terminal-table/);
+  assert.match(src, /Evidence basket/);
   assert.match(src, /_reDedupeKey/);
 });
 

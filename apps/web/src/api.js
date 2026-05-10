@@ -1974,6 +1974,402 @@ export const api = {
     if (includeAbstract)  params.set('include_abstract', 'true');
     return apiFetch(`/api/v1/evidence/search?${params.toString()}`);
   },
+  getEvidenceTerminalStatus: () =>
+    apiFetch('/api/v1/evidence/terminal/status'),
+  getEvidenceTerminalOverview: () =>
+    apiFetch('/api/v1/evidence/terminal/overview'),
+  getEvidenceTerminalIndications: ({
+    q = '',
+    modality = '',
+    grade = '',
+    min_papers = '',
+    min_trials = '',
+    min_protocols = '',
+    limit = 25,
+    offset = 0,
+    sort = 'papers',
+  } = {}) => {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (modality) params.set('modality', modality);
+    if (grade) params.set('grade', grade);
+    if (min_papers !== '' && min_papers != null) params.set('min_papers', String(min_papers));
+    if (min_trials !== '' && min_trials != null) params.set('min_trials', String(min_trials));
+    if (min_protocols !== '' && min_protocols != null) params.set('min_protocols', String(min_protocols));
+    if (limit) params.set('limit', String(limit));
+    if (offset) params.set('offset', String(offset));
+    if (sort) params.set('sort', sort);
+    return apiFetch(`/api/v1/evidence/terminal/indications?${params.toString()}`);
+  },
+  getEvidenceTerminalIndication: (indicationId) =>
+    apiFetch(`/api/v1/evidence/terminal/indications/${encodeURIComponent(indicationId)}`),
+  searchEvidenceTerminalPapers: ({
+    q = '',
+    indication = '',
+    modality = '',
+    grade = '',
+    has_abstract = undefined,
+    has_doi = undefined,
+    has_pmid = undefined,
+    linked_to_trial = undefined,
+    linked_to_protocol = undefined,
+    year_from = '',
+    year_to = '',
+    limit = 25,
+    offset = 0,
+    sort = 'relevance',
+  } = {}) => {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (indication) params.set('indication', indication);
+    if (modality) params.set('modality', modality);
+    if (grade) params.set('grade', grade);
+    if (has_abstract === true) params.set('has_abstract', 'true');
+    if (has_abstract === false) params.set('has_abstract', 'false');
+    if (has_doi === true) params.set('has_doi', 'true');
+    if (has_doi === false) params.set('has_doi', 'false');
+    if (has_pmid === true) params.set('has_pmid', 'true');
+    if (has_pmid === false) params.set('has_pmid', 'false');
+    if (linked_to_trial === true) params.set('linked_to_trial', 'true');
+    if (linked_to_trial === false) params.set('linked_to_trial', 'false');
+    if (linked_to_protocol === true) params.set('linked_to_protocol', 'true');
+    if (linked_to_protocol === false) params.set('linked_to_protocol', 'false');
+    if (year_from !== '' && year_from != null) params.set('year_from', String(year_from));
+    if (year_to !== '' && year_to != null) params.set('year_to', String(year_to));
+    if (limit) params.set('limit', String(limit));
+    if (offset) params.set('offset', String(offset));
+    if (sort) params.set('sort', sort);
+    return apiFetch(`/api/v1/evidence/terminal/papers/search?${params.toString()}`);
+  },
+  getEvidenceTerminalPaperDetail: (paperId) =>
+    apiFetch(`/api/v1/evidence/terminal/papers/${encodeURIComponent(paperId)}`),
+  searchEvidenceTerminalTrials: ({ q = '', indication = '', modality = '', limit = 25, offset = 0 } = {}) => {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (indication) params.set('indication', indication);
+    if (modality) params.set('modality', modality);
+    if (limit) params.set('limit', String(limit));
+    if (offset) params.set('offset', String(offset));
+    return apiFetch(`/api/v1/evidence/terminal/trials/search?${params.toString()}`);
+  },
+  searchEvidenceTerminalProtocols: ({ q = '', indication = '', modality = '', grade = '', limit = 25, offset = 0 } = {}) => {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (indication) params.set('indication', indication);
+    if (modality) params.set('modality', modality);
+    if (grade) params.set('grade', grade);
+    if (limit) params.set('limit', String(limit));
+    if (offset) params.set('offset', String(offset));
+    return apiFetch(`/api/v1/evidence/terminal/protocols/search?${params.toString()}`);
+  },
+  getEvidenceTerminalNetwork: ({ indication = '', modality = '', max_nodes = 40, min_grade = '' } = {}) => {
+    const params = new URLSearchParams();
+    if (indication) params.set('indication', indication);
+    if (modality) params.set('modality', modality);
+    if (max_nodes) params.set('max_nodes', String(max_nodes));
+    if (min_grade) params.set('min_grade', min_grade);
+    return apiFetch(`/api/v1/evidence/terminal/network?${params.toString()}`);
+  },
+  getEvidenceTerminalGradeDistribution: () =>
+    apiFetch('/api/v1/evidence/terminal/grade-distribution'),
+  evidenceTerminalSnapshot: async ({ graphLimit = 12, safetyLimit = 8 } = {}) => {
+    const [terminalStatusRes, overviewRes, indicationsRes, graphRes, safetyRes, legacyStatusRes] = await Promise.allSettled([
+      api.getEvidenceTerminalStatus(),
+      api.getEvidenceTerminalOverview(),
+      api.getEvidenceTerminalIndications({ limit: 12, sort: 'papers' }).catch(() => api.evidenceIndicationsSummary()),
+      api.getEvidenceTerminalNetwork({ max_nodes: graphLimit }).catch(() => api.listResearchEvidenceGraph({ limit: graphLimit })),
+      api.listResearchSafetySignals({ limit: safetyLimit }),
+      api.evidenceStatus(),
+    ]);
+    const terminalStatus = terminalStatusRes.status === 'fulfilled' ? (terminalStatusRes.value || {}) : null;
+    const overview = overviewRes.status === 'fulfilled' ? (overviewRes.value || {}) : null;
+    const legacyStatus = legacyStatusRes.status === 'fulfilled' ? (legacyStatusRes.value || {}) : null;
+    const adaptedStatus = terminalStatus
+      ? {
+          total_papers: terminalStatus.counts?.papers || 0,
+          total_trials: legacyStatus?.total_trials || terminalStatus.counts?.trial_indications || 0,
+          total_fda: legacyStatus?.total_fda || 0,
+          last_updated: terminalStatus.last_updated || legacyStatus?.last_updated || null,
+        }
+      : null;
+    const adaptedIndications = indicationsRes.status === 'fulfilled'
+      ? (Array.isArray(indicationsRes.value)
+        ? indicationsRes.value
+        : ((indicationsRes.value?.results || []).map((row) => ({
+          slug: row.indication_id,
+          label: row.display_name,
+          modality: row.modality,
+          condition: row.condition,
+          paper_count: row.paper_count,
+          trial_count: row.trial_count,
+          protocol_count: row.protocol_count,
+          computed_evidence_grade: row.computed_evidence_grade,
+        }))))
+      : [];
+    const adaptedGraph = graphRes.status === 'fulfilled'
+      ? (Array.isArray(graphRes.value)
+        ? graphRes.value
+        : ((graphRes.value?.nodes || []).filter((node) => node.type === 'indication').map((node) => ({
+            indication: node.meta?.slug || node.id.replace(/^indication:/, ''),
+            modality: node.meta?.modality || '',
+            target: node.label,
+            paper_count: 0,
+            citation_sum: 0,
+          }))))
+      : [];
+    return {
+      status: adaptedStatus,
+      indications: adaptedIndications,
+      summary: overview,
+      evidenceGraph: adaptedGraph,
+      safetySignals: safetyRes.status === 'fulfilled' && Array.isArray(safetyRes.value) ? safetyRes.value : [],
+      errors: {
+        status: terminalStatusRes.status === 'rejected' ? terminalStatusRes.reason : null,
+        indications: indicationsRes.status === 'rejected' ? indicationsRes.reason : null,
+        summary: overviewRes.status === 'rejected' ? overviewRes.reason : null,
+        evidenceGraph: graphRes.status === 'rejected' ? graphRes.reason : null,
+        safetySignals: safetyRes.status === 'rejected' ? safetyRes.reason : null,
+      },
+    };
+  },
+  evidenceTerminalSearch: async ({
+    q = '',
+    source = 'all',
+    conditionId = '',
+    indication = '',
+    modality = '',
+    grade = '',
+    oa_only = false,
+    year_min = '',
+    year_max = '',
+    has_abstract = undefined,
+    condition = '',
+    limit = 24,
+    graphLimit = 10,
+    trialLimit = 8,
+    deviceLimit = 8,
+    rankedLimit = 12,
+  } = {}) => {
+    const clean = (obj) => Object.fromEntries(
+      Object.entries(obj).filter(([, value]) => value != null && value !== '' && value !== false)
+    );
+    const wantsIndexed = source === 'all' || source === 'indexed';
+    const wantsBrokered = source === 'all' || source === 'brokered';
+    const wantsCurated = source === 'all' || source === 'curated';
+    const [indexedRes, brokeredRes, graphRes, trialsRes, devicesRes, rankedRes, protocolsRes] = await Promise.allSettled([
+      wantsIndexed
+        ? api.searchEvidenceTerminalPapers(clean({
+            q,
+            indication,
+            modality,
+            grade,
+            year_from: year_min,
+            year_to: year_max,
+            has_abstract,
+            linked_to_trial: true,
+            limit,
+            offset: 0,
+          })).catch(() => api.searchEvidencePapers(clean({
+            q,
+            indication,
+            modality,
+            grade,
+            oa_only,
+            year_min,
+            year_max,
+            has_abstract,
+            condition,
+            include_abstract: true,
+            limit,
+          })))
+        : { results: [] },
+      wantsBrokered
+        ? api.libraryExternalSearch({
+            q,
+            condition_id: conditionId || null,
+            limit: Math.min(30, Math.max(limit, 10)),
+          })
+        : { items: [] },
+      api.getEvidenceTerminalNetwork(clean({
+        indication: indication || conditionId || condition || '',
+        modality,
+        max_nodes: graphLimit,
+      })).catch(() => api.listResearchEvidenceGraph(clean({
+        indication: indication || conditionId || condition || '',
+        modality,
+        limit: graphLimit,
+      }))),
+      wantsIndexed ? api.searchEvidenceTerminalTrials({ q, indication, modality, limit: trialLimit, offset: 0 }).catch(() => api.searchEvidenceTrials({ q, indication, limit: trialLimit })) : { results: [] },
+      wantsIndexed ? api.searchEvidenceDevices({ indication, limit: deviceLimit }) : [],
+      api.searchResearchPapers(clean({ q, indication, modality, limit: rankedLimit })),
+      wantsIndexed ? api.searchEvidenceTerminalProtocols({ q, indication, modality, grade, limit: deviceLimit, offset: 0 }).catch(() => ({ results: [] })) : { results: [] },
+    ]);
+    const indexedRows = indexedRes.status === 'fulfilled'
+      ? (Array.isArray(indexedRes.value)
+        ? indexedRes.value
+        : ((indexedRes.value?.results || []).map((row) => ({
+          id: row.paper_id,
+          title: row.title,
+          year: row.year,
+          journal: row.journal,
+          authors: Array.isArray(row.authors) ? row.authors.join(', ') : '',
+          abstract: row.abstract_snippet,
+          pmid: row.pmid,
+          doi: row.doi,
+          oa_url: row.source_url,
+          is_oa: /doi\.org|pubmed|example/.test(String(row.source_url || '')),
+          evidence_grade: row.computed_evidence_grade,
+          linked_indications: (row.indications || []).map((i) => i.indication_id),
+          source_metadata: row.source_metadata || {},
+        }))))
+      : [];
+    const graphRows = graphRes.status === 'fulfilled'
+      ? (Array.isArray(graphRes.value)
+        ? graphRes.value
+        : ((graphRes.value?.nodes || []).filter((node) => node.type === 'indication').map((node) => ({
+            indication: node.meta?.slug || node.id.replace(/^indication:/, ''),
+            modality: node.meta?.modality || '',
+            target: node.label,
+            paper_count: 0,
+            citation_sum: 0,
+          }))))
+      : [];
+    const trialRows = trialsRes.status === 'fulfilled'
+      ? (Array.isArray(trialsRes.value)
+        ? trialsRes.value
+        : ((trialsRes.value?.results || []).map((row) => ({
+            nct_id: row.nct_id,
+            title: row.title,
+            status: row.status,
+            phase: row.phase,
+          }))))
+      : [];
+    const protocolRows = protocolsRes.status === 'fulfilled'
+      ? ((protocolsRes.value?.results || []).map((row) => ({
+          trade_name: row.arm_label || row.source_id,
+          number: row.source_id,
+          kind: row.source_type,
+        })))
+      : [];
+    return {
+      indexed: indexedRows,
+      brokered: brokeredRes.status === 'fulfilled' ? (brokeredRes.value || { items: [] }) : { items: [] },
+      evidenceGraph: graphRows,
+      trials: trialRows,
+      devices: devicesRes.status === 'fulfilled' && Array.isArray(devicesRes.value) ? devicesRes.value : protocolRows,
+      ranked: rankedRes.status === 'fulfilled' && Array.isArray(rankedRes.value) ? rankedRes.value : [],
+      curated: wantsCurated,
+      errors: {
+        indexed: indexedRes.status === 'rejected' ? indexedRes.reason : null,
+        brokered: brokeredRes.status === 'rejected' ? brokeredRes.reason : null,
+        evidenceGraph: graphRes.status === 'rejected' ? graphRes.reason : null,
+        trials: trialsRes.status === 'rejected' ? trialsRes.reason : null,
+        devices: devicesRes.status === 'rejected' ? devicesRes.reason : null,
+        ranked: rankedRes.status === 'rejected' ? rankedRes.reason : null,
+      },
+    };
+  },
+  evidenceTerminalPaper: async (id) => {
+    const detail = await api.getEvidenceTerminalPaperDetail(id).catch(() => api.evidencePaperDetail(id));
+    if (detail && detail.paper_id == null) return detail;
+    const openAccess = Array.isArray(detail?.source_links)
+      ? detail.source_links.find((link) => /open access/i.test(link.label || ''))
+      : null;
+    return {
+      id: detail.paper_id,
+      title: detail.title,
+      abstract: detail.abstract,
+      journal: detail.journal,
+      year: detail.year,
+      authors: detail.authors,
+      pmid: detail.pmid,
+      doi: detail.doi,
+      oa_url: openAccess?.url || '',
+      is_oa: !!openAccess,
+      study_design: '',
+      effect_direction: '',
+      sample_size: '',
+      primary_outcome_measure: '',
+      source_provenance: detail.source_provenance,
+      indications: detail.indications,
+      linked_trials: detail.trials_linked,
+      linked_protocols: detail.protocols_linked,
+      safety_caveats: detail.safety_caveats,
+    };
+  },
+  evidenceTerminalIndication: async (slug, { paperLimit = 10, trialLimit = 5, protocolLimit = 5, safetyLimit = 6 } = {}) => {
+    const [detailRes, devicesRes, safetyRes, graphRes] = await Promise.allSettled([
+      api.getEvidenceTerminalIndication(slug).catch(() => api.evidenceIndicationDetail(slug, { paperLimit, trialLimit, protocolLimit })),
+      api.evidenceIndicationDevices(slug, { limit: 20 }),
+      api.listResearchSafetySignals({ indication: slug, limit: safetyLimit }),
+      api.getEvidenceTerminalNetwork({ indication: slug, max_nodes: 16 }).catch(() => api.listResearchEvidenceGraph({ indication: slug, limit: 8 })),
+    ]);
+    const detailPayload = detailRes.status === 'fulfilled' ? detailRes.value : null;
+    const adaptedDetail = detailPayload
+      ? (detailPayload.indication && detailPayload.top_papers
+        ? {
+          indication: {
+            slug: detailPayload.indication.indication_id,
+            label: detailPayload.indication.display_name,
+            modality: detailPayload.indication.modality,
+            condition: detailPayload.indication.condition,
+            evidence_grade: null,
+            computed_evidence_grade: detailPayload.indication.computed_evidence_grade,
+            regulatory: null,
+            paper_count: detailPayload.indication.paper_count,
+            trial_count: detailPayload.indication.trial_count,
+            device_count: Array.isArray(devicesRes.value) ? devicesRes.value.length : 0,
+            protocol_count: detailPayload.indication.protocol_count,
+          },
+          papers: (detailPayload.top_papers || []).slice(0, paperLimit).map((row) => ({
+            id: row.paper_id,
+            title: row.title,
+            year: row.year,
+            journal: row.journal,
+            pmid: row.pmid,
+            doi: row.doi,
+          })),
+          trials: (detailPayload.top_trials || []).slice(0, trialLimit).map((row) => ({
+            nct_id: row.nct_id,
+            title: row.title,
+            phase: row.phase,
+            status: row.status,
+            last_update: row.last_update,
+          })),
+          devices: devicesRes.status === 'fulfilled' && Array.isArray(devicesRes.value) ? devicesRes.value : [],
+          protocols: (detailPayload.top_protocols || []).slice(0, protocolLimit).map((row) => ({
+            id: row.protocol_id,
+            source_type: row.source_type,
+            source_id: row.source_id,
+            arm_label: row.arm_label,
+            modality: row.modality,
+            confidence: row.confidence,
+            target_anatomy: row.target_anatomy,
+          })),
+          fts_fallback: Number(detailPayload.indication.paper_count || 0) === 0,
+        }
+        : detailPayload)
+      : null;
+    const adaptedGraph = graphRes.status === 'fulfilled'
+      ? (Array.isArray(graphRes.value)
+        ? graphRes.value
+        : ((graphRes.value?.nodes || []).filter((node) => node.type === 'indication').map((node) => ({
+            target: node.label,
+            paper_count: 0,
+            citation_sum: 0,
+          }))))
+      : [];
+    return {
+      detail: adaptedDetail,
+      safetySignals: safetyRes.status === 'fulfilled' && Array.isArray(safetyRes.value) ? safetyRes.value : [],
+      evidenceGraph: adaptedGraph,
+      errors: {
+        detail: detailRes.status === 'rejected' ? detailRes.reason : null,
+        safetySignals: safetyRes.status === 'rejected' ? safetyRes.reason : null,
+        evidenceGraph: graphRes.status === 'rejected' ? graphRes.reason : null,
+      },
+    };
+  },
 
   // Admin-only: trigger / inspect a full evidence refresh.
   adminRefreshEvidence: () =>

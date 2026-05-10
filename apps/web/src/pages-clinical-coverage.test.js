@@ -137,6 +137,8 @@ const apiStub = {
   getPatientRiskProfile:    () => Promise.resolve(null),
   getPatientDetail:         () => Promise.resolve(null),
   recordPatientProfileAuditEvent: () => Promise.resolve({ ok: true }),
+  exportPatientCsv:         () => Promise.resolve({ blob: new Blob(['demo-csv']), filename: 'patient-demo.csv' }),
+  exportPatientNdjson:      () => Promise.resolve({ blob: new Blob(['demo-ndjson']), filename: 'patient-demo.ndjson' }),
   generatePatientInvite:    () => Promise.resolve({ invite_code: 'X-123', invite_url: 'http://test/' }),
   exportFHIRBundle:         () => Promise.resolve(new Blob(['demo']) ),
   exportProtocolDocx:       () => Promise.resolve(new Blob(['demo'])),
@@ -396,6 +398,9 @@ describe('pgPatientProfile', () => {
     // Seed a known profile id so the page binds against it
     window._profilePatientId = null;
     window._selectedPatientId = null;
+    window._announce = undefined;
+    window._showNotifToast = undefined;
+    window._nav = undefined;
   });
 
   it('seeds default patient profiles and renders header', async () => {
@@ -439,6 +444,210 @@ describe('pgPatientProfile', () => {
     const parsed = JSON.parse(raw);
     assert.ok(Array.isArray(parsed));
     assert.ok(parsed.length >= 3, 'should seed at least 3 demo profiles');
+  });
+
+  it('saves demographics, insurance, notes, and flag changes through real handlers', async () => {
+    const announces = [];
+    const toasts = [];
+    const updateCalls = [];
+    window._announce = (msg) => announces.push(msg);
+    window._showNotifToast = (payload) => toasts.push(payload);
+    realApi.updatePatient = async (id, payload) => {
+      updateCalls.push({ id, payload });
+      return { ok: true };
+    };
+
+    await mod.pgPatientProfile(() => {});
+
+    window._profileToggleEdit();
+    window._profileTab('demographics');
+    document.getElementById('pp-d-name').value = 'Jamie Example';
+    document.getElementById('pp-d-dob').value = '1991-02-03';
+    document.getElementById('pp-d-gender').value = 'Other';
+    document.getElementById('pp-d-phone').value = '+44 1234';
+    document.getElementById('pp-d-email').value = 'jamie@example.test';
+    document.getElementById('pp-d-address').value = '42 Example Street';
+    document.getElementById('pp-d-ec-name').value = 'Pat Example';
+    document.getElementById('pp-d-ec-phone').value = '+44 999';
+    document.getElementById('pp-d-ec-rel').value = 'Sibling';
+    await window._profileSaveDemographics();
+
+    assert.strictEqual(updateCalls.length, 1);
+    assert.deepStrictEqual(updateCalls[0], {
+      id: 'pp-001',
+      payload: {
+        first_name: 'Jamie',
+        last_name: 'Example',
+        dob: '1991-02-03',
+        email: 'jamie@example.test',
+        phone: '+44 1234',
+        gender: 'Other',
+      },
+    });
+    assert.ok(announces.some((msg) => /Saving demographics/i.test(msg)));
+    assert.ok(announces.some((msg) => /saved in this browser view/i.test(msg)));
+    assert.ok(toasts.some((toast) => toast.title === 'Saved' && toast.severity === 'success'));
+    assert.match(document.getElementById('content').textContent, /Jamie Example/);
+
+    window._profileToggleEdit();
+    window._profileTab('insurance');
+    document.getElementById('pp-i-payer').value = 'Blue Shield';
+    document.getElementById('pp-i-member').value = 'MEM-7';
+    document.getElementById('pp-i-group').value = 'GRP-2';
+    document.getElementById('pp-i-copay').value = '35';
+    window._profileSaveInsurance();
+    assert.ok(announces.some((msg) => /Insurance saved/i.test(msg)));
+
+    window._profileToggleEdit();
+    window._profileTab('notes');
+    document.getElementById('pp-notes-area').value = 'Observed better sleep and mood stability.';
+    window._profileSaveNotes();
+    assert.ok(announces.some((msg) => /Notes saved/i.test(msg)));
+    assert.match(document.getElementById('content').textContent, /better sleep/i);
+
+    window._profileAddFlag('vip');
+    assert.ok(Array.from(document.querySelectorAll('.btn-danger')).some((btn) => /vip/i.test(btn.textContent)));
+    window._profileRemoveFlag('vip');
+    assert.ok(!Array.from(document.querySelectorAll('.btn-danger')).some((btn) => /vip/i.test(btn.textContent)));
+  });
+
+  it('covers demographics sync failure, local collection mutations, and quick note flow', async () => {
+    const toasts = [];
+    const announces = [];
+    window._announce = (msg) => announces.push(msg);
+    window._showNotifToast = (payload) => toasts.push(payload);
+    realApi.updatePatient = async () => {
+      throw new Error('sync down');
+    };
+
+    await mod.pgPatientProfile(() => {});
+
+    window._profileToggleEdit();
+    window._profileTab('demographics');
+    document.getElementById('pp-d-name').value = 'Failure Case';
+    await window._profileSaveDemographics();
+    assert.ok(toasts.some((toast) => toast.title === 'Save failed' && /sync down/i.test(toast.body)));
+
+    window._profileToggleEdit();
+    window._profileTab('medications');
+    window._profileAddMedication();
+    assert.strictEqual(document.getElementById('pp-med-add-form').style.display, 'block');
+    document.getElementById('pp-m-name').value = 'CoverageMed-X';
+    document.getElementById('pp-m-dose').value = '100mg';
+    document.getElementById('pp-m-freq').value = 'Daily';
+    window._profileSaveMedication();
+    assert.match(document.getElementById('pp-tab-content').textContent, /CoverageMed-X/);
+    const medRows = document.querySelectorAll('.med-table tbody tr');
+    window._profileDeleteMedication(Math.max(0, medRows.length - 1));
+    assert.doesNotMatch(document.getElementById('pp-tab-content').textContent, /CoverageMed-X/);
+
+    window._profileTab('allergies');
+    window._profileAddAllergy();
+    assert.strictEqual(document.getElementById('pp-allergy-add-form').style.display, 'block');
+    document.getElementById('pp-a-substance').value = 'CoverageAllergy-X';
+    document.getElementById('pp-a-reaction').value = 'Hives';
+    document.getElementById('pp-a-severity').value = 'Severe';
+    window._profileSaveAllergy();
+    assert.match(document.getElementById('pp-tab-content').textContent, /CoverageAllergy-X/);
+    const allergyRows = document.querySelectorAll('.allergy-table tbody tr');
+    window._profileDeleteAllergy(Math.max(0, allergyRows.length - 1));
+    assert.doesNotMatch(document.getElementById('pp-tab-content').textContent, /CoverageAllergy-X/);
+
+    window._profileTab('history');
+    window._profileAddHistory();
+    assert.strictEqual(document.getElementById('pp-history-add-form').style.display, 'block');
+    document.getElementById('pp-h-date').value = '2026-05-01';
+    document.getElementById('pp-h-type').value = 'tDCS';
+    document.getElementById('pp-h-provider').value = 'Dr. Rivera';
+    document.getElementById('pp-h-notes').value = 'Good tolerance';
+    document.getElementById('pp-h-outcome').value = '82';
+    window._profileSaveHistory();
+    assert.match(document.getElementById('pp-tab-content').textContent, /Dr\. Rivera/);
+    assert.ok(announces.some((msg) => /Treatment entry added/i.test(msg)));
+
+    window._ppAddNoteQuick('pp-001');
+    assert.ok(document.getElementById('pp-notes-area'));
+    assert.strictEqual(document.activeElement, document.getElementById('pp-notes-area'));
+    assert.ok(announces.some((msg) => /begin typing/i.test(msg)));
+  });
+
+  it('covers drill-out routing plus CSV and NDJSON export success and failure branches', async () => {
+    const navCalls = [];
+    const auditCalls = [];
+    const toasts = [];
+    const announces = [];
+    const downloads = [];
+    const anchorClicks = [];
+    const originalCreate = document.createElement.bind(document);
+    const originalCreateObjectURL = globalThis.URL.createObjectURL;
+    const originalRevokeObjectURL = globalThis.URL.revokeObjectURL;
+
+    window._nav = (route) => navCalls.push(route);
+    window._announce = (msg) => announces.push(msg);
+    window._showNotifToast = (payload) => toasts.push(payload);
+    realApi.recordPatientProfileAuditEvent = async (id, payload) => {
+      auditCalls.push({ id, payload });
+      return { ok: true };
+    };
+    realApi.exportPatientCsv = async () => ({
+      blob: new Blob(['csv,data']),
+      filename: 'patient-p1.csv',
+    });
+    realApi.exportPatientNdjson = async () => ({
+      blob: new Blob(['{"ok":true}']),
+      filename: 'patient-p1.ndjson',
+    });
+    globalThis.URL.createObjectURL = () => 'blob:demo-export';
+    globalThis.URL.revokeObjectURL = (url) => downloads.push({ revoke: url });
+    document.createElement = function(tagName, options) {
+      const el = originalCreate(tagName, options);
+      if (String(tagName).toLowerCase() === 'a') {
+        el.click = () => {
+          anchorClicks.push({ href: el.href, download: el.download });
+        };
+      }
+      return el;
+    };
+
+    try {
+      await mod.pgPatientProfile(() => {});
+
+      await window._ppDrillOut('course-detail', 'p1', 'course-77');
+      await window._ppDrillOut('clinical-notes', 'p1');
+      await window._ppDrillOut('audit-trail', 'p1');
+      await window._ppDrillOut('unmapped-route', 'p1');
+
+      assert.deepStrictEqual(navCalls, ['course-detail', 'clinical-notes', 'audittrail', 'unmapped-route']);
+      assert.strictEqual(window._cdCourseId, 'course-77');
+      assert.strictEqual(window._clinicalNotesPatientFilter, 'p1');
+      assert.strictEqual(window._auditTrailPatientFilter, 'p1');
+      assert.ok(auditCalls.some((call) => call.payload.event === 'drill_out' && /course-detail/.test(call.payload.note)));
+
+      await window._ppExportCsv();
+      await window._ppExportNdjson();
+      assert.ok(anchorClicks.some((click) => click.download === 'patient-p1.csv'));
+      assert.ok(anchorClicks.some((click) => click.download === 'patient-p1.ndjson'));
+      assert.ok(announces.includes('CSV export complete'));
+      assert.ok(announces.includes('NDJSON export complete'));
+      assert.ok(auditCalls.some((call) => call.payload.event === 'export_csv'));
+      assert.ok(auditCalls.some((call) => call.payload.event === 'export_ndjson'));
+
+      delete realApi.exportPatientCsv;
+      await window._ppExportCsv();
+      assert.ok(toasts.some((toast) => toast.title === 'Export unavailable'));
+
+      realApi.exportPatientNdjson = async () => {
+        throw new Error('ndjson down');
+      };
+      await window._ppExportNdjson();
+      assert.ok(toasts.some((toast) => toast.title === 'Export failed' && /ndjson down/i.test(toast.body)));
+    } finally {
+      document.createElement = originalCreate;
+      globalThis.URL.createObjectURL = originalCreateObjectURL;
+      globalThis.URL.revokeObjectURL = originalRevokeObjectURL;
+      realApi.exportPatientCsv = apiStub.exportPatientCsv;
+      realApi.exportPatientNdjson = apiStub.exportPatientNdjson;
+    }
   });
 });
 
