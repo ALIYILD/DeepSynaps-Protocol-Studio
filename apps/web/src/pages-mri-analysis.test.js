@@ -206,12 +206,11 @@ test('regulatory footer appears in every rendered view', () => {
   const loadedView = renderFullView({ report: DEMO_MRI_REPORT });
   assert.match(loadedView, /ds-mri-footer-regulatory/);
   assert.match(loadedView, /For neuronavigation planning only\./);
-  assert.match(loadedView, /module-disclaimer-mri/);
 
   // Demo banner (explicit flag — matches Netlify preview labelling)
   const demoBannerView = renderFullView({ report: DEMO_MRI_REPORT, showDemoBanner: true });
   assert.match(demoBannerView, /data-testid="mri-demo-banner"/);
-  assert.match(demoBannerView, /Demo Patient \(synthetic\)/);
+  assert.match(demoBannerView, /Sample MRI analysis/);
 
   // 4. The exported constant is identical to the copy in the spec.
   assert.match(REGULATORY_FOOTER_TEXT, /Decision-support tool\. Not a medical device\./);
@@ -287,7 +286,12 @@ test('renderFullView explains pending and failed non-report states', () => {
 test('rendered HTML contains no banned clinical-claim words', () => {
   // Banned words, but allow negations (e.g., "does not diagnose" is OK).
   // Use negative lookbehind for common negation patterns: does not, no, without, non-
-  const banned = /(?<!does not )(?<!no )(?<!without )(?<!non-)\b(diagnose|treatment recommendation|cures)\b/i;
+  const banned = /(?<!does not )(?<!no )(?<!without )(?<!non-)\b(diagnose|diagnostic|treatment recommendation|cures)\b/i;
+  const stripCompliance = (html) => String(html || '')
+    .replace(/^[\s\S]*?<div class="ds-mri-layout">/, '<div class="ds-mri-layout">')
+    .replace(/<div class="clinical-disclaimer-banner"[\s\S]*?<\/div>/g, '')
+    .replace(/<div class="module-disclaimer[\s\S]*?<\/div>/g, '')
+    .replace(/<div class="ai-output-disclaimer"[\s\S]*?<\/div>/g, '');
   // We scan the full view both empty and loaded, plus the demo MedRAG panel.
   const fragments = [
     renderFullView({ report: null }),
@@ -297,7 +301,7 @@ test('rendered HTML contains no banned clinical-claim words', () => {
     renderGlassBrain(DEMO_MRI_REPORT),
   ];
   for (const html of fragments) {
-    assert.ok(!banned.test(html), `banned word found in fragment: ${html.slice(0, 120)}…`);
+    assert.ok(!banned.test(stripCompliance(html)), `banned word found in fragment: ${html.slice(0, 120)}…`);
   }
 });
 

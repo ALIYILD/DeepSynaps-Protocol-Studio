@@ -15,7 +15,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.limiter import limiter
@@ -36,6 +41,7 @@ from app.repositories.patients import (
     delete_patient,
     get_patient,
     list_patients,
+    resolve_patient_clinic_id,
     update_patient,
 )
 
@@ -49,6 +55,29 @@ def _trigger_patient_risk_recompute(patient_id: str, trigger: str, actor_id: str
         compute_risk_profile(patient_id, db_sess, clinician_id=actor_id)
     except Exception:
         _pat_log.debug("Risk recompute skipped after %s", trigger, exc_info=True)
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, session: Session) -> None:
+    """Resolve a patient clinic and enforce same-clinic access for clinicians."""
+    exists, clinic_id = resolve_patient_clinic_id(session, patient_id)
+    if not exists:
+        raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+    require_patient_owner(actor, clinic_id)
+
+
+def _load_patient_for_actor(session: Session, patient_id: str, actor: AuthenticatedActor):
+    """Load a patient after access has been authorized."""
+    from app.persistence.models import Patient as _Patient  # noqa: PLC0415
+
+    if actor.role == "admin":
+        patient = session.query(_Patient).filter_by(id=patient_id).first()
+    else:
+        patient = get_patient(session, patient_id, actor.actor_id, clinic_id=actor.clinic_id)
+    if patient is None:
+        raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+    return patient
+
+
 
 router = APIRouter(prefix="/api/v1/patients", tags=["patients"])
 
@@ -674,7 +703,7 @@ def list_patients_endpoint(
     offset: int = Query(0, ge=0),
 ) -> PatientListResponse:
     require_minimum_role(actor, "clinician")
-    patients = list_patients(session, actor.actor_id)
+    patients = list_patients(session, actor.actor_id, clinic_id=actor.clinic_id)
     enrichment = _build_patient_enrichment(session, [p.id for p in patients], patients=patients)
 
     # Filter pipeline (server-side): status tab → search → facet filters → sort → paginate.
@@ -725,7 +754,7 @@ def cohort_summary_endpoint(
     pagination is enabled.
     """
     require_minimum_role(actor, "clinician")
-    patients = list_patients(session, actor.actor_id)
+    patients = list_patients(session, actor.actor_id, clinic_id=actor.clinic_id)
     enrichment = _build_patient_enrichment(session, [p.id for p in patients], patients=patients)
 
     # Status + facets
@@ -848,9 +877,8 @@ def get_patient_endpoint(
     session: Session = Depends(get_db_session),
 ) -> PatientOut:
     require_minimum_role(actor, "clinician")
-    patient = get_patient(session, patient_id, actor.actor_id)
-    if patient is None:
-        raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+    _gate_patient_access(actor, patient_id, session)
+    patient = _load_patient_for_actor(session, patient_id, actor)
     enrichment = _build_patient_enrichment(session, [patient.id])
     return PatientOut.from_record(patient, enrichment.get(patient.id))
 
@@ -863,8 +891,9 @@ def update_patient_endpoint(
     session: Session = Depends(get_db_session),
 ) -> PatientOut:
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, session)
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
-    patient = update_patient(session, patient_id, actor.actor_id, **updates)
+    patient = update_patient(session, patient_id, actor.actor_id, clinic_id=actor.clinic_id, **updates)
     if patient is None:
         raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
     enrichment = _build_patient_enrichment(session, [patient.id])
@@ -878,7 +907,8 @@ def delete_patient_endpoint(
     session: Session = Depends(get_db_session),
 ) -> None:
     require_minimum_role(actor, "clinician")
-    deleted = delete_patient(session, patient_id, actor.actor_id)
+    _gate_patient_access(actor, patient_id, session)
+    deleted = delete_patient(session, patient_id, actor.actor_id, clinic_id=actor.clinic_id)
     if not deleted:
         raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
 
@@ -1149,11 +1179,9 @@ def get_patient_sessions(
         ).all()
     else:
         require_minimum_role(actor, "clinician")
+        _gate_patient_access(actor, patient_id, session)
         rows = session.scalars(
-            select(ClinicalSession).where(
-                ClinicalSession.patient_id == patient_id,
-                ClinicalSession.clinician_id == actor.actor_id,
-            )
+            select(ClinicalSession).where(ClinicalSession.patient_id == patient_id)
         ).all()
 
     items = [_session_to_dict(r) for r in rows]
@@ -1181,11 +1209,9 @@ def get_patient_courses(
         ).all()
     else:
         require_minimum_role(actor, "clinician")
+        _gate_patient_access(actor, patient_id, session)
         rows = session.scalars(
-            select(TreatmentCourse).where(
-                TreatmentCourse.patient_id == patient_id,
-                TreatmentCourse.clinician_id == actor.actor_id,
-            )
+            select(TreatmentCourse).where(TreatmentCourse.patient_id == patient_id)
         ).all()
 
     items = [_course_to_dict(r) for r in rows]
@@ -1242,11 +1268,9 @@ def get_patient_assessments(
         ).all()
     else:
         require_minimum_role(actor, "clinician")
+        _gate_patient_access(actor, patient_id, session)
         rows = session.scalars(
-            select(AssessmentRecord).where(
-                AssessmentRecord.patient_id == patient_id,
-                AssessmentRecord.clinician_id == actor.actor_id,
-            )
+            select(AssessmentRecord).where(AssessmentRecord.patient_id == patient_id)
         ).all()
 
     items = [_assessment_to_dict(r) for r in rows]
@@ -1274,11 +1298,9 @@ def get_patient_reports(
         ).all()
     else:
         require_minimum_role(actor, "clinician")
+        _gate_patient_access(actor, patient_id, session)
         rows = session.scalars(
-            select(OutcomeSeries).where(
-                OutcomeSeries.patient_id == patient_id,
-                OutcomeSeries.clinician_id == actor.actor_id,
-            )
+            select(OutcomeSeries).where(OutcomeSeries.patient_id == patient_id)
         ).all()
 
     items = [
@@ -1300,24 +1322,10 @@ def get_patient_reports(
 
 
 def _assert_clinician_owns_patient(session: Session, actor: AuthenticatedActor, patient_id: str) -> None:
-    """Authorise a non-patient actor for a patient's messaging thread.
-
-    Admins bypass; other roles must be the Patient.clinician_id. Raises 403/404
-    otherwise. Prevents cross-clinic message leakage.
-    """
-    from app.persistence.models import Patient as _Patient
-
-    if actor.role == "admin":
+    """Authorise a clinician/admin for a patient's messaging thread."""
+    if actor.role == "admin" and actor.clinic_id is None:
         return
-    patient = session.query(_Patient).filter_by(id=patient_id).first()
-    if patient is None:
-        raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
-    if patient.clinician_id != actor.actor_id:
-        raise ApiServiceError(
-            code="forbidden",
-            message="You are not authorised for this patient's messages.",
-            status_code=403,
-        )
+    _gate_patient_access(actor, patient_id, session)
 
 
 def _assert_patient_owns_thread(session: Session, actor: AuthenticatedActor, patient_id: str) -> None:
@@ -1485,9 +1493,8 @@ def get_medical_history(
 ) -> MedicalHistoryResponse:
     """Return structured medical history for a patient."""
     require_minimum_role(actor, "clinician")
-    patient = get_patient(session, patient_id, actor.actor_id)
-    if patient is None:
-        raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+    _gate_patient_access(actor, patient_id, session)
+    patient = _load_patient_for_actor(session, patient_id, actor)
     data = _parse_mh(patient.medical_history)
     if not data:
         return MedicalHistoryResponse(patient_id=patient_id, medical_history=None)
@@ -1511,9 +1518,8 @@ def update_medical_history(
     audit event for every update.
     """
     require_minimum_role(actor, "clinician")
-    patient = get_patient(session, patient_id, actor.actor_id)
-    if patient is None:
-        raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+    _gate_patient_access(actor, patient_id, session)
+    patient = _load_patient_for_actor(session, patient_id, actor)
 
     current = _normalize_mh(_parse_mh(patient.medical_history))
     mode = (body.mode or ("merge_sections" if body.sections is not None else "replace")).lower()
@@ -1716,7 +1722,7 @@ def list_call_requests(
     session: Session = Depends(get_db_session),
 ) -> list[CallRequestOut]:
     """List patient-initiated call requests for the clinician inbox."""
-    from app.persistence.models import Message, Patient as _Patient
+    from app.persistence.models import Message, Patient as _Patient, User
 
     require_minimum_role(actor, "clinician")
 
@@ -1727,7 +1733,14 @@ def list_call_requests(
     )
 
     if actor.role not in ("admin", "supervisor"):
-        query = query.filter(_Patient.clinician_id == actor.actor_id, Message.recipient_id == actor.actor_id)
+        if actor.clinic_id is not None:
+            query = (
+                query.join(User, User.id == _Patient.clinician_id)
+                .filter(User.clinic_id == actor.clinic_id)
+            )
+        else:
+            query = query.filter(_Patient.clinician_id == actor.actor_id)
+        query = query.filter(Message.recipient_id == actor.actor_id)
 
     if not include_resolved:
         query = query.filter(Message.read_at.is_(None))
@@ -1743,7 +1756,7 @@ def resolve_call_request(
     session: Session = Depends(get_db_session),
 ) -> CallRequestOut:
     """Mark a call-request message as resolved/read for the clinician inbox."""
-    from app.persistence.models import Message, Patient as _Patient
+    from app.persistence.models import Message, Patient as _Patient, User
 
     require_minimum_role(actor, "clinician")
 
@@ -1758,7 +1771,13 @@ def resolve_call_request(
 
     msg, patient = row
     if actor.role not in ("admin", "supervisor"):
-        if patient.clinician_id != actor.actor_id or msg.recipient_id != actor.actor_id:
+        if actor.clinic_id is not None:
+            user = session.query(User).filter_by(id=patient.clinician_id).first()
+            if user is None or user.clinic_id != actor.clinic_id:
+                raise ApiServiceError(code="forbidden", message="Not allowed to resolve this call request.", status_code=403)
+        elif patient.clinician_id != actor.actor_id:
+            raise ApiServiceError(code="forbidden", message="Not allowed to resolve this call request.", status_code=403)
+        if msg.recipient_id != actor.actor_id:
             raise ApiServiceError(code="forbidden", message="Not allowed to resolve this call request.", status_code=403)
 
     if msg.read_at is None:

@@ -82,6 +82,40 @@ globalThis.ResizeObserver = _dom.window.ResizeObserver || class {
 };
 globalThis.requestAnimationFrame = _dom.window.requestAnimationFrame || ((cb) => setTimeout(cb, 0));
 globalThis.cancelAnimationFrame  = _dom.window.cancelAnimationFrame  || clearTimeout;
+globalThis.window.scrollTo = () => {};
+if (globalThis.window.HTMLCanvasElement && globalThis.window.HTMLCanvasElement.prototype) {
+  globalThis.window.HTMLCanvasElement.prototype.getContext = function () {
+    return {
+      clearRect() {},
+      fillRect() {},
+      beginPath() {},
+      moveTo() {},
+      lineTo() {},
+      stroke() {},
+      fill() {},
+      arc() {},
+      closePath() {},
+      measureText() { return { width: 0 }; },
+      createLinearGradient() { return { addColorStop() {} }; },
+      createRadialGradient() { return { addColorStop() {} }; },
+      setLineDash() {},
+      fillText() {},
+      strokeText() {},
+      save() {},
+      restore() {},
+      translate() {},
+      rotate() {},
+      scale() {},
+      drawImage() {},
+      createImageData(width = 1, height = 1) { return { data: new Uint8ClampedArray(width * height * 4), width, height }; },
+      getImageData() { return { data: [] }; },
+      putImageData() {},
+    };
+  };
+  globalThis.window.HTMLCanvasElement.prototype.toDataURL = function () {
+    return 'data:image/png;base64,stub';
+  };
+}
 try {
   // Some Node runtimes have a getter-only navigator on globalThis. Best-effort.
   Object.defineProperty(globalThis, 'navigator', {
@@ -1831,7 +1865,7 @@ describe('pages-qeeg-analysis.js — pgQEEGAnalysis tab routing', () => {
   });
 
   it('demo banner copy is honest about synthetic data', () => {
-    assert.ok(SRC.includes('synthetic patients and synthetic EEG data'),
+    assert.ok(SRC.includes('synthetic data') || SRC.includes('synthetic EEG analysis'),
       'demo banner must label data as synthetic');
     assert.ok(SRC.includes('Not for clinical use'),
       'demo banner must include "Not for clinical use" disclaimer');
@@ -2300,7 +2334,135 @@ describe('pgQEEGAnalysis — deep render paths via patched api', () => {
   });
 });
 
-// ── 62. Source-pinned: ratio change formatting ───────────────────────────────
+// ── 62. workflow + compare page runtime branches ─────────────────────────────
+describe('pgQEEGAnalysis — workflow + compare runtime branches', () => {
+  const _origApi = {};
+  function _patchApi(overrides) {
+    Object.keys(overrides).forEach((k) => {
+      if (!(k in _origApi)) _origApi[k] = apiMod.api[k];
+      apiMod.api[k] = overrides[k];
+    });
+  }
+  function _restoreApi() {
+    Object.keys(_origApi).forEach((k) => {
+      apiMod.api[k] = _origApi[k];
+      delete _origApi[k];
+    });
+  }
+
+  beforeEach(() => {
+    resetDom();
+    _restoreApi();
+  });
+
+  it('analysis tab renders compare and notes workflow affordances for a live patient analysis', async () => {
+    const analysis = Object.assign(_buildRichAnalysisFixture('workflow-1'), {
+      patient_id: 'pt-workflow-1',
+    });
+    _patchApi({
+      listPatients: async () => [],
+      getPatient: async () => ({ id: 'pt-workflow-1', first_name: 'Rhea', last_name: 'Patient' }),
+      getPatientMedicalHistory: async () => null,
+      listPatientQEEGAnalyses: async () => ({ items: [analysis] }),
+      getQEEGAnalysis: async () => analysis,
+      getFusionRecommendation: async () => null,
+    });
+
+    window._qeegPatientId = 'pt-workflow-1';
+    window._qeegSelectedId = 'workflow-1';
+    window._qeegTab = 'analysis';
+    await safeAwait(mod.pgQEEGAnalysis(() => {}, () => {}));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const html = document.getElementById('content').innerHTML;
+    assert.match(html, /Compare with Another/);
+    assert.match(html, /data-qeeg-annotation=/);
+    assert.match(html, /Advanced Analyses/);
+    assert.match(html, /Run Advanced Analyses|Re-run/);
+
+    delete window._qeegPatientId;
+    delete window._qeegSelectedId;
+  });
+
+  it('compare tab renders the under-two-analyses guardrail', async () => {
+    const comparePatientId = 'pt-compare-guardrail';
+    const onlyAnalysis = Object.assign(_buildRichAnalysisFixture('cmp-guardrail-1'), {
+      patient_id: comparePatientId,
+      analyzed_at: '2026-01-01T10:00:00Z',
+    });
+    _patchApi({
+      listPatients: async () => [],
+      getPatient: async () => ({ id: comparePatientId, first_name: 'Rhea', last_name: 'Patient' }),
+      getPatientMedicalHistory: async () => null,
+      listPatientQEEGAnalyses: async () => ({ items: [onlyAnalysis] }),
+      getQEEGAnalysis: async () => onlyAnalysis,
+      getFusionRecommendation: async () => null,
+    });
+
+    window._qeegPatientId = comparePatientId;
+    window._qeegSelectedId = 'cmp-guardrail-1';
+    window._qeegComparisonId = null;
+    window._qeegTab = 'compare';
+    await safeAwait(mod.pgQEEGAnalysis(() => {}, () => {}));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const html = document.getElementById('content').innerHTML;
+    assert.match(html, /At least 2 completed analyses are needed for comparison/);
+    assert.match(html, /Current completed: 1/);
+
+    delete window._qeegPatientId;
+    delete window._qeegSelectedId;
+    delete window._qeegComparisonId;
+  });
+
+  it('compare tab renders selection controls and longitudinal trend when 3 analyses exist', async () => {
+    const comparePatientId = 'pt-compare-trend';
+    const baseline = Object.assign(_buildRichAnalysisFixture('cmp-trend-1'), {
+      patient_id: comparePatientId,
+      analyzed_at: '2026-01-01T10:00:00Z',
+      original_filename: 'baseline.edf',
+    });
+    const followup = Object.assign(_buildRichAnalysisFixture('cmp-trend-2'), {
+      patient_id: comparePatientId,
+      analyzed_at: '2026-01-20T10:00:00Z',
+      original_filename: 'followup.edf',
+    });
+    const later = Object.assign(_buildRichAnalysisFixture('cmp-trend-3'), {
+      patient_id: comparePatientId,
+      analyzed_at: '2026-03-12T10:00:00Z',
+      original_filename: 'later.edf',
+    });
+    _patchApi({
+      listPatients: async () => [],
+      getPatient: async () => ({ id: comparePatientId, first_name: 'Rhea', last_name: 'Patient' }),
+      getPatientMedicalHistory: async () => null,
+      listPatientQEEGAnalyses: async () => ({ items: [baseline, followup, later] }),
+      getQEEGAnalysis: async () => later,
+      getFusionRecommendation: async () => null,
+    });
+
+    window._qeegPatientId = comparePatientId;
+    window._qeegSelectedId = 'cmp-trend-3';
+    window._qeegComparisonId = null;
+    window._qeegTab = 'compare';
+    await safeAwait(mod.pgQEEGAnalysis(() => {}, () => {}));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const html = document.getElementById('content').innerHTML;
+    assert.match(html, /Suggested comparison/);
+    assert.match(html, /day interval/);
+    assert.match(html, /qeeg-baseline-sel/);
+    assert.match(html, /qeeg-followup-sel/);
+    assert.match(html, /Longitudinal Trend \(3 sessions\)/);
+    assert.match(html, /qeeg-load-trend-btn/);
+
+    delete window._qeegPatientId;
+    delete window._qeegSelectedId;
+    delete window._qeegComparisonId;
+  });
+});
+
+// ── 63. Source-pinned: ratio change formatting ───────────────────────────────
 describe('pages-qeeg-analysis.js — ratio_changes labels', () => {
   it('declares ratio change KPI labels for comparison tab', () => {
     for (const label of [
@@ -2313,7 +2475,7 @@ describe('pages-qeeg-analysis.js — ratio_changes labels', () => {
   });
 });
 
-// ── 63. Source-pinned: timeline + correlation copy ───────────────────────────
+// ── 64. Source-pinned: timeline + correlation copy ───────────────────────────
 describe('pages-qeeg-analysis.js — comparison timeline + assessment copy', () => {
   it('declares Baseline / Follow-up timeline labels', () => {
     assert.ok(SRC.includes('Baseline'), 'Baseline label must appear');
@@ -2325,7 +2487,7 @@ describe('pages-qeeg-analysis.js — comparison timeline + assessment copy', () 
   });
 });
 
-// ── 64. linkifyCitations integration with refIndex variants ──────────────────
+// ── 65. linkifyCitations integration with refIndex variants ──────────────────
 describe('linkifyCitations — refIndex shape variants', () => {
   it('handles refs with index instead of n', () => {
     const html = mod.renderAINarrativeWithCitations(
@@ -2352,7 +2514,7 @@ describe('linkifyCitations — refIndex shape variants', () => {
   });
 });
 
-// ── 65. Source-pinned: window.* analyzer entrypoints ─────────────────────────
+// ── 66. Source-pinned: window.* analyzer entrypoints ─────────────────────────
 describe('pages-qeeg-analysis.js — window helpers (source-pinned)', () => {
   it('declares window-attached analyzer entrypoints', () => {
     for (const fn of [

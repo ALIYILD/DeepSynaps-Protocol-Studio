@@ -194,6 +194,26 @@ from .models import (
     UploadedAsset,
     UserRole,
 )
+from .clinical_data_platform import (
+    AIAnalyticsSummary,
+    AuditEventDetail,
+    AuditEventEntry,
+    ConsentSummary,
+    DataAssetSummary,
+    DataRow,
+    DataSourceInfo,
+    DataSourcesResponse,
+    PatientAnalyticsSummary,
+    PatientAuditLogResponse,
+    PatientDataSummary,
+    PatientRowsResponse,
+    PatientSignalsResponse,
+    PatientTimelineResponse,
+    RiskFlagDetail,
+    RiskFlagSummary,
+    SignalCount,
+    TimelineEvent,
+)
 
 __all__ = [
     "HomeProgramSelection",

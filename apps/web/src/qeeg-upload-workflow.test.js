@@ -144,6 +144,20 @@ test('_validateFile accepts valid FIF file', () => {
   assert.equal(result.valid, true);
 });
 
+test('_validateFile accepts valid BrainVision bundle files', () => {
+  for (const name of ['bundle.vhdr', 'bundle.vmrk', 'bundle.eeg']) {
+    const result = _test._validateFile({ name, size: 2048 });
+    assert.equal(result.valid, true, `Expected ${name} to be valid`);
+  }
+});
+
+test('_validateFile accepts valid EEGLAB export files', () => {
+  for (const name of ['session.set', 'session.fdt']) {
+    const result = _test._validateFile({ name, size: 2048 });
+    assert.equal(result.valid, true, `Expected ${name} to be valid`);
+  }
+});
+
 test('_validateFile rejects unsupported extension', () => {
   const file = { name: 'photo.jpg', size: 1024 };
   const result = _test._validateFile(file);
@@ -336,6 +350,23 @@ test('renderUploadWorkflow shows patient card when patient provided', () => {
   });
   assert.ok(html.includes('Jane'));
   assert.ok(html.includes('Doe'));
+});
+
+test('renderUploadWorkflow advertises real EEG bundle formats', () => {
+  mod.resetUploadWorkflow();
+  const { localStorage } = createWorkflowDom();
+  localStorage.setItem('qeeg_intake_draft_p1_step', '3');
+  const html = mod.renderUploadWorkflow({
+    patientId: 'p1',
+    patient: { id: 'p1', first_name: 'Jane', last_name: 'Doe', dob: '1990-01-01', gender: 'female' },
+    patients: [{ id: 'p1', first_name: 'Jane', last_name: 'Doe', dob: '1990-01-01', gender: 'female' }],
+    analyses: [],
+  });
+  assert.match(html, /BrainVision bundle/i);
+  assert.match(html, /\.vhdr \+ \.vmrk \+ \.eeg/i);
+  assert.match(html, /\.set \+ \.fdt/i);
+  assert.match(html, /\.fif/i);
+  assert.match(html, /Clinical import checklist/i);
 });
 
 // ── resetUploadWorkflow ───────────────────────────────────────────────────────

@@ -16,11 +16,11 @@ import {
 import { getEvidenceUiStats } from './evidence-ui-live.js';
 import { renderLiveEvidencePanel } from './live-evidence.js';
 import { loadResearchBundleWorkspace } from './research-bundle-workspace.js';
+import { renderClinicalDisclaimer, renderModuleClinicalDisclaimer } from './clinical-disclaimer.js';
 import {
   CONDITION_REGISTRY, ASSESSMENT_REGISTRY, PROTOCOL_REGISTRY,
   DEVICE_REGISTRY, BRAIN_TARGET_REGISTRY,
 } from './registries.js';
-import { renderModuleClinicalDisclaimer } from './clinical-disclaimer.js';
 
 /* ── tiny helpers ──────────────────────────────────────────────────────────── */
 const esc = s => String(s == null ? '' : s)
@@ -72,13 +72,7 @@ function _resDemoBuild() {
 
 /** Clinical disclaimer — mandated on Evidence Research page at mount (Class A requirement) */
 function _resClinicalDisclaimerBanner() {
-  return (
-    '<div class="ch-card" role="region" aria-label="Clinical disclaimer" style="margin-bottom:14px;border-left:3px solid var(--rose);background:rgba(244,63,94,0.08);padding:12px 14px">' +
-    '<div style="font-size:12px;line-height:1.55;color:var(--text-secondary)">' +
-    '<strong style="color:var(--rose)">Clinical disclaimer.</strong> ' +
-    'This page supports clinical review and decision support only. It does not diagnose, prescribe, or replace clinician judgment.' +
-    '</div></div>'
-  );
+  return renderClinicalDisclaimer();
 }
 
 /** Governance + safety framing — shown on key tabs */
@@ -161,7 +155,7 @@ function _resSourceStrip(stats) {
 function _resWorkspaceHeader(liveEvidence, { shortcuts = false } = {}) {
   return (
     _resClinicalDisclaimerBanner() +
-    renderModuleClinicalDisclaimer('evidence') +
+    renderModuleClinicalDisclaimer('evidence', { compact: true, marginBottom: 14 }) +
     _resGovernanceBanner() +
     _resBundledDegradedBanner(liveEvidence) +
     _resSourceStrip(liveEvidence) +
@@ -507,6 +501,7 @@ export async function _renderEvidenceDbCard() {
    ══════════════════════════════════════════════════════════════════════════════ */
 async function renderOverview(body, liveEvidence = null) {
   await _ensureResearchBundleData();
+  const terminalSnapshot = await api.evidenceTerminalSnapshot({ graphLimit: 14, safetyLimit: 8 }).catch(() => null);
   const S = EVIDENCE_SUMMARY;
   const liveSummary = _researchBundleState.summary || null;
   const top10 = Array.isArray(liveEvidence?.topConditions) && liveEvidence.topConditions.length
@@ -675,11 +670,15 @@ async function renderOverview(body, liveEvidence = null) {
   /* Evidence Database one-click card — live counts from
      /api/v1/evidence/indications/summary; navigates to Indications tab. */
   const evidenceDbCardHtml = await _renderEvidenceDbCard();
+  const terminalDeck = terminalSnapshot
+    ? _reRenderTerminalMetricCards(terminalSnapshot) + _reRenderTerminalExplorer(terminalSnapshot)
+    : '<div class="ch-card" style="padding:14px;margin-bottom:16px;border-left:3px solid var(--rose)"><div style="font-size:13px;font-weight:600;color:var(--rose);margin-bottom:6px">Neuromodulation Evidence Terminal unavailable</div><div style="font-size:12px;color:var(--text-secondary);line-height:1.55">The live terminal snapshot could not be loaded. Bundled orientation panels remain available below, but they are not authoritative search output.</div></div>';
 
   /* two-column layout for charts */
   body.innerHTML =
     _resWorkspaceHeader(liveEvidence, { shortcuts: true }) +
     evidenceDbCardHtml +
+    terminalDeck +
     kpiHtml + srcHtml + wearBridge +
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px">' +
     // merged from main: 90f0484e/bf505698 intent: live evidence-link, template, and safety panels
@@ -1534,6 +1533,161 @@ function _reDedupeKey(rec, prefix) {
   return (prefix || 'nk') + ':' + Math.random().toString(36).slice(2);
 }
 
+const _RE_EVIDENCE_BASKET_KEY = 'ds_evidence_terminal_basket';
+
+function _reSparklineSvg(values, { width = 160, height = 40, stroke = '#3ee0c5' } = {}) {
+  const nums = (values || []).map((value) => Number(value)).filter((value) => Number.isFinite(value));
+  if (nums.length < 2) {
+    return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" aria-hidden="true"><text x="${width / 2}" y="${Math.round(height / 2)}" text-anchor="middle" font-size="9" fill="var(--text-tertiary)">Insufficient data</text></svg>`;
+  }
+  const min = Math.min(...nums);
+  const max = Math.max(...nums);
+  const span = Math.max(1, max - min);
+  const points = nums.map((value, idx) => {
+    const x = nums.length === 1 ? width / 2 : (idx / (nums.length - 1)) * (width - 8) + 4;
+    const y = height - 4 - (((value - min) / span) * (height - 12));
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" aria-hidden="true"><polyline points="${points}" fill="none" stroke="${stroke}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><line x1="0" y1="${height - 4}" x2="${width}" y2="${height - 4}" stroke="rgba(148,163,184,0.28)" stroke-width="1"/></svg>`;
+}
+
+function _reSafetyTone(tag) {
+  const raw = String(tag || '').toLowerCase();
+  if (/contra|seiz|mania|suicid|bleed|implant|pregnan|psychosis|serious/.test(raw)) return { fg: 'var(--rose)', bg: 'rgba(244,63,94,0.12)', bd: 'rgba(244,63,94,0.28)' };
+  if (/headache|skin|pain|fatigue|dizz|monitor|watch|irritat|sleep/.test(raw)) return { fg: 'var(--amber)', bg: 'rgba(245,158,11,0.12)', bd: 'rgba(245,158,11,0.26)' };
+  return { fg: 'var(--text-secondary)', bg: 'var(--surface-2)', bd: 'var(--border)' };
+}
+
+function _reSafetyLabel(label) {
+  const tone = _reSafetyTone(label);
+  return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;background:${tone.bg};border:1px solid ${tone.bd};color:${tone.fg};font-size:10px;font-weight:600">${esc(label)}</span>`;
+}
+
+function _reReadEvidenceBasket() {
+  try {
+    const raw = localStorage.getItem(_RE_EVIDENCE_BASKET_KEY);
+    const parsed = JSON.parse(raw || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function _reWriteEvidenceBasket(items) {
+  try {
+    localStorage.setItem(_RE_EVIDENCE_BASKET_KEY, JSON.stringify((items || []).slice(0, 30)));
+  } catch {}
+}
+
+function _reRememberEvidenceRecord(raw, sourceType) {
+  const key = _reDedupeKey(raw, sourceType || 'paper');
+  if (typeof window !== 'undefined') {
+    window._reEvidenceBasketCache = window._reEvidenceBasketCache || {};
+    window._reEvidenceBasketCache[key] = {
+      key,
+      id: raw.id ?? null,
+      title: raw.title || '(untitled)',
+      year: raw.year ?? '',
+      journal: raw.journal || '',
+      pmid: raw.pmid || '',
+      doi: raw.doi || '',
+      sourceType: sourceType || 'indexed',
+    };
+  }
+  return key;
+}
+
+function _reRenderEvidenceBasketPanel(hostId = 're-evidence-basket-panel') {
+  const host = document.getElementById(hostId);
+  if (!host) return;
+  const items = _reReadEvidenceBasket();
+  host.innerHTML = items.length
+    ? '<div style="display:grid;gap:8px">' +
+        items.map((item) => (
+          '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2)">' +
+            '<div>' +
+              '<div style="font-size:12px;font-weight:600;color:var(--text-primary)">' + esc(item.title) + '</div>' +
+              '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:3px">' + esc([item.year, item.journal, item.pmid ? `PMID ${item.pmid}` : '', item.doi ? 'DOI' : '', item.sourceType].filter(Boolean).join(' · ')) + '</div>' +
+            '</div>' +
+            '<button type="button" class="btn btn-ghost btn-xs" onclick="window._reToggleEvidenceBasket(\'' + esc(item.key) + '\')">Remove</button>' +
+          '</div>'
+        )).join('') +
+      '</div>'
+    : '<div class="ch-empty" style="padding:18px 0">Basket is empty. Add papers from search or indication detail for a quick clinician review set.</div>';
+}
+
+function _reRenderTerminalResultsTable(rows) {
+  if (!rows.length) {
+    return '<div class="ch-empty" style="padding:18px 0">Run a search to populate the evidence terminal table.</div>';
+  }
+  return '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11.5px">' +
+    '<thead><tr style="text-align:left;background:var(--surface-2);color:var(--text-tertiary)">' +
+      '<th style="padding:8px 10px">Paper</th>' +
+      '<th style="padding:8px 10px">Source</th>' +
+      '<th style="padding:8px 10px">Year</th>' +
+      '<th style="padding:8px 10px">Design</th>' +
+      '<th style="padding:8px 10px">Access</th>' +
+      '<th style="padding:8px 10px">Action</th>' +
+    '</tr></thead><tbody>' +
+    rows.slice(0, 12).map((row) => {
+      const basketKey = _reRememberEvidenceRecord(row, row.__sourceType || 'indexed');
+      const basketItems = _reReadEvidenceBasket();
+      const inBasket = basketItems.some((item) => item.key === basketKey);
+      return '<tr style="border-top:1px solid var(--border)">' +
+        '<td style="padding:9px 10px;min-width:280px"><div style="font-weight:600;color:var(--text-primary)">' + esc(row.title || '(untitled)') + '</div><div style="font-size:10px;color:var(--text-tertiary);margin-top:3px">' + esc(row.journal || 'Journal unavailable') + '</div></td>' +
+        '<td style="padding:9px 10px">' + esc(row.__sourceLabel || row.__sourceType || 'indexed') + '</td>' +
+        '<td style="padding:9px 10px">' + esc(row.year || '—') + '</td>' +
+        '<td style="padding:9px 10px">' + esc(row.study_design || row.study_type_normalized || row.study_type || '—') + '</td>' +
+        '<td style="padding:9px 10px">' + (row.is_oa || row.open_access_flag ? '<span style="color:var(--teal);font-weight:600">OA</span>' : '<span style="color:var(--text-tertiary)">Closed / unknown</span>') + '</td>' +
+        '<td style="padding:9px 10px"><button type="button" class="btn btn-ghost btn-xs" onclick="window._reToggleEvidenceBasket(\'' + esc(basketKey) + '\')">' + (inBasket ? 'Remove' : 'Basket') + '</button></td>' +
+      '</tr>';
+    }).join('') +
+    '</tbody></table></div>';
+}
+
+function _reRenderTerminalMetricCards(snapshot) {
+  const status = snapshot?.status || {};
+  const summary = snapshot?.summary || {};
+  const indications = Array.isArray(snapshot?.indications) ? snapshot.indications : [];
+  const graph = Array.isArray(snapshot?.evidenceGraph) ? snapshot.evidenceGraph : [];
+  const countsSeries = [
+    Number(status.total_papers || 0),
+    Number(summary.paper_count || 0),
+    graph.reduce((sum, row) => sum + Number(row.paper_count || 0), 0),
+    indications.reduce((sum, row) => sum + Number(row.paper_count || 0), 0),
+  ].filter((value) => Number.isFinite(value) && value >= 0);
+  const topSignalTags = (snapshot?.safetySignals || []).slice(0, 4).flatMap((row) => (row.safety_signal_tags || []).slice(0, 2)).filter(Boolean);
+  return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px">' +
+    `<div class="ch-card" style="padding:16px"><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.08em">Indexed papers</div><div style="font-size:28px;font-weight:700;color:var(--teal);margin-top:4px">${fmt(Number(status.total_papers || 0))}</div><div style="font-size:11px;color:var(--text-secondary);margin-top:6px">Live count from <code style="font-size:10px">/api/v1/evidence/status</code></div>${_reSparklineSvg(countsSeries, { stroke: '#3ee0c5' })}</div>` +
+    `<div class="ch-card" style="padding:16px"><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.08em">Curated indications</div><div style="font-size:28px;font-weight:700;color:var(--blue);margin-top:4px">${fmt(indications.length)}</div><div style="font-size:11px;color:var(--text-secondary);margin-top:6px">Live indication explorer scope</div></div>` +
+    `<div class="ch-card" style="padding:16px"><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.08em">Trials / devices</div><div style="font-size:28px;font-weight:700;color:var(--violet);margin-top:4px">${fmt(Number(status.total_trials || 0))} / ${fmt(Number(status.total_fda || 0))}</div><div style="font-size:11px;color:var(--text-secondary);margin-top:6px">Regulatory and trial footprint</div></div>` +
+    `<div class="ch-card" style="padding:16px"><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.08em">Safety watch</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${topSignalTags.length ? topSignalTags.map(_reSafetyLabel).join('') : '<span style="font-size:11px;color:var(--text-tertiary)">No live safety tags returned.</span>'}</div></div>` +
+  '</div>';
+}
+
+function _reRenderTerminalExplorer(snapshot) {
+  const indications = Array.isArray(snapshot?.indications) ? snapshot.indications.slice(0, 8) : [];
+  const graphRows = Array.isArray(snapshot?.evidenceGraph) ? snapshot.evidenceGraph.slice(0, 6) : [];
+  const safetyRows = Array.isArray(snapshot?.safetySignals) ? snapshot.safetySignals.slice(0, 6) : [];
+  return '<div style="display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:14px;margin-bottom:16px">' +
+    '<div class="ch-card" style="padding:16px"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:10px"><div style="font-weight:600">Indication explorer</div><span style="font-size:11px;color:var(--text-tertiary)">Top live rows</span></div>' +
+      (indications.length
+        ? indications.map((row) => '<button type="button" onclick="window._resEvidenceTab=\'indications\';window._reIndicationSlug=\'' + esc(row.slug) + '\';window._nav(\'research-evidence\')" style="width:100%;text-align:left;padding:9px 10px;margin-bottom:8px;border-radius:10px;border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary)"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><strong style="font-size:12px">' + esc(row.label || row.slug) + '</strong>' + _computedGradeBadge(row.computed_evidence_grade) + '</div><div style="font-size:10px;color:var(--text-tertiary);margin-top:4px">' + esc([row.modality, `${fmt(row.paper_count || 0)} papers`, `${fmt(row.trial_count || 0)} trials`].filter(Boolean).join(' · ')) + '</div></button>').join('')
+        : '<div class="ch-empty" style="padding:18px 0">Indication summary unavailable.</div>') +
+    '</div>' +
+    '<div class="ch-card" style="padding:16px"><div style="font-weight:600;margin-bottom:10px">Relationship map</div>' +
+      (graphRows.length
+        ? graphRows.map((row) => '<div style="padding:9px 0;border-top:1px solid var(--border)"><div style="font-size:12px;font-weight:600">' + esc(_reNormalizeLabel(row.modality || 'Modality')) + (row.indication ? ' · ' + esc(_reNormalizeLabel(row.indication)) : '') + '</div><div style="font-size:10px;color:var(--text-tertiary);margin-top:4px">' + esc(row.target || 'Target unavailable') + ' · ' + fmt(row.paper_count || 0) + ' papers · ' + fmt(row.citation_sum || 0) + ' cites</div></div>').join('')
+        : '<div class="ch-empty" style="padding:18px 0">No graph rows returned.</div>') +
+    '</div>' +
+    '<div class="ch-card" style="padding:16px"><div style="font-weight:600;margin-bottom:10px">Safety labels</div>' +
+      (safetyRows.length
+        ? safetyRows.map((row) => '<div style="padding:9px 0;border-top:1px solid var(--border)"><div style="font-size:12px;font-weight:600">' + esc(_reNormalizeLabel(row.primary_modality || 'Modality')) + '</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">' + ((row.safety_signal_tags || []).slice(0, 3).concat((row.contraindication_signal_tags || []).slice(0, 2))).filter(Boolean).map(_reSafetyLabel).join('') + '</div></div>').join('')
+        : '<div class="ch-empty" style="padding:18px 0">No safety signal rows returned.</div>') +
+    '</div>' +
+  '</div>';
+}
+
 /** Shared doctor-facing evidence card — never fabricates links or abstracts. */
 function renderEvidenceResultCard(raw, sourceType, opts = {}) {
   const badgeMap = {
@@ -1640,6 +1794,8 @@ function renderEvidenceResultCard(raw, sourceType, opts = {}) {
   const pid = Number(raw.id);
   const showPromote =
     (sourceType === 'indexed' || sourceType === 'brokered') && Number.isFinite(pid) && opts.promote !== false;
+  const basketKey = _reRememberEvidenceRecord(raw, sourceType);
+  const inBasket = _reReadEvidenceBasket().some((item) => item.key === basketKey);
   const promoteHtml = showPromote
     ? '<button class="ch-btn-sm ch-btn-teal" onclick="window._libPromoteExternal(' +
       pid +
@@ -1650,6 +1806,12 @@ function renderEvidenceResultCard(raw, sourceType, opts = {}) {
       pid +
       '" style="margin:0"> AI draft</label>'
     : '';
+  const basketHtml =
+    opts.basket === false
+      ? ''
+      : '<button class="ch-btn-sm" onclick="window._reToggleEvidenceBasket(\'' + esc(basketKey) + '\')">' +
+        (inBasket ? 'Remove from basket' : 'Add to basket') +
+        '</button>';
 
   return (
     '<div class="lib-card lib-card--review">' +
@@ -1681,6 +1843,7 @@ function renderEvidenceResultCard(raw, sourceType, opts = {}) {
     '</div>' +
     '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center">' +
     linkRow +
+    basketHtml +
     promoteHtml +
     '</div>' +
     '</div>'
@@ -1994,9 +2157,23 @@ async function renderEvidenceSearch(body) {
   }
 
   /* ── window handlers ─────────────────────────────────────────────────── */
+  window._reRenderSearchPanels = () => {
+    const detailHost = document.getElementById('re-ev-paper-detail');
+    if (detailHost) detailHost.innerHTML = renderDetailPanel(window._reDetailData || null);
+    _reRenderEvidenceBasketPanel();
+  };
+  window._reToggleEvidenceBasket = (key) => {
+    const cache = window._reEvidenceBasketCache || {};
+    const next = _reReadEvidenceBasket();
+    const idx = next.findIndex((item) => item.key === key);
+    if (idx >= 0) next.splice(idx, 1);
+    else if (cache[key]) next.unshift(cache[key]);
+    _reWriteEvidenceBasket(next);
+    window._reRenderSearchPanels?.();
+  };
   window._reShowEvidenceDetail = async (paperId) => {
     try {
-      const detail = await api.evidencePaperDetail(paperId);
+      const detail = await api.evidenceTerminalPaper(paperId);
       // Render detail panel — implementation in parent/caller
       window._reDetailData = detail;
       if (window._reRenderSearchPanels) {
@@ -2251,6 +2428,32 @@ async function renderEvidenceSearch(body) {
     const filters = readEvSearchFilters();
 
     try {
+      const terminalSearch = await api.evidenceTerminalSearch({
+        q: fts,
+        source,
+        conditionId: conditionId || '',
+        indication: conditionId || '',
+        modality: filters.modality || '',
+        grade: filters.grade || '',
+        oa_only: filters.oa_only,
+        year_min: filters.year_min === '' ? '' : filters.year_min,
+        year_max: filters.year_max === '' ? '' : filters.year_max,
+        has_abstract: filters.has_abstract,
+        condition: filters.condition || '',
+        limit: 48,
+        graphLimit: 14,
+        trialLimit: 8,
+        deviceLimit: 8,
+        rankedLimit: 14,
+      });
+      const indexedRows = Array.isArray(terminalSearch?.indexed) ? terminalSearch.indexed : [];
+      const brokeredPayload = terminalSearch?.brokered || { items: [] };
+      const brokeredItemsRaw = Array.isArray(brokeredPayload?.items) ? brokeredPayload.items : [];
+      const graphRows = Array.isArray(terminalSearch?.evidenceGraph) ? terminalSearch.evidenceGraph : [];
+      const trials = Array.isArray(terminalSearch?.trials) ? terminalSearch.trials : [];
+      const devices = Array.isArray(terminalSearch?.devices) ? terminalSearch.devices : [];
+      const rankedRows = Array.isArray(terminalSearch?.ranked) ? terminalSearch.ranked : [];
+
       if (ixUnavailable && (source === 'all' || source === 'indexed')) {
         chunks.push(
           '<div class="ch-card" style="margin-bottom:12px;padding:12px 14px;border-left:3px solid var(--amber);background:rgba(245,158,11,0.06);font-size:12px;color:var(--text-secondary)">' +
@@ -2264,47 +2467,31 @@ async function renderEvidenceSearch(body) {
           '<div class="ch-empty" style="margin-bottom:12px">Indexed corpus search requires a non-empty evidence database on the API host (<code style="font-size:10px">EVIDENCE_DB_PATH</code>).</div>',
         );
       } else if (source === 'all' || source === 'indexed') {
-        try {
-          const papers = await api.searchEvidencePapers({
-            q: fts,
-            limit: 48,
-            modality: filters.modality || undefined,
-            grade: filters.grade || undefined,
-            year_min: filters.year_min === '' ? undefined : filters.year_min,
-            year_max: filters.year_max === '' ? undefined : filters.year_max,
-            oa_only: filters.oa_only,
-            has_abstract: filters.has_abstract,
-            condition: filters.condition || undefined,
-            include_abstract: true,
-          });
-          const rows = Array.isArray(papers) ? papers : [];
-          rows.forEach((p) => seen.add(_reDedupeKey(p, 'ix')));
-          if (rows.length) {
+        if (terminalSearch?.errors?.indexed) {
+          chunks.push(_reEvidenceSearchErrorHtml('Indexed corpus search', terminalSearch.errors.indexed));
+        } else {
+          indexedRows.forEach((p) => seen.add(_reDedupeKey(p, 'ix')));
+          if (indexedRows.length) {
             chunks.push(
               '<div style="font-size:12px;font-weight:600;margin:12px 0 8px;color:var(--text-secondary)">' +
                 '<span class="lib-badge" style="background:rgba(45,212,191,0.15);color:var(--teal);border:1px solid rgba(45,212,191,0.35)">Indexed DB</span> · ' +
-                rows.length +
+                indexedRows.length +
                 ' result(s)</div>' +
                 '<div class="lib-grid">' +
-                rows.map((p) => renderEvidenceResultCard(p, 'indexed')).join('') +
+                indexedRows.map((p) => renderEvidenceResultCard(p, 'indexed')).join('') +
                 '</div>',
             );
           } else if (source === 'indexed') {
             chunks.push(_reEmptyVerifiedEvidenceHtml());
           }
-        } catch (e) {
-          chunks.push(_reEvidenceSearchErrorHtml('Indexed corpus search', e));
         }
       }
 
       if (source === 'all' || source === 'brokered') {
-        try {
-          const res = await api.libraryExternalSearch({
-            q: fts,
-            condition_id: conditionId,
-            limit: 30,
-          });
-          const items = (res?.items || []).filter((r) => {
+        if (terminalSearch?.errors?.brokered) {
+          chunks.push(_reEvidenceSearchErrorHtml('Brokered literature search', terminalSearch.errors.brokered));
+        } else {
+          const items = brokeredItemsRaw.filter((r) => {
             const k = _reDedupeKey(r, 'br');
             if (seen.has(k)) return false;
             seen.add(k);
@@ -2314,11 +2501,11 @@ async function renderEvidenceSearch(body) {
             chunks.push(
               '<div class="lib-trust-banner" role="note" style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);padding:10px 14px;border-radius:8px;font-size:12px;margin:16px 0 12px">' +
                 '<b style="color:var(--amber)">Brokered external literature service</b> — ' +
-                esc(res.notice || '') +
+                esc(brokeredPayload.notice || '') +
                 '<br><span style="opacity:0.75">Provenance: ' +
-                esc(res.provenance || '—') +
+                esc(brokeredPayload.provenance || '—') +
                 ' · Last checked: ' +
-                esc((res.last_checked_at || '').slice(0, 19)) +
+                esc((brokeredPayload.last_checked_at || '').slice(0, 19)) +
                 '</span></div>',
             );
             chunks.push(
@@ -2331,8 +2518,6 @@ async function renderEvidenceSearch(body) {
           } else if (source === 'brokered') {
             chunks.push(_reEmptyVerifiedEvidenceHtml());
           }
-        } catch (e) {
-          chunks.push(_reEvidenceSearchErrorHtml('Brokered literature search', e));
         }
       }
 
@@ -2408,59 +2593,137 @@ async function renderEvidenceSearch(body) {
       } else {
         out.innerHTML = htmlOut + (hasGrid ? pushAiToolbar() : '');
       }
+      const terminalTableHost = document.getElementById('re-ev-terminal-table');
+      if (terminalTableHost) {
+        const terminalRows = []
+          .concat(indexedRows.map((row) => ({ ...row, __sourceType: 'indexed', __sourceLabel: 'Indexed DB' })))
+          .concat(brokeredItemsRaw.map((row) => ({ ...row, __sourceType: 'brokered', __sourceLabel: 'Brokered search' })))
+          .concat(rankedRows.map((row) => ({
+            id: row.id,
+            title: row.title,
+            journal: row.journal,
+            year: row.year,
+            pmid: row.pmid,
+            doi: row.doi,
+            study_design: row.study_type_normalized,
+            is_oa: row.open_access_flag,
+            __sourceType: 'research',
+            __sourceLabel: 'Research bundle',
+          })));
+        terminalTableHost.innerHTML = _reRenderTerminalResultsTable(terminalRows);
+      }
 
       const rankedHost = document.getElementById('re-ev-ranked-results');
       if (rankedHost) {
-        rankedHost.innerHTML =
-          '<div style="padding:10px;text-align:center;font-size:11px;color:var(--text-tertiary)">Loading optional research-bundle ranking…</div>';
-        api
-          .searchResearchPapers({ q: rawQ, limit: 14 })
-          .then((rp) => {
-            const arr = Array.isArray(rp) ? rp : [];
-            if (!arr.length) {
-              rankedHost.innerHTML =
-                '<div class="ch-empty" style="font-size:11px">No neuromodulation bundle ranked rows for this query (bundle may be offline).</div>';
-              return;
-            }
-            rankedHost.innerHTML =
-              '<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:10px;line-height:1.45"><strong>Ranked research view</strong> (neuromodulation CSV bundle) — optional orientation only; primary physician search remains SQLite FTS above.</div>' +
-              '<div class="lib-grid">' +
-              arr
-                .map((row) =>
-                  renderEvidenceResultCard(
-                    {
-                      title: row.title,
-                      year: row.year,
-                      journal: row.journal,
-                      authors: row.authors,
-                      doi: row.doi,
-                      pmid: row.pmid,
-                      modalities: row.canonical_modalities || (row.primary_modality ? [row.primary_modality] : []),
-                      conditions: row.indication_tags || [],
-                      study_design: row.study_type_normalized,
-                      evidence_grade: row.evidence_tier,
-                      abstract: row.research_summary,
-                      open_access_flag: row.open_access_flag,
-                      is_oa: row.open_access_flag,
-                      oa_url: row.record_url,
-                      url: row.record_url,
-                    },
-                    'research',
-                    { promote: false },
-                  ),
-                )
-                .join('') +
-              '</div>';
-          })
-          .catch(() => {
-            rankedHost.innerHTML =
-              '<div class="ch-empty" style="font-size:11px">Research ranked papers API unavailable.</div>';
-          });
+        if (terminalSearch?.errors?.ranked) {
+          rankedHost.innerHTML =
+            '<div class="ch-empty" style="font-size:11px">Research ranked papers API unavailable.</div>';
+        } else if (!rankedRows.length) {
+          rankedHost.innerHTML =
+            '<div class="ch-empty" style="font-size:11px">No neuromodulation bundle ranked rows for this query (bundle may be offline).</div>';
+        } else {
+          rankedHost.innerHTML =
+            '<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:10px;line-height:1.45"><strong>Ranked research view</strong> (neuromodulation CSV bundle) — optional orientation only; primary physician search remains SQLite FTS above.</div>' +
+            '<div class="lib-grid">' +
+            rankedRows
+              .map((row) =>
+                renderEvidenceResultCard(
+                  {
+                    title: row.title,
+                    year: row.year,
+                    journal: row.journal,
+                    authors: row.authors,
+                    doi: row.doi,
+                    pmid: row.pmid,
+                    modalities: row.canonical_modalities || (row.primary_modality ? [row.primary_modality] : []),
+                    conditions: row.indication_tags || [],
+                    study_design: row.study_type_normalized,
+                    evidence_grade: row.evidence_tier,
+                    abstract: row.research_summary,
+                    open_access_flag: row.open_access_flag,
+                    is_oa: row.open_access_flag,
+                    oa_url: row.record_url,
+                    url: row.record_url,
+                  },
+                  'research',
+                  { promote: false },
+                ),
+              )
+              .join('') +
+            '</div>';
+        }
       }
 
-      try {
-        await window._reRefreshEvidenceSearchPanels?.(fts, rawQ, indexedPaperCount > 0);
-      } catch {}
+      const graphHost = document.getElementById('re-ev-evidence-relationship-panel');
+      if (graphHost) {
+        if (terminalSearch?.errors?.evidenceGraph) {
+          graphHost.innerHTML =
+            '<div class="ch-empty" style="font-size:12px">Evidence graph API unavailable (research bundle or session). This panel is not a treatment recommendation.</div>';
+        } else if (!graphRows.length) {
+          graphHost.innerHTML =
+            '<div class="ch-empty" style="font-size:12px">No evidence-graph rows matched this query. Try broader keywords or check the neuromodulation research bundle.</div>';
+        } else {
+          graphHost.innerHTML =
+            '<p style="font-size:11px;color:var(--text-tertiary);margin:0 0 12px;line-height:1.45"><strong>Evidence relationship summary.</strong> Graph weights are literature-index summaries, not clinical recommendations.</p>' +
+            '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px">' +
+            graphRows.map((row) => {
+              const exploreQ = [row.modality, row.indication].filter(Boolean).join(' ').trim();
+              return '<div class="ch-card" style="padding:12px;font-size:12px">' +
+                '<div style="font-weight:600;margin-bottom:6px">' +
+                esc(_reNormalizeLabel(row.modality || '—')) +
+                ' · ' +
+                esc(_reNormalizeLabel(row.indication || '—')) +
+                (row.target ? '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + esc(row.target) + '</div>' : '') +
+                '</div>' +
+                '<div style="color:var(--text-tertiary);font-size:11px;line-height:1.45">' +
+                fmt(row.paper_count || 0) +
+                ' papers · citations Σ ' +
+                fmt(row.citation_sum || 0) +
+                ' · weight Σ ' +
+                fmt(row.evidence_weight_sum || 0) +
+                ' · OA ' +
+                fmt(row.open_access_count || 0) +
+                (row.year_min != null && row.year_max != null ? ' · years ' + esc(String(row.year_min)) + '–' + esc(String(row.year_max)) : '') +
+                '</div>' +
+                (row.top_study_types ? '<div style="margin-top:6px;font-size:10px;color:var(--text-tertiary)">Study types: ' + esc(String(row.top_study_types).slice(0, 140)) + (String(row.top_study_types).length > 140 ? '…' : '') + '</div>' : '') +
+                (row.top_safety_tags ? '<div style="margin-top:4px;font-size:10px;color:var(--rose)">Safety tags: ' + esc(String(row.top_safety_tags).slice(0, 140)) + '</div>' : '') +
+                '<div style="margin-top:8px"><button type="button" class="btn btn-ghost btn-xs" onclick="window._reExploreGraphQuery(' + JSON.stringify(exploreQ || rawQ) + ')">Explore papers</button></div>' +
+                '</div>';
+            }).join('') +
+            '</div>';
+        }
+      }
+      const tdHost = document.getElementById('re-ev-trials-devices');
+      if (tdHost) {
+        if (!indexedPaperCount) {
+          tdHost.innerHTML =
+            '<div class="ch-card" style="padding:12px;font-size:12px;color:var(--text-secondary)">Trials/devices search is not connected in this preview (indexed corpus unavailable).</div>';
+        } else if (terminalSearch?.errors?.trials || terminalSearch?.errors?.devices) {
+          tdHost.innerHTML =
+            '<div class="ch-empty" style="font-size:12px">Trials/devices lookup failed. Verify clinician session and evidence API.</div>';
+        } else if (!fts || String(fts).trim().length < 2) {
+          tdHost.innerHTML =
+            '<div class="ch-empty" style="font-size:11px">Enter a search query to load related trials/device corpus rows.</div>';
+        } else {
+          tdHost.innerHTML =
+            '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">' +
+            '<div class="ch-card" style="padding:12px"><strong style="font-size:12px">Related trials (corpus)</strong>' +
+            '<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px;line-height:1.45">' +
+            (trials.length
+              ? trials.slice(0, 6).map((t) => '<div style="margin-bottom:10px;border-bottom:1px solid var(--border);padding-bottom:8px"><div style="font-weight:600;font-size:12px">' + esc(t.title || t.nct_id || 'Trial') + '</div><div style="font-size:10px;color:var(--text-tertiary)">' + esc(t.nct_id || '') + ' · ' + esc(t.status || '') + '</div></div>').join('')
+              : '<span style="color:var(--text-tertiary)">No trial rows returned for this query.</span>') +
+            '</div></div>' +
+            '<div class="ch-card" style="padding:12px"><strong style="font-size:12px">FDA device records (corpus)</strong>' +
+            '<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px;line-height:1.45">' +
+            (devices.length
+              ? devices.slice(0, 6).map((d) => '<div style="margin-bottom:10px;border-bottom:1px solid var(--border);padding-bottom:8px"><div style="font-weight:600;font-size:12px">' + esc(d.trade_name || d.number || 'Device') + '</div><div style="font-size:10px;color:var(--text-tertiary)">' + esc(d.kind || '') + ' · ' + esc(d.number || '') + '</div></div>').join('')
+              : '<span style="color:var(--text-tertiary)">No device rows returned.</span>') +
+            '</div></div>' +
+            '</div>';
+        }
+      }
+      window._reDetailData = null;
+      window._reRenderSearchPanels?.();
     } catch (e) {
       out.innerHTML = _reEvidenceSearchErrorHtml('Evidence search', e);
     }
@@ -2634,6 +2897,16 @@ async function renderEvidenceSearch(body) {
         '<details style="margin-top:8px"><summary style="font-size:12px;cursor:pointer;color:var(--text-secondary)">Optional ranked research view (neuromodulation bundle)</summary>' +
         '<div id="re-ev-ranked-results" style="margin-top:10px;min-height:28px;font-size:12px;color:var(--text-tertiary)"></div></details>' +
       '</div>' +
+      '<div style="padding:0 16px 16px">' +
+        '<div class="ch-card" style="padding:14px;margin-bottom:12px;background:linear-gradient(135deg,rgba(15,23,42,0.32),rgba(15,23,42,0.08))">' +
+          '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><div style="font-weight:600;font-size:13px;color:var(--text-primary)">Terminal result table</div><div style="font-size:11px;color:var(--text-tertiary)">Dense cross-source index for quick review and basket curation</div></div>' +
+          '<div id="re-ev-terminal-table"></div>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:minmax(0,1.4fr) minmax(260px,.8fr);gap:12px">' +
+          '<div id="re-ev-paper-detail"></div>' +
+          '<div class="ch-card" style="padding:14px"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:10px"><div style="font-weight:600;font-size:13px">Evidence basket</div><div style="font-size:11px;color:var(--text-tertiary)">Local only</div></div><div style="font-size:11px;color:var(--text-tertiary);line-height:1.45;margin-bottom:10px">Stored in browser localStorage for quick synthesis. It is not shared, audited, or a clinical approval list.</div><div id="re-evidence-basket-panel"></div></div>' +
+        '</div>' +
+      '</div>' +
       '<div id="re-ev-search-results" style="padding:0 16px 16px;min-height:48px"></div>' +
     '</div>' +
     /* Curated library */
@@ -2663,14 +2936,14 @@ async function renderEvidenceSearch(body) {
 
   body.innerHTML = html;
 
-  const condSel = document.getElementById('re-ev-cond');
+  const condSel = document.getElementById('lib-ext-cond');
   if (condSel) condSel.value = state.filters.indication || '';
-  const gradeSel = document.getElementById('re-ev-grade');
+  const gradeSel = document.getElementById('re-ev-filter-grade');
   if (gradeSel) gradeSel.value = state.filters.grade || '';
-  const searchInput = document.getElementById('re-ev-q');
+  const searchInput = document.getElementById('lib-ext-q');
   if (searchInput) {
     searchInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') window._reRunIndexedSearch?.();
+      if (e.key === 'Enter') window._libUnifiedEvidenceSearch?.();
     });
   }
 
@@ -2686,9 +2959,7 @@ async function renderEvidenceSearch(body) {
     }
   }
 
-  try {
-    await window._reRefreshEvidenceSearchPanels?.('', '', indexedPaperCount > 0);
-  } catch {}
+  window._reRenderSearchPanels?.();
 
   // B4: Mount Agent Brain status widget if available (degrades gracefully).
   const agentBrainMount = document.getElementById('agent-brain-status');
@@ -3314,12 +3585,16 @@ async function renderIndicationsSpine(body) {
 
   let detail = null;
   let detailError = null;
+  let terminalDetail = null;
   try {
-    detail = await api.evidenceIndicationDetail(selectedSlug, {
+    terminalDetail = await api.evidenceTerminalIndication(selectedSlug, {
       paperLimit: 10,
       trialLimit: 5,
       protocolLimit: 5,
+      safetyLimit: 6,
     });
+    detail = terminalDetail?.detail || null;
+    detailError = terminalDetail?.errors?.detail || null;
   } catch (err) {
     detailError = err;
   }
@@ -3335,6 +3610,8 @@ async function renderIndicationsSpine(body) {
   }
 
   const ind = detail.indication;
+  const detailSafety = Array.isArray(terminalDetail?.safetySignals) ? terminalDetail.safetySignals.slice(0, 4) : [];
+  const detailGraph = Array.isArray(terminalDetail?.evidenceGraph) ? terminalDetail.evidenceGraph.slice(0, 4) : [];
   const headerHtml = (
     '<div class="ch-card" style="padding:14px;margin-bottom:12px;display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap">' +
     '<div style="flex:1 1 280px">' +
@@ -3353,6 +3630,21 @@ async function renderIndicationsSpine(body) {
     '</div>' +
     '</div>'
   );
+  const terminalMetaHtml =
+    '<div class="ch-card" style="padding:14px;margin-bottom:12px">' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">' +
+        '<div><div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Safety labels</div>' +
+          (detailSafety.length
+            ? '<div style="display:flex;gap:6px;flex-wrap:wrap">' + detailSafety.flatMap((row) => ((row.safety_signal_tags || []).slice(0, 2)).concat((row.contraindication_signal_tags || []).slice(0, 1))).filter(Boolean).slice(0, 6).map(_reSafetyLabel).join('') + '</div>'
+            : '<div style="font-size:11px;color:var(--text-tertiary)">No live safety rows returned for this indication.</div>') +
+        '</div>' +
+        '<div><div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Evidence map</div>' +
+          (detailGraph.length
+            ? detailGraph.map((row) => '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px">' + esc(row.target || 'Target unavailable') + ' · ' + fmt(row.paper_count || 0) + ' papers · ' + fmt(row.citation_sum || 0) + ' cites</div>').join('')
+            : '<div style="font-size:11px;color:var(--text-tertiary)">No graph summary returned.</div>') +
+        '</div>' +
+      '</div>' +
+    '</div>';
 
   // Evidence-linked claims strip — top PMID/DOI from curated papers; honest empty if none
   const evidenceLinkedClaimsHtml = _renderEvidenceLinkedClaims(detail.papers || [], selectedSlug);
@@ -3402,7 +3694,7 @@ async function renderIndicationsSpine(body) {
     detail.protocols ? detail.protocols.length : 0,
   );
 
-  detailEl.innerHTML = headerHtml + evidenceLinkedClaimsHtml + fallbackBanner + papersHtml + trialsHtml + devicesHtml + protocolsHtml;
+  detailEl.innerHTML = headerHtml + terminalMetaHtml + evidenceLinkedClaimsHtml + fallbackBanner + papersHtml + trialsHtml + devicesHtml + protocolsHtml;
 }
 
 export { renderEvidenceResultCard, _reExpandEvidenceSearchQuery, _reDedupeKey, renderIndicationsSpine };

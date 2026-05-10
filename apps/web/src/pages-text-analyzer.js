@@ -13,7 +13,12 @@ import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 import { drHero } from './helpers.js';
 import { loadPatientFlagSummary } from './dr-friendly-flags.js';
-import { renderClinicalDisclaimer, renderModuleClinicalDisclaimer, renderPHIWarningBadge, renderNLPStatusBadge } from './clinical-disclaimer.js';
+import {
+  renderClinicalDisclaimer,
+  renderModuleClinicalDisclaimer,
+  renderPHIWarningBadge,
+  renderNLPStatusBadge,
+} from './clinical-disclaimer.js';
 
 const TEXT_CLINICAL_QUESTION = "What does this patient's writing or transcript reveal about mood, cognitive function, or symptom change?";
 const TEXT_HOW_TO_READ = "Extracted entities and indicators are decision-support drafts. Clinical correlation with examination, history, and assessments is required — text alone does not diagnose.";
@@ -399,7 +404,7 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
       ${_demoBuildBanner()}
       <div id="ta-dr-hero-slot">${drHero({ question: TEXT_CLINICAL_QUESTION, howToRead: TEXT_HOW_TO_READ, flagCount: 0 })}</div>
       ${renderClinicalDisclaimer()}
-      ${renderModuleClinicalDisclaimer('text')}
+      ${renderModuleClinicalDisclaimer('text', { compact: true, marginBottom: 16 })}
 
       <section style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px 20px;margin-bottom:16px">
         <h2 style="margin:0 0 10px;font-size:15px;font-weight:700">Patient &amp; session context</h2>

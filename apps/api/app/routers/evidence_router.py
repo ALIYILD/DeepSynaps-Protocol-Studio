@@ -53,6 +53,30 @@ from app.errors import ApiServiceError
 from app.logging_setup import get_logger
 from app.persistence.models import AssessmentRecord, ClinicalSession, LiteraturePaper, OutcomeSeries, Patient, TreatmentCourse
 from app.repositories.patients import resolve_patient_clinic_id
+from app.schemas.evidence_terminal import (
+    EvidenceTerminalGradeDistributionOut,
+    EvidenceTerminalIndicationDetailOut,
+    EvidenceTerminalIndicationsOut,
+    EvidenceTerminalNetworkOut,
+    EvidenceTerminalOverviewOut,
+    EvidenceTerminalPaperDetailOut,
+    EvidenceTerminalPaperSearchOut,
+    EvidenceTerminalProtocolSearchOut,
+    EvidenceTerminalStatusOut,
+    EvidenceTerminalTrialSearchOut,
+)
+from app.services.evidence_terminal_service import (
+    get_terminal_grade_distribution,
+    get_terminal_indication_detail,
+    get_terminal_network,
+    get_terminal_overview,
+    get_terminal_paper_detail,
+    get_terminal_status,
+    list_terminal_indications,
+    search_terminal_papers,
+    search_terminal_protocols,
+    search_terminal_trials,
+)
 from app.services.neuromodulation_research import (
     build_adjunct_condition_review_tables,
     build_adjunct_evidence_summary,
@@ -911,6 +935,170 @@ def evidence_status() -> StatusOut:
         total_fda=total_fda,
         last_updated=last_updated,
     )
+
+
+@router.get("/terminal/status", response_model=EvidenceTerminalStatusOut)
+def evidence_terminal_status(
+) -> EvidenceTerminalStatusOut:
+    return get_terminal_status()
+
+
+@router.get("/terminal/overview", response_model=EvidenceTerminalOverviewOut)
+def evidence_terminal_overview(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> EvidenceTerminalOverviewOut:
+    require_minimum_role(actor, "clinician")
+    return get_terminal_overview()
+
+
+@router.get("/terminal/indications", response_model=EvidenceTerminalIndicationsOut)
+def evidence_terminal_indications(
+    q: Optional[str] = Query(None, max_length=240),
+    modality: Optional[str] = Query(None, max_length=120),
+    grade: Optional[str] = Query(None, max_length=32),
+    min_papers: int = Query(0, ge=0),
+    min_trials: int = Query(0, ge=0),
+    min_protocols: int = Query(0, ge=0),
+    limit: int = Query(25, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    sort: str = Query("papers"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> EvidenceTerminalIndicationsOut:
+    require_minimum_role(actor, "clinician")
+    return list_terminal_indications(
+        q=q,
+        modality=modality,
+        grade=grade,
+        min_papers=min_papers,
+        min_trials=min_trials,
+        min_protocols=min_protocols,
+        limit=limit,
+        offset=offset,
+        sort=sort,
+    )
+
+
+@router.get("/terminal/indications/{slug}", response_model=EvidenceTerminalIndicationDetailOut)
+def evidence_terminal_indication_detail(
+    slug: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> EvidenceTerminalIndicationDetailOut:
+    require_minimum_role(actor, "clinician")
+    return get_terminal_indication_detail(slug)
+
+
+@router.get("/terminal/papers", response_model=EvidenceTerminalPaperSearchOut)
+@router.get("/terminal/papers/search", response_model=EvidenceTerminalPaperSearchOut)
+def evidence_terminal_papers(
+    q: Optional[str] = Query(None, max_length=240),
+    indication: Optional[str] = Query(None, max_length=120),
+    modality: Optional[str] = Query(None, max_length=120),
+    grade: Optional[str] = Query(None, max_length=32),
+    has_abstract: Optional[bool] = Query(None),
+    has_doi: Optional[bool] = Query(None),
+    has_pmid: Optional[bool] = Query(None),
+    linked_to_trial: Optional[bool] = Query(None),
+    linked_to_protocol: Optional[bool] = Query(None),
+    year_from: Optional[int] = Query(None, ge=1900, le=2100),
+    year_to: Optional[int] = Query(None, ge=1900, le=2100),
+    limit: int = Query(25, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    sort: str = Query("relevance"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> EvidenceTerminalPaperSearchOut:
+    require_minimum_role(actor, "clinician")
+    return search_terminal_papers(
+        q=q,
+        indication=indication,
+        modality=modality,
+        grade=grade,
+        has_abstract=has_abstract,
+        has_doi=has_doi,
+        has_pmid=has_pmid,
+        linked_to_trial=linked_to_trial,
+        linked_to_protocol=linked_to_protocol,
+        year_from=year_from,
+        year_to=year_to,
+        limit=limit,
+        offset=offset,
+        sort=sort,
+    )
+
+
+@router.get("/terminal/papers/{paper_id}", response_model=EvidenceTerminalPaperDetailOut)
+def evidence_terminal_paper_detail(
+    paper_id: int = PathParam(..., ge=1),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> EvidenceTerminalPaperDetailOut:
+    require_minimum_role(actor, "clinician")
+    return get_terminal_paper_detail(paper_id)
+
+
+@router.get("/terminal/trials", response_model=EvidenceTerminalTrialSearchOut)
+@router.get("/terminal/trials/search", response_model=EvidenceTerminalTrialSearchOut)
+def evidence_terminal_trials(
+    q: Optional[str] = Query(None, max_length=240),
+    indication: Optional[str] = Query(None, max_length=120),
+    modality: Optional[str] = Query(None, max_length=120),
+    limit: int = Query(25, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> EvidenceTerminalTrialSearchOut:
+    require_minimum_role(actor, "clinician")
+    return search_terminal_trials(
+        q=q,
+        indication=indication,
+        modality=modality,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/terminal/protocols", response_model=EvidenceTerminalProtocolSearchOut)
+@router.get("/terminal/protocols/search", response_model=EvidenceTerminalProtocolSearchOut)
+def evidence_terminal_protocols(
+    q: Optional[str] = Query(None, max_length=240),
+    indication: Optional[str] = Query(None, max_length=120),
+    modality: Optional[str] = Query(None, max_length=120),
+    grade: Optional[str] = Query(None, max_length=32),
+    limit: int = Query(25, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> EvidenceTerminalProtocolSearchOut:
+    require_minimum_role(actor, "clinician")
+    return search_terminal_protocols(
+        q=q,
+        indication=indication,
+        modality=modality,
+        grade=grade,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/terminal/network", response_model=EvidenceTerminalNetworkOut)
+def evidence_terminal_network(
+    indication: Optional[str] = Query(None, max_length=120),
+    modality: Optional[str] = Query(None, max_length=120),
+    max_nodes: int = Query(40, ge=1, le=150),
+    min_grade: Optional[str] = Query(None, max_length=32),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> EvidenceTerminalNetworkOut:
+    require_minimum_role(actor, "clinician")
+    return get_terminal_network(
+        indication=indication,
+        modality=modality,
+        max_nodes=max_nodes,
+        min_grade=min_grade,
+    )
+
+
+@router.get("/terminal/grade-distribution", response_model=EvidenceTerminalGradeDistributionOut)
+def evidence_terminal_grade_distribution(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> EvidenceTerminalGradeDistributionOut:
+    require_minimum_role(actor, "clinician")
+    return get_terminal_grade_distribution()
 
 
 @router.get("/suggest", response_model=SuggestOut)

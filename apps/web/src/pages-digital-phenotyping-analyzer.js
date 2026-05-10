@@ -3,7 +3,9 @@ import { currentUser } from './auth.js';
 import { isDemoSession } from './demo-session.js';
 import {
   ANALYZER_DEMO_VIEWS,
+  ANALYZER_DEMO_FIXTURES,
   DEMO_MODE_BANNER_HTML,
+  DEMO_FIXTURE_BANNER_HTML,
 } from './demo-fixtures-analyzers.js';
 import { drHero } from './helpers.js';
 import { loadPatientFlagSummary } from './dr-friendly-flags.js';
@@ -732,7 +734,18 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
   function _syncDemoBanner() {
     const slot = $('dp-demo-banner');
     if (!slot) return;
-    slot.innerHTML = usingFixtures && isDemoSession() ? DEMO_MODE_BANNER_HTML : '';
+    if (usingFixtures && isDemoSession()) {
+      let demoBannerHtml = DEMO_FIXTURE_BANNER_HTML;
+      let patientLabel = activePatientName || 'Demo Patient (synthetic)';
+      demoBannerHtml += `<div data-demo="true" role="note" style="padding:10px 14px;border-radius:10px;background:rgba(251,191,36,0.10);border:1px solid rgba(251,191,36,0.40);display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:13px;color:var(--text-primary)">
+        <span style="font-size:14px">⚠️</span>
+        <strong>[DEMO] ${esc(patientLabel)} — digital phenotyping signals</strong>
+        <span style="color:var(--text-secondary)">— Synthetic data for review. Not for clinical use.</span>
+      </div>`;
+      slot.innerHTML = demoBannerHtml;
+    } else {
+      slot.innerHTML = '';
+    }
   }
 
   function setBreadcrumb() {

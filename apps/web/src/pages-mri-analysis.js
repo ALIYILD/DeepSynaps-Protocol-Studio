@@ -2817,7 +2817,7 @@ export function renderFullView(state) {
 
   return '<div class="ch-shell ds-mri-shell">'
     + renderClinicalDisclaimer()
-    + renderModuleClinicalDisclaimer('mri')
+    + renderModuleClinicalDisclaimer('mri', { compact: true, marginBottom: 16 })
     + renderDemoLiveBanner()
     + (showDemoBanner ? _mriDemoBanner() : '')
     + renderMRILinkedModules({ patientId: state.patientId || null, report: report })

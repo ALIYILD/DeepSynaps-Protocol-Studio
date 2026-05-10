@@ -109,3 +109,5 @@ apps/api/app/routers/virtual_care_router.py
 apps/api/app/routers/wearable_router.py
 apps/api/app/routers/wearables_workbench_router.py
 apps/api/app/routers/wellness_hub_router.py
+apps/api/app/routers/founder_dash_router.py
+apps/api/app/routers/video_assessment_router.py

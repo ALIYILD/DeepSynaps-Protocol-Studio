@@ -5,8 +5,9 @@ compact, structured summary of a patient's medical history WITHOUT the AI
 having direct DB access. Every call:
 
 1. Requires clinician-or-higher role.
-2. Enforces ownership via ``get_patient(session, patient_id, actor.actor_id)``
-   — a clinician cannot build AI context for another clinician's patient.
+2. Enforces ownership via the patient clinic boundary, so same-clinic
+   colleagues can build AI context for shared patients without exposing
+   cross-clinic data.
 3. Returns structured output separating:
    - ``summary_md``  : human-authored clinician fields only, formatted as
                       markdown safe for LLM prompts (no PHI identifiers
@@ -114,7 +115,7 @@ def build_patient_medical_context(
     """
     require_minimum_role(actor, "clinician")
 
-    patient = get_patient(session, patient_id, actor.actor_id)
+    patient = get_patient(session, patient_id, actor.actor_id, clinic_id=actor.clinic_id)
     if patient is None:
         raise ApiServiceError(
             code="not_found",

@@ -101,6 +101,14 @@ describe('pages-qeeg-analysis public exports', () => {
     assert.strictEqual(typeof mod.renderQEEGDecisionSupport, 'function');
   });
 
+  it('exports renderQEEGRawFlightDeck as a function', () => {
+    assert.strictEqual(typeof mod.renderQEEGRawFlightDeck, 'function');
+  });
+
+  it('exports renderQEEGClinicalPathCard as a function', () => {
+    assert.strictEqual(typeof mod.renderQEEGClinicalPathCard, 'function');
+  });
+
   it('exports TAB_META as an object', () => {
     assert.strictEqual(typeof mod.TAB_META, 'object');
     assert.ok(mod.TAB_META !== null);
@@ -116,6 +124,34 @@ describe('pages-qeeg-analysis public exports', () => {
     assert.ok(keys.includes('analysis'), 'analysis tab present');
     assert.ok(keys.includes('report'), 'report tab present');
     assert.ok(keys.includes('compare'), 'compare tab present');
+  });
+});
+
+describe('renderQEEGRawFlightDeck', () => {
+  it('renders a live raw-EEG command deck with real import formats', () => {
+    const html = mod.renderQEEGRawFlightDeck(null, null);
+    assert.match(html, /Raw EEG Flight Deck/);
+    assert.match(html, /Upload Raw EEG/);
+    assert.match(html, /Open Raw Workbench/);
+    assert.match(html, /Teach \/ Learn EEG/);
+    assert.match(html, /BrainVision/);
+    assert.match(html, /EDF\/BDF/);
+  });
+
+  it('shows recording-linked actions when a recording is selected', () => {
+    const html = mod.renderQEEGRawFlightDeck('patient-1', 'analysis-1');
+    assert.match(html, /Open AI Report/);
+    assert.match(html, /Recording loaded/);
+  });
+});
+
+describe('renderQEEGClinicalPathCard', () => {
+  it('renders a clearer clinical sequence and next-step action', () => {
+    const html = mod.renderQEEGClinicalPathCard('patient-1', 'analysis-1');
+    assert.match(html, /Clinical workflow/);
+    assert.match(html, /Current next step/);
+    assert.match(html, /Open raw workbench/);
+    assert.match(html, /Clinical gate/);
   });
 });
 

@@ -3120,6 +3120,159 @@ export async function pgDeviceManagement(setTopbar) {
 
   const el = document.getElementById('content');
 
+  const _deviceStoreKey = 'ds_devices';
+  const _deviceLogKey = 'ds_device_logs';
+  const _deviceSeedDevices = [
+    {
+      id: 'dev-1',
+      name: 'Alpha TMS Coil',
+      type: 'tms-coil',
+      serialNumber: 'TMS-001',
+      manufacturer: 'NeuroWave',
+      model: 'NWC-11',
+      status: 'active',
+      assignedRoom: 'Room A',
+      lastCalibration: '2026-04-10',
+      nextCalibration: '2026-06-10',
+      lastMaintenance: '2026-04-18',
+      nextMaintenance: '2026-05-28',
+      sessionCount: 14,
+      notes: 'Primary clinic coil',
+    },
+    {
+      id: 'dev-2',
+      name: 'Beta EEG Cap',
+      type: 'eeg-cap',
+      serialNumber: 'EEG-204',
+      manufacturer: 'SignalLab',
+      model: 'Cap Pro',
+      status: 'maintenance',
+      assignedRoom: 'Room B',
+      lastCalibration: '2026-03-22',
+      nextCalibration: '2026-05-12',
+      lastMaintenance: '2026-04-02',
+      nextMaintenance: '2026-05-18',
+      sessionCount: 8,
+      notes: 'Needs lead replacement',
+    },
+  ];
+  const _deviceSeedLogs = [
+    { id: 'log-1', deviceId: 'dev-1', deviceName: 'Alpha TMS Coil', type: 'calibration', date: '2026-05-01', technician: 'A. Smith', notes: 'Calibration within range', outcome: 'pass' },
+    { id: 'log-2', deviceId: 'dev-2', deviceName: 'Beta EEG Cap', type: 'maintenance', date: '2026-05-04', technician: 'M. Jones', notes: 'Connector replaced', outcome: 'pending' },
+  ];
+  const _clone = (value) => JSON.parse(JSON.stringify(value));
+  const _readJson = (key, fallback) => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      const parsed = JSON.parse(raw);
+      return parsed && Array.isArray(parsed) ? parsed : fallback;
+    } catch (_) {
+      return fallback;
+    }
+  };
+  function getDevices() {
+    const stored = _readJson(_deviceStoreKey, []);
+    return stored.length ? stored : _clone(_deviceSeedDevices);
+  }
+  function saveDevice(device) {
+    const devices = getDevices();
+    const idx = devices.findIndex((row) => row.id === device.id);
+    if (idx >= 0) devices[idx] = _clone(device);
+    else devices.push(_clone(device));
+    localStorage.setItem(_deviceStoreKey, JSON.stringify(devices));
+  }
+  function deleteDevice(id) {
+    const devices = getDevices().filter((row) => row.id !== id);
+    localStorage.setItem(_deviceStoreKey, JSON.stringify(devices));
+  }
+  function getDeviceLogs() {
+    const stored = _readJson(_deviceLogKey, []);
+    return stored.length ? stored : _clone(_deviceSeedLogs);
+  }
+  function saveDeviceLog(log) {
+    const logs = getDeviceLogs();
+    logs.push(_clone(log));
+    localStorage.setItem(_deviceLogKey, JSON.stringify(logs));
+  }
+  function getDeviceAlerts(devices) {
+    const rows = Array.isArray(devices) ? devices : getDevices();
+    const alerts = [];
+    rows.forEach((device) => {
+      if (device.status === 'maintenance') {
+        alerts.push({
+          severity: 'warning',
+          deviceId: device.id,
+          deviceName: device.name,
+          alertType: 'maintenance',
+          message: `${device.name} is scheduled for maintenance soon.`,
+        });
+      }
+      if (device.status === 'decommissioned') {
+        alerts.push({
+          severity: 'critical',
+          deviceId: device.id,
+          deviceName: device.name,
+          alertType: 'decommissioned',
+          message: `${device.name} is decommissioned and should be removed from active use.`,
+        });
+      }
+      if ((device.nextCalibration || '') && device.nextCalibration < '2026-05-10') {
+        alerts.push({
+          severity: 'info',
+          deviceId: device.id,
+          deviceName: device.name,
+          alertType: 'calibration-due',
+          message: `${device.name} needs calibration review.`,
+        });
+      }
+    });
+    return alerts;
+  }
+  function _statusBadge(status) {
+    const label = String(status || 'unknown');
+    return '<span class="device-status-badge">' + label + '</span>';
+  }
+  function _calClass(nextDate) {
+    return nextDate && nextDate < '2026-05-10' ? 'device-due' : 'device-ok';
+  }
+  function _mntClass(nextDate) {
+    return nextDate && nextDate < '2026-05-10' ? 'device-due' : 'device-ok';
+  }
+  function _logTypeBadge(type) {
+    return '<span class="device-log-badge">' + String(type || 'inspection') + '</span>';
+  }
+  function _outcomeBadge(outcome) {
+    return '<span class="device-outcome-badge">' + String(outcome || 'pending') + '</span>';
+  }
+  function _deviceModal(title, bodyHtml, footerHtml) {
+    const overlay = document.createElement('div');
+    overlay.id = 'dm-modal-overlay';
+    overlay.innerHTML = '<div class="device-modal"><h3>' + title + '</h3><div>' + bodyHtml + '</div><div>' + footerHtml + '</div></div>';
+    document.body.appendChild(overlay);
+    return overlay;
+  }
+  function _deviceFormHtml(d) {
+    return '<div style="display:grid;gap:8px">'
+      + '<input id="dm-f-id" class="form-control" value="' + (d?.id || '') + '" placeholder="Device ID">'
+      + '<input id="dm-f-name" class="form-control" value="' + (d?.name || '') + '" placeholder="Device name *">'
+      + '<input id="dm-f-type" class="form-control" value="' + (d?.type || 'other') + '" placeholder="Type">'
+      + '<input id="dm-f-serial" class="form-control" value="' + (d?.serialNumber || '') + '" placeholder="Serial number">'
+      + '<input id="dm-f-manufacturer" class="form-control" value="' + (d?.manufacturer || '') + '" placeholder="Manufacturer">'
+      + '<input id="dm-f-model" class="form-control" value="' + (d?.model || '') + '" placeholder="Model">'
+      + '<input id="dm-f-status" class="form-control" value="' + (d?.status || 'active') + '" placeholder="Status">'
+      + '<input id="dm-f-room" class="form-control" value="' + (d?.assignedRoom || 'Room A') + '" placeholder="Room">'
+      + '<input id="dm-f-purchase" class="form-control" value="' + (d?.purchaseDate || '') + '" placeholder="Purchase date">'
+      + '<input id="dm-f-warranty" class="form-control" value="' + (d?.warrantyExpiry || '') + '" placeholder="Warranty expiry">'
+      + '<input id="dm-f-last-cal" class="form-control" value="' + (d?.lastCalibration || '') + '" placeholder="Last calibration">'
+      + '<input id="dm-f-next-cal" class="form-control" value="' + (d?.nextCalibration || '') + '" placeholder="Next calibration">'
+      + '<input id="dm-f-last-mnt" class="form-control" value="' + (d?.lastMaintenance || '') + '" placeholder="Last maintenance">'
+      + '<input id="dm-f-next-mnt" class="form-control" value="' + (d?.nextMaintenance || '') + '" placeholder="Next maintenance">'
+      + '<input id="dm-f-sessions" class="form-control" value="' + String(d?.sessionCount || 0) + '" placeholder="Sessions used">'
+      + '<textarea id="dm-f-notes" class="form-control" rows="3" placeholder="Notes">' + (d?.notes || '') + '</textarea>'
+      + '</div>';
+  }
+
   var _activeTab       = 'registry';
   var _filterType      = '';
   var _filterStatus    = '';

@@ -11,9 +11,11 @@ Usage:
     python3 services/evidence-pipeline/extract_protocols.py [--dry] [--limit N]
                                                             [--csv PATH] [--all-trials]
 
-`--all-trials` runs against every trial with a non-empty interventions_json
-(falls back to text-based modality inference when trial_indications is empty,
-which is the current state on the canonical DB).
+Default trial extraction joins through `trial_indications`, and default paper
+extraction joins through `paper_indications`, so extracted protocols stay wired
+to the routed evidence graph. `--all-trials` is still available for manual
+recovery passes when `trial_indications` is empty, but it should not be the
+standing upkeep path.
 """
 from __future__ import annotations
 
@@ -234,6 +236,116 @@ def _infer_modality(text: str) -> str | None:
     return None
 
 
+def _best_indication_for_paper(conn, paper_id: int) -> tuple[int | None, str | None]:
+    row = conn.execute(
+        """
+        SELECT pi.indication_id, i.modality
+          FROM paper_indications pi
+          JOIN indications i ON i.id = pi.indication_id
+         WHERE pi.paper_id = ?
+         ORDER BY COALESCE(pi.relevance, 0) DESC, pi.indication_id ASC
+         LIMIT 1
+        """,
+        (paper_id,),
+    ).fetchone()
+    if not row:
+        return None, None
+    return row["indication_id"], row["modality"]
+
+
+def _best_indication_for_trial(conn, trial_id: int) -> tuple[int | None, str | None]:
+    row = conn.execute(
+        """
+        SELECT ti.indication_id, i.modality
+          FROM trial_indications ti
+          JOIN indications i ON i.id = ti.indication_id
+         WHERE ti.trial_id = ?
+         ORDER BY ti.indication_id ASC
+         LIMIT 1
+        """,
+        (trial_id,),
+    ).fetchone()
+    if not row:
+        return None, None
+    return row["indication_id"], row["modality"]
+
+
+def _backfill_protocol_indications(conn, source_type: str) -> int:
+    updated = 0
+    rows = conn.execute(
+        """
+        SELECT id, source_id
+          FROM protocols
+         WHERE source_type = ?
+           AND indication_id IS NULL
+        """,
+        (source_type,),
+    ).fetchall()
+    for row in rows:
+        indication_id = None
+        if source_type == "paper":
+            paper = conn.execute(
+                """
+                SELECT id
+                  FROM papers
+                 WHERE CAST(pmid AS TEXT) = CAST(? AS TEXT)
+                    OR lower(CAST(doi AS TEXT)) = lower(CAST(? AS TEXT))
+                 LIMIT 1
+                """,
+                (row["source_id"], row["source_id"]),
+            ).fetchone()
+            if paper:
+                indication_id, _ = _best_indication_for_paper(conn, paper["id"])
+        elif source_type == "ctgov":
+            trial = conn.execute(
+                "SELECT id FROM trials WHERE nct_id = ? LIMIT 1",
+                (row["source_id"],),
+            ).fetchone()
+            if trial:
+                indication_id, _ = _best_indication_for_trial(conn, trial["id"])
+        if indication_id is None:
+            continue
+        cur = conn.execute(
+            "UPDATE protocols SET indication_id = ? WHERE id = ?",
+            (indication_id, row["id"]),
+        )
+        updated += cur.rowcount or 0
+    return updated
+
+
+def _prune_orphan_protocols(conn, source_type: str) -> int:
+    if source_type == "paper":
+        cur = conn.execute(
+            """
+            DELETE FROM protocols
+             WHERE source_type = 'paper'
+               AND NOT EXISTS (
+                   SELECT 1
+                     FROM papers p
+                     JOIN paper_indications pi ON pi.paper_id = p.id
+                    WHERE CAST(p.pmid AS TEXT) = CAST(protocols.source_id AS TEXT)
+                       OR lower(CAST(p.doi AS TEXT)) = lower(CAST(protocols.source_id AS TEXT))
+               )
+            """
+        )
+        return cur.rowcount or 0
+    if source_type == "ctgov":
+        cur = conn.execute(
+            """
+            DELETE FROM protocols
+             WHERE source_type = 'ctgov'
+               AND NOT EXISTS (
+                   SELECT 1
+                     FROM trials t
+                     JOIN trial_indications ti ON ti.trial_id = t.id
+                    WHERE t.nct_id = protocols.source_id
+               )
+            """
+        )
+        return cur.rowcount or 0
+    return 0
+
+
 def _extract_from_trials(conn, limit: int | None, dry: bool, all_trials: bool = False) -> int:
     """Iterate trials and emit one row per intervention arm with extractable params.
 
@@ -248,8 +360,7 @@ def _extract_from_trials(conn, limit: int | None, dry: bool, all_trials: bool = 
 
     if all_trials or not has_curated_links:
         sql = (
-            "SELECT t.id AS tid, t.nct_id, t.interventions_json, "
-            "NULL AS iid, NULL AS modality "
+            "SELECT t.id AS tid, t.nct_id, t.interventions_json "
             "FROM trials t "
             "WHERE t.interventions_json IS NOT NULL "
             "  AND t.interventions_json != '' "
@@ -269,14 +380,17 @@ def _extract_from_trials(conn, limit: int | None, dry: bool, all_trials: bool = 
     rows = conn.execute(sql).fetchall()
     n = 0
     for r in rows:
+        linked_iid, linked_modality = (None, None)
+        if all_trials or not has_curated_links:
+            linked_iid, linked_modality = _best_indication_for_trial(conn, r["tid"])
         ivs = json.loads(r["interventions_json"] or "[]")
         for idx, iv in enumerate(ivs):
             desc = (iv.get("description") or "") + " " + (iv.get("name") or "")
-            modality = r["modality"] or _infer_modality(desc)
+            modality = (r["modality"] if "modality" in r.keys() else None) or linked_modality or _infer_modality(desc)
             rec = _parse_block(desc, modality)
             if not rec:
                 continue
-            rec["indication_id"] = r["iid"]
+            rec["indication_id"] = (r["iid"] if "iid" in r.keys() else None) or linked_iid
             rec["source_type"] = "ctgov"
             rec["source_id"] = r["nct_id"]
             rec["arm_label"] = iv.get("name") or f"arm_{idx}"
@@ -333,24 +447,28 @@ def _extract_from_papers(conn, limit: int | None, dry: bool, min_confidence: str
     }
     has_modalities = "modalities_json" in paper_cols
 
-    select_cols = "id, pmid, doi, title, abstract"
+    select_cols = "p.id, p.pmid, p.doi, p.title, p.abstract"
     if has_modalities:
-        select_cols += ", modalities_json"
+        select_cols += ", p.modalities_json"
 
     sql = (
-        f"SELECT {select_cols} FROM papers "
-        "WHERE abstract IS NOT NULL AND length(abstract) >= 100 "
+        f"SELECT {select_cols} FROM papers p "
+        "WHERE p.abstract IS NOT NULL AND length(p.abstract) >= 100 "
+        "  AND EXISTS (SELECT 1 FROM paper_indications pi WHERE pi.paper_id = p.id) "
         + (f"LIMIT {limit}" if limit else "")
     )
     rows = conn.execute(sql).fetchall()
 
     n = 0
     for r in rows:
+        indication_id, indication_modality = _best_indication_for_paper(conn, r["id"])
+        if indication_id is None:
+            continue
         text = (r["abstract"] or "") + " " + (r["title"] or "")
 
         # If EuropePMC tagged the paper with a modality, prefer that. Otherwise
         # fall back to the regex-based heuristic.
-        modality = None
+        modality = indication_modality
         if has_modalities:
             try:
                 mods = json.loads(r["modalities_json"]) if r["modalities_json"] else []
@@ -381,7 +499,7 @@ def _extract_from_papers(conn, limit: int | None, dry: bool, min_confidence: str
         if not sid:
             continue
 
-        rec["indication_id"] = None
+        rec["indication_id"] = indication_id
         rec["source_type"] = "paper"
         rec["source_id"] = str(sid)
         rec["arm_label"] = "abstract"
@@ -633,6 +751,12 @@ def main() -> None:
         n_papers = _extract_from_papers(conn, args.limit, args.dry, args.min_confidence)
     if args.source in ("devices", "all"):
         n_fda = _extract_from_devices(conn, args.limit, args.dry, args.fda_limit)
+    if not args.dry and args.source in ("papers", "all"):
+        _backfill_protocol_indications(conn, "paper")
+        _prune_orphan_protocols(conn, "paper")
+    if not args.dry and args.source in ("trials", "all"):
+        _backfill_protocol_indications(conn, "ctgov")
+        _prune_orphan_protocols(conn, "ctgov")
     print(
         f"extracted {n_trials} trial · {n_papers} paper · {n_fda} FDA "
         f"protocols ({'dry' if args.dry else 'written'})"

@@ -73,9 +73,19 @@ def list_patients_rows(
     smart: str | None,
     limit: int,
     offset: int,
+    clinic_id: str | None = None,
 ) -> list[tuple[Patient, datetime | None]]:
     """Return patient rows with optional text filter + smart presets (server-side)."""
-    stmt = select(Patient).where(Patient.clinician_id == clinician_id)
+    stmt = select(Patient)
+    if clinic_id is None:
+        stmt = stmt.where(Patient.clinician_id == clinician_id)
+    else:
+        from app.persistence.models import User  # noqa: PLC0415
+
+        stmt = (
+            stmt.join(User, User.id == Patient.clinician_id, isouter=True)
+            .where(User.clinic_id == clinic_id)
+        )
     stmt = stmt.where(Patient.status != "merged_away")
 
     if q:

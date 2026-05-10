@@ -16,8 +16,9 @@ Usage:
     python3 services/evidence-pipeline/route_indications.py [--dry] [--top N]
                                                             [--clear] [--only-slug SLUG]
 
-`--top N` caps each indication to the N best-ranked papers (BM25); default 1000.
-Trials are not capped (only ~1.3k trials total).
+`--top N` caps each indication to the N best-ranked papers (BM25); the CLI
+defaults to `0`, which means uncapped routing. Any negative value also disables
+the cap and omits SQL LIMIT entirely. Trials are not capped (only ~1.3k trials total).
 `--clear` deletes existing rows for the targeted slug(s) before re-routing — use
 this when rerunning after abstracts get enriched or when an indication's pubmed_q
 is tightened.
@@ -60,14 +61,17 @@ def to_fts5(q: str) -> str:
 def route_papers(conn, indication_id: int, slug: str, fts_q: str, top: int) -> int:
     """Insert paper_indications rows for the BM25-top `top` matches."""
     try:
-        rows = conn.execute(
+        sql = (
             "SELECT papers_fts.rowid AS pid, bm25(papers_fts) AS score "
             "FROM papers_fts "
             "WHERE papers_fts MATCH ? "
-            "ORDER BY score "
-            "LIMIT ?",
-            (fts_q, top),
-        ).fetchall()
+            "ORDER BY score"
+        )
+        params = [fts_q]
+        if top > 0:
+            sql += " LIMIT ?"
+            params.append(top)
+        rows = conn.execute(sql, params).fetchall()
     except Exception as e:
         print(f"  papers FTS error for {slug}: {e}")
         return 0
@@ -120,7 +124,12 @@ def route_trials(conn, indication_id: int, slug: str, fts_q: str) -> int:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry", action="store_true", help="Print what would be inserted, don't write.")
-    ap.add_argument("--top", type=int, default=1000, help="Cap papers per indication by BM25 rank.")
+    ap.add_argument(
+        "--top",
+        type=int,
+        default=0,
+        help="Cap papers per indication by BM25 rank; default 0 means no cap.",
+    )
     ap.add_argument("--only-slug", action="append", default=None,
                     help="Limit routing to one or more slugs (repeatable).")
     ap.add_argument("--clear", action="store_true",

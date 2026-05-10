@@ -88,7 +88,9 @@ is data.
 ## What's intentionally missing (add later)
 
 - UMLS terminology layer — blocked on NIH account; will add ICD/SNOMED mapping to `indications`.
-- Protocol extractor (Hz/µs/mA/sessions → structured columns). Right now intervention JSON is stored verbatim; parsing is a follow-up.
+- Protocol extractor is live. The upkeep path now parses routed paper abstracts and
+  indication-linked CTGov interventions into structured `protocols` rows, then
+  backfills/prunes linkages so orphan protocol rows do not accumulate between runs.
 - MCP server wrapper so Claude Code can query `evidence.db` as a native tool.
 
 ## Current recommendation

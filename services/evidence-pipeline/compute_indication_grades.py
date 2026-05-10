@@ -161,7 +161,7 @@ def compute_grades(
 
     if not dry_run:
         # Bulk-update in a single transaction.
-        conn.execute("BEGIN")
+        conn.execute("BEGIN IMMEDIATE")
         try:
             conn.executemany(
                 "UPDATE indications SET computed_evidence_grade = ? WHERE id = ?",

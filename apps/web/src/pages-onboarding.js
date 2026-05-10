@@ -4,7 +4,7 @@ import {
   EVIDENCE_TOTAL_PAPERS,
   EVIDENCE_SUMMARY,
 } from './evidence-dataset.js';
-import { renderClinicalDisclaimer } from './clinical-disclaimer.js';
+import { renderClinicalDisclaimer, renderModuleClinicalDisclaimer } from './clinical-disclaimer.js';
 
 // HTML escape helper used by the wizard's input value bindings.
 function _obEsc(v) {
@@ -192,6 +192,8 @@ function step3Html() {
         <h1 class="ff-page-title">Generate your first protocol</h1>
         <p class="ff-page-sub">${subtitle}</p>
       </div>
+
+      ${renderModuleClinicalDisclaimer('protocol', { compact: true, marginBottom: 16 })}
 
       <div class="ff-card">
         <div class="ff-card-title">Protocol basics</div>

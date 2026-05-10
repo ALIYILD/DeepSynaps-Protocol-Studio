@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import text
 
 from app.database import SessionLocal
-from app.persistence.models import Clinic, User
+from app.persistence.models import AssessmentRecord, ClinicalSession, Clinic, OutcomeSeries, TreatmentCourse, User
 
 
 @pytest.fixture(autouse=True)
@@ -53,6 +53,32 @@ def _ensure_demo_clinician_in_clinic() -> None:
             )
         else:
             existing.clinic_id = clinic_id
+        db.commit()
+    finally:
+        db.close()
+
+
+def _ensure_demo_user(actor_id: str, email: str, role: str, clinic_id: str) -> None:
+    db = SessionLocal()
+    try:
+        row = db.query(User).filter_by(id=actor_id).first()
+        if row is None:
+            db.add(
+                User(
+                    id=actor_id,
+                    email=email,
+                    display_name=actor_id,
+                    hashed_password="x",
+                    role=role,
+                    package_id="enterprise" if role == "admin" else "resident",
+                    clinic_id=clinic_id,
+                )
+            )
+        else:
+            row.email = email
+            row.role = role
+            row.package_id = "enterprise" if role == "admin" else "resident"
+            row.clinic_id = clinic_id
         db.commit()
     finally:
         db.close()
@@ -139,10 +165,10 @@ class TestPatientListEnrichment:
         self, client: TestClient, auth_headers: dict
     ) -> None:
         _create_patient(client, auth_headers, first_name="Mine", last_name="Clinic")
-        # Admin token is a different actor; patient should not appear for them.
+        # Clinic-scoped admins should see the clinic cohort, not just one clinician's rows.
         resp = client.get("/api/v1/patients", headers=auth_headers["admin"])
         assert resp.status_code == 200
-        assert all(p["first_name"] != "Mine" for p in resp.json()["items"])
+        assert any(p["first_name"] == "Mine" for p in resp.json()["items"])
 
 
 class TestPatientDetailEnrichment:
@@ -176,6 +202,122 @@ class TestPatientDetailEnrichment:
         resp = client.get(f"/api/v1/patients/{pid}", headers=auth_headers["clinician"])
         assert resp.status_code == 200
         assert resp.json()["has_adverse_event"] is True
+
+
+class TestClinicScopedPatientAccess:
+    def _seed_related_rows(self, patient_id: str) -> None:
+        db = SessionLocal()
+        try:
+            session = ClinicalSession(
+                patient_id=patient_id,
+                clinician_id="actor-clinician-demo",
+                scheduled_at="2026-05-10T09:00:00Z",
+                duration_minutes=60,
+                modality="tDCS",
+                status="completed",
+            )
+            course = TreatmentCourse(
+                patient_id=patient_id,
+                clinician_id="actor-clinician-demo",
+                protocol_id="proto-1",
+                condition_slug="depression",
+                modality_slug="tdcs",
+                planned_sessions_total=12,
+                planned_sessions_per_week=3,
+                planned_session_duration_minutes=45,
+                status="active",
+            )
+            assessment = AssessmentRecord(
+                patient_id=patient_id,
+                clinician_id="actor-clinician-demo",
+                template_id="phq9",
+                template_title="PHQ-9",
+                data_json="{}",
+                respondent_type="patient",
+                status="completed",
+            )
+            db.add_all([session, course, assessment])
+            db.flush()
+            db.add(
+                OutcomeSeries(
+                    patient_id=patient_id,
+                    course_id=course.id,
+                    template_id="phq9",
+                    template_title="PHQ-9",
+                    score="12",
+                    measurement_point="baseline",
+                    administered_at=session.created_at,
+                    clinician_id="actor-clinician-demo",
+                )
+            )
+            db.execute(
+                text(
+                    "UPDATE patients SET medical_history = :mh WHERE id = :pid"
+                ),
+                {
+                    "mh": '{"sections":{"summary":{"notes":"Same-clinic shared summary."}},"safety":{"acknowledged":true,"flags":{}},"meta":{"version":1,"reviewed_at":"2026-05-10T00:00:00Z","updated_at":"2026-05-10T00:00:00Z"}}',
+                    "pid": patient_id,
+                },
+            )
+            db.commit()
+        finally:
+            db.close()
+
+    def test_same_clinic_clinician_can_read_shared_patient_subresources(
+        self, client: TestClient, auth_headers: dict
+    ) -> None:
+        _ensure_demo_user(
+            "actor-resident-demo",
+            "resident_same_clinic@example.com",
+            "clinician",
+            "clinic-demo-default",
+        )
+        pid = _create_patient(client, auth_headers, first_name="Shared", last_name="Patient")
+        self._seed_related_rows(pid)
+
+        same_clinic = {"Authorization": "Bearer resident-demo-token"}
+        endpoints = [
+            f"/api/v1/patients/{pid}",
+            f"/api/v1/patients/{pid}/sessions",
+            f"/api/v1/patients/{pid}/courses",
+            f"/api/v1/patients/{pid}/assessments",
+            f"/api/v1/patients/{pid}/reports",
+            f"/api/v1/patients/{pid}/medical-history",
+            f"/api/v1/patients/{pid}/medical-history/ai-context",
+        ]
+        for url in endpoints:
+            resp = client.get(url, headers=same_clinic)
+            assert resp.status_code == 200, (url, resp.text)
+
+        patient_list = client.get("/api/v1/patients", headers=same_clinic)
+        assert patient_list.status_code == 200
+        assert any(item["id"] == pid for item in patient_list.json()["items"])
+
+    def test_cross_clinic_clinician_is_denied(self, client: TestClient, auth_headers: dict) -> None:
+        _ensure_demo_user(
+            "actor-resident-demo",
+            "resident_other_clinic@example.com",
+            "clinician",
+            "clinic-other-demo",
+        )
+        pid = _create_patient(client, auth_headers, first_name="Private", last_name="Patient")
+        self._seed_related_rows(pid)
+
+        other_clinic = {"Authorization": "Bearer resident-demo-token"}
+        for url in (
+            f"/api/v1/patients/{pid}",
+            f"/api/v1/patients/{pid}/sessions",
+            f"/api/v1/patients/{pid}/courses",
+            f"/api/v1/patients/{pid}/assessments",
+            f"/api/v1/patients/{pid}/reports",
+            f"/api/v1/patients/{pid}/medical-history",
+            f"/api/v1/patients/{pid}/medical-history/ai-context",
+        ):
+            resp = client.get(url, headers=other_clinic)
+            if url.endswith("/medical-history/ai-context"):
+                assert resp.status_code in {403, 404}, (url, resp.text)
+            else:
+                assert resp.status_code == 403, (url, resp.text)
 
 
 class TestPatientListFilters:

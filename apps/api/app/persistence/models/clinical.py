@@ -1198,6 +1198,176 @@ class DeepTwinClinicianNote(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
+# ── Clinical Data Platform Models (2026-05-10) ──────────────────────────────────
+# Central AI tracking, protocol generation, document versioning, safety flags
+
+class AIAnalysisRun(Base):
+    """Central registry for all AI analysis across modalities.
+    
+    Unifies tracking of MRI, qEEG, video, audio, text, and biometric analyses
+    so queries like "all AI runs for patient X" don't require modality-specific
+    joins. Each modality-specific run (MriAnalysis, QEEGAnalysis) can link back
+    via analysis_type + input_refs_json.
+    """
+    __tablename__ = "ai_analysis_runs"
+    __table_args__ = (
+        Index("ix_ai_analysis_runs_clinic_patient", "clinic_id", "patient_id"),
+        Index("ix_ai_analysis_runs_analysis_type", "analysis_type"),
+        Index("ix_ai_analysis_runs_status", "status"),
+    )
+    
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinic_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    patient_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)  # null for population-level analysis
+    initiated_by_user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    analysis_type: Mapped[str] = mapped_column(String(40), nullable=False)  # qeeg_analysis, mri_analysis, video_analysis, etc.
+    model_provider: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)  # openai, anthropic, internal, etc.
+    model_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    model_version: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    prompt_version: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    input_refs_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # {modality_run_id, input_files, parameters}
+    output_artifact_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)  # links to GeneratedDocument or result storage
+    evidence_refs_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # [{doi, pmid, url, evidence_grade}]
+    risk_flags_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # [{flag_type, severity, message}]
+    status: Mapped[str] = mapped_column(String(30), default="pending")  # pending, processing, completed, failed, errored
+    clinician_review_status: Mapped[str] = mapped_column(String(30), default="not_required")  # not_required, pending, approved, rejected, needs_revision
+    clinician_notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    reviewed_by_user_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+class ProtocolGenerationRun(Base):
+    """Protocol generation request history and provenance.
+    
+    Tracks every protocol generation attempt: input parameters, AI model/version,
+    evidence used, output document, clinician review status.
+    """
+    __tablename__ = "protocol_generation_runs"
+    __table_args__ = (
+        Index("ix_protocol_generation_runs_clinic_patient", "clinic_id", "patient_id"),
+        Index("ix_protocol_generation_runs_status", "status"),
+    )
+    
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinic_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    patient_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)  # null for template/population protocols
+    condition: Mapped[str] = mapped_column(String(120), nullable=False)  # primary diagnosis/target
+    protocol_mode: Mapped[str] = mapped_column(String(40), nullable=False)  # ai_assisted, manual, template_based
+    device_type: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)  # tDCS, rTMS, NF, etc.
+    evidence_grade: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # A, B, C, D, off_label
+    off_label_flag: Mapped[bool] = mapped_column(Boolean(), default=False)
+    generated_by_user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    ai_analysis_run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)  # links to AIAnalysisRun if AI-assisted
+    output_document_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)  # links to GeneratedDocument
+    input_parameters_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # {condition, device, target_params}
+    evidence_refs_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # [{pmid, doi, evidence_grade}]
+    status: Mapped[str] = mapped_column(String(30), default="draft")  # draft, approved, implemented, discontinued, archived
+    clinician_review_status: Mapped[str] = mapped_column(String(30), default="pending")  # pending, approved, rejected, needs_revision
+    reviewed_by_user_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+class GeneratedDocument(Base):
+    """Document version history and metadata.
+    
+    Tracks all generated documents: protocols, handbooks, patient guides, reports.
+    Links to AI runs, clinician reviews, versioning.
+    """
+    __tablename__ = "generated_documents"
+    __table_args__ = (
+        Index("ix_generated_documents_clinic_patient", "clinic_id", "patient_id"),
+        Index("ix_generated_documents_document_type", "document_type"),
+    )
+    
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinic_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    patient_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)  # null for template/population documents
+    document_type: Mapped[str] = mapped_column(String(40), nullable=False)  # protocol, handbook, patient_guide, assessment, report, consent_summary
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    storage_uri: Mapped[str] = mapped_column(String(512), nullable=False)  # S3 path, local path, or API endpoint
+    mime_type: Mapped[str] = mapped_column(String(60), default="application/pdf")  # pdf, docx, json, html, markdown
+    size_bytes: Mapped[int] = mapped_column(Integer(), default=0)
+    version: Mapped[int] = mapped_column(Integer(), default=1)
+    generated_by_user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    ai_analysis_run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)  # if AI-generated
+    protocol_generation_run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)  # if protocol-derived
+    reviewed_by_user_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    review_status: Mapped[str] = mapped_column(String(30), default="draft")  # draft, approved, rejected, needs_revision, finalized
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    review_notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)  # when shared with patient/clinician
+    metadata_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # {page_count, word_count, language, tags}
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+class PatientDataAsset(Base):
+    """Unified upload/file metadata for all patient data.
+    
+    Single source of truth for all files: EEG, MRI, video, audio, text, biometrics,
+    assessments, reports. Replaces scattered upload models with central registry.
+    """
+    __tablename__ = "patient_data_assets"
+    __table_args__ = (
+        Index("ix_patient_data_assets_clinic_patient", "clinic_id", "patient_id"),
+        Index("ix_patient_data_assets_asset_type", "asset_type"),
+        Index("ix_patient_data_assets_processing_status", "processing_status"),
+    )
+    
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinic_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
+    uploaded_by_user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    asset_type: Mapped[str] = mapped_column(String(40), nullable=False)  # eeg, qeeg, mri, video, audio, text, assessment, biometric, report, protocol, other
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    original_filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    storage_uri: Mapped[str] = mapped_column(String(512), nullable=False)  # S3, local path, etc.
+    mime_type: Mapped[str] = mapped_column(String(60), nullable=False)  # application/dicom, video/mp4, audio/wav, etc.
+    size_bytes: Mapped[int] = mapped_column(Integer(), nullable=False)
+    checksum: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)  # SHA256
+    processing_status: Mapped[str] = mapped_column(String(30), default="pending")  # pending, processing, completed, failed, archived
+    contains_phi: Mapped[bool] = mapped_column(Boolean(), default=True)  # PHI-aware flag for access control
+    metadata_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # {duration, resolution, channels, sample_rate}
+    analysis_output_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)  # links to analysis result
+    consent_requirement: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)  # ai_analysis, device_sync, research
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+class SafetyFlag(Base):
+    """Contraindications, warnings, and safety alerts.
+    
+    Central registry for all safety-relevant flags: contraindications, off-label
+    warnings, data quality issues, missing consents, cross-clinic access attempts.
+    """
+    __tablename__ = "safety_flags"
+    __table_args__ = (
+        Index("ix_safety_flags_clinic_patient", "clinic_id", "patient_id"),
+        Index("ix_safety_flags_flag_type", "flag_type"),
+        Index("ix_safety_flags_severity", "severity"),
+        Index("ix_safety_flags_status", "status"),
+    )
+    
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinic_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    patient_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)  # null for system-level flags
+    flag_type: Mapped[str] = mapped_column(String(40), nullable=False)  # consent_missing, contraindication, off_label, evidence_low, ai_uncertain, data_quality_issue, cross_clinic_access_attempt
+    severity: Mapped[str] = mapped_column(String(20), default="info")  # info, warning, high, critical
+    message: Mapped[str] = mapped_column(String(512), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    linked_resource_type: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)  # ai_analysis_run, protocol, patient, etc.
+    linked_resource_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    remediation_steps: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="active")  # active, acknowledged, resolved, archived
+    acknowledged_by_user_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    resolved_by_user_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
 # ── QA Findings (launch-audit 2026-04-30) ────────────────────────────────────
 # Non-conformance / CAPA records surfaced by the Quality Assurance page.
 # Distinct from the artifact-level QA scoring engine in deepsynaps_qa.

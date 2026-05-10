@@ -24,7 +24,7 @@ test('Research Evidence page exposes governance banner and live evidence panel',
 test('Research Evidence unified search uses honest empty, auth messaging, and corpus wiring', () => {
   const src = read('./pages-research-evidence.js');
   assert.match(src, /_libUnifiedEvidenceSearch/);
-  assert.match(src, /searchEvidencePapers/);
+  assert.match(src, /evidenceTerminalSearch/);
   assert.match(src, /renderEvidenceResultCard/);
   assert.match(src, /No verified results found for this query in the connected evidence sources/);
   assert.match(src, /Sign in as clinical staff to search the evidence service/);
@@ -34,6 +34,7 @@ test('Research Evidence unified search uses honest empty, auth messaging, and co
   assert.match(src, /re-ev-search-source/);
   assert.match(src, /Indexed evidence corpus unavailable in this preview environment/);
   assert.match(src, /No direct link available from this record/);
+  assert.match(src, /Evidence basket/);
 });
 
 test('Degraded banner hides when indexed corpus flag set; status drives Indexed DB badge', () => {

@@ -73,8 +73,8 @@ const src = await import('fs').then(fs =>
 
 test('pages-research-evidence.js contains clinical disclaimer banner function', () => {
   assert.match(src, /_resClinicalDisclaimerBanner/);
-  assert.match(src, /This page supports clinical review and decision support only/);
-  assert.match(src, /does not diagnose, prescribe, or replace clinician judgment/);
+  assert.match(src, /controlled preview evidence workspace/i);
+  assert.match(src, /It does not diagnose, prescribe, approve treatment, triage emergencies, or act autonomously/i);
 });
 
 test('pages-research-evidence.js calls clinical disclaimer in header', () => {
