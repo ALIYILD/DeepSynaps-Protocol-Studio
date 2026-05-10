@@ -763,7 +763,12 @@ async def analyze_mri(
     try:
         require_ai_analysis_consent(db, patient_id, actor, ai_modality="mri")
     except ConsentMissingError:
-        return {"error": "Patient consent required for MRI analysis", "consent_type": "ai_analysis"}, 403
+        raise ApiServiceError(
+            code="consent_missing",
+            message="Patient consent required for MRI analysis",
+            status_code=403,
+            details={"consent_type": "ai_analysis"},
+        )
 
     condition_lower = (condition or "").strip().lower()
     if condition_lower not in _VALID_CONDITIONS:

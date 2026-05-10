@@ -239,7 +239,7 @@ def _build_conflict_details(row: VideoAssessmentSession, doc: dict[str, Any]) ->
     }
 
 
-def _require_expected_revision(
+def _require_expected_revision_with_doc(
     *,
     row: VideoAssessmentSession,
     doc: dict[str, Any],
@@ -1500,7 +1500,7 @@ def patch_session(
             message="This session is finalized and cannot be modified. Contact an administrator if a correction is required.",
             status_code=409,
         )
-    _require_expected_revision(row=row, doc=doc, expected_revision=body.expected_revision)
+    _require_expected_revision_with_doc(row=row, doc=doc, expected_revision=body.expected_revision)
     if actor.role == "patient":
         _apply_patient_patch_restrictions(doc, body)
     else:
@@ -1562,7 +1562,7 @@ async def upload_task_video(
             message="Session is finalized; uploads are disabled.",
             status_code=409,
         )
-    _require_expected_revision(row=row, doc=doc_pre, expected_revision=expected_revision)
+    _require_expected_revision_with_doc(row=row, doc=doc_pre, expected_revision=expected_revision)
     if _find_task(doc_pre, task_id) is None:
         raise ApiServiceError(
             code="task_not_found",
@@ -1710,7 +1710,7 @@ def finalize_session(
             message="Session was already finalized.",
             status_code=409,
         )
-    _require_expected_revision(row=row, doc=doc, expected_revision=body.expected_revision)
+    _require_expected_revision_with_doc(row=row, doc=doc, expected_revision=body.expected_revision)
     doc["overall_status"] = "finalized"
     doc["completed_at"] = datetime.now(timezone.utc).isoformat()
     row.overall_status = "finalized"

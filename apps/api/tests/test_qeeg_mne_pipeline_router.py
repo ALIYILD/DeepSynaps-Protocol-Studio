@@ -16,7 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
-from app.persistence.models import QEEGAnalysis
+from app.persistence.models import ConsentRecord, Patient, QEEGAnalysis
 from app.settings import get_settings
 
 
@@ -131,6 +131,17 @@ def analysis_row(patient_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
     db = SessionLocal()
     try:
+        # Seed ai_analysis consent for the patient so analyze-mne passes
+        patient = db.query(Patient).filter_by(id=patient_id).first()
+        db.add(
+            ConsentRecord(
+                patient_id=patient_id,
+                clinician_id=patient.clinician_id if patient else "actor-clinician-demo",
+                consent_type="ai_analysis",
+                status="active",
+                signed=True,
+            )
+        )
         row = QEEGAnalysis(
             id=analysis_id,
             patient_id=patient_id,

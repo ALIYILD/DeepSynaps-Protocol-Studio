@@ -62,7 +62,12 @@ def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, session: Se
     exists, clinic_id = resolve_patient_clinic_id(session, patient_id)
     if not exists:
         raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
-    require_patient_owner(actor, clinic_id)
+    try:
+        require_patient_owner(actor, clinic_id)
+    except ApiServiceError as exc:
+        if exc.code == "cross_clinic_access_denied":
+            raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404) from exc
+        raise
 
 
 def _load_patient_for_actor(session: Session, patient_id: str, actor: AuthenticatedActor):

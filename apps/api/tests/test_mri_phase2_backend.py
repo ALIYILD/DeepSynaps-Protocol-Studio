@@ -22,8 +22,9 @@ def clinician_token() -> str:
     """Create a valid clinician access token."""
     return create_access_token(
         user_id="user-123",
-        username="clinician",
-        roles=["clinician"],
+        email="clinician@test.com",
+        role="clinician",
+        package_id="pkg-mri",
     )
 
 
@@ -193,8 +194,9 @@ def test_viewer_state_requires_clinician_role(
     # Create a token with a non-clinician role (if possible)
     non_clinician_token = create_access_token(
         user_id="user-456",
-        username="non_clinician",
-        roles=["patient"],
+        email="patient@test.com",
+        role="patient",
+        package_id="pkg-mri",
     )
 
     response = client.get(
@@ -210,8 +212,9 @@ def test_capabilities_requires_clinician_role(
     """Test that capabilities endpoint requires clinician role."""
     non_clinician_token = create_access_token(
         user_id="user-456",
-        username="non_clinician",
-        roles=["patient"],
+        email="patient@test.com",
+        role="patient",
+        package_id="pkg-mri",
     )
 
     response = client.get(
