@@ -8,14 +8,9 @@ protocol, then layer a structured enrichment block on top. No external AI
 calls are made — all logic is data-driven from the imported CSVs.
 """
 
-<<<<<<< HEAD
-from fastapi import APIRouter, Depends, Request, status
-=======
-from fastapi import APIRouter, Depends, HTTPException, Request
->>>>>>> 4f0948e7... fix(tests): set valid Fernet keys in conftest to prevent 2FA/wearable test failures
+from fastapi import APIRouter, Depends, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from sqlalchemy.orm import Session
 
 from deepsynaps_core_schema import (
     BrainScanProtocolRequest,
@@ -24,18 +19,13 @@ from deepsynaps_core_schema import (
     PersonalizedProtocolResponse,
     ProtocolDraftRequest,
     ProtocolDraftResponse,
-, HTTPException)
-
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
-from app.database import get_db_session
-from app.services.clinical_data import generate_protocol_draft_from_clinical_data
-from app.services.consent_enforcement import (
-    require_document_generation_consent,
-    ConsentMissingError,
 )
 
-router = APIRouter(prefix="", tags=["protocols-generate"], HTTPException)
-limiter = Limiter(key_func=get_remote_address, HTTPException)
+from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.services.clinical_data import generate_protocol_draft_from_clinical_data
+
+router = APIRouter(prefix="", tags=["protocols-generate"])
+limiter = Limiter(key_func=get_remote_address)
 
 # ---------------------------------------------------------------------------
 # Scan type → modality mapping
@@ -58,42 +48,42 @@ _DEFAULT_EVIDENCE_MAP: dict[str, str] = {
 # Shared extended response schemas
 # ---------------------------------------------------------------------------
 # Payload types live in `deepsynaps_core_schema.protocols_generate` (Architect
-# Rec #5, HTTPException). They are re-exported from the top-level package and imported above.
+# Rec #5). They are re-exported from the top-level package and imported above.
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _map_scan_to_modality(scan_type: str, HTTPException) -> str:
-    return _SCAN_MODALITY.get(scan_type, "tDCS", HTTPException)
+def _map_scan_to_modality(scan_type: str) -> str:
+    return _SCAN_MODALITY.get(scan_type, "tDCS")
 
 
-def _build_scan_guidance(req: BrainScanProtocolRequest, draft: ProtocolDraftResponse, HTTPException) -> str:
+def _build_scan_guidance(req: BrainScanProtocolRequest, draft: ProtocolDraftResponse) -> str:
     parts = [
         "Scan type: " + req.scan_type + ".",
         "Primary target identified: " + req.primary_target + ".",
     ]
     if req.eeg_markers:
-        parts.append("EEG markers present: " + ", ".join(req.eeg_markers, HTTPException) + ".", HTTPException)
-        if any(m.lower(, HTTPException) in ("alpha-asymmetry", "alpha asymmetry", HTTPException) for m in req.eeg_markers, HTTPException):
+        parts.append("EEG markers present: " + ", ".join(req.eeg_markers) + ".")
+        if any(m.lower() in ("alpha-asymmetry", "alpha asymmetry") for m in req.eeg_markers):
             parts.append(
                 "Alpha asymmetry detected — protocol reinforces left-hemisphere up-regulation."
-            , HTTPException)
-        if any("theta" in m.lower(, HTTPException) for m in req.eeg_markers, HTTPException):
+            )
+        if any("theta" in m.lower() for m in req.eeg_markers):
             parts.append(
                 "Elevated frontal theta — consider neurofeedback adjunct or theta-burst rTMS."
-            , HTTPException)
+            )
     if req.phenotype:
-        parts.append("Phenotype: " + req.phenotype + " — intensity adjusted to evidence sub-group.", HTTPException)
+        parts.append("Phenotype: " + req.phenotype + " — intensity adjusted to evidence sub-group.")
     parts.append(
         "Target region " + req.primary_target + " corroborates the registry-selected "
         "target " + draft.target_region + "."
-    , HTTPException)
-    return " ".join(parts, HTTPException)
+    )
+    return " ".join(parts)
 
 
-def _build_montage(req: BrainScanProtocolRequest, HTTPException) -> str:
+def _build_montage(req: BrainScanProtocolRequest) -> str:
     electrode_map: dict[str, str] = {
         "DLPFC": "F3",
         "DLPFC-R": "F4",
@@ -104,32 +94,32 @@ def _build_montage(req: BrainScanProtocolRequest, HTTPException) -> str:
         "TPJ": "T7",
         "PCC": "Pz",
     }
-    anchor = electrode_map.get(req.primary_target.upper(, HTTPException), "F3", HTTPException)
-    return anchor + " anode — Fp2 cathode (classic Fregni montage derived from " + req.scan_type + " localisation, HTTPException)"
+    anchor = electrode_map.get(req.primary_target.upper(), "F3")
+    return anchor + " anode — Fp2 cathode (classic Fregni montage derived from " + req.scan_type + " localisation)"
 
 
-def _build_marker_adjustment(req: BrainScanProtocolRequest, HTTPException) -> str:
+def _build_marker_adjustment(req: BrainScanProtocolRequest) -> str:
     if not req.eeg_markers:
         return "No EEG markers supplied — base registry parameters applied unchanged."
     notes = []
     for m in req.eeg_markers:
-        ml = m.lower(, HTTPException)
+        ml = m.lower()
         if "alpha" in ml:
-            notes.append("Alpha power deviation: +2 sessions/week recommended over standard.", HTTPException)
+            notes.append("Alpha power deviation: +2 sessions/week recommended over standard.")
         elif "theta" in ml:
-            notes.append("Frontal theta elevation: consider iTBS variant if available.", HTTPException)
+            notes.append("Frontal theta elevation: consider iTBS variant if available.")
         elif "beta" in ml:
-            notes.append("Beta excess: HF-rTMS or tACS at beta frequency warranted.", HTTPException)
-    return " ".join(notes, HTTPException) if notes else "Markers noted but no specific adjustment rule matched — standard parameters retained."
+            notes.append("Beta excess: HF-rTMS or tACS at beta frequency warranted.")
+    return " ".join(notes) if notes else "Markers noted but no specific adjustment rule matched — standard parameters retained."
 
 
-def _build_personalization_rationale(req: PersonalizedProtocolRequest, draft: ProtocolDraftResponse, HTTPException) -> str:
+def _build_personalization_rationale(req: PersonalizedProtocolRequest, draft: ProtocolDraftResponse) -> str:
     notes: list[str] = []
 
     if req.phq9 is not None:
         if req.phq9 >= 20:
             notes.append(
-                f"PHQ-9 {req.phq9:.0f} (severe, HTTPException) — protocol intensity maintained at upper evidence-supported limit; "
+                f"PHQ-9 {req.phq9:.0f} (severe) — protocol intensity maintained at upper evidence-supported limit; "
                 "monitoring plan extended to weekly assessments."
             )
         elif req.phq9 >= 15:
@@ -209,7 +199,6 @@ def generate_brain_scan_protocol(
     request: Request,
     body: BrainScanProtocolRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
-    db: Session = Depends(get_db_session),
 ) -> BrainScanProtocolResponse:
     """Generate a brain-scan-guided protocol draft.
 
@@ -218,16 +207,6 @@ def generate_brain_scan_protocol(
     adjustment logic. No external AI call — data-driven only.
     """
     require_minimum_role(actor, "clinician")
-
-    # ── Enforce document generation consent before processing patient data
-    if body.patient_id and not body.patient_id.lower().startswith("demo"):
-        try:
-            require_document_generation_consent(db, body.patient_id, actor, document_type="protocol")
-        except ConsentMissingError:
-            raise HTTPException(
-                status_code=403,
-                detail={"error": "Patient consent required for protocol generation", "consent_type": "document_generation"}
-            )
 
     modality = _map_scan_to_modality(body.scan_type)
     draft_request = ProtocolDraftRequest(
@@ -265,7 +244,6 @@ def generate_personalized_protocol(
     request: Request,
     body: PersonalizedProtocolRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
-    db: Session = Depends(get_db_session),
 ) -> PersonalizedProtocolResponse:
     """Generate a patient-personalized protocol draft.
 
@@ -274,16 +252,6 @@ def generate_personalized_protocol(
     scores, chronotype and medication load. No external AI call.
     """
     require_minimum_role(actor, "clinician")
-
-    # ── Enforce document generation consent before processing patient data
-    if body.patient_id and not body.patient_id.lower().startswith("demo"):
-        try:
-            require_document_generation_consent(db, body.patient_id, actor, document_type="protocol")
-        except ConsentMissingError:
-            raise HTTPException(
-                status_code=403,
-                detail={"error": "Patient consent required for protocol generation", "consent_type": "document_generation"}
-            )
 
     draft_request = ProtocolDraftRequest(
         condition=body.condition,

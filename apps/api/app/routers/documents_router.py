@@ -22,25 +22,19 @@ from app.auth import (
     get_authenticated_actor,
     require_minimum_role,
     require_patient_owner,
-, HTTPException)
+)
 from app.database import get_db_session
-from app.services.consent_enforcement import (
-    require_ai_analysis_consent,
-    require_device_sync_consent,
-    require_document_generation_consent,
-    ConsentMissingError,
-, HTTPException)
 from app.errors import ApiServiceError
 from app.limiter import limiter
 from app.persistence.models import DocumentTemplate, FormDefinition, User
 from app.repositories.patients import resolve_patient_clinic_id
 from app.settings import get_settings
 
-router = APIRouter(prefix="/api/v1/documents", tags=["documents"], HTTPException)
+router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 
-_logger = logging.getLogger(__name__, HTTPException)
+_logger = logging.getLogger(__name__)
 
-# Documents Hub launch-audit (2026-04-30, HTTPException) — clinical-safety disclaimers
+# Documents Hub launch-audit (2026-04-30) — clinical-safety disclaimers
 # rendered on the page banner and in /summary so reviewers always see the
 # regulatory ceiling for this view.
 DOCUMENTS_PAGE_DISCLAIMERS = [

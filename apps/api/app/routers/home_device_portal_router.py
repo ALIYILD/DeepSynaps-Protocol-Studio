@@ -32,92 +32,86 @@ from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor
 from app.database import get_db_session
-from app.services.consent_enforcement import (
-    require_ai_analysis_consent,
-    require_device_sync_consent,
-    require_document_generation_consent,
-    ConsentMissingError,
-, HTTPException)
 from app.errors import ApiServiceError
 from app.persistence.models import (
     DeviceSessionLog,
     HomeDeviceAssignment,
     Patient,
     PatientAdherenceEvent,
-, HTTPException)
+)
 from app.services.home_device_adherence import compute_adherence_summary
 from app.services.home_device_flags import run_home_device_flag_checks
 from app.settings import get_settings
 
-router = APIRouter(prefix="/api/v1/patient-portal", tags=["Patient Portal — Home Device"], HTTPException)
+router = APIRouter(prefix="/api/v1/patient-portal", tags=["Patient Portal — Home Device"])
 
 _DEMO_PATIENT_ACTOR_ID = "actor-patient-demo"
-_DEMO_ALLOWED_ENVS = frozenset({"development", "test"}, HTTPException)
+_DEMO_ALLOWED_ENVS = frozenset({"development", "test"})
 
 # Patient self-reports the date the home session occurred. Stored as text
-# (legacy column type, HTTPException), so the router validates it.
-_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$", HTTPException)
+# (legacy column type), so the router validates it.
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 # Sessions can be back-dated up to 30 days (e.g., patient catching up after
-# travel, HTTPException) but can never be in the future.
+# travel) but can never be in the future.
 _MAX_BACKDATE_DAYS = 30
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────────
 
-def _dt(v, HTTPException) -> Optional[str]:
+def _dt(v) -> Optional[str]:
     if v is None:
         return None
-    return v.isoformat(, HTTPException) if isinstance(v, datetime, HTTPException) else str(v, HTTPException)
+    return v.isoformat() if isinstance(v, datetime) else str(v)
 
 
-def _validate_session_date(value: str, *, field: str = "session_date", HTTPException) -> str:
+def _validate_session_date(value: str, *, field: str = "session_date") -> str:
     """Pin a self-reported date to ``YYYY-MM-DD``, no future, max 30 days back.
 
     Pre-fix the body accepted any string for ``session_date`` /
     ``report_date``. A patient could submit ``"2099-12-31"`` and pollute
     adherence summaries with future-dated sessions, or stuff arbitrary
-    text into the column (rendered back to clinicians in review queues, HTTPException).
+    text into the column (rendered back to clinicians in review queues).
     """
-    if not isinstance(value, str, HTTPException) or not _DATE_RE.match(value, HTTPException):
+    if not isinstance(value, str) or not _DATE_RE.match(value):
         raise ApiServiceError(
             code="invalid_date",
             message=f"{field} must be YYYY-MM-DD.",
             status_code=422,
-        , HTTPException)
+        )
     try:
-        parsed = date.fromisoformat(value, HTTPException)
+        parsed = date.fromisoformat(value)
     except ValueError as exc:
         raise ApiServiceError(
             code="invalid_date",
             message=f"{field} is not a valid calendar date.",
             status_code=422,
-        , HTTPException) from exc
-    today = datetime.now(timezone.utc, HTTPException).date(, HTTPException)
+        ) from exc
+    today = datetime.now(timezone.utc).date()
     if parsed > today:
         raise ApiServiceError(
             code="invalid_date",
             message=f"{field} cannot be in the future.",
             status_code=422,
-        , HTTPException)
-    if (today - parsed, HTTPException) > timedelta(days=_MAX_BACKDATE_DAYS, HTTPException):
+        )
+    if (today - parsed) > timedelta(days=_MAX_BACKDATE_DAYS):
         raise ApiServiceError(
             code="invalid_date",
             message=(
                 f"{field} cannot be more than {_MAX_BACKDATE_DAYS} days in the past."
-            , HTTPException),
+            ),
             status_code=422,
-        , HTTPException)
+        )
     return value
 
 
-def _require_patient(actor: AuthenticatedActor, db: Session, HTTPException) -> Patient:
+def _require_patient(actor: AuthenticatedActor, db: Session) -> Patient:
     """Resolve the Patient row for the calling actor.
 
     Pre-fix this helper only matched ``Patient.email == user.email`` and
     never checked ``actor.role``. A clinician whose own user.email
     happened to match a Patient row could log home sessions / submit
     adherence events as that patient. The demo-bypass branch
-    (``actor.actor_id == "actor-patient-demo"``, HTTPException) was reachable in any
+    (``actor.actor_id == "actor-patient-demo"``) was reachable in any
     environment.
 
     Post-fix:
@@ -129,60 +123,60 @@ def _require_patient(actor: AuthenticatedActor, db: Session, HTTPException) -> P
     """
     from app.persistence.models import User
 
-    if actor.role not in ("patient", "admin", HTTPException):
+    if actor.role not in ("patient", "admin"):
         raise ApiServiceError(
             code="patient_role_required",
             message="The patient portal is only available to patient accounts.",
             status_code=403,
-        , HTTPException)
+        )
 
     if actor.actor_id == _DEMO_PATIENT_ACTOR_ID:
-        settings = get_settings(, HTTPException)
-        app_env = (getattr(settings, "app_env", None, HTTPException) or "production", HTTPException).lower(, HTTPException)
+        settings = get_settings()
+        app_env = (getattr(settings, "app_env", None) or "production").lower()
         if app_env not in _DEMO_ALLOWED_ENVS:
             raise ApiServiceError(
                 code="demo_disabled",
                 message="Demo patient bypass is not available in this environment.",
                 status_code=403,
-            , HTTPException)
-        patient = db.query(Patient, HTTPException).filter(
-            Patient.email.in_(["patient@deepsynaps.com", "patient@demo.com"], HTTPException)
-        , HTTPException).first(, HTTPException)
+            )
+        patient = db.query(Patient).filter(
+            Patient.email.in_(["patient@deepsynaps.com", "patient@demo.com"])
+        ).first()
         if patient:
             return patient
         raise ApiServiceError(
             code="patient_not_linked",
             message="No demo patient record found.",
             status_code=404,
-        , HTTPException)
-    user = db.query(User, HTTPException).filter_by(id=actor.actor_id, HTTPException).first(, HTTPException)
+        )
+    user = db.query(User).filter_by(id=actor.actor_id).first()
     if user is None:
-        raise ApiServiceError(code="not_found", message="User not found.", status_code=404, HTTPException)
-    patient = db.query(Patient, HTTPException).filter(Patient.email == user.email, HTTPException).first(, HTTPException)
+        raise ApiServiceError(code="not_found", message="User not found.", status_code=404)
+    patient = db.query(Patient).filter(Patient.email == user.email).first()
     if patient is None:
         raise ApiServiceError(
             code="patient_not_linked",
             message="No patient record linked to this user account.",
             status_code=404,
-        , HTTPException)
+        )
     return patient
 
 
-def _get_active_assignment(patient_id: str, db: Session, HTTPException) -> Optional[HomeDeviceAssignment]:
+def _get_active_assignment(patient_id: str, db: Session) -> Optional[HomeDeviceAssignment]:
     return (
-        db.query(HomeDeviceAssignment, HTTPException)
+        db.query(HomeDeviceAssignment)
         .filter(
             HomeDeviceAssignment.patient_id == patient_id,
             HomeDeviceAssignment.status == "active",
-        , HTTPException)
-        .order_by(HomeDeviceAssignment.created_at.desc(, HTTPException), HTTPException)
-        .first(, HTTPException)
-    , HTTPException)
+        )
+        .order_by(HomeDeviceAssignment.created_at.desc())
+        .first()
+    )
 
 
 # ── Response schemas ──────────────────────────────────────────────────────────────
 
-class PortalAssignmentOut(BaseModel, HTTPException):
+class PortalAssignmentOut(BaseModel):
     id: str
     device_name: str
     device_model: Optional[str]
@@ -195,7 +189,7 @@ class PortalAssignmentOut(BaseModel, HTTPException):
     assigned_at: str
 
 
-class PortalSessionLogOut(BaseModel, HTTPException):
+class PortalSessionLogOut(BaseModel):
     id: str
     session_date: str
     logged_at: str
@@ -209,7 +203,7 @@ class PortalSessionLogOut(BaseModel, HTTPException):
     status: str
 
 
-class PortalAdherenceEventOut(BaseModel, HTTPException):
+class PortalAdherenceEventOut(BaseModel):
     id: str
     event_type: str
     severity: Optional[str]
@@ -221,57 +215,57 @@ class PortalAdherenceEventOut(BaseModel, HTTPException):
 
 # ── Request schemas ───────────────────────────────────────────────────────────────
 
-class LogSessionRequest(BaseModel, HTTPException):
-    session_date: str = Field(..., description="YYYY-MM-DD", HTTPException)
-    duration_minutes: Optional[int] = Field(None, ge=1, le=480, HTTPException)
+class LogSessionRequest(BaseModel):
+    session_date: str = Field(..., description="YYYY-MM-DD")
+    duration_minutes: Optional[int] = Field(None, ge=1, le=480)
     completed: bool = True
     actual_intensity: Optional[str] = None
     electrode_placement: Optional[str] = None
     side_effects_during: Optional[str] = None
-    tolerance_rating: Optional[int] = Field(None, ge=1, le=5, HTTPException)
-    mood_before: Optional[int] = Field(None, ge=1, le=5, HTTPException)
-    mood_after: Optional[int] = Field(None, ge=1, le=5, HTTPException)
+    tolerance_rating: Optional[int] = Field(None, ge=1, le=5)
+    mood_before: Optional[int] = Field(None, ge=1, le=5)
+    mood_after: Optional[int] = Field(None, ge=1, le=5)
     notes: Optional[str] = None
 
 
-class SubmitAdherenceEventRequest(BaseModel, HTTPException):
+class SubmitAdherenceEventRequest(BaseModel):
     event_type: str       # adherence_report | side_effect | tolerance_change | break_request | concern | positive_feedback | device_request
     severity: Optional[str] = None     # low | moderate | high | urgent
-    report_date: str = Field(..., description="YYYY-MM-DD", HTTPException)
+    report_date: str = Field(..., description="YYYY-MM-DD")
     body: Optional[str] = None
     structured: dict = {}
 
 
-class RequestHomeDeviceRequest(BaseModel, HTTPException):
-    device_name: str = Field(..., min_length=1, max_length=120, HTTPException)
-    device_category: Optional[str] = Field(None, max_length=120, HTTPException)
-    modality: Optional[str] = Field(None, max_length=120, HTTPException)
-    catalog_id: Optional[str] = Field(None, max_length=120, HTTPException)
-    note: Optional[str] = Field(None, max_length=1000, HTTPException)
+class RequestHomeDeviceRequest(BaseModel):
+    device_name: str = Field(..., min_length=1, max_length=120)
+    device_category: Optional[str] = Field(None, max_length=120)
+    modality: Optional[str] = Field(None, max_length=120)
+    catalog_id: Optional[str] = Field(None, max_length=120)
+    note: Optional[str] = Field(None, max_length=1000)
 
 
 _VALID_EVENT_TYPES = frozenset({
     "adherence_report", "side_effect", "tolerance_change",
     "break_request", "concern", "positive_feedback", "device_request",
-}, HTTPException)
-_VALID_SEVERITIES = frozenset({"low", "moderate", "high", "urgent"}, HTTPException)
+})
+_VALID_SEVERITIES = frozenset({"low", "moderate", "high", "urgent"})
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────────
 
-@router.get("/home-device", HTTPException)
+@router.get("/home-device")
 def get_home_device(
-    actor: AuthenticatedActor = Depends(get_authenticated_actor, HTTPException),
-    db: Session = Depends(get_db_session, HTTPException),
-, HTTPException) -> dict:
-    patient = _require_patient(actor, db, HTTPException)
-    assignment = _get_active_assignment(patient.id, db, HTTPException)
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    patient = _require_patient(actor, db)
+    assignment = _get_active_assignment(patient.id, db)
     if assignment is None:
         return {"assignment": None}
 
     params = {}
     try:
-        params = json.loads(assignment.parameters_json or "{}", HTTPException)
+        params = json.loads(assignment.parameters_json or "{}")
     except Exception:
         pass
 
@@ -286,56 +280,56 @@ def get_home_device(
             session_frequency_per_week=assignment.session_frequency_per_week,
             planned_total_sessions=assignment.planned_total_sessions,
             status=assignment.status,
-            assigned_at=_dt(assignment.created_at, HTTPException),
-        , HTTPException).model_dump(, HTTPException),
+            assigned_at=_dt(assignment.created_at),
+        ).model_dump(),
     }
 
 
-@router.get("/home-sessions", response_model=list[PortalSessionLogOut], HTTPException)
+@router.get("/home-sessions", response_model=list[PortalSessionLogOut])
 def list_home_sessions(
-    actor: AuthenticatedActor = Depends(get_authenticated_actor, HTTPException),
-    db: Session = Depends(get_db_session, HTTPException),
-, HTTPException) -> list[PortalSessionLogOut]:
-    patient = _require_patient(actor, db, HTTPException)
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> list[PortalSessionLogOut]:
+    patient = _require_patient(actor, db)
     rows = (
-        db.query(DeviceSessionLog, HTTPException)
-        .filter(DeviceSessionLog.patient_id == patient.id, HTTPException)
-        .order_by(DeviceSessionLog.session_date.desc(, HTTPException), HTTPException)
-        .limit(90, HTTPException)
-        .all(, HTTPException)
-    , HTTPException)
+        db.query(DeviceSessionLog)
+        .filter(DeviceSessionLog.patient_id == patient.id)
+        .order_by(DeviceSessionLog.session_date.desc())
+        .limit(90)
+        .all()
+    )
     return [
         PortalSessionLogOut(
-            id=r.id, session_date=r.session_date, logged_at=_dt(r.logged_at, HTTPException),
+            id=r.id, session_date=r.session_date, logged_at=_dt(r.logged_at),
             duration_minutes=r.duration_minutes, completed=r.completed,
             tolerance_rating=r.tolerance_rating, mood_before=r.mood_before,
             mood_after=r.mood_after, side_effects_during=r.side_effects_during,
             notes=r.notes, status=r.status,
-        , HTTPException)
+        )
         for r in rows
     ]
 
 
-@router.post("/home-sessions", response_model=PortalSessionLogOut, status_code=201, HTTPException)
+@router.post("/home-sessions", response_model=PortalSessionLogOut, status_code=201)
 def log_home_session(
     body: LogSessionRequest,
-    actor: AuthenticatedActor = Depends(get_authenticated_actor, HTTPException),
-    db: Session = Depends(get_db_session, HTTPException),
-, HTTPException) -> PortalSessionLogOut:
-    patient = _require_patient(actor, db, HTTPException)
-    assignment = _get_active_assignment(patient.id, db, HTTPException)
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PortalSessionLogOut:
+    patient = _require_patient(actor, db)
+    assignment = _get_active_assignment(patient.id, db)
     if assignment is None:
         raise ApiServiceError(
             code="no_active_assignment",
             message="No active device assignment found. Ask your clinician to assign a device.",
             status_code=404,
-        , HTTPException)
+        )
 
-    session_date_validated = _validate_session_date(body.session_date, HTTPException)
+    session_date_validated = _validate_session_date(body.session_date)
 
-    now = datetime.now(timezone.utc, HTTPException)
+    now = datetime.now(timezone.utc)
     log = DeviceSessionLog(
-        id=str(uuid.uuid4(, HTTPException), HTTPException),
+        id=str(uuid.uuid4()),
         assignment_id=assignment.id,
         patient_id=patient.id,
         course_id=assignment.course_id,
@@ -352,9 +346,9 @@ def log_home_session(
         notes=body.notes,
         status="pending_review",
         created_at=now,
-    , HTTPException)
-    db.add(log, HTTPException)
-    db.flush(, HTTPException)
+    )
+    db.add(log)
+    db.flush()
 
     # Run flag checks — may persist new HomeDeviceReviewFlag rows
     try:
@@ -363,7 +357,7 @@ def log_home_session(
             assignment=assignment,
             db=db,
             new_session_log=log,
-        , HTTPException)
+        )
     except Exception:
         pass  # flags are advisory; never block session logging
 
