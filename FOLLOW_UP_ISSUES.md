@@ -1,8 +1,10 @@
-# FOLLOW-UP ISSUES: Clinical Data Platform
+# FOLLOW-UP CHECKLIST: Clinical Data Platform
 
 **Created:** May 10, 2026  
-**Triggered by:** feat/clinical-data-platform PR  
-**Urgency:** CRITICAL (blocking clinical production use)
+**Reference:** PR #840 (feat/clinical-data-platform)  
+**Status:** Blocking issues must be fixed before clinical production use
+
+**Do not use with real patients until items A, B, C, and F are complete.**
 
 ---
 
