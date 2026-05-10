@@ -12,6 +12,9 @@ TEST_DB_PATH = Path(__file__).resolve().parent / f".test_deepsynaps_{os.getpid()
 # Set environment BEFORE any app module is imported so cached settings reflect test values.
 os.environ["DEEPSYNAPS_APP_ENV"] = "test"
 os.environ["DEEPSYNAPS_DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH.as_posix()}"
+# Prevent .env placeholder from breaking Fernet-dependent tests (2FA, wearables).
+os.environ["DEEPSYNAPS_SECRETS_KEY"] = "Pn7p4xBz2vQ8fJ-bCe1rXkS5lYgM3hUaTwDoVqIeZ8U="
+os.environ["WEARABLE_TOKEN_ENC_KEY"] = "Pn7p4xBz2vQ8fJ-bCe1rXkS5lYgM3hUaTwDoVqIeZ8U="
 # Avoid writing clinical snapshot manifest files into the repo during tests.
 os.environ["DEEPSYNAPS_CLINICAL_SNAPSHOT_ROOT"] = os.getenv(
     "DEEPSYNAPS_CLINICAL_SNAPSHOT_ROOT",
