@@ -669,3 +669,135 @@ export const MRI_NEUROMARKERS_STYLES = `
   border-radius: 0.375rem;
 }
 `;
+
+/**
+ * Bind event handlers and populate data for the MRI Neuromarkers tab
+ */
+export function bindMRINeuromarkersTab() {
+  // Add event listener for search button
+  const searchBtn = document.getElementById('mri-neuro-search-btn');
+  if (searchBtn) {
+    searchBtn.addEventListener('click', async () => {
+      const query = document.getElementById('mri-neuro-search-input')?.value || '';
+      await loadAndDisplayMRINeuromarkers(query);
+    });
+  }
+
+  // Add event listeners for filter selects
+  const categorySelect = document.getElementById('mri-neuro-filter-category');
+  const modalitySelect = document.getElementById('mri-neuro-filter-modality');
+  const sequenceSelect = document.getElementById('mri-neuro-filter-sequence');
+  
+  [categorySelect, modalitySelect, sequenceSelect].forEach(select => {
+    if (select) {
+      select.addEventListener('change', async () => {
+        const query = document.getElementById('mri-neuro-search-input')?.value || '';
+        await loadAndDisplayMRINeuromarkers(query);
+      });
+    }
+  });
+
+  // Load initial data
+  loadAndDisplayMRINeuromarkers('');
+}
+
+/**
+ * Load MRI Neuromarkers and display them
+ */
+async function loadAndDisplayMRINeuromarkers(query) {
+  const signsList = document.getElementById('mri-neuro-signs-list');
+  if (!signsList) return;
+
+  try {
+    const response = await api.listNeuroSigns({ search: query });
+    const signs = response?.items || response || [];
+
+    if (!signs || signs.length === 0) {
+      signsList.innerHTML = '<div class="empty-state">No MRI neuromarkers found. Try adjusting your filters.</div>';
+      return;
+    }
+
+    // Render signs
+    signsList.innerHTML = signs.map(sign => `
+      <div class="sign-card" data-sign-id="${sign.id}">
+        <div class="sign-header">
+          <h3>${esc(sign.name)}</h3>
+          <span class="sign-category">${esc(sign.category)}</span>
+        </div>
+        <p class="sign-description">${esc(sign.description || 'No description available')}</p>
+        <button class="btn btn-sm btn-ghost" data-view-details="${sign.id}">View Details</button>
+      </div>
+    `).join('');
+
+    // Bind detail view buttons
+    signsList.querySelectorAll('[data-view-details]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const signId = e.target.getAttribute('data-view-details');
+        await showSignDetail(signId);
+      });
+    });
+  } catch (error) {
+    signsList.innerHTML = `<div class="error">Error loading neuromarkers: ${esc(error.message)}</div>`;
+  }
+}
+
+/**
+ * Show sign detail in modal
+ */
+async function showSignDetail(signId) {
+  const modal = document.getElementById('mri-neuro-detail-modal');
+  if (!modal) return;
+
+  try {
+    const response = await api.getNeuroSign(signId);
+    const sign = response || {};
+
+    document.getElementById('detail-sign-name').textContent = sign.name || 'MRI Neuromarker';
+    
+    const detailContent = document.getElementById('mri-neuro-detail-content');
+    detailContent.innerHTML = `
+      <div class="detail-section">
+        <h4>Definition</h4>
+        <p>${esc(sign.definition || 'No definition available')}</p>
+      </div>
+      <div class="detail-section">
+        <h4>Clinical Significance</h4>
+        <p>${esc(sign.clinical_significance || 'Clinical significance pending')}</p>
+      </div>
+      <div class="detail-section">
+        <h4>Associated Conditions</h4>
+        <p>${esc((sign.associated_conditions || []).join(', ') || 'None documented')}</p>
+      </div>
+      ${sign.warning ? `
+        <div class="warning-section">
+          <strong>⚠️ Important Caveat:</strong>
+          <p>${esc(sign.warning)}</p>
+        </div>
+      ` : ''}
+      <div class="detail-section">
+        <h4>Suggested Reporting Phrase</h4>
+        <textarea class="reporting-phrase" readonly>${esc(sign.reporting_phrase || 'Enter custom reporting text')}</textarea>
+      </div>
+    `;
+
+    modal.style.display = 'flex';
+  } catch (error) {
+    alert('Error loading sign details: ' + error.message);
+  }
+}
+
+// Close modal handler
+document.addEventListener('click', (e) => {
+  if (e.target.hasAttribute('data-close-detail')) {
+    const modal = document.getElementById('mri-neuro-detail-modal');
+    if (modal) modal.style.display = 'none';
+  }
+});
+
+function esc(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
