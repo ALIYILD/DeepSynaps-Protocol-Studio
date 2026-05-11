@@ -206,6 +206,7 @@ from app.routers.clinical_text_router import router as clinical_text_router
 from app.routers.agents_router import router as agents_router
 from app.routers.agent_admin_router import router as agent_admin_router
 from app.routers.admin_pgvector_router import router as admin_pgvector_router
+from app.routers.research_dataset_router import router as research_dataset_router
 from app.routers.monitor_router import router as monitor_router
 from app.routers.deeptwin_router import brain_twin_router, router as deeptwin_router
 from app.routers.deeptwin_neuroai_lab_router import router as deeptwin_neuroai_lab_router
@@ -695,6 +696,7 @@ app.include_router(clinical_text_router)
 app.include_router(agents_router)
 app.include_router(agent_admin_router)
 app.include_router(admin_pgvector_router)
+app.include_router(research_dataset_router)
 app.include_router(feature_store_router)
 app.include_router(citation_validator_router)
 app.include_router(ai_health_router)

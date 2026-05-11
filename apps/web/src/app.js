@@ -172,6 +172,10 @@ let _modBiomarkers = null;
 async function loadBiomarkers() { return (_modBiomarkers ??= await import('./pages-biomarkers.js')); }
 let _modDataConsole = null;
 async function loadDataConsole() { return (_modDataConsole ??= await import('./pages-data-console.js')); }
+// Research datasets (Slice C scaffold) — admin-only stub page. Backend is
+// flag-gated; the page reads as a disclaimer + empty table until flipped.
+let _modResearchDatasets = null;
+async function loadResearchDatasets() { return (_modResearchDatasets ??= await import('./pages-research-datasets.js')); }
 async function loadVoiceAnalyzer() { return (_modVoiceAnalyzer ??= await import('./pages-voice-analyzer.js')); }
 let _modTextAnalyzer = null;
 async function loadTextAnalyzer() { return (_modTextAnalyzer ??= await import('./pages-text-analyzer.js')); }
@@ -511,11 +515,12 @@ let currentPage = 'dashboard';
 
 // ── Role-based nav visibility ─────────────────────────────────────────────────
 const ROLE_NAV_HIDE = {
-  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'finance-v2', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'risk-analyzer', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report', 'data-console'],
-  reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'finance-v2', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'data-console'],
-  patient:    ['finance-v2', 'data-console'],
-  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-v2', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'treatment-sessions-analyzer', 'audittrail', 'billing', 'finance-v2', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report', 'tickets', 'data-console'],
-  clinician:  ['population-analytics'],
+  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'finance-v2', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'risk-analyzer', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report', 'data-console', 'research-datasets'],
+  reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'finance-v2', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'data-console', 'research-datasets'],
+  patient:    ['finance-v2', 'data-console', 'research-datasets'],
+  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-v2', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'treatment-sessions-analyzer', 'audittrail', 'billing', 'finance-v2', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report', 'tickets', 'data-console', 'research-datasets'],
+  // Clinician is NOT an admin — research datasets are admin-only (Slice C).
+  clinician:  ['population-analytics', 'research-datasets'],
 };
 
 // Routes that admin/clinic_admin/clinician get; everyone else lands on a safe
@@ -610,6 +615,7 @@ const NAV = [
   { id: 'reports-v2',         label: 'Reports',           icon: '📈' },
   { id: 'finance-v2',         label: 'Finance',           icon: '💰' },
   { id: 'data-console',       label: 'Data Console',      icon: '📋' },
+  { id: 'research-datasets',  label: 'Research Datasets', icon: '🧪' },
   // Research has moved into Reports (Reports → Research tab).
   // Settings is rendered pinned at the sidebar bottom (outside NAV sections).
   { id: 'tickets',            label: 'Tickets',           icon: '🎫' },
@@ -2039,6 +2045,16 @@ async function renderPage() {
         break;
       }
       const m = await loadDataConsole(); await m.pgDataConsole(setTopbar, navigate); break;
+    }
+    case 'research-datasets':  {
+      // Admin-only. The page module itself also runs this guard so direct
+      // imports + future tests behave consistently. Backend is hard-gated
+      // behind RESEARCH_EXPORT_ENABLED — list returns [] until flipped.
+      if (currentUser?.role !== 'admin') {
+        if (typeof window._nav === 'function') { await window._nav('home'); return; }
+        break;
+      }
+      const m = await loadResearchDatasets(); await m.pgResearchDatasets(setTopbar, navigate); break;
     }
     default:
       el.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-tertiary)">Page not found.</div>`;
