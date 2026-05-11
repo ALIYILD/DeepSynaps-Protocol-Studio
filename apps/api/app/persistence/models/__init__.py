@@ -484,3 +484,19 @@ __all__ = [
     "WearableObservation",
     "WellnessCheckin",
 ]
+
+
+# Neuro Signs Models (Medical Education & Reporting)
+from .neuro_signs import (
+    NeuroSign,
+    CaseNeuroSign,
+    NeuroSignAnnotation,
+)
+
+# Extend __all__ if it exists, otherwise create it
+if "__all__" in locals():
+    __all__.extend([
+        "NeuroSign",
+        "CaseNeuroSign",
+        "NeuroSignAnnotation",
+    ])
