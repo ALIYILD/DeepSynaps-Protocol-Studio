@@ -811,6 +811,57 @@ function _demoSyntheticResponse(path, method, body) {
       is_demo_synthetic: true,
     };
   }
+  // ── Data Console demo synthetics ──────────────────────────────────────────
+  // Read-only browser — safe to render mock rows. The page checks for
+  // `{ sources: [...] }`, `{ rows: [...] }`, `{ events: [...] }` shapes,
+  // so the generic `{ items: [], demo: true }` fallback below trips its
+  // "Invalid response" guards.
+  if (path === '/api/v1/data-console/sources' && (!method || method === 'GET')) {
+    return {
+      sources: [
+        { table: 'clinical_notes',     columns: ['id', 'patient_id', 'author_id', 'created_at', 'body'],                row_count_estimate: 248 },
+        { table: 'assessments',         columns: ['id', 'patient_id', 'instrument', 'score', 'completed_at'],            row_count_estimate: 112 },
+        { table: 'medications',         columns: ['id', 'patient_id', 'rxnorm_cui', 'dose', 'started_at', 'stopped_at'], row_count_estimate: 64 },
+        { table: 'adverse_events',      columns: ['id', 'patient_id', 'severity', 'reported_at', 'reporter_id'],         row_count_estimate: 9 },
+        { table: 'home_program_tasks',  columns: ['id', 'patient_id', 'task_type', 'status', 'due_at'],                  row_count_estimate: 38 },
+      ],
+      read_only: true,
+      phi_masked: true,
+      generated_at: new Date().toISOString(),
+      is_demo_synthetic: true,
+    };
+  }
+  const _dcRowsMatch = path.match(/^\/api\/v1\/data-console\/patients\/([^/]+)\/tables\/([^/?]+)\/rows/);
+  if (_dcRowsMatch && (!method || method === 'GET')) {
+    return {
+      patient_id: decodeURIComponent(_dcRowsMatch[1]),
+      table_name: decodeURIComponent(_dcRowsMatch[2]),
+      rows: [
+        { id: 'demo-row-1', patient_id: '***MASKED***', created_at: new Date(Date.now() - 86400000).toISOString(),  body: '***MASKED***' },
+        { id: 'demo-row-2', patient_id: '***MASKED***', created_at: new Date(Date.now() - 172800000).toISOString(), body: '***MASKED***' },
+      ],
+      limit: 50,
+      offset: 0,
+      read_only: true,
+      phi_masked: true,
+      is_demo_synthetic: true,
+    };
+  }
+  const _dcAuditMatch = path.match(/^\/api\/v1\/data-console\/patients\/([^/]+)\/audit/);
+  if (_dcAuditMatch && (!method || method === 'GET')) {
+    return {
+      patient_id: decodeURIComponent(_dcAuditMatch[1]),
+      events: [
+        { id: 'demo-audit-1', actor_id: 'actor-clinician-demo', action: 'data_console_summary',    resource_type: 'patient', result: 'success', timestamp: new Date(Date.now() - 3600000).toISOString(),  reason: null },
+        { id: 'demo-audit-2', actor_id: 'actor-clinician-demo', action: 'data_console_rows_read',  resource_type: 'patient', result: 'success', timestamp: new Date(Date.now() - 7200000).toISOString(),  reason: null },
+        { id: 'demo-audit-3', actor_id: 'actor-clinician-demo', action: 'data_console_audit_read', resource_type: 'patient', result: 'success', timestamp: new Date(Date.now() - 14400000).toISOString(), reason: null },
+      ],
+      read_only: true,
+      phi_masked: true,
+      is_demo_synthetic: true,
+    };
+  }
+
   // Mutations: pretend success (return a minimal accepted-shape object).
   if (method && method !== 'GET') return { ok: true, demo: true, id: 'demo-' + Date.now() };
   // Reads: list-shaped endpoints get { items: [] }; singular getters get null.
