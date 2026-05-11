@@ -1004,6 +1004,7 @@ describe('pgPatientSettings() interactions', () => {
 
     document.getElementById('st-save').click();
     await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
 
     assert.ok(prefs, 'preference payload should be submitted');
     assert.ok(Object.prototype.hasOwnProperty.call(prefs, 'session_reminders'));

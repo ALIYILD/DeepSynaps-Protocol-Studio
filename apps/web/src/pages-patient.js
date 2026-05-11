@@ -9299,19 +9299,33 @@ function _wireSettingsPage() {
     return fallback;
   }
   if (saveBtn) saveBtn.addEventListener('click', async () => {
-    clearDirty();
+    // P1 fix (workflow-honesty audit #8): do not clear the dirty flag or
+    // claim a save until the server confirms persistence. The previous
+    // implementation cleared dirty + toasted "saved in this browser"
+    // unconditionally, so a failed PATCH (or a missing api method) looked
+    // like a successful save to the patient. Now: API call first, toast
+    // only on resolution, dirty flag clears only on success. The api
+    // method (api.updatePatientPreferences) is now defined in api.js and
+    // PATCHes /api/v1/preferences (preferences_router.py) with the toggle
+    // map parked under notification_prefs.
+    const prefs = {};
+    st.querySelectorAll('[data-st-toggle]').forEach(t => {
+      prefs[t.dataset.stToggle || togglePrefKey(t)] = t.classList.contains('on');
+    });
+    const originalLabel = saveBtn.innerHTML;
+    saveBtn.disabled = true;
+    saveBtn.setAttribute('aria-busy', 'true');
     try {
-      if (api.updatePatientPreferences) {
-        const prefs = {};
-        st.querySelectorAll('[data-st-toggle]').forEach(t => {
-          prefs[t.dataset.stToggle || togglePrefKey(t)] = t.classList.contains('on');
-        });
-        await api.updatePatientPreferences(prefs);
-      }
-      stToast('Settings saved in this browser');
+      await api.updatePatientPreferences(prefs);
+      clearDirty();
+      stToast('Settings saved');
     } catch (err) {
       stToast('Save failed \u2014 try again');
       console.error('[settings] save failed', err);
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.removeAttribute('aria-busy');
+      saveBtn.innerHTML = originalLabel;
     }
   });
   if (discardBtn) discardBtn.addEventListener('click', () => { clearDirty(); stToast('Changes discarded'); window.location.reload(); });
