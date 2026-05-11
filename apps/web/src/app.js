@@ -2866,6 +2866,28 @@ window._backToClinic = async function() {
 
 // ── Initial boot ──────────────────────────────────────────────────────────────
 async function init() {
+  // Path-style deep links (e.g. /data-console) → SPA's `?page=<id>` convention.
+  // Netlify SPA fallback serves index.html for these paths, but the router
+  // only reads `?page=`. Normalize before the boot router runs so direct
+  // URLs (and the Fly `/data-console` 303 redirect) land on the right page.
+  try {
+    const pathname = (typeof location !== 'undefined' && location.pathname) || '/';
+    const search = (typeof location !== 'undefined' && location.search) || '';
+    const hasPageParam = new URLSearchParams(search).has('page');
+    const pathId = pathname.replace(/^\/+|\/+$/g, '');
+    // Only normalize bare, single-segment, kebab-id paths. Skip `/app`, `/api/*`,
+    // `/static/*`, `/auth/*`, etc. — those have their own handling. Allow only
+    // ids that match the same shape the existing deep-link gate accepts.
+    const ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/i;
+    const SKIP = new Set(['app', 'api', 'static', 'auth', 'uploads']);
+    if (!hasPageParam && pathId && ID_RE.test(pathId) && !SKIP.has(pathId.toLowerCase())) {
+      const qs = new URLSearchParams(search);
+      qs.set('page', pathId);
+      try {
+        history.replaceState(null, '', `/?${qs.toString()}`);
+      } catch (_) { /* non-fatal */ }
+    }
+  } catch (_) { /* non-fatal */ }
   const token = api.getToken();
   if (!token) {
     navigatePublic('home');

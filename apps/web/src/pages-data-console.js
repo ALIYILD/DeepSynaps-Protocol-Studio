@@ -134,7 +134,7 @@ export async function pgDataConsole(setTopbar, navigate) {
   async function loadAndRenderSources() {
     _isLoadingSources = true;
     try {
-      const resp = await api.fetch('/api/v1/data-console/sources', { method: 'GET' });
+      const resp = await api.dataConsoleSources();
       if (!resp || !Array.isArray(resp.sources)) {
         throw new Error('Invalid sources response');
       }
@@ -214,12 +214,11 @@ export async function pgDataConsole(setTopbar, navigate) {
     _currentLimit = 50;
 
     try {
-      const params = new URLSearchParams();
-      params.set('limit', _currentLimit);
-      params.set('offset', _currentOffset);
-      const resp = await api.fetch(
-        `/api/v1/data-console/patients/${encodeURIComponent(_selectedPatientId)}/tables/${encodeURIComponent(tableName)}/rows?${params.toString()}`,
-        { method: 'GET' }
+      const resp = await api.dataConsolePatientRows(
+        _selectedPatientId,
+        tableName,
+        _currentLimit,
+        _currentOffset,
       );
       if (!resp) throw new Error('No response');
       _currentRowsData = resp;
@@ -314,13 +313,7 @@ export async function pgDataConsole(setTopbar, navigate) {
 
     _isLoadingAudit = true;
     try {
-      const params = new URLSearchParams();
-      params.set('days', '30');
-      params.set('limit', '50');
-      const resp = await api.fetch(
-        `/api/v1/data-console/patients/${encodeURIComponent(_selectedPatientId)}/audit?${params.toString()}`,
-        { method: 'GET' }
-      );
+      const resp = await api.dataConsolePatientAudit(_selectedPatientId, 30, 50);
       if (!resp) throw new Error('No response');
       _currentAuditData = resp;
       renderAuditTable();
