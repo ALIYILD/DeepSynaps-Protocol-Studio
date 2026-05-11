@@ -861,6 +861,25 @@ function _demoSyntheticResponse(path, method, body) {
       is_demo_synthetic: true,
     };
   }
+  // Clinic-wide aggregate summary (Slice A). Returns the same set of mock
+  // tables we use for the per-patient sources, with counts. The export CSV
+  // endpoint is deliberately NOT shimmed — streaming a fake file would be
+  // misleading. The page hides the Download button in demo sessions.
+  if (path.match(/^\/api\/v1\/data-console\/clinic\/summary(\?|$)/) && (!method || method === 'GET')) {
+    return {
+      clinic_id: 'clinic-demo-default',
+      table_summaries: {
+        clinical_notes:    248,
+        assessments:       112,
+        medications:        64,
+        adverse_events:      9,
+        home_program_tasks: 38,
+      },
+      generated_at: new Date().toISOString(),
+      read_only: true,
+      is_demo_synthetic: true,
+    };
+  }
 
   // Mutations: pretend success (return a minimal accepted-shape object).
   if (method && method !== 'GET') return { ok: true, demo: true, id: 'demo-' + Date.now() };
@@ -6832,6 +6851,22 @@ export const api = {
     return apiFetch(
       `/api/v1/data-console/patients/${encodeURIComponent(patientId)}/audit?${qs}`,
     );
+  },
+  // ── Clinic-wide aggregate view (Slice A) ────────────────────────────────
+  // Roll-up + bulk CSV export for clinic owners and DeepSynaps superadmins.
+  // `clinicId` is optional for `clinic_admin` (defaults server-side to the
+  // actor's own clinic); required for `admin`. The CSV URL helper returns a
+  // plain string so the browser handles the download via <a href> — token
+  // is encoded as a `?access_token=` query param when present so the request
+  // carries auth even though <a> can't set headers.
+  dataConsoleClinicSummary: (clinicId) => {
+    const qs = clinicId ? `?clinic_id=${encodeURIComponent(clinicId)}` : '';
+    return apiFetch(`/api/v1/data-console/clinic/summary${qs}`);
+  },
+  dataConsoleClinicExportUrl: (clinicId, tableName) => {
+    const base = `/api/v1/data-console/clinic/${encodeURIComponent(clinicId)}/tables/${encodeURIComponent(tableName)}/export.csv`;
+    const token = getToken();
+    return token ? `${base}?access_token=${encodeURIComponent(token)}` : base;
   },
 };
 
