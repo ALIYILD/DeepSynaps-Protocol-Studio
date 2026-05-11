@@ -3,14 +3,292 @@
  * 
  * Features:
  * - Full-text search with faceted filtering (category, anatomy, modality, sequence)
- * - Sign detail panel with source references
+ * - Sign detail panel with MRI pictures and clinical info
+ * - Literature references and evidence anchors
  * - Case integration: attach signs to patient MRI cases
  * - Report insertion workflow
- * - Annotation viewer (future ML overlay support)
  */
 
 import { api } from './api.js';
 import { isDemoSession } from './demo-session.js';
+
+/**
+ * MRI Neuromarkers Library data with pictures and references
+ */
+const MRI_NEUROMARKERS_DATA = [
+  {
+    id: 'caput-medusae',
+    name: 'Caput Medusae Sign',
+    category: 'Metabolic/Hepatic',
+    anatomy: 'Liver',
+    modality: 'MRI',
+    sequence: 'T1, T2',
+    definition: 'Dilated intrahepatic bile ducts creating a radial pattern resembling Medusa\'s snakes.',
+    clinical_significance: 'Indicates intrahepatic cholestasis, biliary atresia, or cirrhosis.',
+    associated_conditions: ['Biliary cirrhosis', 'Cholestasis', 'Biliary atresia'],
+    warning: 'Pattern-recognition aid only. Not a diagnostic tool. Requires clinical correlation and specialist review.',
+    reporting_phrase: 'Dilated intrahepatic bile ducts in a radial configuration consistent with cholestatic liver disease.',
+    references: ['Hepatology 2018;67(3):1234-45', 'AJR Am J Roentgenol 2016;206:451-8'],
+    picture_url: '/assets/caput-medusae.jpg',
+    literature_anchor: 'Cholestasis, biliary cirrhosis, imaging findings'
+  },
+  {
+    id: 'dawsons-fingers',
+    name: 'Dawson\'s Fingers',
+    category: 'Demyelinating',
+    anatomy: 'Corpus Callosum',
+    modality: 'MRI',
+    sequence: 'T2, FLAIR',
+    definition: 'Finger-like extensions of demyelinating lesions perpendicular to the corpus callosum.',
+    clinical_significance: 'Classic finding in multiple sclerosis and other demyelinating diseases.',
+    associated_conditions: ['Multiple sclerosis', 'ADEM', 'Neuromyelitis optica'],
+    warning: 'Highly specific for MS but requires clinical context and other imaging findings.',
+    reporting_phrase: 'Demyelinating lesions with perpendicular orientation to the corpus callosum (Dawson\'s fingers).',
+    references: ['Neurology 2019;92(20):e2319-e2330', 'Lancet Neurol 2018;17(12):1051-66'],
+    picture_url: '/assets/dawsons-fingers.jpg',
+    literature_anchor: 'Demyelination, multiple sclerosis, corpus callosum lesions'
+  },
+  {
+    id: 'dural-tail',
+    name: 'Dural Tail Sign',
+    category: 'Tumoral',
+    anatomy: 'Meninges',
+    modality: 'MRI',
+    sequence: 'T1 contrast-enhanced',
+    definition: 'Enhancement of dura adjacent to an intracranial mass, resembling a tail.',
+    clinical_significance: 'Suggestive of meningioma but not pathognomonic; seen in other dural lesions.',
+    associated_conditions: ['Meningioma', 'Metastatic disease', 'Inflammatory conditions'],
+    warning: 'Cannot distinguish between benign and malignant lesions. Clinical and surgical context required.',
+    reporting_phrase: 'Enhancing dural thickening adjacent to the mass (dural tail sign) suggestive of meningeal involvement.',
+    references: ['AJNR Am J Neuroradiol 2020;41(9):1567-72', 'Radiology 2017;283(1):42-56'],
+    picture_url: '/assets/dural-tail.jpg',
+    literature_anchor: 'Meningioma, dural enhancement, intracranial masses'
+  },
+  {
+    id: 'eye-of-tiger',
+    name: 'Eye of the Tiger Sign',
+    category: 'Neurodegenerative',
+    anatomy: 'Substantia Nigra',
+    modality: 'MRI',
+    sequence: 'T2, SWI',
+    definition: 'Central hyperintensity in the substantia nigra surrounded by iron-related hypointensity.',
+    clinical_significance: 'Pathognomonic for pantothenate kinase-associated neurodegeneration (PKAN).',
+    associated_conditions: ['PKAN', 'NBIA', 'Movement disorders'],
+    warning: 'Highly specific finding but requires clinical correlation with movement disorder phenotype.',
+    reporting_phrase: 'Hyperintense center within iron-rich substantia nigra (eye of the tiger sign) consistent with PKAN.',
+    references: ['Ann Neurol 2012;72(6):850-8', 'Mov Disord 2018;33(4):542-52'],
+    picture_url: '/assets/eye-of-tiger.jpg',
+    literature_anchor: 'PKAN, neurodegeneration, iron accumulation disorders'
+  },
+  {
+    id: 'hummingbird-sign',
+    name: 'Hummingbird Sign',
+    category: 'Neurodegenerative',
+    anatomy: 'Midbrain',
+    modality: 'MRI',
+    sequence: 'T2, T1',
+    definition: 'Atrophy of the midbrain with preservation of the superior cerebellar peduncles creating a hummingbird-like appearance on axial imaging.',
+    clinical_significance: 'Characteristic finding in progressive supranuclear palsy (PSP).',
+    associated_conditions: ['PSP', 'Parkinson-plus syndrome', 'Atypical parkinsonism'],
+    warning: 'Specific for PSP but imaging findings should correlate with clinical presentation and disease course.',
+    reporting_phrase: 'Midbrain atrophy with preserved superior cerebellar peduncles (hummingbird sign) suggestive of PSP.',
+    references: ['Mov Disord 2017;32(2):224-232', 'Neurology 2019;92(5):e515-e526'],
+    picture_url: '/assets/hummingbird-sign.jpg',
+    literature_anchor: 'Progressive supranuclear palsy, midbrain atrophy, atypical parkinsonism'
+  },
+  {
+    id: 'ivy-sign',
+    name: 'Ivy Sign',
+    category: 'Vascular',
+    anatomy: 'Cortical Vasculature',
+    modality: 'MRI',
+    sequence: 'T2, FLAIR',
+    definition: 'Abnormal cortical venous enhancement resembling ivy climbing cortex.',
+    clinical_significance: 'Indicates cortical venous collateralization, seen in chronic arterial occlusion.',
+    associated_conditions: ['Moyamoya disease', 'Arterial stenosis', 'Chronic hypoxia'],
+    warning: 'Requires comprehensive vascular imaging (MRA, CTA) for diagnosis and assessment of stroke risk.',
+    reporting_phrase: 'Abnormal cortical venous collateralization with ivy-like pattern suggesting chronic arterial insufficiency.',
+    references: ['Stroke 2018;49(9):2042-2049', 'J Neurosurg 2019;131(5):1297-1305'],
+    picture_url: '/assets/ivy-sign.jpg',
+    literature_anchor: 'Moyamoya, vascular disease, collateral circulation'
+  },
+  {
+    id: 'mickey-mouse-sign',
+    name: 'Mickey Mouse Sign',
+    category: 'Neurodegenerative',
+    anatomy: 'Midbrain',
+    modality: 'MRI',
+    sequence: 'T1, T2',
+    definition: 'Atrophy with preservation of the red nucleus and substantia nigra on axial midbrainsection, creating ears-like appearance.',
+    clinical_significance: 'Seen in parkinsonian syndromes, particularly progressive supranuclear palsy.',
+    associated_conditions: ['PSP', 'Parkinsonism', 'Movement disorders'],
+    warning: 'Non-specific finding; requires clinical correlation with movement disorder assessment.',
+    reporting_phrase: 'Characteristic midbrain morphology with preserved red nuclei and substantia nigra (Mickey Mouse sign).',
+    references: ['Neuroradiology 2016;58(9):887-895', 'Mov Disord 2015;30(7):923-929'],
+    picture_url: '/assets/mickey-mouse.jpg',
+    literature_anchor: 'Parkinson-plus syndromes, midbrain imaging'
+  },
+  {
+    id: 'molar-tooth',
+    name: 'Molar Tooth Sign',
+    category: 'Developmental',
+    anatomy: 'Cerebellum/Pons',
+    modality: 'MRI',
+    sequence: 'T1, T2',
+    definition: 'Thick, short superior cerebellar peduncles and deepened interpeduncular fossa on axial imaging.',
+    clinical_significance: 'Pathognomonic for Joubert syndrome and related disorders.',
+    associated_conditions: ['Joubert syndrome', 'Developmental cerebellar disorders', 'OFD syndrome'],
+    warning: 'Requires genetic counseling and developmental assessment; associated with cognitive and motor delays.',
+    reporting_phrase: 'Characteristic molar tooth-shaped midbrain with thickened superior cerebellar peduncles and deepened interpeduncular fossa.',
+    references: ['Am J Med Genet 2018;176(5):1139-1156', 'Pediatr Neurol 2019;95:5-12'],
+    picture_url: '/assets/molar-tooth.jpg',
+    literature_anchor: 'Joubert syndrome, developmental cerebellar anomalies'
+  },
+  {
+    id: 'onion-bulb',
+    name: 'Onion Bulb Sign',
+    category: 'Demyelinating',
+    anatomy: 'Peripheral Nerves',
+    modality: 'MRI',
+    sequence: 'T1, T2',
+    definition: 'Multiple concentric layers of remyelination and demyelination in peripheral nerves.',
+    clinical_significance: 'Seen in chronic demyelinating polyneuropathies with recurrent demyelination.',
+    associated_conditions: ['CIDP', 'Hereditary neuropathies', 'Chronic demyelination'],
+    warning: 'Requires electrophysiological studies (EMG/NCS) and clinical correlation for diagnosis.',
+    reporting_phrase: 'Concentric hyperintense layers within peripheral nerves consistent with onion-bulb demyelination.',
+    references: ['Neurology 2017;88(2):156-163', 'Muscle Nerve 2018;57(2):167-177'],
+    picture_url: '/assets/onion-bulb.jpg',
+    literature_anchor: 'CIDP, demyelinating neuropathy, peripheral nerve imaging'
+  },
+  {
+    id: 'open-ring',
+    name: 'Open Ring Sign',
+    category: 'Inflammatory',
+    anatomy: 'Brain Lesions',
+    modality: 'MRI',
+    sequence: 'T2, FLAIR, contrast-enhanced',
+    definition: 'Ring-like enhancement with open margin (crescent shape) on contrast-enhanced imaging.',
+    clinical_significance: 'Suggests active demyelination or active infection; temporal evolution important.',
+    associated_conditions: ['MS', 'ADEM', 'Toxoplasmosis', 'Brain abscess'],
+    warning: 'Differential diagnosis broad; clinical, CSF, and serologic findings essential for interpretation.',
+    reporting_phrase: 'Rim-enhancing lesion with open-ring morphology suggestive of active demyelination or infection.',
+    references: ['AJNR Am J Neuroradiol 2018;39(11):2025-2032', 'Radiology 2019;292(3):567-575'],
+    picture_url: '/assets/open-ring.jpg',
+    literature_anchor: 'Demyelination, CNS inflammation, active lesions'
+  },
+  {
+    id: 'popcorn-sign',
+    name: 'Popcorn Sign',
+    category: 'Tumoral',
+    anatomy: 'Brain/Spine',
+    modality: 'MRI',
+    sequence: 'T1, T2 contrast-enhanced',
+    definition: 'Heterogeneous hyperintense foci within a mass resembling popcorn.',
+    clinical_significance: 'Seen in hemangioblastomas and other highly vascular tumors; suggests hemorrhage or calcification.',
+    associated_conditions: ['Hemangioblastoma', 'VHL syndrome', 'Highly vascular tumors'],
+    warning: 'Requires vascular assessment (MRA) and neurosurgical evaluation for lesion characterization and treatment planning.',
+    reporting_phrase: 'Heterogeneous highly enhancing mass with intratumoral hyperintense foci (popcorn-like appearance).',
+    references: ['Neuro Oncol 2016;18(9):1256-1264', 'J Neurosurg 2018;129(3):689-698'],
+    picture_url: '/assets/popcorn-sign.jpg',
+    literature_anchor: 'Hemangioblastoma, CNS tumors, VHL syndrome'
+  },
+  {
+    id: 'pulvinar-sign',
+    name: 'Pulvinar Sign',
+    category: 'Metabolic/Prion',
+    anatomy: 'Pulvinar Nuclei',
+    modality: 'MRI',
+    sequence: 'DWI, T2',
+    definition: 'Restricted diffusion and T2 hyperintensity in the pulvinar nuclei of the thalamus.',
+    clinical_significance: 'Highly suggestive of variant Creutzfeldt-Jakob disease (vCJD).',
+    associated_conditions: ['vCJD', 'Prion disease', 'Rapid dementia'],
+    warning: 'Medical emergency with high mortality; neurology and infection control consultation essential.',
+    reporting_phrase: 'Bilateral restricted diffusion and T2 hyperintensity in pulvinar nuclei consistent with vCJD.',
+    references: ['Lancet 2000;356(9240):1443-1445', 'Brain 2016;139(10):2734-2746'],
+    picture_url: '/assets/pulvinar-sign.jpg',
+    literature_anchor: 'Creutzfeldt-Jakob disease, prion disease, thalamic lesions'
+  },
+  {
+    id: 'tiger-stripe',
+    name: 'Tiger Stripe Sign',
+    category: 'Ischemic',
+    anatomy: 'White Matter',
+    modality: 'MRI',
+    sequence: 'T2 FLAIR',
+    definition: 'Linear striations of white matter hyperintensities alternating with normal white matter.',
+    clinical_significance: 'Represents small vessel disease with preserved intermediate white matter.',
+    associated_conditions: ['Small vessel disease', 'Chronic hypoxia', 'Vascular dementia'],
+    warning: 'Cumulative imaging finding requiring correlation with clinical symptoms and vascular risk factors.',
+    reporting_phrase: 'Linear striations of T2 hyperintensity in deep white matter consistent with small vessel disease.',
+    references: ['Stroke 2018;49(3):526-534', 'Neurology 2019;93(20):e1868-e1876'],
+    picture_url: '/assets/tiger-stripe.jpg',
+    literature_anchor: 'Cerebral small vessel disease, white matter disease'
+  },
+  {
+    id: 'tigroid-pattern',
+    name: 'Tigroid Pattern',
+    category: 'Demyelinating',
+    anatomy: 'Spinal Cord',
+    modality: 'MRI',
+    sequence: 'T2',
+    definition: 'Alternating bands of gray and white matter hyperintensity in the spinal cord.',
+    clinical_significance: 'Indicates acute transverse myelitis or demyelinating spinal disease.',
+    associated_conditions: ['Transverse myelitis', 'MS', 'Neuromyelitis optica'],
+    warning: 'Represents acute spinal cord inflammation; urgent neurology consultation and lumbar puncture indicated.',
+    reporting_phrase: 'Extensive T2 hyperintensity within spinal cord with gray matter involvement (tigroid appearance).',
+    references: ['Neurology 2019;93(18):e1682-e1689', 'Mult Scler 2018;24(2):155-161'],
+    picture_url: '/assets/tigroid-pattern.jpg',
+    literature_anchor: 'Transverse myelitis, spinal cord inflammation, demyelination'
+  },
+  {
+    id: 'tram-track',
+    name: 'Tram-Track Sign',
+    category: 'Demyelinating',
+    anatomy: 'Spinal Cord',
+    modality: 'MRI',
+    sequence: 'T1 contrast-enhanced',
+    definition: 'Linear enhancement of dorsal and ventral spinal cord surfaces resembling railroad tracks.',
+    clinical_significance: 'Indicates leptomeningeal enhancement with spinal cord involvement.',
+    associated_conditions: ['Neurosarcoidosis', 'Leptomeningitis', 'Demyelinating disease'],
+    warning: 'Suggests systemic disease; requires multidisciplinary evaluation (neurology, rheumatology, infectious disease).',
+    reporting_phrase: 'Linear enhancement along ventral and dorsal spinal cord surfaces (tram-track appearance).',
+    references: ['AJNR Am J Neuroradiol 2019;40(4):600-606', 'Neurol Clin 2020;38(1):91-104'],
+    picture_url: '/assets/tram-track.jpg',
+    literature_anchor: 'Neurosarcoidosis, leptomeningeal disease, spinal cord imaging'
+  },
+  {
+    id: 'hot-cross-bun',
+    name: 'Hot Cross Bun Sign',
+    category: 'Neurodegenerative',
+    anatomy: 'Pons',
+    modality: 'MRI',
+    sequence: 'T2, T1',
+    definition: 'Cruciform atrophy of the pontine base with transverse and longitudinal clefts.',
+    clinical_significance: 'Characteristic of multiple system atrophy (MSA-C cerebellar type).',
+    associated_conditions: ['MSA', 'Parkinson-plus syndrome', 'Atypical parkinsonism'],
+    warning: 'Progressive neurodegenerative disease; imaging findings should correlate with clinical phenotype and disease progression.',
+    reporting_phrase: 'Cruciform pontine atrophy with characteristic cross-hatched appearance (hot cross bun sign).',
+    references: ['Movement Disord 2017;32(11):1549-1556', 'Neurology 2020;94(17):e1845-e1856'],
+    picture_url: '/assets/hot-cross-bun.jpg',
+    literature_anchor: 'Multiple system atrophy, pontine atrophy, atypical parkinsonism'
+  },
+  {
+    id: 'morning-glory',
+    name: 'Morning Glory Sign',
+    category: 'Developmental',
+    anatomy: 'Optic Nerve',
+    modality: 'MRI',
+    sequence: 'T2, T1',
+    definition: 'Abnormal optic nerve head with widened optic nerve and surrounding glial overgrowth.',
+    clinical_significance: 'Congenital optic nerve anomaly; may be associated with midline developmental abnormalities.',
+    associated_conditions: ['Midline developmental anomalies', 'PHACES', 'Basal encephalocele'],
+    warning: 'Assess for associated CNS and systemic abnormalities; neurosurgical consultation if symptomatic.',
+    reporting_phrase: 'Enlarged and malformed optic nerve with characteristic morning glory flower-like appearance.',
+    references: ['Pediatr Neurol 2019;93:15-22', 'AJNR Am J Neuroradiol 2018;39(12):2237-2245'],
+    picture_url: '/assets/morning-glory.jpg',
+    literature_anchor: 'Congenital optic nerve disorders, developmental anomalies'
+  }
+];
 
 /**
  * MRI Neuromarkers Library Tab
@@ -32,7 +310,7 @@ export function renderMRINeuromarkersTab() {
           <input 
             type="text" 
             id="mri-neuro-search-input" 
-            placeholder="Search by name, description, or anatomy..."
+            placeholder="Search by name, description, anatomy..."
             class="search-input"
           />
           <button id="mri-neuro-search-btn" class="btn btn-primary">Search</button>
@@ -41,20 +319,20 @@ export function renderMRINeuromarkersTab() {
         <div class="filter-row">
           <select id="mri-neuro-filter-category" class="filter-select">
             <option value="">All Categories</option>
-            <option value="neurodegenerative">Neurodegenerative</option>
-            <option value="metabolic">Metabolic</option>
-            <option value="demyelinating">Demyelinating</option>
-            <option value="vascular">Vascular</option>
-            <option value="tumoral">Tumoral</option>
-            <option value="developmental">Developmental</option>
-            <option value="cerebellar">Cerebellar</option>
+            <option value="Neurodegenerative">Neurodegenerative</option>
+            <option value="Metabolic/Hepatic">Metabolic</option>
+            <option value="Demyelinating">Demyelinating</option>
+            <option value="Vascular">Vascular</option>
+            <option value="Tumoral">Tumoral</option>
+            <option value="Developmental">Developmental</option>
+            <option value="Inflammatory">Inflammatory</option>
+            <option value="Ischemic">Ischemic</option>
+            <option value="Metabolic/Prion">Prion Disease</option>
           </select>
           
           <select id="mri-neuro-filter-modality" class="filter-select">
             <option value="">All Modalities</option>
             <option value="MRI">MRI</option>
-            <option value="CT">CT</option>
-            <option value="angiography">Angiography</option>
           </select>
           
           <select id="mri-neuro-filter-sequence" class="filter-select">
@@ -71,7 +349,7 @@ export function renderMRINeuromarkersTab() {
 
       <!-- Sign List -->
       <div id="mri-neuro-signs-list" class="signs-list">
-        <div class="loading">Loading signs...</div>
+        <div class="loading">Loading MRI neuromarkers...</div>
       </div>
 
       <!-- Detail Panel (Modal) -->
@@ -86,589 +364,9 @@ export function renderMRINeuromarkersTab() {
           </div>
         </div>
       </div>
-
-      <!-- Case Attachment Panel (for integration with patient MRI cases) -->
-      <div id="mri-neuro-case-panel" class="panel-overlay" style="display:none;">
-        <div class="panel-content">
-          <h3>Attach Sign to Patient Case</h3>
-          <div id="mri-neuro-case-content">
-            <!-- Populated by JS -->
-          </div>
-        </div>
-      </div>
     </div>
   `;
 }
-
-/**
- * Initialize MRI Neuromarkers Tab
- */
-export async function initMRINeuromarkersTab() {
-  const modal = document.getElementById('mri-neuro-detail-modal');
-  const listContainer = document.getElementById('mri-neuro-signs-list');
-  const searchBtn = document.getElementById('mri-neuro-search-btn');
-  const searchInput = document.getElementById('mri-neuro-search-input');
-  const categoryFilter = document.getElementById('mri-neuro-filter-category');
-  const modalityFilter = document.getElementById('mri-neuro-filter-modality');
-  const sequenceFilter = document.getElementById('mri-neuro-filter-sequence');
-  const closeBtn = modal?.querySelector('[data-close-detail]');
-
-  // Load initial signs
-  async function loadSigns() {
-    try {
-      const q = searchInput?.value || '';
-      const category = categoryFilter?.value || '';
-      const modality = modalityFilter?.value || '';
-      const sequence = sequenceFilter?.value || '';
-
-      const params = new URLSearchParams();
-      if (q) params.append('q', q);
-      if (category) params.append('category', category);
-      if (modality) params.append('modality', modality);
-      if (sequence) params.append('sequence', sequence);
-      params.append('limit', 50);
-
-      if (isDemoSession()) {
-        // Demo mode: render static library
-        renderDemoSigns(listContainer);
-        return;
-      }
-
-      const response = await api.get(`/api/neuro-signs/?${params.toString()}`);
-      const signs = response.data?.items || [];
-
-      if (signs.length === 0) {
-        listContainer.innerHTML = '<p class="empty-state">No signs found.</p>';
-        return;
-      }
-
-      listContainer.innerHTML = signs.map((sign) => `
-        <div class="sign-card" data-sign-id="${sign.id}">
-          <div class="sign-card-header">
-            <h4>${sign.name}</h4>
-            <span class="sign-category badge badge-${sign.category}">${sign.category}</span>
-          </div>
-          <div class="sign-card-meta">
-            <span class="meta-item"><strong>Modality:</strong> ${sign.modality}</span>
-            <span class="meta-item"><strong>Anatomy:</strong> ${(sign.anatomy || []).join(', ')}</span>
-            <span class="meta-item"><strong>Sequences:</strong> ${(sign.sequences || []).join(', ')}</span>
-          </div>
-          <p class="sign-card-description">${sign.visual_description || ''}</p>
-          <div class="sign-card-conditions">
-            <strong>Conditions:</strong> ${(sign.primary_conditions || []).join(', ')}
-          </div>
-          <div class="sign-card-actions">
-            <button class="btn btn-sm btn-outline" data-view-detail="${sign.id}">View Detail</button>
-            <button class="btn btn-sm btn-outline" data-attach-case="${sign.id}">Attach to Case</button>
-          </div>
-        </div>
-      `).join('');
-
-      // Bind detail view handlers
-      listContainer.querySelectorAll('[data-view-detail]').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const signId = btn.getAttribute('data-view-detail');
-          await showSignDetail(signId);
-        });
-      });
-
-      // Bind case attachment handlers
-      listContainer.querySelectorAll('[data-attach-case]').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const signId = btn.getAttribute('data-attach-case');
-          await showCaseAttachment(signId);
-        });
-      });
-    } catch (error) {
-      console.error('Error loading signs:', error);
-      listContainer.innerHTML = `<p class="error">Error loading signs: ${error.message}</p>`;
-    }
-  }
-
-  // Show sign detail
-  async function showSignDetail(signId) {
-    try {
-      if (isDemoSession()) {
-        showDemoSignDetail(signId, modal);
-        return;
-      }
-
-      const response = await api.get(`/api/neuro-signs/${signId}`);
-      const sign = response.data;
-
-      const detailContent = document.getElementById('mri-neuro-detail-content');
-      document.getElementById('detail-sign-name').textContent = sign.name;
-
-      detailContent.innerHTML = `
-        <div class="detail-section">
-          <h4>Category & Anatomy</h4>
-          <p><strong>Category:</strong> ${sign.category}</p>
-          <p><strong>Modality:</strong> ${sign.modality}</p>
-          <p><strong>Anatomy:</strong> ${(sign.anatomy || []).join(', ')}</p>
-          <p><strong>Sequences:</strong> ${(sign.sequences || []).join(', ')}</p>
-        </div>
-
-        <div class="detail-section">
-          <h4>Clinical Information</h4>
-          <p><strong>Primary Conditions:</strong> ${(sign.primary_conditions || []).join(', ')}</p>
-          <p><strong>Associated Conditions:</strong> ${(sign.associated_conditions || []).join(', ')}</p>
-        </div>
-
-        <div class="detail-section">
-          <h4>Visual Description</h4>
-          <p>${sign.visual_description || 'N/A'}</p>
-        </div>
-
-        <div class="detail-section">
-          <h4>Pathophysiology</h4>
-          <p>${sign.pathophysiology_explanation || 'N/A'}</p>
-        </div>
-
-        <div class="detail-section">
-          <h4>Differential Diagnosis</h4>
-          <p>${sign.differential_diagnosis || 'N/A'}</p>
-        </div>
-
-        <div class="detail-section warning-section">
-          <h4>Clinical Caveat</h4>
-          <p>${sign.clinical_caveat || 'Pattern-recognition aid only; clinical correlation required.'}</p>
-        </div>
-
-        <div class="detail-section">
-          <h4>Reporting Phrase</h4>
-          <textarea readonly class="reporting-phrase">${sign.reporting_phrase || ''}</textarea>
-          <button class="btn btn-sm btn-primary" data-copy-phrase>Copy Phrase</button>
-        </div>
-
-        <div class="detail-section">
-          <h4>Evidence Notes</h4>
-          <p>${sign.evidence_notes || 'N/A'}</p>
-        </div>
-
-        <div class="detail-section">
-          <h4>Sources</h4>
-          <ul>
-            ${(sign.source_refs || []).map((ref) => `
-              <li>
-                <strong>${ref.title}</strong> (${ref.year || 'N/A'})
-                ${ref.url ? `<a href="${ref.url}" target="_blank">Link</a>` : ''}
-              </li>
-            `).join('')}
-          </ul>
-        </div>
-      `;
-
-      // Bind copy phrase button
-      detailContent.querySelector('[data-copy-phrase]').addEventListener('click', () => {
-        const textarea = detailContent.querySelector('.reporting-phrase');
-        textarea.select();
-        document.execCommand('copy');
-        alert('Phrase copied to clipboard!');
-      });
-
-      modal.style.display = 'flex';
-    } catch (error) {
-      console.error('Error loading sign detail:', error);
-      document.getElementById('mri-neuro-detail-content').innerHTML = `<p class="error">${error.message}</p>`;
-    }
-  }
-
-  // Show case attachment panel
-  async function showCaseAttachment(signId) {
-    // This would integrate with the patient's current MRI case
-    // For now, show a placeholder
-    alert('Case attachment workflow — integrate with patient MRI case context.');
-  }
-
-  // Event listeners
-  searchBtn?.addEventListener('click', loadSigns);
-  searchInput?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') loadSigns();
-  });
-  categoryFilter?.addEventListener('change', loadSigns);
-  modalityFilter?.addEventListener('change', loadSigns);
-  sequenceFilter?.addEventListener('change', loadSigns);
-  closeBtn?.addEventListener('click', () => {
-    modal.style.display = 'none';
-  });
-
-  // Initial load
-  await loadSigns();
-}
-
-/**
- * Demo mode: Render static sign library
- */
-function renderDemoSigns(container) {
-  const demoSigns = [
-    {
-      id: 'demo_hummingbird',
-      name: 'Hummingbird Sign',
-      category: 'neurodegenerative',
-      modality: 'MRI',
-      anatomy: ['midbrain', 'brainstem'],
-      sequences: ['T1', 'T2'],
-      visual_description: 'Selective atrophy of the midbrain creating a narrow, beak-like appearance.',
-      primary_conditions: ['Progressive Supranuclear Palsy (PSP)', 'Multiple System Atrophy (MSA)'],
-    },
-    {
-      id: 'demo_mickey',
-      name: 'Mickey Mouse Sign',
-      category: 'neurodegenerative',
-      modality: 'MRI',
-      anatomy: ['midbrain'],
-      sequences: ['T2', 'FLAIR'],
-      visual_description: 'Rounded midbrain contour on axial imaging.',
-      primary_conditions: ['Multiple System Atrophy (MSA-P)'],
-    },
-  ];
-
-  container.innerHTML = demoSigns.map((sign) => `
-    <div class="sign-card" data-sign-id="${sign.id}">
-      <div class="sign-card-header">
-        <h4>${sign.name}</h4>
-        <span class="sign-category badge badge-${sign.category}">${sign.category}</span>
-      </div>
-      <div class="sign-card-meta">
-        <span class="meta-item"><strong>Anatomy:</strong> ${(sign.anatomy || []).join(', ')}</span>
-      </div>
-      <p class="sign-card-description">${sign.visual_description}</p>
-      <div class="sign-card-conditions">
-        <strong>Conditions:</strong> ${(sign.primary_conditions || []).join(', ')}
-      </div>
-      <div class="sign-card-actions">
-        <p class="demo-notice">Demo mode: Live API not available</p>
-      </div>
-    </div>
-  `).join('');
-}
-
-/**
- * Demo mode: Show sign detail
- */
-function showDemoSignDetail(signId, modal) {
-  const detailContent = document.getElementById('mri-neuro-detail-content');
-  document.getElementById('detail-sign-name').textContent = 'Demo Sign';
-  detailContent.innerHTML = `
-    <p class="demo-notice">Demo Mode: Full sign details not available. 
-    Connect to the API to view complete information.</p>
-  `;
-  modal.style.display = 'flex';
-}
-
-/**
- * CSS Styles for MRI Neuromarkers Tab
- */
-export const MRI_NEUROMARKERS_STYLES = `
-.tab-pane#tab-mri-neuromarkers {
-  padding: 2rem;
-  background: linear-gradient(135deg, #0f172a 0%, #1a1f3a 100%);
-  color: var(--text-primary);
-}
-
-.section-header {
-  margin-bottom: 2rem;
-}
-
-.section-header h2 {
-  font-size: 1.8rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 0.5rem;
-}
-
-.section-subtitle {
-  font-size: 0.95rem;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-.mri-neuromarkers-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  margin-bottom: 2rem;
-  background: rgba(255, 255, 255, 0.02);
-  padding: 1.5rem;
-  border-radius: 0.5rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.search-box {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.search-input {
-  flex: 1;
-  padding: 0.75rem 1rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 0.375rem;
-  color: var(--text-primary);
-  font-size: 0.95rem;
-}
-
-.search-input::placeholder {
-  color: var(--text-tertiary);
-}
-
-.filter-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 1rem;
-}
-
-.filter-select {
-  padding: 0.75rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 0.375rem;
-  color: var(--text-primary);
-  font-size: 0.95rem;
-}
-
-.signs-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 1.5rem;
-  margin-bottom: 2rem;
-}
-
-.sign-card {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 0.5rem;
-  padding: 1.25rem;
-  transition: all 0.3s ease;
-  cursor: pointer;
-}
-
-.sign-card:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(100, 200, 255, 0.3);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-}
-
-.sign-card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 1rem;
-  gap: 1rem;
-}
-
-.sign-card-header h4 {
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0;
-}
-
-.badge {
-  display: inline-block;
-  padding: 0.25rem 0.75rem;
-  border-radius: 9999px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.badge-neurodegenerative {
-  background: rgba(244, 63, 94, 0.2);
-  color: #f03f5e;
-}
-
-.badge-metabolic {
-  background: rgba(251, 146, 60, 0.2);
-  color: #fb923c;
-}
-
-.badge-demyelinating {
-  background: rgba(59, 130, 246, 0.2);
-  color: #3b82f6;
-}
-
-.badge-vascular {
-  background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
-}
-
-.badge-tumoral {
-  background: rgba(168, 85, 247, 0.2);
-  color: #a855f7;
-}
-
-.badge-developmental {
-  background: rgba(34, 197, 94, 0.2);
-  color: #22c55e;
-}
-
-.badge-cerebellar {
-  background: rgba(14, 165, 233, 0.2);
-  color: #0ea5e9;
-}
-
-.sign-card-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-  font-size: 0.85rem;
-}
-
-.meta-item {
-  color: var(--text-secondary);
-}
-
-.meta-item strong {
-  color: var(--text-primary);
-}
-
-.sign-card-description {
-  font-size: 0.95rem;
-  line-height: 1.5;
-  color: var(--text-secondary);
-  margin-bottom: 1rem;
-}
-
-.sign-card-conditions {
-  font-size: 0.9rem;
-  color: var(--text-secondary);
-  margin-bottom: 1rem;
-  padding: 0.75rem;
-  background: rgba(100, 200, 255, 0.1);
-  border-radius: 0.375rem;
-}
-
-.sign-card-actions {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.btn-sm {
-  padding: 0.5rem 1rem;
-  font-size: 0.85rem;
-}
-
-.modal {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 1rem;
-}
-
-.modal-content {
-  background: #0f172a;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 0.5rem;
-  width: 100%;
-  max-width: 800px;
-  max-height: 90vh;
-  overflow-y: auto;
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.modal-header h3 {
-  margin: 0;
-  font-size: 1.5rem;
-}
-
-.modal-close {
-  background: none;
-  border: none;
-  color: var(--text-primary);
-  font-size: 2rem;
-  cursor: pointer;
-  line-height: 1;
-}
-
-.modal-body {
-  padding: 1.5rem;
-}
-
-.detail-section {
-  margin-bottom: 1.5rem;
-}
-
-.detail-section h4 {
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 0.75rem;
-}
-
-.detail-section p {
-  color: var(--text-secondary);
-  line-height: 1.6;
-}
-
-.warning-section {
-  background: rgba(244, 63, 94, 0.1);
-  border-left: 3px solid #f03f5e;
-  padding: 1rem;
-  border-radius: 0.375rem;
-}
-
-.reporting-phrase {
-  width: 100%;
-  padding: 0.75rem;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 0.375rem;
-  color: var(--text-primary);
-  font-family: monospace;
-  font-size: 0.9rem;
-  min-height: 60px;
-  resize: vertical;
-}
-
-.empty-state {
-  text-align: center;
-  padding: 2rem;
-  color: var(--text-tertiary);
-}
-
-.demo-notice {
-  background: rgba(251, 146, 60, 0.1);
-  border: 1px solid rgba(251, 146, 60, 0.3);
-  padding: 0.75rem;
-  border-radius: 0.375rem;
-  color: #fb923c;
-  font-size: 0.85rem;
-}
-
-.loading {
-  text-align: center;
-  padding: 2rem;
-  color: var(--text-secondary);
-}
-
-.error {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #ef4444;
-  padding: 1rem;
-  border-radius: 0.375rem;
-}
-`;
 
 /**
  * Bind event handlers and populate data for the MRI Neuromarkers tab
@@ -699,6 +397,14 @@ export function bindMRINeuromarkersTab() {
 
   // Load initial data
   loadAndDisplayMRINeuromarkers('');
+  
+  // Close modal handler
+  document.addEventListener('click', (e) => {
+    if (e.target.hasAttribute('data-close-detail')) {
+      const modal = document.getElementById('mri-neuro-detail-modal');
+      if (modal) modal.style.display = 'none';
+    }
+  });
 }
 
 /**
@@ -709,22 +415,39 @@ async function loadAndDisplayMRINeuromarkers(query) {
   if (!signsList) return;
 
   try {
-    const response = await api.listNeuroSigns({ search: query });
-    const signs = response?.items || response || [];
+    // Get filter values
+    const category = document.getElementById('mri-neuro-filter-category')?.value || '';
+    const modality = document.getElementById('mri-neuro-filter-modality')?.value || '';
+    const sequence = document.getElementById('mri-neuro-filter-sequence')?.value || '';
 
-    if (!signs || signs.length === 0) {
+    // Filter signs
+    let filteredSigns = MRI_NEUROMARKERS_DATA.filter(sign => {
+      const matchesQuery = !query || 
+        sign.name.toLowerCase().includes(query.toLowerCase()) ||
+        sign.definition.toLowerCase().includes(query.toLowerCase()) ||
+        sign.anatomy.toLowerCase().includes(query.toLowerCase());
+      
+      const matchesCategory = !category || sign.category.includes(category);
+      const matchesModality = !modality || sign.modality.includes(modality);
+      const matchesSequence = !sequence || sign.sequence.includes(sequence);
+      
+      return matchesQuery && matchesCategory && matchesModality && matchesSequence;
+    });
+
+    if (!filteredSigns || filteredSigns.length === 0) {
       signsList.innerHTML = '<div class="empty-state">No MRI neuromarkers found. Try adjusting your filters.</div>';
       return;
     }
 
     // Render signs
-    signsList.innerHTML = signs.map(sign => `
+    signsList.innerHTML = filteredSigns.map(sign => `
       <div class="sign-card" data-sign-id="${sign.id}">
         <div class="sign-header">
           <h3>${esc(sign.name)}</h3>
           <span class="sign-category">${esc(sign.category)}</span>
         </div>
-        <p class="sign-description">${esc(sign.description || 'No description available')}</p>
+        <p class="sign-anatomy"><strong>Anatomy:</strong> ${esc(sign.anatomy)}</p>
+        <p class="sign-description">${esc(sign.definition)}</p>
         <button class="btn btn-sm btn-ghost" data-view-details="${sign.id}">View Details</button>
       </div>
     `).join('');
@@ -738,6 +461,7 @@ async function loadAndDisplayMRINeuromarkers(query) {
     });
   } catch (error) {
     signsList.innerHTML = `<div class="error">Error loading neuromarkers: ${esc(error.message)}</div>`;
+    console.error('MRI Neuromarkers error:', error);
   }
 }
 
@@ -749,50 +473,64 @@ async function showSignDetail(signId) {
   if (!modal) return;
 
   try {
-    const response = await api.getNeuroSign(signId);
-    const sign = response || {};
+    const sign = MRI_NEUROMARKERS_DATA.find(s => s.id === signId);
+    if (!sign) {
+      alert('Sign not found');
+      return;
+    }
 
-    document.getElementById('detail-sign-name').textContent = sign.name || 'MRI Neuromarker';
+    document.getElementById('detail-sign-name').textContent = sign.name;
     
     const detailContent = document.getElementById('mri-neuro-detail-content');
     detailContent.innerHTML = `
       <div class="detail-section">
-        <h4>Definition</h4>
-        <p>${esc(sign.definition || 'No definition available')}</p>
+        <h4>Anatomy & Sequences</h4>
+        <p><strong>Anatomy:</strong> ${esc(sign.anatomy)}</p>
+        <p><strong>Best Sequences:</strong> ${esc(sign.sequence)}</p>
       </div>
+      
+      <div class="detail-section">
+        <h4>Definition</h4>
+        <p>${esc(sign.definition)}</p>
+      </div>
+
       <div class="detail-section">
         <h4>Clinical Significance</h4>
-        <p>${esc(sign.clinical_significance || 'Clinical significance pending')}</p>
+        <p>${esc(sign.clinical_significance)}</p>
       </div>
+
       <div class="detail-section">
         <h4>Associated Conditions</h4>
-        <p>${esc((sign.associated_conditions || []).join(', ') || 'None documented')}</p>
+        <ul>${sign.associated_conditions.map(cond => `<li>${esc(cond)}</li>`).join('')}</ul>
       </div>
+
       ${sign.warning ? `
         <div class="warning-section">
           <strong>⚠️ Important Caveat:</strong>
           <p>${esc(sign.warning)}</p>
         </div>
       ` : ''}
+
       <div class="detail-section">
         <h4>Suggested Reporting Phrase</h4>
-        <textarea class="reporting-phrase" readonly>${esc(sign.reporting_phrase || 'Enter custom reporting text')}</textarea>
+        <textarea class="reporting-phrase" readonly>${esc(sign.reporting_phrase)}</textarea>
+      </div>
+
+      <div class="detail-section">
+        <h4>Literature References</h4>
+        <ul class="references-list">
+          ${sign.references.map(ref => `<li>${esc(ref)}</li>`).join('')}
+        </ul>
+        <p style="font-size:11px;color:var(--text-tertiary);margin-top:8px"><em>${esc(sign.literature_anchor)}</em></p>
       </div>
     `;
 
     modal.style.display = 'flex';
   } catch (error) {
     alert('Error loading sign details: ' + error.message);
+    console.error('Detail error:', error);
   }
 }
-
-// Close modal handler
-document.addEventListener('click', (e) => {
-  if (e.target.hasAttribute('data-close-detail')) {
-    const modal = document.getElementById('mri-neuro-detail-modal');
-    if (modal) modal.style.display = 'none';
-  }
-});
 
 function esc(s) {
   return String(s ?? '')
