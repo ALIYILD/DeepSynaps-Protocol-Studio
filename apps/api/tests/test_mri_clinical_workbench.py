@@ -14,7 +14,45 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
-from app.persistence.models import MriAnalysis, MriReportFinding
+from app.persistence.models import ConsentRecord, MriAnalysis, MriReportFinding
+
+
+# The clinician demo token resolves to actor-clinician-demo (see
+# app/registries/auth.py). /mri/analyze enforces ai_analysis consent for the
+# (patient_id, clinician_id) pair; seed an active ConsentRecord before the
+# fixture POSTs to /analyze, otherwise the response is 403 consent_missing.
+_DEMO_CLINICIAN_ACTOR_ID = "actor-clinician-demo"
+
+
+def _seed_ai_analysis_consent(patient_id: str, clinician_id: str = _DEMO_CLINICIAN_ACTOR_ID) -> None:
+    db = SessionLocal()
+    try:
+        existing = (
+            db.query(ConsentRecord)
+            .filter_by(
+                patient_id=patient_id,
+                clinician_id=clinician_id,
+                consent_type="ai_analysis",
+                status="active",
+            )
+            .first()
+        )
+        if existing is not None:
+            return
+        db.add(
+            ConsentRecord(
+                patient_id=patient_id,
+                clinician_id=clinician_id,
+                consent_type="ai_analysis",
+                status="active",
+                signed=True,
+                signed_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
 
 def _do_upload(client: TestClient, auth_headers: dict) -> str:
     import io
@@ -61,7 +99,12 @@ def _do_upload(client: TestClient, auth_headers: dict) -> str:
 
 @pytest.fixture
 def analysis_id(client: TestClient, auth_headers: dict) -> str:
-    """Upload + analyze in demo mode, return analysis_id."""
+    """Upload + analyze in demo mode, return analysis_id.
+
+    Seeds an active ai_analysis ConsentRecord first so the analyze endpoint's
+    Phase 3 consent gate (require_ai_analysis_consent) is satisfied.
+    """
+    _seed_ai_analysis_consent("pat-mri-1")
     upload_id = _do_upload(client, auth_headers)
     resp = client.post(
         "/api/v1/mri/analyze",

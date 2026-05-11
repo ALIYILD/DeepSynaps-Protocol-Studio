@@ -72,6 +72,7 @@ from app.persistence.models import (
     AiSummaryAudit,
     Clinic,
     ClinicalSession,
+    ConsentRecord,
     MriAnalysis,
     MriUpload,
     OutcomeSeries,
@@ -83,7 +84,61 @@ from app.services.auth_service import create_access_token
 from app.settings import get_settings
 
 
+# ── Consent helpers ──────────────────────────────────────────────────────────
+#
+# The /mri/analyze endpoint enforces ai_analysis consent via
+# ``require_ai_analysis_consent`` (apps/api/app/services/consent_enforcement.py).
+# Without an active ConsentRecord for the (patient_id, clinician_id) pair the
+# endpoint returns 403 ``consent_missing``. The clinician demo token resolves
+# to ``actor-clinician-demo`` (see app/registries/auth.py); seed the consent
+# row with that clinician_id and the test's patient_id.
+
+
+_DEMO_CLINICIAN_ACTOR_ID = "actor-clinician-demo"
+
+
+def _seed_ai_analysis_consent(patient_id: str, clinician_id: str = _DEMO_CLINICIAN_ACTOR_ID) -> None:
+    """Create an active ``ai_analysis`` ConsentRecord for the test patient.
+
+    Idempotent within the per-test isolated database so the helper is safe
+    to call multiple times.
+    """
+    db = SessionLocal()
+    try:
+        existing = (
+            db.query(ConsentRecord)
+            .filter_by(
+                patient_id=patient_id,
+                clinician_id=clinician_id,
+                consent_type="ai_analysis",
+                status="active",
+            )
+            .first()
+        )
+        if existing is not None:
+            return
+        db.add(
+            ConsentRecord(
+                patient_id=patient_id,
+                clinician_id=clinician_id,
+                consent_type="ai_analysis",
+                status="active",
+                signed=True,
+                signed_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+
 # ── Fixtures ─────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def mri_consent() -> None:
+    """Auto-seed ai_analysis consent for ``pat-mri-1`` (the common test patient)."""
+    _seed_ai_analysis_consent("pat-mri-1")
 
 
 @pytest.fixture
@@ -187,6 +242,7 @@ def test_analyze_demo_mode_populates_row_and_returns_job_id(
     auth_headers: dict,
     media_root: Path,
     force_demo_mode: None,
+    mri_consent: None,
 ) -> None:
     upload_id = _do_upload(client, auth_headers)
 
@@ -236,6 +292,7 @@ def test_analyze_sync_returns_report_shape(
     media_root: Path,
     monkeypatch: pytest.MonkeyPatch,
     demo_report: dict,
+    mri_consent: None,
 ) -> None:
     """Sync mode with pipeline mock — the row must reflect the mock output."""
     monkeypatch.setattr(
@@ -286,6 +343,7 @@ def test_analyze_rejects_invalid_condition(
     auth_headers: dict,
     media_root: Path,
     force_demo_mode: None,
+    mri_consent: None,
 ) -> None:
     upload_id = _do_upload(client, auth_headers)
     resp = client.post(
@@ -318,6 +376,34 @@ def test_analyze_rejects_guest(
     assert resp.status_code == 403
 
 
+def test_analyze_rejects_without_ai_analysis_consent(
+    client: TestClient,
+    auth_headers: dict,
+    media_root: Path,
+    force_demo_mode: None,
+) -> None:
+    """No ConsentRecord seeded → /analyze must return 403 consent_missing.
+
+    Regression guard for the Phase 3 consent enforcement gate. The other
+    /analyze tests rely on the ``mri_consent`` fixture; this test verifies
+    the gate still fires when consent is absent.
+    """
+    upload_id = _do_upload(client, auth_headers)
+    resp = client.post(
+        "/api/v1/mri/analyze",
+        data={
+            "upload_id": upload_id,
+            "patient_id": "pat-mri-1",
+            "condition": "mdd",
+        },
+        headers=auth_headers["clinician"],
+    )
+    assert resp.status_code == 403, resp.text
+    body = resp.json()
+    assert body["code"] == "consent_missing"
+    assert body["details"]["consent_type"] == "ai_analysis"
+
+
 # ── §3 GET /status/{job_id} ──────────────────────────────────────────────────
 
 
@@ -326,6 +412,7 @@ def test_status_returns_200_and_state(
     auth_headers: dict,
     media_root: Path,
     force_demo_mode: None,
+    mri_consent: None,
 ) -> None:
     upload_id = _do_upload(client, auth_headers)
     analyze = client.post(
@@ -369,6 +456,7 @@ def test_report_200_and_shape(
     auth_headers: dict,
     media_root: Path,
     force_demo_mode: None,
+    mri_consent: None,
 ) -> None:
     upload_id = _do_upload(client, auth_headers)
     analyze = client.post(
@@ -415,6 +503,7 @@ def test_report_pdf_returns_503_when_facade_missing(
     media_root: Path,
     force_demo_mode: None,
     monkeypatch: pytest.MonkeyPatch,
+    mri_consent: None,
 ) -> None:
     # Ensure the PDF renderer is unavailable.
     monkeypatch.setattr(
@@ -448,6 +537,7 @@ def test_report_pdf_streams_bytes_when_available(
     media_root: Path,
     force_demo_mode: None,
     monkeypatch: pytest.MonkeyPatch,
+    mri_consent: None,
 ) -> None:
     monkeypatch.setattr(
         "app.services.mri_pipeline.generate_report_pdf_safe",
@@ -483,6 +573,7 @@ def test_report_html_returns_html_response(
     auth_headers: dict,
     media_root: Path,
     force_demo_mode: None,
+    mri_consent: None,
 ) -> None:
     upload_id = _do_upload(client, auth_headers)
     analyze = client.post(
@@ -513,6 +604,7 @@ def test_overlay_returns_html_response(
     auth_headers: dict,
     media_root: Path,
     force_demo_mode: None,
+    mri_consent: None,
 ) -> None:
     upload_id = _do_upload(client, auth_headers)
     analyze = client.post(
@@ -664,6 +756,7 @@ def test_medrag_returns_contract_shape(
     media_root: Path,
     force_demo_mode: None,
     monkeypatch: pytest.MonkeyPatch,
+    mri_consent: None,
 ) -> None:
     async def _fake_query(conditions, modalities, *, top_k=10, db_session=None):
         return [
@@ -784,6 +877,7 @@ def test_report_includes_findings_array_and_disclaimer(
     auth_headers: dict,
     media_root: Path,
     force_demo_mode: None,
+    mri_consent: None,
 ) -> None:
     """Report must surface the new ``findings`` array with safer language."""
     upload_id = _do_upload(client, auth_headers)
@@ -820,6 +914,7 @@ def test_report_brain_age_carries_calibration_provenance(
     auth_headers: dict,
     media_root: Path,
     force_demo_mode: None,
+    mri_consent: None,
 ) -> None:
     """Brain-age block must always carry calibration_provenance after the safety wrap."""
     upload_id = _do_upload(client, auth_headers)
@@ -860,6 +955,7 @@ def test_fusion_payload_returns_narrow_shape(
     auth_headers: dict,
     media_root: Path,
     force_demo_mode: None,
+    mri_consent: None,
 ) -> None:
     upload_id = _do_upload(client, auth_headers)
     analyze = client.post(

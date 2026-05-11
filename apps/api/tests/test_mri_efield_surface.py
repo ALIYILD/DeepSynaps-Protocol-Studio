@@ -26,7 +26,8 @@ from app.settings import get_settings
 
 # Reuse the hand-built valid NIfTI-1 gz fixture from the sibling test module
 # so the night-shift `validate_upload_blob` gate accepts the payload.
-from test_mri_analysis_router import VALID_NIFTI_GZ
+# Also reuse the consent-seeding helper so /analyze's ai_analysis gate passes.
+from test_mri_analysis_router import VALID_NIFTI_GZ, _seed_ai_analysis_consent
 
 
 # ── Fixtures (copied from test_mri_analysis_router.py) ──────────────────────
@@ -64,6 +65,7 @@ def test_demo_report_carries_efield_dose_on_personalised_target(
     media_root: Path,
     force_demo_mode: None,
 ) -> None:
+    _seed_ai_analysis_consent("pat-mri-ai-upgrades")
     upload_id = _upload(client, auth_headers)
 
     analyze = client.post(
@@ -139,6 +141,7 @@ def test_demo_report_survives_null_efield_and_brain_age(
 ) -> None:
     """The second / third targets in the demo payload omit efield_dose —
     the router must still return a well-formed report."""
+    _seed_ai_analysis_consent("pat-mri-ai-upgrades-null")
     upload_id = _upload(client, auth_headers)
     analyze = client.post(
         "/api/v1/mri/analyze",
