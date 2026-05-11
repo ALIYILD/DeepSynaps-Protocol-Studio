@@ -8,7 +8,16 @@ import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 import { NEURO_BIOMARKER_REFERENCE } from './neuro-biomarker-data.js';
 import { renderBrainMap10_20, SITES_10_20 } from './brain-map-svg.js';
-import { renderMRINeuromarkersTab, bindMRINeuromarkersTab } from './pages-biomarkers-mri.js';
+import { renderMRINeuromarkersTab, bindMRINeuromarkersTab, MRI_NEUROMARKERS_STYLES } from './pages-biomarkers-mri.js';
+
+function _ensureMRIStyles() {
+  if (!document.getElementById('mri-neuromarkers-styles')) {
+    const s = document.createElement('style');
+    s.id = 'mri-neuromarkers-styles';
+    s.textContent = MRI_NEUROMARKERS_STYLES;
+    document.head.appendChild(s);
+  }
+}
 
 /** Linked Clinical Hub shortcuts — each `route` must exist in `apps/web/src/app.js`. */
 export const BIOMARKERS_LINKED_MODULES = Object.freeze([
@@ -973,6 +982,7 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
       container.innerHTML = _renderReferenceTab();
       _bindReferenceTab();
     } else if (tab === 'mri-neuromarkers') {
+      _ensureMRIStyles();
       container.innerHTML = renderMRINeuromarkersTab();
       bindMRINeuromarkersTab();
     } else {
