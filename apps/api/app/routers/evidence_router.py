@@ -3048,7 +3048,7 @@ def search_evidence(
             session=db,
             patient_id=request.patient_id,
             clinic_id=actor.clinic_id,
-            actor_user_id=actor.user_id,
+            actor_user_id=actor.actor_id,
             ai_modality="evidence",
         )
     except ConsentMissingError:
@@ -3063,7 +3063,7 @@ def search_evidence(
             session=db,
             patient_id=body.patient_id,
             clinic_id=actor.clinic_id,
-            actor_user_id=actor.user_id,
+            actor_user_id=actor.actor_id,
             ai_modality="evidence",
         )
     except ConsentMissingError:

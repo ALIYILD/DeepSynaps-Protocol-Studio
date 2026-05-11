@@ -110,7 +110,7 @@ def post_biometrics_sync(
             session=db,
             patient_id=patient_id,
             clinic_id=actor.clinic_id,
-            actor_user_id=actor.user_id,
+            actor_user_id=actor.actor_id,
             ai_modality="biometric",
         )
     except ConsentMissingError:

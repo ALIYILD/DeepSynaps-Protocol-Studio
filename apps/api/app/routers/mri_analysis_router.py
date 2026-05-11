@@ -1980,7 +1980,7 @@ def save_viewer_state(
 
     from app.services.mri_viewer_state import save_viewer_state as save_state
 
-    row = save_state(db, analysis_id, actor.user_id, payload.state)
+    row = save_state(db, analysis_id, actor.actor_id, payload.state)
     db.commit()
 
     return _ViewerStateOut(
@@ -2022,11 +2022,11 @@ def get_viewer_state(
 
     from app.services.mri_viewer_state import get_viewer_state as get_state
 
-    state = get_state(db, analysis_id, actor.user_id)
+    state = get_state(db, analysis_id, actor.actor_id)
 
     return _ViewerStateOut(
         analysis_id=analysis_id,
-        user_id=actor.user_id,
+        user_id=actor.actor_id,
         state=state or {},
         updated_at=datetime.now(timezone.utc).isoformat(),
     )

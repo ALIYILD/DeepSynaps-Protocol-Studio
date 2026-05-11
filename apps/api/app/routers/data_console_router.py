@@ -70,10 +70,10 @@ async def list_data_sources(
     session: Session = Depends(get_db_session),
 ) -> DataSourcesResponse:
     """List available data sources (clinic-scoped, audit-logged)."""
-    require_patient_access(session, actor.user_id, patient_id)
+    require_patient_access(session, actor.actor_id, patient_id)
     log_phi_access(
         session,
-        actor_user_id=actor.user_id,
+        actor_user_id=actor.actor_id,
         patient_id=patient_id,
         action="list_data_sources",
         resource_type="data_console",
@@ -113,10 +113,10 @@ async def get_patient_data_summary(
     if source_name not in SAFE_DATA_SOURCES:
         raise HTTPException(status_code=400, detail=f"Unknown data source: {source_name}")
 
-    require_patient_access(session, actor.user_id, patient_id)
+    require_patient_access(session, actor.actor_id, patient_id)
     log_phi_access(
         session,
-        actor_user_id=actor.user_id,
+        actor_user_id=actor.actor_id,
         patient_id=patient_id,
         action="view_data_summary",
         resource_type="data_console",
@@ -147,10 +147,10 @@ async def get_patient_data_rows(
     if table_name not in SAFE_DATA_SOURCES:
         raise HTTPException(status_code=400, detail=f"Unknown table: {table_name}")
 
-    require_patient_access(session, actor.user_id, patient_id)
+    require_patient_access(session, actor.actor_id, patient_id)
     log_phi_access(
         session,
-        actor_user_id=actor.user_id,
+        actor_user_id=actor.actor_id,
         patient_id=patient_id,
         action="view_data_rows",
         resource_type="data_console",
@@ -189,10 +189,10 @@ async def get_data_console_audit_log(
     session: Session = Depends(get_db_session),
 ) -> PatientAuditLogResponse:
     """Get audit trail (clinic-scoped, audit-logged)."""
-    require_patient_access(session, actor.user_id, patient_id)
+    require_patient_access(session, actor.actor_id, patient_id)
     log_phi_access(
         session,
-        actor_user_id=actor.user_id,
+        actor_user_id=actor.actor_id,
         patient_id=patient_id,
         action="view_data_audit_log",
         resource_type="data_console",
