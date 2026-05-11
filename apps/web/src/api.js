@@ -6758,6 +6758,30 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(report || {}),
     }),
+
+  // ── Data Console (read-only clinical data browser) ──────────────────────
+  // Backs apps/web/src/pages-data-console.js. Router: data_console_router.
+  // All endpoints enforce role gate + patient-clinic-scoped access; rows
+  // are PHI-masked server-side. See DATA_CONSOLE_ROUTER_SUMMARY.md.
+  dataConsoleSources: () => apiFetch('/api/v1/data-console/sources'),
+  dataConsolePatientRows: (patientId, tableName, limit = 50, offset = 0) => {
+    const qs = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+    }).toString();
+    return apiFetch(
+      `/api/v1/data-console/patients/${encodeURIComponent(patientId)}/tables/${encodeURIComponent(tableName)}/rows?${qs}`,
+    );
+  },
+  dataConsolePatientAudit: (patientId, days = 30, limit = 50) => {
+    const qs = new URLSearchParams({
+      days: String(days),
+      limit: String(limit),
+    }).toString();
+    return apiFetch(
+      `/api/v1/data-console/patients/${encodeURIComponent(patientId)}/audit?${qs}`,
+    );
+  },
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).

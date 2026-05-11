@@ -862,12 +862,14 @@ _frontend_dist = Path(__file__).resolve().parents[3] / "apps" / "web" / "dist"
 
 @app.middleware("http")
 async def spa_fallback_middleware(request: Request, call_next):
-    # Data Console redirect — protect by redirecting to login with return path
+    # Clean URL `/data-console` → SPA deep-link to the data console page.
+    # The SPA boot reads `?page=<id>` (apps/web/src/app.js init()) and pops
+    # the login overlay or auto-enters demo mode for unauth visitors.
     if request.url.path == "/data-console":
         from fastapi.responses import RedirectResponse
         return RedirectResponse(
-            url="/auth/login?return=/app?page=data-console",
-            status_code=303
+            url="/?page=data-console",
+            status_code=303,
         )
     
     response = await call_next(request)
