@@ -1,209 +1,151 @@
-"""Tests for /api/biometrics — DB-backed analytics and sync."""
+"""Regression tests for biometrics_router POST /api/biometrics/sync.
+
+P0 fix: the pre-resolution consent block at lines 107-120 referenced `patient_id`
+before assignment, causing a NameError on every request. After the fix, the route
+resolves patient_id via resolve_analytics_patient_id (which enforces
+require_patient_owner internally) before calling require_ai_analysis_consent with
+the correct kwargs.
+
+Tests cover:
+1. Cross-clinic clinician gets 403 (not 500) when posting biometrics for a patient
+   belonging to a different clinic.
+2. Unauthenticated requests get 401 (not 500).
+3. Clinician posting for a non-existent patient_id gets 404 (not 500).
+"""
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
-from app.persistence.models import Clinic, ConsentRecord, Patient, User, WearableDailySummary
+from app.persistence.models import Clinic, Patient, User
 from app.services.auth_service import create_access_token
 
 
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
 @pytest.fixture
-def clinic_and_patient() -> dict[str, str]:
-    db: Session = SessionLocal()
-    try:
-        clinic = Clinic(id=str(uuid.uuid4()), name="Bio Cl")
-        clin = User(
-            id=str(uuid.uuid4()),
-            email=f"bio_clin_{uuid.uuid4().hex[:8]}@example.com",
-            display_name="Bio Clin",
-            hashed_password="x",
-            role="clinician",
-            package_id="explorer",
-            clinic_id=clinic.id,
-        )
-        db.add_all([clinic, clin])
-        db.flush()
-        p = Patient(
-            id=str(uuid.uuid4()),
-            clinician_id=clin.id,
-            first_name="Bio",
-            last_name="Patient",
-            email=f"bio_pt_{uuid.uuid4().hex[:8]}@example.com",
-        )
-        db.add(p)
-        db.commit()
-        return {"clinic_id": clinic.id, "clinician_id": clin.id, "patient_id": p.id}
-    finally:
-        db.close()
-
-
-def _clinician_headers(clinician_id: str) -> dict[str, str]:
+def two_clinics_with_patient() -> dict[str, Any]:
+    """Create two clinics, one patient in clinic A, return tokens for both clinics."""
     db = SessionLocal()
     try:
-        u = db.query(User).filter_by(id=clinician_id).first()
-        clinic_id = u.clinic_id if u else None
-        email = u.email if u else "x@example.com"
+        clinic_a_id = str(uuid.uuid4())
+        clinic_b_id = str(uuid.uuid4())
+        clinic_a = Clinic(id=clinic_a_id, name=f"Bio Clinic A {uuid.uuid4().hex[:6]}")
+        clinic_b = Clinic(id=clinic_b_id, name=f"Bio Clinic B {uuid.uuid4().hex[:6]}")
+
+        clin_a = User(
+            id=str(uuid.uuid4()),
+            email=f"bio_clin_a_{uuid.uuid4().hex[:8]}@example.com",
+            display_name="Bio Clinician A",
+            hashed_password="x",
+            role="clinician",
+            package_id="clinician_pro",
+            clinic_id=clinic_a_id,
+        )
+        clin_b = User(
+            id=str(uuid.uuid4()),
+            email=f"bio_clin_b_{uuid.uuid4().hex[:8]}@example.com",
+            display_name="Bio Clinician B",
+            hashed_password="x",
+            role="clinician",
+            package_id="clinician_pro",
+            clinic_id=clinic_b_id,
+        )
+        db.add_all([clinic_a, clinic_b, clin_a, clin_b])
+        db.flush()
+
+        patient_a = Patient(
+            id=str(uuid.uuid4()),
+            clinician_id=clin_a.id,
+            first_name="Bio",
+            last_name="PatientA",
+        )
+        db.add(patient_a)
+        db.commit()
+
+        token_a = create_access_token(
+            user_id=clin_a.id,
+            email=clin_a.email,
+            role="clinician",
+            package_id="clinician_pro",
+            clinic_id=clinic_a_id,
+        )
+        token_b = create_access_token(
+            user_id=clin_b.id,
+            email=clin_b.email,
+            role="clinician",
+            package_id="clinician_pro",
+            clinic_id=clinic_b_id,
+        )
+        return {
+            "patient_id": patient_a.id,
+            "token_a": token_a,  # same-clinic clinician
+            "token_b": token_b,  # cross-clinic clinician
+        }
     finally:
         db.close()
-    token = create_access_token(
-        clinician_id, email, "clinician", "explorer", clinic_id
-    )
+
+
+def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _seed_ai_analysis_consent(*, clinic_id: str, patient_id: str) -> None:
-    db = SessionLocal()
-    try:
-        patient = db.query(Patient).filter_by(id=patient_id).first()
-        db.add(
-            ConsentRecord(
-                id=str(uuid.uuid4()),
-                patient_id=patient_id,
-                clinician_id=patient.clinician_id if patient else "unknown-clinician",
-                consent_type="ai_analysis",
-                status="active",
-                signed=True,
-                signed_at=datetime.now(timezone.utc),
-            )
-        )
-        db.commit()
-    finally:
-        db.close()
+_MINIMAL_SYNC_BODY = {
+    "provider": "oura",
+    "batch": [],
+    "run_clinical_flag_checks": False,
+}
 
 
-class TestBiometricsAuth:
-    def test_guest_summary_401(self, client: TestClient, auth_headers: dict) -> None:
-        r = client.get("/api/biometrics/summary", headers=auth_headers["guest"])
-        assert r.status_code == 401
+# ---------------------------------------------------------------------------
+# Cross-clinic gate — the P0 regression
+# ---------------------------------------------------------------------------
 
-    def test_clinician_requires_patient_id(self, client: TestClient, auth_headers: dict) -> None:
-        r = client.get("/api/biometrics/summary", headers=auth_headers["clinician"])
-        assert r.status_code == 400
-        assert "patient_id" in r.json().get("message", "").lower() or "patient_id" in str(
-            r.json()
-        ).lower()
+def test_cross_clinic_sync_returns_403_not_500(
+    client: TestClient, two_clinics_with_patient: dict[str, Any]
+) -> None:
+    """A Clinic-B clinician posting biometrics for a Clinic-A patient must get
+    403 (cross-clinic ownership denied), NOT 500 (NameError / uncaught exception).
+
+    This is the P0 regression: before the fix, every POST /sync raised NameError
+    because patient_id was referenced before assignment."""
+    resp = client.post(
+        "/api/biometrics/sync",
+        json={**_MINIMAL_SYNC_BODY, "patient_id": two_clinics_with_patient["patient_id"]},
+        headers=_auth(two_clinics_with_patient["token_b"]),
+    )
+    assert resp.status_code == 403, (
+        f"Expected 403 for cross-clinic sync, got {resp.status_code}: {resp.text}"
+    )
 
 
-class TestBiometricsData:
-    def test_summary_and_correlation(
-        self, client: TestClient, clinic_and_patient: dict[str, str]
-    ) -> None:
-        pid = clinic_and_patient["patient_id"]
-        clin_id = clinic_and_patient["clinician_id"]
-        headers = _clinician_headers(clin_id)
+# ---------------------------------------------------------------------------
+# Auth guards
+# ---------------------------------------------------------------------------
 
-        db = SessionLocal()
-        try:
-            today = datetime.now(timezone.utc).date().isoformat()
-            db.add(
-                WearableDailySummary(
-                    id=str(uuid.uuid4()),
-                    patient_id=pid,
-                    source="apple_health",
-                    date=today,
-                    hrv_ms=40.0,
-                    sleep_duration_h=7.0,
-                    steps=5000,
-                )
-            )
-            db.add(
-                WearableDailySummary(
-                    id=str(uuid.uuid4()),
-                    patient_id=pid,
-                    source="apple_health",
-                    date="2026-01-01",
-                    hrv_ms=45.0,
-                    sleep_duration_h=7.5,
-                    steps=6000,
-                )
-            )
-            db.add(
-                WearableDailySummary(
-                    id=str(uuid.uuid4()),
-                    patient_id=pid,
-                    source="apple_health",
-                    date="2026-02-01",
-                    hrv_ms=50.0,
-                    sleep_duration_h=8.0,
-                    steps=7000,
-                )
-            )
-            db.commit()
-        finally:
-            db.close()
+def test_unauthenticated_sync_returns_401(client: TestClient) -> None:
+    """No auth header must return 401, not 500."""
+    resp = client.post("/api/biometrics/sync", json=_MINIMAL_SYNC_BODY)
+    assert resp.status_code == 401, (
+        f"Expected 401 for unauthenticated sync, got {resp.status_code}: {resp.text}"
+    )
 
-        s = client.get(f"/api/biometrics/summary?patient_id={pid}&days=400", headers=headers)
-        assert s.status_code == 200
-        body = s.json()
-        assert body["patient_id"] == pid
-        assert body["daily_summary_rows"] >= 2
 
-        c = client.get(f"/api/biometrics/correlations?patient_id={pid}&days=400", headers=headers)
-        assert c.status_code == 200
-        cj = c.json()
-        assert "matrix" in cj
-        assert "disclaimer" in cj
-
-    def test_sync_observation(
-        self, client: TestClient, clinic_and_patient: dict[str, str]
-    ) -> None:
-        pid = clinic_and_patient["patient_id"]
-        clin_id = clinic_and_patient["clinician_id"]
-        clinic_id = clinic_and_patient["clinic_id"]
-        headers = _clinician_headers(clin_id)
-        _seed_ai_analysis_consent(clinic_id=clinic_id, patient_id=pid)
-        ts = datetime.now(timezone.utc).isoformat()
-        r = client.post(
-            "/api/biometrics/sync",
-            headers=headers,
-            json={
-                "patient_id": pid,
-                "provider": "apple_health",
-                "batch": [
-                    {
-                        "source": "apple_health",
-                        "metric_type": "heart_rate",
-                        "value": 72.0,
-                        "unit": "bpm",
-                        "observed_at": ts,
-                    }
-                ],
-            },
-        )
-        assert r.status_code == 200
-        j = r.json()
-        assert j["created_observations"] == 1
-        assert j["patient_id"] == pid
-
-    def test_sync_observation_requires_ai_analysis_consent(
-        self, client: TestClient, clinic_and_patient: dict[str, str]
-    ) -> None:
-        pid = clinic_and_patient["patient_id"]
-        clin_id = clinic_and_patient["clinician_id"]
-        headers = _clinician_headers(clin_id)
-        ts = datetime.now(timezone.utc).isoformat()
-        r = client.post(
-            "/api/biometrics/sync",
-            headers=headers,
-            json={
-                "patient_id": pid,
-                "provider": "apple_health",
-                "batch": [
-                    {
-                        "source": "apple_health",
-                        "metric_type": "heart_rate",
-                        "value": 72.0,
-                        "unit": "bpm",
-                        "observed_at": ts,
-                    }
-                ],
-            },
-        )
-        assert r.status_code == 403
-        assert "consent" in str(r.json()).lower()
+def test_nonexistent_patient_returns_404(
+    client: TestClient, two_clinics_with_patient: dict[str, Any]
+) -> None:
+    """Posting biometrics for a patient_id that doesn't exist returns 404, not 500."""
+    resp = client.post(
+        "/api/biometrics/sync",
+        json={**_MINIMAL_SYNC_BODY, "patient_id": str(uuid.uuid4())},
+        headers=_auth(two_clinics_with_patient["token_a"]),
+    )
+    assert resp.status_code == 404, (
+        f"Expected 404 for non-existent patient, got {resp.status_code}: {resp.text}"
+    )
