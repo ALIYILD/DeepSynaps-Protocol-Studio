@@ -6,7 +6,9 @@ Provides masked, allowlist-gated access to patient data for clinician review:
 - Safety validation (no raw SQL, no cross-clinic access)
 - Audit logging of all access
 """
-from typing import Optional, List, Dict, Any
+import csv
+import io
+from typing import Iterator, Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 import logging
@@ -210,6 +212,227 @@ def get_patient_data_summary(
             summary[table_name] = None
     
     return summary
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Clinic-scoped aggregates and bulk export (Slice A of the Data Console).
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Some SAFE_TABLES carry a denormalised ``clinic_id`` column (e.g.
+# ``ai_analysis_runs``, ``patient_data_assets``, ``safety_flags``). Others
+# (``patients``, ``consent_records``, ``audit_event_records``) do NOT — for
+# those we join through ``patients.clinician_id`` → ``users.clinic_id`` to
+# scope the result set to the requested clinic. The mapping below makes that
+# decision explicit per-table; it is the ONLY place that knows how a row is
+# attributed to a clinic, so the router never has to interpolate table names
+# or build joins.
+#
+# IMPORTANT: ``table_name`` MUST be validated against SAFE_TABLES before the
+# value is ever interpolated into a SQL string (see ``_safe_table_query``).
+
+# Logical table name → actual SQL table name. For most rows these match, but
+# ``audit_event_records`` is the legacy doc-name for the live ``audit_events``
+# table. Mapping the alias here keeps SAFE_TABLES stable while routing the
+# real SQL at this layer.
+_TABLE_NAME_TO_SQL_TABLE: Dict[str, str] = {
+    "patients": "patients",
+    "patient_data_assets": "patient_data_assets",
+    "ai_analysis_runs": "ai_analysis_runs",
+    "safety_flags": "safety_flags",
+    "audit_event_records": "audit_events",
+    "consent_records": "consent_records",
+}
+
+# Tables that carry ``clinic_id`` directly — a simple WHERE clause suffices.
+_TABLES_WITH_DIRECT_CLINIC_ID = frozenset(
+    {
+        "patient_data_assets",
+        "ai_analysis_runs",
+        "safety_flags",
+    }
+)
+
+
+def _safe_columns(table_name: str) -> List[str]:
+    """Return the SAFE_TABLES allowlist columns for ``table_name``.
+
+    The router validates ``table_name`` against ``SAFE_TABLES`` before we
+    get here, but we re-check defensively — never trust a caller's string.
+    """
+    if table_name not in SAFE_TABLES:
+        raise DataConsoleAccessError(
+            f"Table '{table_name}' is not available in data console"
+        )
+    return list(SAFE_TABLES[table_name])
+
+
+def _safe_table_query(
+    table_name: str,
+    *,
+    select_columns: List[str] | str,
+    extra_where: str = "",
+) -> str:
+    """Build a SELECT against ``table_name`` with the right clinic-scope JOIN.
+
+    ``table_name`` MUST already be in ``SAFE_TABLES`` (verified via
+    ``_safe_columns``). The clinic_id is always bound as the ``:clinic_id``
+    parameter — never inlined.
+
+    For tables without a direct ``clinic_id`` column we resolve clinic via
+    the patient's clinician row:
+        patient_id → patients.clinician_id → users.clinic_id
+
+    The ``patients`` table itself is joined directly to ``users``.
+
+    Returns the SQL string. Caller is responsible for executing with
+    ``{"clinic_id": <uuid>}``.
+    """
+    if table_name not in SAFE_TABLES:
+        raise DataConsoleAccessError(
+            f"Table '{table_name}' is not available in data console"
+        )
+
+    sql_table = _TABLE_NAME_TO_SQL_TABLE[table_name]
+
+    # When select_columns is a list, prefix it with the row alias so JOINs
+    # don't collide on column names (e.g. ``id`` exists in many tables).
+    if isinstance(select_columns, list):
+        cols_sql = ", ".join(f"t.{c}" for c in select_columns)
+    else:
+        cols_sql = select_columns  # caller passed "COUNT(*) as cnt" etc.
+
+    where_extra = f" AND {extra_where}" if extra_where else ""
+
+    if table_name in _TABLES_WITH_DIRECT_CLINIC_ID:
+        return (
+            f"SELECT {cols_sql} FROM {sql_table} AS t "
+            f"WHERE t.clinic_id = :clinic_id{where_extra}"
+        )
+
+    if table_name == "patients":
+        # patients → users.clinic_id via clinician_id
+        return (
+            f"SELECT {cols_sql} FROM {sql_table} AS t "
+            f"JOIN users AS u ON u.id = t.clinician_id "
+            f"WHERE u.clinic_id = :clinic_id{where_extra}"
+        )
+
+    if table_name in ("consent_records", "audit_event_records"):
+        # consent_records.patient_id → patients.clinician_id → users.clinic_id.
+        # audit_events does not carry patient_id directly; it carries
+        # ``target_id`` (which is the patient_id when target_type='patient').
+        # For the aggregate view we count audit_events where target_id matches
+        # any patient in the clinic.
+        if table_name == "audit_event_records":
+            return (
+                f"SELECT {cols_sql} FROM {sql_table} AS t "
+                f"JOIN patients AS p ON p.id = t.target_id "
+                f"JOIN users AS u ON u.id = p.clinician_id "
+                f"WHERE u.clinic_id = :clinic_id{where_extra}"
+            )
+        return (
+            f"SELECT {cols_sql} FROM {sql_table} AS t "
+            f"JOIN patients AS p ON p.id = t.patient_id "
+            f"JOIN users AS u ON u.id = p.clinician_id "
+            f"WHERE u.clinic_id = :clinic_id{where_extra}"
+        )
+
+    raise DataConsoleAccessError(
+        f"Table '{table_name}' has no clinic-scope strategy"
+    )
+
+
+def get_clinic_table_summary(session: Session, clinic_id: str) -> Dict[str, int]:
+    """Return ``{table_name: row_count}`` for every SAFE_TABLES table,
+    scoped to a single clinic.
+
+    Tables that fail to count (e.g. missing in this deployment) report ``0``
+    rather than raising — the console is read-only and should degrade
+    gracefully. Errors are logged at WARNING.
+
+    Args:
+        session: SQLAlchemy session.
+        clinic_id: Clinic UUID to scope by.
+
+    Returns:
+        Dict mapping each SAFE_TABLES table_name to its row count for the
+        clinic. Always returns one entry per SAFE_TABLES key.
+    """
+    summary: Dict[str, int] = {}
+    for table_name in SAFE_TABLES.keys():
+        try:
+            query_str = _safe_table_query(
+                table_name, select_columns="COUNT(*) as cnt"
+            )
+            result = session.execute(text(query_str), {"clinic_id": clinic_id})
+            row = result.fetchone()
+            summary[table_name] = int(row[0]) if row and row[0] is not None else 0
+        except Exception as exc:  # pragma: no cover — defensive
+            logger.warning(
+                "clinic-summary count failed for table=%s clinic=%s: %s",
+                table_name,
+                clinic_id,
+                exc,
+            )
+            summary[table_name] = 0
+    return summary
+
+
+def stream_clinic_table_csv(
+    session: Session,
+    clinic_id: str,
+    table_name: str,
+) -> Iterator[bytes]:
+    """Stream a clinic-scoped CSV of one SAFE_TABLES table, row by row.
+
+    PHI is **NOT** masked in this export. The intended caller is a clinic
+    owner downloading their own clinic's data — the per-patient endpoints
+    mask, but this bulk export does not. Cross-clinic access is prevented
+    by the router (require_clinic_access + clinic ownership check) and
+    re-enforced here by the WHERE clause built from ``_safe_table_query``.
+
+    Args:
+        session: SQLAlchemy session.
+        clinic_id: Clinic UUID to scope rows to.
+        table_name: Must be in ``SAFE_TABLES``. Validated again here.
+
+    Yields:
+        UTF-8 encoded ``bytes`` — header row first, then one row per record.
+
+    Raises:
+        DataConsoleAccessError: If ``table_name`` is not allowlisted.
+    """
+    if table_name not in SAFE_TABLES:
+        raise DataConsoleAccessError(
+            f"Table '{table_name}' is not available in data console"
+        )
+
+    columns = _safe_columns(table_name)
+    query_str = _safe_table_query(table_name, select_columns=columns)
+
+    # Header line first — emit before opening the cursor so the client sees
+    # bytes immediately even if the result set is large.
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(columns)
+    yield buf.getvalue().encode("utf-8")
+
+    # ``stream_results=True`` would be ideal here but SQLite (used in tests
+    # and many dev installs) ignores it. The .yield_per loop keeps memory
+    # bounded on Postgres without breaking SQLite — fetchmany() is safe on
+    # all SQLAlchemy dialects.
+    result = session.execute(text(query_str), {"clinic_id": clinic_id})
+    BATCH = 500
+    while True:
+        chunk = result.fetchmany(BATCH)
+        if not chunk:
+            break
+        for row in chunk:
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            # Coerce None → '' so CSV cells stay parseable.
+            writer.writerow(["" if v is None else v for v in row])
+            yield buf.getvalue().encode("utf-8")
 
 
 def validate_console_query_safety(query: str) -> bool:

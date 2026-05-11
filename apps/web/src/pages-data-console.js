@@ -69,11 +69,99 @@ export async function pgDataConsole(setTopbar, navigate) {
     </div>`;
   }
 
+  // ── Clinic Overview (Slice A) ──────────────────────────────────────────────
+  // Roll-up + bulk CSV download. Only rendered for clinic owners and
+  // DeepSynaps superadmins. A plain `clinician` cannot see clinic-wide
+  // counts and never sees the Download button. In demo sessions
+  // (currentUser.id starts with 'actor-clinician-demo') the Download CSV
+  // button is also hidden — see `api.js` deliberately omits a CSV stream
+  // shim, so the URL would 404.
+  const _isClinicOverviewRole = (
+    currentUser && (currentUser.role === 'admin' || currentUser.role === 'clinic_admin')
+  );
+  const _isDemoActorId = !!(currentUser?.id && String(currentUser.id).startsWith('actor-clinician-demo'));
+  let _clinicOverviewClinicId = (currentUser && currentUser.clinic_id) || '';
+
+  async function loadAndRenderClinicOverview() {
+    const container = document.getElementById('dc-clinic-overview-container');
+    if (!container) return;
+    // Admin needs a clinic_id to query — bail with a hint if the input is empty.
+    if (currentUser.role === 'admin' && !_clinicOverviewClinicId) {
+      container.innerHTML = `<div style="padding:16px;color:var(--text-tertiary);font-size:12px">Enter a clinic_id above to load the aggregate view.</div>`;
+      return;
+    }
+    container.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-tertiary)">${spinner('Loading clinic summary...')}</div>`;
+    try {
+      const arg = _clinicOverviewClinicId || undefined;
+      const resp = await api.dataConsoleClinicSummary(arg);
+      if (!resp || !resp.table_summaries) throw new Error('Invalid clinic summary response');
+      const tables = resp.table_summaries || {};
+      const clinicId = resp.clinic_id || _clinicOverviewClinicId || '—';
+      const tableNames = Object.keys(tables).sort();
+      if (tableNames.length === 0) {
+        container.innerHTML = `<div style="padding:16px;color:var(--text-tertiary);font-size:12px">No data sources available for this clinic.</div>`;
+        return;
+      }
+      const cards = tableNames.map(tn => {
+        const count = tables[tn] || 0;
+        const downloadBtn = _isDemoActorId ? '' : `
+          <a href="${esc(api.dataConsoleClinicExportUrl(clinicId, tn))}"
+             download
+             class="btn-secondary"
+             style="display:inline-block;font-size:11px;padding:6px 10px;margin-top:8px;text-decoration:none">
+            Download CSV
+          </a>`;
+        return `
+          <div class="ch-card" style="padding:14px;display:flex;flex-direction:column;gap:4px;min-width:180px;flex:1">
+            <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px">${esc(tn)}</div>
+            <div style="font-size:22px;font-weight:700;color:var(--text-primary);font-variant-numeric:tabular-nums">${Number(count).toLocaleString()}</div>
+            ${downloadBtn}
+          </div>`;
+      }).join('');
+      const generated = resp.generated_at ? new Date(resp.generated_at).toLocaleString() : '';
+      container.innerHTML = `
+        <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:8px">${cards}</div>
+        <div style="font-size:11px;color:var(--text-tertiary)">Clinic <code>${esc(clinicId)}</code>${generated ? ` · generated ${esc(generated)}` : ''}</div>`;
+    } catch (err) {
+      console.error('Error loading clinic summary:', err);
+      container.innerHTML = `
+        <div style="padding:16px;color:var(--red);font-size:12px">
+          Failed to load clinic summary: ${esc(err.message)}
+        </div>`;
+    }
+  }
+
+  window._dcReloadClinicOverview = async () => {
+    const input = document.getElementById('dc-clinic-id-input');
+    if (input) _clinicOverviewClinicId = (input.value || '').trim();
+    await loadAndRenderClinicOverview();
+  };
+
   // ── Main skeleton HTML ─────────────────────────────────────────────────────
   el.innerHTML = `
   <div style="padding:20px;max-width:1400px;margin:0 auto">
     ${renderSafetyBanners()}
-    
+
+    ${_isClinicOverviewRole ? `
+    <div id="dc-clinic-overview-section" style="margin-bottom:28px">
+      <h3 style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:12px">
+        Clinic Overview
+      </h3>
+      ${currentUser.role === 'admin' ? `
+        <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:260px">
+            <label style="display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:4px">Clinic ID</label>
+            <input id="dc-clinic-id-input"
+              type="text"
+              value="${esc(_clinicOverviewClinicId || '')}"
+              placeholder="paste a clinic UUID..."
+              style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface-1);color:var(--text);font-size:12px;font-family:var(--font-mono)" />
+          </div>
+          <button onclick="window._dcReloadClinicOverview()" class="btn-secondary" style="font-size:12px">Load</button>
+        </div>` : ''}
+      <div id="dc-clinic-overview-container"></div>
+    </div>` : ''}
+
     <!-- Patient selector row -->
     <div style="margin-bottom:24px">
       <div style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap">
@@ -485,6 +573,10 @@ export async function pgDataConsole(setTopbar, navigate) {
   };
 
   // ── Init: load sources and setup patient search ─────────────────────────────
+  if (_isClinicOverviewRole) {
+    // Fire and wait — keeps render ordering predictable for tests / a11y.
+    await loadAndRenderClinicOverview();
+  }
   await loadAndRenderSources();
   initPatientSearch();
 }
