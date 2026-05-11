@@ -274,6 +274,7 @@ from .research import (
     LiteraturePaper,
     LiteratureProtocolTag,
     LiteratureReadingList,
+    ResearchConsent,
     TelegramPendingLink,
     TelegramUserChat,
 )
@@ -442,6 +443,7 @@ __all__ = [
     "RotationPolicyAdvisorThreshold",
     "ReminderCampaign",
     "ReminderOutboxMessage",
+    "ResearchConsent",
     "ReviewQueueItem",
     "RiskAnalyzerAudit",
     "RiskStratificationAudit",

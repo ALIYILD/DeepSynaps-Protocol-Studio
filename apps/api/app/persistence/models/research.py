@@ -515,4 +515,83 @@ class ClinicalTrialRevision(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
+# ── Research-use Consent (Slice B — Data Console pipeline, migration 102) ─────
+
+
+class ResearchConsent(Base):
+    """Patient's explicit grant/revoke for de-identified research use.
+
+    Slice B of the Data Console pipeline. Each row is an append-only event
+    in the patient's research-use consent ledger:
+
+    * A **grant** row carries ``granted=True``, ``granted_at`` stamped UTC,
+      and ``revoked_at IS NULL``. At most ONE such row may exist per
+      ``patient_id`` at any time (enforced by partial unique index
+      ``ix_research_consents_active_per_patient``).
+    * A **revoke** stamps ``revoked_at`` + ``revoked_by_*`` + optional
+      ``revocation_reason`` on the existing active row. The row is not
+      deleted — Slice C uses the timestamps to decide which downstream
+      rows were created during an active grant window.
+
+    Granular revocation contract
+    ----------------------------
+    Slice C filters exportable rows with::
+
+        granted_at <= row.created_at
+        AND (revoked_at IS NULL OR revoked_at > row.created_at)
+
+    A revoke on Tuesday means rows added Wednesday onward are NOT eligible
+    for export even if the patient re-grants later (a new ResearchConsent
+    row is inserted on re-grant, and its ``granted_at`` becomes the new
+    window start). No bulk re-grant or backfill.
+
+    Clinic-id is denormalised onto every row so Slice C can pre-filter by
+    clinic without joining ``patients → users → clinics``.
+    """
+
+    __tablename__ = "research_consents"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: f"rc_{uuid.uuid4().hex[:12]}",
+    )
+    patient_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("patients.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    clinic_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("clinics.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    granted: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    granted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    granted_by_actor_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    granted_by_role: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    scope: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default="anonymized_research",
+    )
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_by_actor_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    revoked_by_role: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    revocation_reason: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
 # ── Patient Symptom Journal (launch-audit 2026-05-01, migration 068) ──────────

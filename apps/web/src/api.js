@@ -881,6 +881,80 @@ function _demoSyntheticResponse(path, method, body) {
     };
   }
 
+  // ── Research-use consent demo synthetics (Slice B) ───────────────────────
+  // Granted for `demo-pt-samantha-li`; not-granted for everyone else.
+  // Slice C will treat `granted=true && revoked_at=null` rows as exportable.
+  const _rcActive = path.match(/^\/api\/v1\/research-consent\/patients\/([^/]+)\/active$/);
+  if (_rcActive && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(_rcActive[1]);
+    if (pid === 'demo-pt-samantha-li') {
+      const grantedAt = new Date(Date.now() - 14 * 86400000).toISOString();
+      return {
+        patient_id: pid,
+        has_active_consent: true,
+        consent: {
+          id: 'demo-rc-samantha',
+          patient_id: pid,
+          clinic_id: 'clinic-demo-default',
+          granted: true,
+          granted_at: grantedAt,
+          granted_by_actor_id: 'actor-clinician-demo',
+          granted_by_role: 'clinician',
+          scope: 'anonymized_research',
+          revoked_at: null,
+          revoked_by_actor_id: null,
+          revoked_by_role: null,
+          revocation_reason: null,
+          is_active: true,
+          created_at: grantedAt,
+          updated_at: grantedAt,
+        },
+        is_demo_synthetic: true,
+      };
+    }
+    return {
+      patient_id: pid,
+      has_active_consent: false,
+      consent: null,
+      is_demo_synthetic: true,
+    };
+  }
+  const _rcHistory = path.match(/^\/api\/v1\/research-consent\/patients\/([^/]+)\/history$/);
+  if (_rcHistory && (!method || method === 'GET')) {
+    const pid = decodeURIComponent(_rcHistory[1]);
+    if (pid === 'demo-pt-samantha-li') {
+      const grantedAt = new Date(Date.now() - 14 * 86400000).toISOString();
+      return {
+        patient_id: pid,
+        items: [{
+          id: 'demo-rc-samantha',
+          patient_id: pid,
+          clinic_id: 'clinic-demo-default',
+          granted: true,
+          granted_at: grantedAt,
+          granted_by_actor_id: 'actor-clinician-demo',
+          granted_by_role: 'clinician',
+          scope: 'anonymized_research',
+          revoked_at: null,
+          revoked_by_actor_id: null,
+          revoked_by_role: null,
+          revocation_reason: null,
+          is_active: true,
+          created_at: grantedAt,
+          updated_at: grantedAt,
+        }],
+        total: 1,
+        is_demo_synthetic: true,
+      };
+    }
+    return {
+      patient_id: pid,
+      items: [],
+      total: 0,
+      is_demo_synthetic: true,
+    };
+  }
+
   // Mutations: pretend success (return a minimal accepted-shape object).
   if (method && method !== 'GET') return { ok: true, demo: true, id: 'demo-' + Date.now() };
   // Reads: list-shaped endpoints get { items: [] }; singular getters get null.
@@ -6868,6 +6942,26 @@ export const api = {
     const token = getToken();
     return token ? `${base}?access_token=${encodeURIComponent(token)}` : base;
   },
+
+  // ── Research-use consent (Slice B — Data Console pipeline) ─────────────
+  // Backs the "Research Consent" card on the patient profile (clinician
+  // hubs + patient portal). Slice C will JOIN on the active grant +
+  // (granted_at, revoked_at) timestamps to decide which de-identified
+  // rows are eligible for export. Router: research_consent_router.
+  getResearchConsent: (patientId) =>
+    apiFetch(`/api/v1/research-consent/patients/${encodeURIComponent(patientId)}/active`),
+  listResearchConsentHistory: (patientId) =>
+    apiFetch(`/api/v1/research-consent/patients/${encodeURIComponent(patientId)}/history`),
+  grantResearchConsent: (patientId, scope = 'anonymized_research') =>
+    apiFetch(`/api/v1/research-consent/patients/${encodeURIComponent(patientId)}/grant`, {
+      method: 'POST',
+      body: JSON.stringify({ scope: scope || 'anonymized_research' }),
+    }),
+  revokeResearchConsent: (patientId, reason = null) =>
+    apiFetch(`/api/v1/research-consent/patients/${encodeURIComponent(patientId)}/revoke`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: reason || null }),
+    }),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).
