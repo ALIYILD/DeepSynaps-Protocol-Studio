@@ -5783,7 +5783,7 @@ async function _pgPatientCareTeamImpl() {
         </div>
         <div class="ct-coord-actions">
           <button class="btn btn-primary btn-sm" onclick="window._ctAskAI && window._ctAskAI()"><svg width="13" height="13"><use href="#i-sparkle"/></svg>Ask Synaps AI</button>
-          <button class="btn btn-ghost btn-sm" onclick="window._ctAIPrefs && window._ctAIPrefs()"><svg width="13" height="13"><use href="#i-settings"/></svg>Preferences</button>
+          <button class="btn btn-ghost btn-sm" onclick="window._ctAIPrefs && window._ctAIPrefs()" disabled title="AI preferences — not configurable in this portal yet"><svg width="13" height="13"><use href="#i-settings"/></svg>Preferences</button>
         </div>
       </div>
 
@@ -5974,7 +5974,11 @@ async function _pgPatientCareTeamImpl() {
     _toast('Opening Virtual Care assistant…');
     setTimeout(() => window._navPatient && window._navPatient('patient-virtualcare'), 400);
   };
-  window._ctAIPrefs      = function() { _toast('AI preferences saved in this browser'); };
+  // STUB — no AI preferences API exists yet. Wiring pending backend implementation.
+  // Do NOT replace this with a false success toast. When the API is ready, read form
+  // fields from the Synaps AI card, call api.updatePreferences({ ai: ... }), and
+  // show a real success/failure toast. See Option A in kanban task t_8932b66a.
+  window._ctAIPrefs      = function() { _toast('AI preferences — not configurable in this portal yet.', { severity: 'info' }); };
   window._ctCrisisCall   = function() { window.location.href = 'tel:988'; };
   window._ctUrgentCall   = function() { window.location.href = 'tel:+16175550143'; };
   window._ctDownload     = function(title) {
