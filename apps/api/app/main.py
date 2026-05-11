@@ -60,6 +60,7 @@ from app.routers.adverse_events_router import router as adverse_events_router
 from app.routers.population_analytics_router import router as population_analytics_router
 from app.routers.patient_analytics_router import router as patient_analytics_router
 from app.routers.data_console_router import router as data_console_router
+from app.routers.research_consent_router import router as research_consent_router
 from app.routers.outcomes_router import router as outcomes_router
 from app.routers.qeeg_records_router import router as qeeg_records_router
 from app.routers.phenotype_router import router as phenotype_router
@@ -463,6 +464,7 @@ app.include_router(adverse_events_router)
 app.include_router(population_analytics_router)
 app.include_router(patient_analytics_router)
 app.include_router(data_console_router)
+app.include_router(research_consent_router)
 app.include_router(outcomes_router)
 app.include_router(qeeg_records_router)
 app.include_router(phenotype_router)

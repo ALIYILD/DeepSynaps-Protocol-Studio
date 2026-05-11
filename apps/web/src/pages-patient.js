@@ -6866,6 +6866,22 @@ export async function pgPatientProfile(user) {
             </div>
           </div>
 
+          <!-- Research-use consent (Slice B — Data Console pipeline).
+               Patient can grant or self-revoke. Slice C joins on the
+               active grant + (granted_at, revoked_at) timestamps to
+               decide which de-identified rows are eligible for export. -->
+          <div class="card" id="pt-research-consent-card" data-pt-research-consent-card>
+            <div class="card-header" style="display:flex;align-items:center;gap:10px">
+              <span class="pt-page-tile pt-nav-tile--violet" aria-hidden="true">🔬</span>
+              <h3 style="flex:1;margin:0">Research consent</h3>
+            </div>
+            <div class="card-body" id="pt-research-consent-body">
+              <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.65">
+                Loading research-use consent&hellip;
+              </div>
+            </div>
+          </div>
+
           <!-- Care Team Contact (Patient On-Call Visibility, 2026-05-01).
                Read-only abstract availability state — NEVER shows the
                on-call clinician's name / phone / Slack / PagerDuty
@@ -6889,6 +6905,103 @@ export async function pgPatientProfile(user) {
   }
 
   renderProfile(user);
+
+  // ── Research consent wiring (Slice B — Data Console pipeline) ───────────
+  // Patient may grant or self-revoke their de-identified research-use
+  // consent. Slice C will JOIN on the active grant + (granted_at,
+  // revoked_at) timestamps to decide which exported rows are eligible.
+  (function _ptResearchConsentInit() {
+    function _rcEsc(v) {
+      if (v == null) return '';
+      return String(v)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+    }
+    function _rcFmt(iso) {
+      if (!iso) return '—';
+      try { return new Date(iso).toLocaleDateString(); } catch { return String(iso).slice(0, 10); }
+    }
+    const pid = (user && (user.patient_id || user.id)) || '';
+    async function refresh() {
+      const body = document.getElementById('pt-research-consent-body');
+      if (!body) return;
+      if (!pid) {
+        body.innerHTML = `<div style="font-size:12.5px;color:var(--text-tertiary)">Sign-in required to manage research consent.</div>`;
+        return;
+      }
+      let payload = null;
+      try {
+        payload = await api.getResearchConsent(pid);
+      } catch (e) {
+        body.innerHTML = `<div class="notice notice-error" style="font-size:11.5px">Could not load research consent: ${_rcEsc((e && e.message) || 'unknown error')}</div>`;
+        return;
+      }
+      const active = !!(payload && payload.has_active_consent);
+      const c = payload && payload.consent;
+      const statusLine = active
+        ? `<div style="font-size:12.5px;color:#065f46;font-weight:600">Granted on ${_rcEsc(_rcFmt(c && c.granted_at))} · scope <code>${_rcEsc((c && c.scope) || 'anonymized_research')}</code></div>
+           <div style="font-size:11.5px;color:var(--text-secondary);margin-top:4px">Your de-identified data may be used for approved research while this grant is active. Revoke at any time.</div>`
+        : (c && c.revoked_at)
+          ? `<div style="font-size:12.5px;color:#7c2d12;font-weight:600">Revoked on ${_rcEsc(_rcFmt(c && c.revoked_at))}</div>
+             <div style="font-size:11.5px;color:var(--text-secondary);margin-top:4px">No new research exports will include your data until you grant consent again.</div>`
+          : `<div style="font-size:12.5px;color:var(--text-tertiary);font-weight:600">Not granted</div>
+             <div style="font-size:11.5px;color:var(--text-secondary);margin-top:4px">Your data is not used for research unless you explicitly grant consent below.</div>`;
+      const actionBtn = active
+        ? `<button class="btn btn-sm" id="pt-rc-revoke-btn" data-testid="pt-rc-revoke">Revoke</button>`
+        : `<button class="btn btn-primary btn-sm" id="pt-rc-grant-btn" data-testid="pt-rc-grant">Grant consent</button>`;
+      body.innerHTML = `
+        ${statusLine}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+          ${actionBtn}
+          <button class="btn btn-ghost btn-sm" id="pt-rc-history-btn" data-testid="pt-rc-history">View history</button>
+        </div>
+      `;
+      document.getElementById('pt-rc-grant-btn')?.addEventListener('click', async () => {
+        try { await api.grantResearchConsent(pid, 'anonymized_research'); }
+        catch (e) { window.alert('Could not grant: ' + ((e && e.message) || 'unknown error')); return; }
+        refresh();
+      });
+      document.getElementById('pt-rc-revoke-btn')?.addEventListener('click', async () => {
+        if (!window.confirm('Revoke research consent? No new exports will include your data after this moment.')) return;
+        const reason = window.prompt('Optional reason (visible only to your clinic and the audit log):', '') || '';
+        try { await api.revokeResearchConsent(pid, reason || null); }
+        catch (e) { window.alert('Could not revoke: ' + ((e && e.message) || 'unknown error')); return; }
+        refresh();
+      });
+      document.getElementById('pt-rc-history-btn')?.addEventListener('click', async () => {
+        let h = null;
+        try { h = await api.listResearchConsentHistory(pid); }
+        catch (e) { window.alert('Could not load history: ' + ((e && e.message) || 'unknown error')); return; }
+        const items = (h && Array.isArray(h.items)) ? h.items : [];
+        const rows = items.map(it => `
+          <tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:6px 8px;white-space:nowrap;color:var(--text-secondary)">${_rcEsc(_rcFmt(it.created_at))}</td>
+            <td style="padding:6px 8px">${it.is_active ? '<span style=\"color:#065f46;font-weight:600\">Granted</span>' : (it.revoked_at ? '<span style=\"color:#7c2d12;font-weight:600\">Revoked</span>' : '—')}</td>
+            <td style="padding:6px 8px;color:var(--text-secondary);font-size:.78rem">${_rcEsc(it.revocation_reason || '')}</td>
+          </tr>`).join('');
+        const tableHtml = items.length === 0
+          ? `<div style="font-size:12.5px;color:var(--text-tertiary)">No research-consent events yet.</div>`
+          : `<table style="width:100%;border-collapse:collapse;font-size:.82rem">
+              <thead><tr style="border-bottom:1px solid var(--border);text-align:left;color:var(--text-secondary)">
+                <th style="padding:6px 8px">When</th>
+                <th style="padding:6px 8px">Event</th>
+                <th style="padding:6px 8px">Reason</th>
+              </tr></thead><tbody>${rows}</tbody></table>`;
+        document.getElementById('pt-rc-history-modal')?.remove();
+        document.body.insertAdjacentHTML('beforeend', `
+          <div id="pt-rc-history-modal" style="position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;display:flex;align-items:center;justify-content:center" onclick="if(event.target.id==='pt-rc-history-modal')this.remove()">
+            <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:16px 18px;max-width:640px;width:92%;max-height:80vh;overflow:auto">
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+                <h3 style="margin:0;flex:1">Your research-consent history</h3>
+                <button class="btn btn-sm" onclick="document.getElementById('pt-rc-history-modal').remove()">Close</button>
+              </div>
+              ${tableHtml}
+            </div>
+          </div>`);
+      });
+    }
+    refresh();
+  })();
 
   // ── Care Team Contact wiring (Patient On-Call Visibility) ───────────────
   // Read status from /api/v1/patient-oncall/status. The endpoint returns a
