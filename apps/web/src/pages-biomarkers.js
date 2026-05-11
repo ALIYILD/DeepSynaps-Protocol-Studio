@@ -1,6 +1,6 @@
 /**
- * Biomarkers page — Neuro-Biomarker Reference, MRI Neuromarkers Library,
- * and patient-linked biomarker workspace.
+ * Biomarkers page — combines Neuro-Biomarker Reference catalog with
+ * patient-linked biomarker workspace. Three tabs: Reference, MRI Neuromarkers, and Patient Workspace.
  */
 import { api } from './api.js';
 import { ensureAgentBrainStatus } from './agent-brain-status.js';
@@ -8,19 +8,7 @@ import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 import { NEURO_BIOMARKER_REFERENCE } from './neuro-biomarker-data.js';
 import { renderBrainMap10_20, SITES_10_20 } from './brain-map-svg.js';
-import {
-  renderMRINeuromarkersTab,
-  initMRINeuromarkersTab,
-  MRI_NEUROMARKERS_STYLES,
-} from './pages-biomarkers-mri.js';
-
-function _ensureMRIStyles() {
-  if (document.getElementById('mri-nm-styles')) return;
-  const style = document.createElement('style');
-  style.id = 'mri-nm-styles';
-  style.textContent = MRI_NEUROMARKERS_STYLES;
-  document.head.appendChild(style);
-}
+import { renderMRINeuromarkersTab, bindMRINeuromarkersTab } from './pages-biomarkers-mri.js';
 
 /** Linked Clinical Hub shortcuts — each `route` must exist in `apps/web/src/app.js`. */
 export const BIOMARKERS_LINKED_MODULES = Object.freeze([
@@ -592,7 +580,7 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
         Biomarkers supports clinical review and workflow navigation only — not diagnosis, prescribing, emergency triage, treatment approval, or autonomous clinical decision-making.
       </div>
       <nav id="bm-tabs" style="display:flex;gap:4px;margin-bottom:18px;border-bottom:1px solid var(--border);padding-bottom:0" role="tablist">
-        <button role="tab" class="ch-tab${activeTab === 'reference' ? ' ch-tab--active' : ''}" data-tab="reference" style="padding:10px 18px;font-size:13px;font-weight:600;border:none;background:none;color:${activeTab === 'reference' ? 'var(--text-primary)' : 'var(--text-tertiary)'};cursor:pointer;border-bottom:2px solid ${activeTab === 'reference' ? 'var(--teal, #2DD4BF)' : 'transparent'};transition:all .15s">Neuro-Biomarker Reference</button>
+        <button role="tab" class="ch-tab${activeTab === 'reference' ? ' ch-tab--active' : ''}" data-tab="reference" style="padding:10px 18px;font-size:13px;font-weight:600;border:none;background:none;color:${activeTab === 'reference' ? 'var(--text-primary)' : 'var(--text-tertiary)'};cursor:pointer;border-bottom:2px solid ${activeTab === 'reference' ? 'var(--teal, #2DD4BF)' : 'transparent'};transition:all .15s">QEEG Neuromarkers</button>
         <button role="tab" class="ch-tab${activeTab === 'mri-neuromarkers' ? ' ch-tab--active' : ''}" data-tab="mri-neuromarkers" style="padding:10px 18px;font-size:13px;font-weight:600;border:none;background:none;color:${activeTab === 'mri-neuromarkers' ? 'var(--text-primary)' : 'var(--text-tertiary)'};cursor:pointer;border-bottom:2px solid ${activeTab === 'mri-neuromarkers' ? 'var(--teal, #2DD4BF)' : 'transparent'};transition:all .15s">MRI Neuromarkers</button>
         <button role="tab" class="ch-tab${activeTab === 'workspace' ? ' ch-tab--active' : ''}" data-tab="workspace" style="padding:10px 18px;font-size:13px;font-weight:600;border:none;background:none;color:${activeTab === 'workspace' ? 'var(--text-primary)' : 'var(--text-tertiary)'};cursor:pointer;border-bottom:2px solid ${activeTab === 'workspace' ? 'var(--teal, #2DD4BF)' : 'transparent'};transition:all .15s">Patient Workspace</button>
       </nav>
@@ -982,16 +970,12 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
     });
 
     if (tab === 'reference') {
-      container.style.padding = '';
       container.innerHTML = _renderReferenceTab();
       _bindReferenceTab();
     } else if (tab === 'mri-neuromarkers') {
-      _ensureMRIStyles();
-      container.style.padding = '0';
       container.innerHTML = renderMRINeuromarkersTab();
-      initMRINeuromarkersTab();
+      bindMRINeuromarkersTab();
     } else {
-      container.style.padding = '';
       renderWorkspaceTab();
     }
   }
