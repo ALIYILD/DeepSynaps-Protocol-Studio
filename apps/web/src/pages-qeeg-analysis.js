@@ -30,6 +30,7 @@ import { renderSafetyCockpit, mountSafetyCockpit } from './qeeg-safety-cockpit.j
 import { renderRedFlags, mountRedFlags } from './qeeg-red-flags.js';
 import { renderNormativeModelCard, mountNormativeModelCard } from './qeeg-normative-card.js';
 import { renderProtocolFit, mountProtocolFit } from './qeeg-protocol-fit.js';
+import { filterGatedSuggestions } from './qeeg-protocol-suggestion-filter.js';
 import { renderClinicianReview, mountClinicianReview } from './qeeg-clinician-review.js';
 import { renderPatientReport, mountPatientReport } from './qeeg-patient-report.js';
 import { renderClinicianReport, mountClinicianReport } from './qeeg-clinician-report.js';
@@ -2394,7 +2395,13 @@ var _coherenceBand = 'alpha';
 function _renderComprehensiveReport(report, analysis, savedEvidenceCitations) {
   var narrative = report.ai_narrative || report.ai_narrative_json || {};
   var conditions = report.condition_matches || report.condition_matches_json || [];
-  var suggestions = report.protocol_suggestions || report.protocol_suggestions_json || [];
+  // Evidence-safety defence-in-depth: drop suggestions the backend audit
+  // marked "do not surface" (tDCS-O1/O2, tACS-Pz, etc.) before rendering
+  // them to clinicians. The backend already gates these — this is the
+  // belt-and-suspenders layer. See qeeg-protocol-suggestion-filter.js.
+  var suggestions = filterGatedSuggestions(
+    report.protocol_suggestions || report.protocol_suggestions_json || []
+  );
   var bp = analysis ? (analysis.band_powers || analysis.band_powers_json || {}) : {};
   var ratios = bp.derived_ratios || {};
   var adv = analysis ? (analysis.advanced_analyses || {}) : {};
@@ -7046,7 +7053,8 @@ if (typeof window !== 'undefined') window._qeegPrintReport = function () {
   if (!_currentReport) return showToast('No report data loaded', 'warning');
   var narrative = _currentReport.ai_narrative || {};
   var conditions = _currentReport.condition_matches || [];
-  var suggestions = _currentReport.protocol_suggestions || [];
+  // Evidence-safety defence-in-depth: see filterGatedSuggestions for rationale.
+  var suggestions = filterGatedSuggestions(_currentReport.protocol_suggestions || []);
   var w = window.open('', '_blank', 'width=900,height=700');
   if (!w) return showToast('Popup blocked', 'error');
   var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>qEEG AI Report</title>'

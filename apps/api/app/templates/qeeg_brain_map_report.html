@@ -57,11 +57,21 @@
         ('Frontal Alpha Asymmetry (FAA)', indicators.brain_balance),
         ('Estimated Brain Age', indicators.ai_brain_age),
     ] %}
-      <div class="indicator indicator--{{ (ind.band if ind and ind.band else 'unknown') }}">
+      {# Evidence-safety gate: when an indicator is gated off (e.g.
+         DEEPSYNAPS_QEEG_UNEVIDENCED_INDICATORS=False makes
+         alpha_reactivity / brain_balance / ai_brain_age = None), suppress
+         the entire card rather than rendering "Alpha Wave Reactivity / —".
+         A clinician must not infer the system "knows about" a biomarker
+         when it has no evidence-backed data to show. See audit
+         deepsynaps-qeeg-evidence-gaps.md. The em-dash fallback below is
+         preserved for the *computed-but-empty* case (ind exists, value is None). #}
+      {% if ind is not none %}
+      <div class="indicator indicator--{{ (ind.band if ind.band else 'unknown') }}">
         <p class="indicator__label">{{ label }}</p>
-        <div class="indicator__value">{{ '%.1f'|format(ind.value) if ind and ind.value is not none else '—' }}{% if ind and ind.unit %} <span style="font-size:9pt;color:#888">{{ ind.unit }}</span>{% endif %}</div>
-        <div class="indicator__pct">{% if ind and ind.percentile is not none %}{{ '%.1f'|format(ind.percentile) }}%ile{% else %}—{% endif %}</div>
+        <div class="indicator__value">{{ '%.1f'|format(ind.value) if ind.value is not none else '—' }}{% if ind.unit %} <span style="font-size:9pt;color:#888">{{ ind.unit }}</span>{% endif %}</div>
+        <div class="indicator__pct">{% if ind.percentile is not none %}{{ '%.1f'|format(ind.percentile) }}%ile{% else %}—{% endif %}</div>
       </div>
+      {% endif %}
     {% endfor %}
   </div>
 
