@@ -283,6 +283,13 @@ from .wellness import (
     WellnessCheckin,
 )
 
+# Slice C scaffold — ResearchDataset lives outside the persistence/models
+# package on disk (in ``app.models.research_dataset``) so the research
+# export surface is visually segregated from the clinical PHI buckets.
+# We import it here so it registers on the shared ``Base.metadata`` and
+# Alembic's autogenerate sees it.
+from app.models.research_dataset import ResearchDataset  # noqa: F401, E402
+
 __all__ = [
     "Base",
     "AdverseEvent",
@@ -444,6 +451,7 @@ __all__ = [
     "ReminderCampaign",
     "ReminderOutboxMessage",
     "ResearchConsent",
+    "ResearchDataset",
     "ReviewQueueItem",
     "RiskAnalyzerAudit",
     "RiskStratificationAudit",

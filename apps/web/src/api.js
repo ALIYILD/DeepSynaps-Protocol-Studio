@@ -6945,7 +6945,7 @@ export const api = {
 
   // ── Research-use consent (Slice B — Data Console pipeline) ─────────────
   // Backs the "Research Consent" card on the patient profile (clinician
-  // hubs + patient portal). Slice C will JOIN on the active grant +
+  // hubs + patient portal). Slice C JOINs on the active grant +
   // (granted_at, revoked_at) timestamps to decide which de-identified
   // rows are eligible for export. Router: research_consent_router.
   getResearchConsent: (patientId) =>
@@ -6962,6 +6962,24 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ reason: reason || null }),
     }),
+
+  // ── Research datasets (Slice C scaffold — feature-flagged OFF) ─────────────
+  // Every call returns 403 unless ``RESEARCH_EXPORT_ENABLED=true`` is set on
+  // the API. ``listResearchDatasets`` swallows that 403 and resolves to ``[]``
+  // so the stub admin page can render an explanatory disclaimer without
+  // surfacing a network error to the user.
+  listResearchDatasets: async () => {
+    try {
+      const result = await apiFetch('/api/v1/research-datasets');
+      return Array.isArray(result) ? result : [];
+    } catch (err) {
+      const msg = String(err?.message || err || '');
+      if (msg.includes('403') || msg.toLowerCase().includes('disabled')) {
+        return [];
+      }
+      throw err;
+    }
+  },
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).
