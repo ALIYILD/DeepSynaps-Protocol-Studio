@@ -348,31 +348,57 @@ def _h_evidence_status(
     actor: "AuthenticatedActor",
     db: "Session",
 ) -> dict:
-    from sqlalchemy import func
+    from sqlalchemy import case, func
 
     from app.persistence.models import DsPaper, EvidenceSavedCitation, LiteraturePaper, Patient, User
     from app.services.evidence_terminal_service import resolve_evidence_db_path
 
     ds_paper_count = int(db.query(func.count(DsPaper.id)).scalar() or 0)
     literature_paper_count = int(db.query(func.count(LiteraturePaper.id)).scalar() or 0)
-    citation_counts = (
-        db.query(
-            func.sum(
-                EvidenceSavedCitation.citation_payload_json.like(
-                    '%"approval_status": "pending_clinician_review"%'
-                )
-            ).label("pending"),
-            func.sum(
-                EvidenceSavedCitation.citation_payload_json.like('%"status": "unverified"%')
-            ).label("unverified"),
-        )
-        .join(Patient, Patient.id == EvidenceSavedCitation.patient_id)
-        .join(User, User.id == Patient.clinician_id, isouter=True)
+    pending_expr = case(
+        (
+            EvidenceSavedCitation.citation_payload_json.like(
+                '%"approval_status": "pending_clinician_review"%'
+            ),
+            1,
+        ),
+        else_=0,
+    )
+    unverified_expr = case(
+        (
+            EvidenceSavedCitation.citation_payload_json.like('%"status": "unverified"%'),
+            1,
+        ),
+        else_=0,
+    )
+    citation_counts = db.query(
+        func.sum(pending_expr).label("pending"),
+        func.sum(unverified_expr).label("unverified"),
     )
     if actor.clinic_id:
-        citation_counts = citation_counts.filter(User.clinic_id == actor.clinic_id)
+        citation_counts = (
+            citation_counts.join(Patient, Patient.id == EvidenceSavedCitation.patient_id)
+            .join(User, User.id == Patient.clinician_id, isouter=True)
+            .filter(User.clinic_id == actor.clinic_id)
+        )
     elif actor.role != "admin":
-        citation_counts = citation_counts.filter(Patient.id == "__no_visible_patients__")
+        return {
+            "source_kind": "bundled_fallback",
+            "source_label": "Bundled evidence snapshot",
+            "paper_count": 0,
+            "trial_count": 0,
+            "device_count": 0,
+            "protocol_count": 0,
+            "indication_count": 0,
+            "meta_analysis_count": None,
+            "ds_paper_count": ds_paper_count,
+            "literature_paper_count": literature_paper_count,
+            "pending_review_citation_count": 0,
+            "unverified_saved_citation_count": 0,
+            "updated_at": None,
+            "generated_at": _utcnow().isoformat(),
+            "degraded_reason": None,
+        }
     counts_row = citation_counts.one()
     pending_review_citation_count = int(counts_row.pending or 0)
     unverified_saved_citation_count = int(counts_row.unverified or 0)

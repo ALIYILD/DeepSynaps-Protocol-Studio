@@ -244,7 +244,7 @@ describe('__aiAgentV2TestApi__ patient context panel', () => {
     mod.__aiAgentV2TestApi__.setWidgetData({
       'clinic.dr_ai': {
         pendingDrafts: 2,
-        newEvidenceAlerts: 0,
+        pendingCitationReviews: 0,
         protocolSuggestions: 3,
         evidenceSource: 'Live SQLite · 184,670 papers',
         evidenceWarning: 'Updated just now',
@@ -256,6 +256,7 @@ describe('__aiAgentV2TestApi__ patient context panel', () => {
     ]);
     assert.match(html, /Live SQLite · 184,670 papers/);
     assert.match(html, /Updated just now/);
+    assert.match(html, /Pending citations/i);
     assert.match(html, /draft-only and clinician-reviewed/i);
   });
 });

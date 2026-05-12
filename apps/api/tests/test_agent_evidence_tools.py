@@ -257,6 +257,92 @@ def test_evidence_source_status_counts_pending_and_unverified_saved_citations(
     assert body["unverified_saved_citation_count"] >= 1
 
 
+def test_evidence_status_tool_scopes_saved_citation_counts_to_actor_clinic(
+    clinician_actor: AuthenticatedActor,
+    db_session,
+) -> None:
+    from app.persistence.models import Clinic, Patient, User
+    from app.services.evidence_intelligence import SaveCitationRequest, save_citation
+
+    if db_session.get(Patient, "pat-status-tool") is None:
+        db_session.add(
+            Patient(
+                id="pat-status-tool",
+                clinician_id="actor-clinician-demo",
+                first_name="Status",
+                last_name="Tool",
+            )
+        )
+        db_session.commit()
+    if db_session.get(Clinic, "clinic-other-tool") is None:
+        db_session.add(Clinic(id="clinic-other-tool", name="Other Clinic Tool"))
+        db_session.commit()
+    if db_session.get(User, "actor-other-tool") is None:
+        db_session.add(
+            User(
+                id="actor-other-tool",
+                email="other_tool@example.com",
+                display_name="Other Clinic Tool User",
+                hashed_password="x",
+                role="clinician",
+                package_id="clinician_pro",
+                clinic_id="clinic-other-tool",
+            )
+        )
+        db_session.commit()
+    if db_session.get(Patient, "pat-other-tool") is None:
+        db_session.add(
+            Patient(
+                id="pat-other-tool",
+                clinician_id="actor-other-tool",
+                first_name="Other",
+                last_name="Tool",
+            )
+        )
+        db_session.commit()
+
+    save_citation(
+        SaveCitationRequest(
+            patient_id="pat-status-tool",
+            finding_id="finding-tool-local",
+            finding_label="Finding Tool Local",
+            claim="Claim Tool Local",
+            paper_id="paper-tool-local",
+            paper_title="Tool local citation",
+            citation_payload={
+                "approval_status": "pending_clinician_review",
+                "approval_required": True,
+            },
+        ),
+        "clinician-tool-local",
+        db_session,
+    )
+    save_citation(
+        SaveCitationRequest(
+            patient_id="pat-other-tool",
+            finding_id="finding-tool-other",
+            finding_label="Finding Tool Other",
+            claim="Claim Tool Other",
+            paper_id="paper-tool-other",
+            paper_title="Tool other citation",
+            citation_payload={
+                "approval_status": "pending_clinician_review",
+                "approval_required": True,
+            },
+        ),
+        "clinician-tool-other",
+        db_session,
+    )
+
+    handler = TOOL_REGISTRY["evidence.status"].handler
+    assert handler is not None
+
+    payload = handler(clinician_actor, db_session)
+
+    assert payload["pending_review_citation_count"] == 1
+    assert payload["unverified_saved_citation_count"] >= 1
+
+
 def test_evidence_source_status_requires_authenticated_clinician(client) -> None:
     resp = client.get("/api/v1/evidence/source-status")
     assert resp.status_code == 403

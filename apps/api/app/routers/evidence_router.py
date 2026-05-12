@@ -39,7 +39,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -783,24 +783,34 @@ def _scoped_saved_citation_status_counts(
     actor: AuthenticatedActor,
     db: Session,
 ) -> tuple[int, int]:
-    counts = (
-        db.query(
-            func.sum(
-                EvidenceSavedCitation.citation_payload_json.like(
-                    '%"approval_status": "pending_clinician_review"%'
-                )
-            ).label("pending"),
-            func.sum(
-                EvidenceSavedCitation.citation_payload_json.like('%"status": "unverified"%')
-            ).label("unverified"),
-        )
-        .join(Patient, Patient.id == EvidenceSavedCitation.patient_id)
-        .join(User, User.id == Patient.clinician_id, isouter=True)
+    pending_expr = case(
+        (
+            EvidenceSavedCitation.citation_payload_json.like(
+                '%"approval_status": "pending_clinician_review"%'
+            ),
+            1,
+        ),
+        else_=0,
+    )
+    unverified_expr = case(
+        (
+            EvidenceSavedCitation.citation_payload_json.like('%"status": "unverified"%'),
+            1,
+        ),
+        else_=0,
+    )
+    counts = db.query(
+        func.sum(pending_expr).label("pending"),
+        func.sum(unverified_expr).label("unverified"),
     )
     if actor.clinic_id:
-        counts = counts.filter(User.clinic_id == actor.clinic_id)
+        counts = (
+            counts.join(Patient, Patient.id == EvidenceSavedCitation.patient_id)
+            .join(User, User.id == Patient.clinician_id, isouter=True)
+            .filter(User.clinic_id == actor.clinic_id)
+        )
     elif actor.role != "admin":
-        counts = counts.filter(Patient.id == "__no_visible_patients__")
+        return 0, 0
     row = counts.one()
     return int(row.pending or 0), int(row.unverified or 0)
 

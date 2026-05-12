@@ -3378,19 +3378,18 @@ async function _loadManagerWidgetData() {
 
 async function _loadDrAiWidgetData() {
   if (_isMarketplaceDemoMode()) {
-    return { pendingDrafts: 2, newEvidenceAlerts: 1, protocolSuggestions: 3, evidenceSource: 'Bundled fallback · 184,669 papers', evidenceWarning: 'Bundled/offline registry snapshot', evidenceGovernance: 'Evidence is in degraded mode. Draft citations require clinician review before report use.' };
+    return { pendingDrafts: 2, pendingCitationReviews: 1, protocolSuggestions: 3, evidenceSource: 'Bundled fallback · 184,669 papers', evidenceWarning: 'Bundled/offline registry snapshot', evidenceGovernance: 'Evidence is in degraded mode. Draft citations require clinician review before report use.' };
   }
   try {
-    const [media, evidence, suggestions, sourceStatus] = await Promise.all([
+    const [media, suggestions, sourceStatus] = await Promise.all([
       api.listMediaQueue().catch(() => null),
-      api.evidenceStatus().catch(() => null),
       api.evidenceSuggest({ limit: 5 }).catch(() => null),
       api.evidenceSourceStatus?.().catch(() => null),
     ]);
     const pendingDrafts = media?.total ?? media?.items?.length ?? 0;
-    const newEvidenceAlerts = evidence?.new_alerts ?? 0;
+    const pendingCitationReviews = Number(sourceStatus?.pending_review_citation_count || 0);
     const protocolSuggestions = Array.isArray(suggestions?.items) ? suggestions.items.length : (Array.isArray(suggestions) ? suggestions.length : 0);
-    return { pendingDrafts, newEvidenceAlerts, protocolSuggestions, evidenceSource: _formatEvidenceSourceBadge(sourceStatus), evidenceWarning: _formatEvidenceWarning(sourceStatus), evidenceGovernance: _formatEvidenceGovernanceNote(sourceStatus, 'clinic.dr_ai') };
+    return { pendingDrafts, pendingCitationReviews, protocolSuggestions, evidenceSource: _formatEvidenceSourceBadge(sourceStatus), evidenceWarning: _formatEvidenceWarning(sourceStatus), evidenceGovernance: _formatEvidenceGovernanceNote(sourceStatus, 'clinic.dr_ai') };
   } catch {
     return { empty: true, reason: 'No pending clinical decisions' };
   }
@@ -3509,7 +3508,7 @@ function _renderAgentDashboardWidgets(hiredAgents) {
       metrics = `
         <div style="display:flex;gap:12px;flex-wrap:wrap">
           <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.pendingDrafts}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Draft reports</div></div>
-          <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.newEvidenceAlerts}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Evidence alerts</div></div>
+          <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.pendingCitationReviews}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Pending citations</div></div>
           <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.protocolSuggestions}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Protocol suggestions</div></div>
         </div>
         <div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">${_esc(data.evidenceSource || '')}</div>
