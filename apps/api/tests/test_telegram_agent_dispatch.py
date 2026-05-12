@@ -19,6 +19,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
+from app.persistence.models import AgentRunAudit
 from app.persistence.models import TelegramUserChat, User
 from app.services import telegram_agent_dispatch as tad
 from app.services.agents import pending_calls
@@ -108,6 +109,7 @@ def test_dispatch_linked_clinician_invokes_runner_and_returns_reply(
         captured["actor_id"] = actor.actor_id
         captured["actor_role"] = actor.role
         captured["actor_package"] = actor.package_id
+        captured["transport"] = kwargs.get("transport")
         return {
             "agent_id": agent.id,
             "reply": "Sure — here's your queue.",
@@ -132,6 +134,42 @@ def test_dispatch_linked_clinician_invokes_runner_and_returns_reply(
     assert captured["actor_id"] == "actor-clinician-demo"
     assert captured["actor_role"] == "clinician"
     assert captured["actor_package"] == "clinician_pro"
+    assert captured["transport"] == "telegram"
+
+
+def test_dispatch_specific_agent_passes_telegram_transport(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    chat_id = _link_clinician_chat(db_session, chat_id=5550006)
+
+    captured: dict = {}
+
+    def fake_run_agent(agent, *, message, actor, db, **kwargs):
+        captured["agent_id"] = agent.id
+        captured["message"] = message
+        captured["transport"] = kwargs.get("transport")
+        return {
+            "agent_id": agent.id,
+            "reply": "*High* evidence, but review needed.",
+            "schema_id": "deepsynaps.agents.run/v1",
+            "safety_footer": "decision-support, not autonomous diagnosis",
+            "context_used": ["evidence.query"],
+        }
+
+    monkeypatch.setattr(tad, "run_agent", fake_run_agent)
+
+    out = tad.dispatch_to_agent(
+        db=db_session,
+        agent_id="clinic.dr_ai",
+        telegram_user_id=999,
+        telegram_chat_id=chat_id,
+        message_text="what evidence supports TMS for treatment-resistant depression?",
+    )
+
+    assert out["ok"] is True
+    assert out["reply_text"] == "*High* evidence, but review needed."
+    assert captured["agent_id"] == "clinic.dr_ai"
+    assert captured["transport"] == "telegram"
 
 
 # ---------------------------------------------------------------------------
@@ -332,6 +370,46 @@ def test_dispatch_plain_reply_returned_verbatim(
     assert out["reply_text"] == "You have 3 sessions today."
 
 
+def test_dispatch_redacts_phi_in_agent_run_audit_previews(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    chat_id = _link_clinician_chat(db_session, chat_id=5550007)
+
+    monkeypatch.setattr(
+        "app.services.agents.broker.fetch_context",
+        lambda *a, **k: {},
+    )
+    monkeypatch.setattr(
+        "app.services.agents.runner._llm_chat_with_metering",
+        lambda **kwargs: (
+            "Reply: call me at +44 770 090 01 23 or email a@example.com.",
+            {"tokens_in": 1, "tokens_out": 1, "metered_source": "test"},
+        ),
+    )
+
+    out = tad.dispatch_to_agent(
+        db=db_session,
+        agent_id="clinic.dr_ai",
+        telegram_user_id=123,
+        telegram_chat_id=chat_id,
+        message_text="Patient phone +44 770 090 01 23 email a@example.com",
+    )
+
+    assert out["ok"] is True
+    row = (
+        db_session.query(AgentRunAudit)
+        .order_by(AgentRunAudit.created_at.desc())
+        .first()
+    )
+    assert row is not None
+    assert "[REDACTED:PHONE]" in row.message_preview
+    assert "[REDACTED:EMAIL]" in row.message_preview
+    assert "+44 770 090 01 23" not in row.message_preview
+    assert "a@example.com" not in row.message_preview
+    assert "[REDACTED:PHONE]" in row.reply_preview
+    assert "[REDACTED:EMAIL]" in row.reply_preview
+
+
 # ---------------------------------------------------------------------------
 # 7. Slash-commands NOT routed through agent — webhook handler still owns
 #    them. End-to-end through the FastAPI route to assert the dispatcher
@@ -433,7 +511,9 @@ def test_handle_callback_approve_invokes_runner_and_edits_message(
     call_id = "b" * 32
     runner_calls: list[dict] = []
 
-    def fake_run_agent(agent, *, message, actor, db, confirmed_tool_call_id=None):
+    def fake_run_agent(
+        agent, *, message, actor, db, confirmed_tool_call_id=None, **kwargs
+    ):
         runner_calls.append(
             {
                 "agent_id": agent.id,
@@ -966,7 +1046,9 @@ def test_handle_callback_approve_passes_parse_mode_markdown_v2(
     chat_id = _link_clinician_chat(db_session, chat_id=5550150)
     captured = _stub_telegram_io(monkeypatch)
 
-    def fake_run_agent(agent, *, message, actor, db, confirmed_tool_call_id=None):
+    def fake_run_agent(
+        agent, *, message, actor, db, confirmed_tool_call_id=None, **kwargs
+    ):
         return {
             "agent_id": agent.id,
             "reply": "ok",
@@ -1183,6 +1265,23 @@ def test_drclaw_system_prompt_documents_markdown_v2() -> None:
     assert "_*[]()~`>#+-=|{}.!" in prompt
 
 
+def test_runner_telegram_evidence_footer_mentions_citations_and_caution() -> None:
+    from app.services.agents.registry import AGENT_REGISTRY
+    from app.services.agents.runner import _augment_system_prompt
+
+    prompt = _augment_system_prompt(
+        AGENT_REGISTRY["clinic.dr_ai"].system_prompt,
+        AGENT_REGISTRY["clinic.dr_ai"],
+        transport="telegram",
+    )
+    assert "Telegram" in prompt
+    assert "PMID" in prompt
+    assert "DOI" in prompt
+    assert "evidence strength" in prompt
+    assert "caution" in prompt
+    assert "explicit patient_id" in prompt
+
+
 def test_callback_query_smoke_still_works_after_markdown_upgrade(
     client: TestClient, db_session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1191,7 +1290,9 @@ def test_callback_query_smoke_still_works_after_markdown_upgrade(
     smoke but asserts parse_mode reaches the IO layer."""
     chat_id = _link_clinician_chat(db_session, chat_id=5550160)
 
-    def fake_run_agent(agent, *, message, actor, db, confirmed_tool_call_id=None):
+    def fake_run_agent(
+        agent, *, message, actor, db, confirmed_tool_call_id=None, **kwargs
+    ):
         return {
             "agent_id": agent.id,
             "reply": "ok",

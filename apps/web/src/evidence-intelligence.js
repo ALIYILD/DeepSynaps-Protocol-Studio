@@ -38,10 +38,11 @@ export function EvidenceChip({
   const text = label || (count ? `${count} papers` : 'Evidence');
   const payload = query ? esc(JSON.stringify(query)) : '';
   const targetName = target || query?.target_name || '';
+  const normalizedCount = Number.isFinite(Number(count)) ? Number(count) : 0;
   return `<button type="button" class="ds-evidence-chip ds-evidence-chip--${esc(evidenceLevel)}${compact ? ' ds-evidence-chip--compact' : ''}" data-evidence-target="${esc(targetName)}" ${payload ? `data-evidence-query="${payload}"` : ''} aria-label="Open evidence for ${esc(text)}">
     ${showIcon ? '<span class="ds-evidence-chip__icon" aria-hidden="true">E</span>' : ''}
     <span>${esc(text)}</span>
-    ${count ? `<span class="ds-evidence-chip__count">${esc(count)} papers</span>` : ''}
+    <span class="ds-evidence-chip__count">${esc(normalizedCount)} papers</span>
   </button>`;
 }
 

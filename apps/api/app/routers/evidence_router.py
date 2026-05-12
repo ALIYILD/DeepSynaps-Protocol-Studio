@@ -55,7 +55,7 @@ from app.services.consent_enforcement import (
 )
 from app.errors import ApiServiceError
 from app.logging_setup import get_logger
-from app.persistence.models import AssessmentRecord, ClinicalSession, LiteraturePaper, OutcomeSeries, Patient, TreatmentCourse
+from app.persistence.models import AssessmentRecord, ClinicalSession, DsPaper, EvidenceSavedCitation, LiteraturePaper, OutcomeSeries, Patient, TreatmentCourse
 from app.repositories.patients import resolve_patient_clinic_id
 from app.schemas.evidence_terminal import (
     EvidenceTerminalGradeDistributionOut,
@@ -761,6 +761,24 @@ class StatusOut(BaseModel):
     last_updated: Optional[str] = None
 
 
+class EvidenceSourceStatusOut(BaseModel):
+    source_kind: str
+    source_label: str
+    paper_count: int
+    trial_count: int
+    device_count: int
+    protocol_count: int
+    indication_count: int
+    meta_analysis_count: Optional[int] = None
+    ds_paper_count: int = 0
+    literature_paper_count: int = 0
+    pending_review_citation_count: int = 0
+    unverified_saved_citation_count: int = 0
+    updated_at: Optional[str] = None
+    generated_at: str
+    degraded_reason: Optional[str] = None
+
+
 class ByFindingRequest(BaseModel):
     patient_id: str
     context_type: str = "biomarker"
@@ -939,6 +957,73 @@ def evidence_status() -> StatusOut:
         total_fda=total_fda,
         last_updated=last_updated,
     )
+
+
+@router.get("/source-status", response_model=EvidenceSourceStatusOut)
+def evidence_source_status(
+    db: Session = Depends(get_db_session),
+) -> EvidenceSourceStatusOut:
+    path = _default_db_path()
+    generated_at = datetime.now(timezone.utc).isoformat()
+    ds_paper_count = int(db.query(func.count(DsPaper.id)).scalar() or 0)
+    literature_paper_count = int(db.query(func.count(LiteraturePaper.id)).scalar() or 0)
+    pending_review_citation_count = int(
+        db.query(func.count(EvidenceSavedCitation.id))
+        .filter(EvidenceSavedCitation.citation_payload_json.like('%"approval_status": "pending_clinician_review"%'))
+        .scalar()
+        or 0
+    )
+    unverified_saved_citation_count = int(
+        db.query(func.count(EvidenceSavedCitation.id))
+        .filter(EvidenceSavedCitation.citation_payload_json.like('%"status": "unverified"%'))
+        .scalar()
+        or 0
+    )
+    base = {
+        "source_kind": "bundled_fallback",
+        "source_label": "Bundled evidence snapshot",
+        "paper_count": 0,
+        "trial_count": 0,
+        "device_count": 0,
+        "protocol_count": 0,
+        "indication_count": 0,
+        "meta_analysis_count": None,
+        "ds_paper_count": ds_paper_count,
+        "literature_paper_count": literature_paper_count,
+        "pending_review_citation_count": pending_review_citation_count,
+        "unverified_saved_citation_count": unverified_saved_citation_count,
+        "updated_at": None,
+        "generated_at": generated_at,
+        "degraded_reason": None,
+    }
+    if not os.path.exists(path):
+        return EvidenceSourceStatusOut(**base)
+    try:
+        conn = sqlite3.connect(path, timeout=5)
+        conn.execute("PRAGMA query_only = 1")
+        payload = {
+            **base,
+            "source_kind": "live_sqlite",
+            "source_label": "SQLite evidence corpus",
+            "paper_count": int(conn.execute("SELECT count(*) FROM papers").fetchone()[0]),
+            "trial_count": int(conn.execute("SELECT count(*) FROM trials").fetchone()[0]),
+            "device_count": int(conn.execute("SELECT count(*) FROM devices").fetchone()[0]),
+            "protocol_count": int(conn.execute("SELECT count(*) FROM protocols").fetchone()[0]),
+            "indication_count": int(conn.execute("SELECT count(*) FROM indications").fetchone()[0]),
+            "updated_at": conn.execute("SELECT MAX(last_ingested) FROM papers").fetchone()[0],
+            "degraded_reason": None,
+        }
+        conn.close()
+        return EvidenceSourceStatusOut(**payload)
+    except Exception as exc:
+        return EvidenceSourceStatusOut(
+            **{
+                **base,
+                "source_kind": "degraded",
+                "source_label": "Evidence DB degraded",
+                "degraded_reason": type(exc).__name__,
+            }
+        )
 
 
 @router.get("/terminal/status", response_model=EvidenceTerminalStatusOut)
@@ -3071,4 +3156,3 @@ def search_evidence(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Patient consent required for evidence search.",
         )
-

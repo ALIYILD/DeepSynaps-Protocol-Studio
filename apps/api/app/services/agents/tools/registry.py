@@ -27,6 +27,7 @@ fallback pattern in ``apps/api/app/services/openmed/adapter.py``.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import re
 from typing import TYPE_CHECKING, Any, Callable, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -98,6 +99,326 @@ def _patient_full_name(first: str | None, last: str | None) -> str:
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+_PATIENT_ID_RE = re.compile(
+    r"\bpatient(?:_id)?\s*[:=#]?\s*([A-Za-z0-9][A-Za-z0-9._:-]{2,})\b",
+    re.IGNORECASE,
+)
+_TARGET_RULES: tuple[tuple[str, str, str], ...] = (
+    ("frontal alpha asymmetry", "frontal_alpha_asymmetry", "biomarker"),
+    ("hippocampal atrophy", "hippocampal_atrophy", "biomarker"),
+    ("protocol ranking", "protocol_ranking", "recommendation"),
+    ("treatment-resistant depression", "protocol_ranking", "recommendation"),
+    ("depression risk", "depression_risk", "prediction"),
+    ("anxiety risk", "anxiety_risk", "risk_score"),
+    ("stress load", "stress_load", "risk_score"),
+    ("voice affect", "voice_affect", "multimodal_summary"),
+    ("text sentiment", "text_sentiment", "multimodal_summary"),
+)
+
+
+def _extract_patient_id(message: str | None) -> str | None:
+    if not message:
+        return None
+    match = _PATIENT_ID_RE.search(message)
+    return match.group(1) if match else None
+
+
+def _match_evidence_target(message: str | None) -> tuple[str, str] | None:
+    if not message:
+        return None
+    haystack = message.lower()
+    for needle, target_name, context_type in _TARGET_RULES:
+        if needle in haystack:
+            return target_name, context_type
+    if " tms " in f" {haystack} " or "rtms" in haystack or "tdcs" in haystack:
+        return "protocol_ranking", "recommendation"
+    return None
+
+
+def _guess_condition_filters(message: str | None) -> list[str]:
+    if not message:
+        return []
+    haystack = message.lower()
+    out: list[str] = []
+    if "depression" in haystack or "mdd" in haystack:
+        out.append("depression")
+    if "anxiety" in haystack or "gad" in haystack:
+        out.append("anxiety")
+    if "ocd" in haystack:
+        out.append("ocd")
+    return out
+
+
+def _guess_modality_filters(message: str | None) -> list[str]:
+    if not message:
+        return []
+    haystack = message.lower()
+    out: list[str] = []
+    for needle, label in (
+        ("rtms", "rtms"),
+        ("tms", "neuromodulation"),
+        ("tdcs", "tdcs"),
+        ("qeeg", "qeeg"),
+        ("eeg", "qeeg"),
+        ("mri", "mri"),
+        ("voice", "voice"),
+        ("text", "text"),
+    ):
+        if needle in haystack and label not in out:
+            out.append(label)
+    return out
+
+
+def _require_patient_scope(
+    actor: "AuthenticatedActor",
+    db: "Session",
+    patient_id: str,
+) -> str | None:
+    from app.auth import require_patient_owner
+    from app.errors import ApiServiceError
+    from app.repositories.patients import resolve_patient_clinic_id
+
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if not exists:
+        raise ApiServiceError(
+            code="not_found",
+            message="Patient not found.",
+            status_code=404,
+        )
+    require_patient_owner(actor, clinic_id)
+    return clinic_id
+
+
+def _h_evidence_query(
+    actor: "AuthenticatedActor",
+    db: "Session",
+    *,
+    message: str | None = None,
+) -> dict:
+    from app.services.agent_brain.providers.evidence import EvidenceProvider
+    from app.services.agent_brain.schemas import ProviderQuery
+    from app.services.evidence_intelligence import EvidenceQuery, query_evidence
+
+    patient_id = _extract_patient_id(message)
+    matched = _match_evidence_target(message)
+    if patient_id and matched:
+        _require_patient_scope(actor, db, patient_id)
+        target_name, context_type = matched
+        result = query_evidence(
+            EvidenceQuery(
+                patient_id=patient_id,
+                context_type=context_type,  # type: ignore[arg-type]
+                target_name=target_name,
+                modality_filters=_guess_modality_filters(message),
+                diagnosis_filters=_guess_condition_filters(message),
+                include_counter_evidence=True,
+            ),
+            db,
+        )
+        return {
+            "mode": "patient_intelligence",
+            "patient_id": patient_id,
+            "target_name": result.target_name,
+            "claim": result.claim,
+            "evidence_strength": result.evidence_strength,
+            "confidence_score": result.confidence_score,
+            "top_papers": [p.model_dump(mode="json") for p in result.supporting_papers[:5]],
+            "conflicting_papers": [
+                p.model_dump(mode="json") for p in result.conflicting_papers[:3]
+            ],
+            "literature_summary": result.literature_summary,
+            "recommended_caution": result.recommended_caution,
+            "provenance": result.provenance.model_dump(mode="json"),
+        }
+
+    provider = EvidenceProvider()
+    response = provider.query(
+        ProviderQuery(
+            provider="evidence",
+            query=(message or "").strip(),
+            condition=(_guess_condition_filters(message) or [None])[0],
+            include_citations=True,
+        ),
+        actor_id=actor.actor_id,
+        actor_role=actor.role,
+        session=db,
+    )
+    return {
+        "mode": "provider_fallback",
+        "answer": response.answer,
+        "items": response.items[:5],
+        "citations": [c.model_dump(mode="json") for c in response.citations[:5]],
+        "safety_flags": response.safety_flags,
+        "source_metadata": response.source_metadata,
+        "confidence": response.confidence,
+        "requires_clinician_review": response.requires_clinician_review,
+    }
+
+
+def _h_evidence_patient_overview(
+    actor: "AuthenticatedActor",
+    db: "Session",
+    *,
+    message: str | None = None,
+) -> dict:
+    from app.services.evidence_intelligence import build_patient_overview
+
+    patient_id = _extract_patient_id(message)
+    if not patient_id:
+        return {
+            "unavailable": True,
+            "reason": "patient_id_required",
+            "hint": "Include `patient_id: <id>` in the message to load evidence context.",
+        }
+    _require_patient_scope(actor, db, patient_id)
+    overview = build_patient_overview(patient_id, db)
+    return overview.model_dump(mode="json")
+
+
+def _h_evidence_literature_search(
+    actor: "AuthenticatedActor",
+    db: "Session",
+    *,
+    message: str | None = None,
+) -> dict:
+    from sqlalchemy import or_
+
+    from app.persistence.models import DsPaper, LiteraturePaper
+
+    _ = actor
+    raw = (message or "").strip()
+    if not raw:
+        return {"items": [], "count": 0, "reason": "empty_query"}
+
+    tokens = [t for t in re.split(r"\s+", raw) if t][:8]
+    doi_match = re.search(r"\b10\.\d{4,9}/[^\s,;]+", raw, re.IGNORECASE)
+    pmid_match = re.search(r"\b(?:pmid:?\s*)?(\d{6,9})\b", raw, re.IGNORECASE)
+
+    ds_query = db.query(DsPaper)
+    lib_query = db.query(LiteraturePaper)
+    if doi_match:
+        doi = doi_match.group(0)
+        ds_query = ds_query.filter(DsPaper.doi == doi)
+        lib_query = lib_query.filter(LiteraturePaper.doi == doi)
+    elif pmid_match:
+        pmid = pmid_match.group(1)
+        ds_query = ds_query.filter(DsPaper.pmid == pmid)
+        lib_query = lib_query.filter(LiteraturePaper.pubmed_id == pmid)
+    else:
+        ds_query = ds_query.filter(or_(*[DsPaper.title.ilike(f"%{t}%") for t in tokens[:3]]))
+        lib_query = lib_query.filter(or_(*[LiteraturePaper.title.ilike(f"%{t}%") for t in tokens[:3]]))
+
+    ds_rows = ds_query.order_by(DsPaper.year.desc(), DsPaper.created_at.desc()).limit(5).all()
+    lib_rows = (
+        lib_query.order_by(LiteraturePaper.year.desc(), LiteraturePaper.created_at.desc())
+        .limit(5)
+        .all()
+    )
+    items = [
+        {
+            "source": "ds_papers",
+            "paper_id": row.id,
+            "title": row.title,
+            "year": row.year,
+            "journal": row.journal,
+            "pmid": row.pmid,
+            "doi": row.doi,
+            "url": row.oa_url,
+        }
+        for row in ds_rows
+    ] + [
+        {
+            "source": "literature_library",
+            "paper_id": row.id,
+            "title": row.title,
+            "year": row.year,
+            "journal": row.journal,
+            "pmid": row.pubmed_id,
+            "doi": row.doi,
+            "url": row.url,
+        }
+        for row in lib_rows
+    ]
+    return {"items": items[:8], "count": len(items[:8]), "query": raw}
+
+
+def _h_evidence_status(
+    actor: "AuthenticatedActor",
+    db: "Session",
+) -> dict:
+    _ = actor
+    from sqlalchemy import func
+
+    from app.persistence.models import DsPaper, EvidenceSavedCitation, LiteraturePaper
+    from app.services.evidence_terminal_service import resolve_evidence_db_path
+
+    ds_paper_count = int(db.query(func.count(DsPaper.id)).scalar() or 0)
+    literature_paper_count = int(db.query(func.count(LiteraturePaper.id)).scalar() or 0)
+    pending_review_citation_count = int(
+        db.query(func.count(EvidenceSavedCitation.id))
+        .filter(
+            EvidenceSavedCitation.citation_payload_json.like(
+                '%"approval_status": "pending_clinician_review"%'
+            )
+        )
+        .scalar()
+        or 0
+    )
+    unverified_saved_citation_count = int(
+        db.query(func.count(EvidenceSavedCitation.id))
+        .filter(EvidenceSavedCitation.citation_payload_json.like('%"status": "unverified"%'))
+        .scalar()
+        or 0
+    )
+    path = resolve_evidence_db_path()
+    base = {
+        "source_kind": "bundled_fallback",
+        "source_label": "Bundled evidence snapshot",
+        "paper_count": 0,
+        "trial_count": 0,
+        "device_count": 0,
+        "protocol_count": 0,
+        "indication_count": 0,
+        "meta_analysis_count": None,
+        "ds_paper_count": ds_paper_count,
+        "literature_paper_count": literature_paper_count,
+        "pending_review_citation_count": pending_review_citation_count,
+        "unverified_saved_citation_count": unverified_saved_citation_count,
+        "updated_at": None,
+        "generated_at": _utcnow().isoformat(),
+        "degraded_reason": None,
+    }
+    try:
+        import os
+        import sqlite3
+
+        if not os.path.exists(path):
+            return base
+        conn = sqlite3.connect(path, timeout=5)
+        conn.execute("PRAGMA query_only = 1")
+        payload = {
+            **base,
+            "source_kind": "live_sqlite",
+            "source_label": "SQLite evidence corpus",
+            "paper_count": int(conn.execute("SELECT count(*) FROM papers").fetchone()[0]),
+            "trial_count": int(conn.execute("SELECT count(*) FROM trials").fetchone()[0]),
+            "device_count": int(conn.execute("SELECT count(*) FROM devices").fetchone()[0]),
+            "protocol_count": int(conn.execute("SELECT count(*) FROM protocols").fetchone()[0]),
+            "indication_count": int(conn.execute("SELECT count(*) FROM indications").fetchone()[0]),
+            "updated_at": conn.execute("SELECT MAX(last_ingested) FROM papers").fetchone()[0],
+            "degraded_reason": None,
+        }
+        conn.close()
+        return payload
+    except Exception as exc:  # pragma: no cover - defensive
+        return {
+            **base,
+            "source_kind": "degraded",
+            "source_label": "Evidence DB degraded",
+            "degraded_reason": type(exc).__name__,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -764,6 +1085,69 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
         ),
         handler=_h_stub_unavailable,
         requires_role="clinician",
+    ),
+    "evidence.query": ToolDefinition(
+        id="evidence.query",
+        name="Evidence query",
+        description=(
+            "Decision-support evidence query grounded in the existing "
+            "evidence provider and evidence-intelligence stack."
+        ),
+        handler=_h_evidence_query,
+        requires_role="clinician",
+    ),
+    "evidence.patient_overview": ToolDefinition(
+        id="evidence.patient_overview",
+        name="Patient evidence overview",
+        description=(
+            "Patient-scoped evidence overview from the existing "
+            "`build_patient_overview()` flow. Requires an authorised "
+            "`patient_id` in the message."
+        ),
+        handler=_h_evidence_patient_overview,
+        requires_role="clinician",
+    ),
+    "evidence.literature_search": ToolDefinition(
+        id="evidence.literature_search",
+        name="Literature search",
+        description=(
+            "Identifier- or title-based search across the existing "
+            "`ds_papers` and `literature_papers` corpora."
+        ),
+        handler=_h_evidence_literature_search,
+        requires_role="clinician",
+    ),
+    "evidence.status": ToolDefinition(
+        id="evidence.status",
+        name="Evidence operational status",
+        description=(
+            "Labeled operational evidence status: live/degraded source kind, "
+            "paper/trial/device/protocol counts, and local corpus counts."
+        ),
+        handler=_h_evidence_status,
+        requires_role="clinician",
+    ),
+    "evidence.draft_report_citations": ToolDefinition(
+        id="evidence.draft_report_citations",
+        name="Draft report citations",
+        description=(
+            "WRITE: draft evidence citations for clinician review. Not "
+            "pre-fetched; remains approval-gated."
+        ),
+        handler=None,
+        requires_role="clinician",
+        write_only=True,
+    ),
+    "evidence.save_citation_request": ToolDefinition(
+        id="evidence.save_citation_request",
+        name="Save citation request",
+        description=(
+            "WRITE: propose saving a citation for later review. Not "
+            "pre-fetched; remains approval-gated."
+        ),
+        handler=None,
+        requires_role="clinician",
+        write_only=True,
     ),
     # ── Patient-side tools (gated; pending clinical signoff) ──────────
     # All seven of these back the patient-side agents in the marketplace.

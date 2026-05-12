@@ -19,6 +19,7 @@ Design notes
 """
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 from typing import TYPE_CHECKING, Any
@@ -74,6 +75,8 @@ def fetch_context(
     agent: "AgentDefinition",
     actor: "AuthenticatedActor",
     db: "Session",
+    *,
+    message: str | None = None,
 ) -> dict[str, Any]:
     """Pre-fetch tool results for ``agent`` on behalf of ``actor``.
 
@@ -103,7 +106,11 @@ def fetch_context(
             # calling instead.
             continue
         try:
-            result = tool.handler(actor, db)  # type: ignore[misc]
+            params = inspect.signature(tool.handler).parameters
+            if "message" in params:
+                result = tool.handler(actor, db, message=message)  # type: ignore[misc]
+            else:
+                result = tool.handler(actor, db)  # type: ignore[misc]
         except Exception as exc:  # noqa: BLE001 — fail-safe envelope
             logger.warning(
                 "agent_tool_failed",

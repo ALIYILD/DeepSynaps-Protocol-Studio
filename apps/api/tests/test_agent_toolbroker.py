@@ -88,6 +88,8 @@ def test_known_write_tools_are_flagged() -> None:
         "sessions.cancel",
         "notes.approve_draft",
         "tasks.create",
+        "evidence.draft_report_citations",
+        "evidence.save_citation_request",
     ):
         assert tool_id in TOOL_REGISTRY, f"missing write tool {tool_id!r}"
         tool = TOOL_REGISTRY[tool_id]
@@ -96,14 +98,8 @@ def test_known_write_tools_are_flagged() -> None:
 
 
 def test_read_tools_have_handlers() -> None:
-    write_only = {
-        "sessions.create",
-        "sessions.cancel",
-        "notes.approve_draft",
-        "tasks.create",
-    }
     for tool_id, tool in TOOL_REGISTRY.items():
-        if tool_id in write_only:
+        if tool.write_only:
             continue
         assert tool.handler is not None, (
             f"read-only tool {tool_id!r} must define a handler"

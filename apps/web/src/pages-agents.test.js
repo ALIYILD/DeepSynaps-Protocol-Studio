@@ -178,6 +178,86 @@ describe('__aiAgentV2TestApi__ patient context panel', () => {
     const html = mod.__aiAgentV2TestApi__.renderPatientContextPanel();
     assert.match(html, /data-ai-agent-v2-patient-missing="1"/);
   });
+
+  it('formats live evidence source labels honestly', () => {
+    const label = mod.__aiAgentV2TestApi__.formatEvidenceSourceBadge({
+      source_kind: 'live_sqlite',
+      paper_count: 184670,
+    });
+    assert.match(label, /Live SQLite/i);
+    assert.match(label, /184,670 papers/);
+  });
+
+  it('formats bundled evidence fallback labels honestly', () => {
+    const label = mod.__aiAgentV2TestApi__.formatEvidenceSourceBadge({
+      source_kind: 'bundled_fallback',
+    });
+    assert.match(label, /Bundled fallback/i);
+    assert.match(label, /184,669 papers/);
+  });
+
+  it('formats degraded evidence labels distinctly from bundled fallback', () => {
+    const label = mod.__aiAgentV2TestApi__.formatEvidenceSourceBadge({
+      source_kind: 'degraded',
+    });
+    const warning = mod.__aiAgentV2TestApi__.formatEvidenceWarning({
+      source_kind: 'degraded',
+      degraded_reason: 'OperationalError',
+    });
+    assert.match(label, /Evidence DB degraded/i);
+    assert.match(warning, /OperationalError/);
+  });
+
+  it('formats governance drift notes honestly for head of clinic', () => {
+    const note = mod.__aiAgentV2TestApi__.formatEvidenceGovernanceNote({
+      source_kind: 'live_sqlite',
+      paper_count: 184670,
+      ds_paper_count: 87654,
+      literature_paper_count: 1200,
+      updated_at: new Date().toISOString(),
+    }, 'clinic.head_of_clinic');
+    assert.match(note, /Governance note/i);
+    assert.match(note, /184,670/);
+    assert.match(note, /87,654/);
+  });
+
+  it('formats pending review citation counts for dr ai', () => {
+    const note = mod.__aiAgentV2TestApi__.formatEvidenceGovernanceNote({
+      source_kind: 'live_sqlite',
+      paper_count: 184670,
+      pending_review_citation_count: 3,
+      unverified_saved_citation_count: 1,
+      updated_at: new Date().toISOString(),
+    }, 'clinic.dr_ai');
+    assert.match(note, /3 draft citations waiting for clinician review/i);
+  });
+
+  it('formats degraded governance notes for dr ai', () => {
+    const note = mod.__aiAgentV2TestApi__.formatEvidenceGovernanceNote({
+      source_kind: 'degraded',
+    }, 'clinic.dr_ai');
+    assert.match(note, /degraded mode/i);
+    assert.match(note, /clinician review/i);
+  });
+
+  it('renders evidence status copy in dashboard widgets', () => {
+    mod.__aiAgentV2TestApi__.setWidgetData({
+      'clinic.dr_ai': {
+        pendingDrafts: 2,
+        newEvidenceAlerts: 0,
+        protocolSuggestions: 3,
+        evidenceSource: 'Live SQLite · 184,670 papers',
+        evidenceWarning: 'Updated just now',
+        evidenceGovernance: 'Citations remain draft-only and clinician-reviewed before final reports.',
+      },
+    });
+    const html = mod.__aiAgentV2TestApi__.renderAgentDashboardWidgets([
+      { id: 'clinic.dr_ai', name: 'Dr AI', hired: true },
+    ]);
+    assert.match(html, /Live SQLite · 184,670 papers/);
+    assert.match(html, /Updated just now/);
+    assert.match(html, /draft-only and clinician-reviewed/i);
+  });
 });
 
 // ── 5. __hireFlowTestApi__ smoke tests ───────────────────────────────────────
