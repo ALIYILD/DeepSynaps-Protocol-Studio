@@ -178,6 +178,40 @@ describe('__aiAgentV2TestApi__ patient context panel', () => {
     const html = mod.__aiAgentV2TestApi__.renderPatientContextPanel();
     assert.match(html, /data-ai-agent-v2-patient-missing="1"/);
   });
+
+  it('formats live evidence source labels honestly', () => {
+    const label = mod.__aiAgentV2TestApi__.formatEvidenceSourceBadge({
+      source_kind: 'live_sqlite',
+      paper_count: 184670,
+    });
+    assert.match(label, /Live SQLite/i);
+    assert.match(label, /184,670 papers/);
+  });
+
+  it('formats bundled evidence fallback labels honestly', () => {
+    const label = mod.__aiAgentV2TestApi__.formatEvidenceSourceBadge({
+      source_kind: 'degraded',
+    });
+    assert.match(label, /Bundled fallback/i);
+    assert.match(label, /184,669 papers/);
+  });
+
+  it('renders evidence status copy in dashboard widgets', () => {
+    mod.__aiAgentV2TestApi__.setWidgetData({
+      'clinic.dr_ai': {
+        pendingDrafts: 2,
+        newEvidenceAlerts: 0,
+        protocolSuggestions: 3,
+        evidenceSource: 'Live SQLite · 184,670 papers',
+        evidenceWarning: 'Updated just now',
+      },
+    });
+    const html = mod.__aiAgentV2TestApi__.renderAgentDashboardWidgets([
+      { id: 'clinic.dr_ai', name: 'Dr AI', hired: true },
+    ]);
+    assert.match(html, /Live SQLite · 184,670 papers/);
+    assert.match(html, /Updated just now/);
+  });
 });
 
 // ── 5. __hireFlowTestApi__ smoke tests ───────────────────────────────────────

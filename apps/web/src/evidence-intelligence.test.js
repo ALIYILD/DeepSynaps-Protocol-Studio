@@ -70,6 +70,11 @@ test('EvidenceChip renders query payload and count label', () => {
   assert.match(html, /High evidence/);
 });
 
+test('EvidenceChip shows 0 papers explicitly', () => {
+  const html = mod.EvidenceChip({ count: 0, evidenceLevel: 'low', label: 'No evidence yet' });
+  assert.match(html, /0 papers/);
+});
+
 test('PatientEvidenceTab renders filters and empty loading state', () => {
   const html = mod.PatientEvidenceTab({ patientId: 'pat-1' });
   assert.match(html, /Evidence workspace/);

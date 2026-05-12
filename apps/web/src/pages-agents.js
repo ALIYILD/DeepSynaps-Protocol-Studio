@@ -1,4 +1,5 @@
 import { api, API_BASE } from './api.js';
+import { EVIDENCE_DATASET_VERSION, EVIDENCE_TOTAL_PAPERS } from './evidence-dataset.js';
 
 /** Shown on AI Agent v2 — required governance copy for clinician-controlled decision support. */
 export const AI_AGENT_V2_GOVERNANCE_COPY =
@@ -1210,7 +1211,12 @@ const TOOL_PLAIN_ENGLISH = {
   'reports.read': 'Reads existing reports',
   'media.transcribe': 'Transcribes dictation you record',
   'media.draft': 'Drafts clinical notes from a recording (you approve)',
-  'evidence.search': 'Searches the evidence library',
+  'evidence.query': 'Queries the evidence system for clinician decision support',
+  'evidence.patient_overview': 'Loads patient evidence overview when an authorised patient is specified',
+  'evidence.literature_search': 'Searches indexed literature by DOI, PMID, or title',
+  'evidence.status': 'Shows operational evidence system status and labeled corpus counts',
+  'evidence.draft_report_citations': 'Drafts report citations for your approval',
+  'evidence.save_citation_request': 'Saves a citation only after your approval',
   'protocols.suggest': 'Suggests protocols (you approve before any change)',
   'clinic.emergency_contact': 'Surfaces emergency contacts in a crisis flow',
 };
@@ -3152,6 +3158,22 @@ let _widgetDataLoading = false;
 let _widgetDataLastFetch = 0;
 const WIDGET_CACHE_MS = 30_000;
 
+function _formatEvidenceSourceBadge(status) {
+  if (!status || typeof status !== 'object') return 'Evidence status unavailable';
+  if (status.source_kind === 'live_sqlite') {
+    return `Live SQLite · ${Number(status.paper_count || 0).toLocaleString()} papers`;
+  }
+  return `Bundled fallback · ${Number(EVIDENCE_TOTAL_PAPERS || 0).toLocaleString()} papers`;
+}
+
+function _formatEvidenceWarning(status) {
+  if (!status || typeof status !== 'object') return 'Evidence status unavailable';
+  if (status.source_kind === 'live_sqlite') {
+    return status.updated_at ? `Updated ${_formatRelativeTimestamp(status.updated_at)}` : 'Live evidence source';
+  }
+  return `Bundled/offline registry snapshot (${_esc(EVIDENCE_DATASET_VERSION)})`;
+}
+
 async function _loadAgentDashboardWidgets() {
   if (_widgetDataLoading) return;
   const now = Date.now();
@@ -3227,15 +3249,16 @@ async function _loadReceptionWidgetData() {
 
 async function _loadHeadOfClinicWidgetData() {
   if (_isMarketplaceDemoMode()) {
-    return { activePatients: 124, openEscalations: 2, roomOccupancy: '78%', adverseEvents: 0 };
+    return { activePatients: 124, openEscalations: 2, roomOccupancy: '78%', adverseEvents: 0, evidenceSource: 'Bundled fallback · 184,669 papers', evidenceWarning: 'Bundled/offline registry snapshot' };
   }
   try {
-    const [patients, review, rooms, adverse, risk] = await Promise.all([
+    const [patients, review, rooms, adverse, risk, evidence] = await Promise.all([
       api.listPatients({ limit: 1 }).catch(() => null),
       api.listReviewQueue({ status: 'pending', limit: 1 }).catch(() => null),
       api.listRooms().catch(() => null),
       api.listAdverseEvents({ limit: 1 }).catch(() => null),
       api.getClinicRiskSummary().catch(() => null),
+      api.evidenceSourceStatus?.().catch(() => null),
     ]);
     const activePatients = patients?.total ?? patients?.items?.length ?? 0;
     const openEscalations = review?.total ?? review?.items?.length ?? 0;
@@ -3244,7 +3267,7 @@ async function _loadHeadOfClinicWidgetData() {
     if (!activePatients && !openEscalations && !roomOccupancy && !adverseEvents) {
       return { empty: true, reason: 'Clinic analytics coming soon' };
     }
-    return { activePatients, openEscalations, roomOccupancy: roomOccupancy || '—', adverseEvents };
+    return { activePatients, openEscalations, roomOccupancy: roomOccupancy || '—', adverseEvents, evidenceSource: _formatEvidenceSourceBadge(evidence), evidenceWarning: _formatEvidenceWarning(evidence) };
   } catch {
     return { empty: true, reason: 'Clinic analytics coming soon' };
   }
@@ -3252,13 +3275,14 @@ async function _loadHeadOfClinicWidgetData() {
 
 async function _loadNurseWidgetData() {
   if (_isMarketplaceDemoMode()) {
-    return { pendingTasks: 4, patientsNeedingPrep: 3, vitalsOutliers: 1 };
+    return { pendingTasks: 4, patientsNeedingPrep: 3, vitalsOutliers: 1, evidenceSource: 'Bundled fallback · 184,669 papers', evidenceWarning: 'Patient evidence activates when a patient is selected.' };
   }
   try {
-    const [dayQueue, assessments, tasks] = await Promise.all([
+    const [dayQueue, assessments, tasks, evidence] = await Promise.all([
       api.getClinicDayQueue().catch(() => null),
       api.assessmentsV2Queue().catch(() => null),
       api.listHomeProgramTasks({ source: 'agent' }).catch(() => null),
+      api.evidenceSourceStatus?.().catch(() => null),
     ]);
     const pendingTasks = tasks?.items?.filter(t => t.status === 'pending' || t.status === 'in_progress').length ?? 0;
     const patientsNeedingPrep = dayQueue?.prep_count ?? 0;
@@ -3266,7 +3290,7 @@ async function _loadNurseWidgetData() {
     if (!pendingTasks && !patientsNeedingPrep && !vitalsOutliers) {
       return { empty: true, reason: 'No nurse tasks on the board' };
     }
-    return { pendingTasks, patientsNeedingPrep, vitalsOutliers };
+    return { pendingTasks, patientsNeedingPrep, vitalsOutliers, evidenceSource: _formatEvidenceSourceBadge(evidence), evidenceWarning: 'Patient evidence activates when a patient is selected.' };
   } catch {
     return { empty: true, reason: 'No nurse tasks on the board' };
   }
@@ -3274,12 +3298,13 @@ async function _loadNurseWidgetData() {
 
 async function _loadManagerWidgetData() {
   if (_isMarketplaceDemoMode()) {
-    return { roomUtilization: '82%', staffOnCall: 5, pendingInvoices: 7 };
+    return { roomUtilization: '82%', staffOnCall: 5, pendingInvoices: 7, evidenceSource: 'Bundled fallback · 184,669 papers', evidenceWarning: 'Operational evidence status only.' };
   }
   try {
-    const [rooms, invoices] = await Promise.all([
+    const [rooms, invoices, evidence] = await Promise.all([
       api.listRooms().catch(() => null),
       api.finance.listInvoices({ status: 'pending', limit: 1 }).catch(() => null),
+      api.evidenceSourceStatus?.().catch(() => null),
     ]);
     const roomUtilization = rooms?.utilization ?? (Array.isArray(rooms?.items) ? `${Math.round(rooms.items.filter(r => r.occupied).length / Math.max(rooms.items.length, 1) * 100)}%` : null);
     const pendingInvoices = invoices?.total ?? invoices?.items?.length ?? 0;
@@ -3287,7 +3312,7 @@ async function _loadManagerWidgetData() {
     if (!roomUtilization && !pendingInvoices) {
       return { empty: true, reason: 'Operations data unavailable' };
     }
-    return { roomUtilization: roomUtilization || '—', staffOnCall, pendingInvoices };
+    return { roomUtilization: roomUtilization || '—', staffOnCall, pendingInvoices, evidenceSource: _formatEvidenceSourceBadge(evidence), evidenceWarning: 'Operational evidence status only.' };
   } catch {
     return { empty: true, reason: 'Operations data unavailable' };
   }
@@ -3295,21 +3320,19 @@ async function _loadManagerWidgetData() {
 
 async function _loadDrAiWidgetData() {
   if (_isMarketplaceDemoMode()) {
-    return { pendingDrafts: 2, newEvidenceAlerts: 1, protocolSuggestions: 3 };
+    return { pendingDrafts: 2, newEvidenceAlerts: 1, protocolSuggestions: 3, evidenceSource: 'Bundled fallback · 184,669 papers', evidenceWarning: 'Bundled/offline registry snapshot' };
   }
   try {
-    const [media, evidence, suggestions] = await Promise.all([
+    const [media, evidence, suggestions, sourceStatus] = await Promise.all([
       api.listMediaQueue().catch(() => null),
       api.evidenceStatus().catch(() => null),
       api.evidenceSuggest({ limit: 5 }).catch(() => null),
+      api.evidenceSourceStatus?.().catch(() => null),
     ]);
     const pendingDrafts = media?.total ?? media?.items?.length ?? 0;
     const newEvidenceAlerts = evidence?.new_alerts ?? 0;
     const protocolSuggestions = Array.isArray(suggestions?.items) ? suggestions.items.length : (Array.isArray(suggestions) ? suggestions.length : 0);
-    if (!pendingDrafts && !newEvidenceAlerts && !protocolSuggestions) {
-      return { empty: true, reason: 'No pending clinical decisions' };
-    }
-    return { pendingDrafts, newEvidenceAlerts, protocolSuggestions };
+    return { pendingDrafts, newEvidenceAlerts, protocolSuggestions, evidenceSource: _formatEvidenceSourceBadge(sourceStatus), evidenceWarning: _formatEvidenceWarning(sourceStatus) };
   } catch {
     return { empty: true, reason: 'No pending clinical decisions' };
   }
@@ -3398,6 +3421,8 @@ function _renderAgentDashboardWidgets(hiredAgents) {
           <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${_esc(data.roomOccupancy)}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Room occupancy</div></div>
           <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.adverseEvents}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">AE flags</div></div>
         </div>
+        <div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">${_esc(data.evidenceSource || '')}</div>
+        <div style="margin-top:4px;font-size:10px;color:var(--text-tertiary)">${_esc(data.evidenceWarning || '')}</div>
       `;
     } else if (a.id === 'clinic.nurse') {
       metrics = `
@@ -3406,6 +3431,8 @@ function _renderAgentDashboardWidgets(hiredAgents) {
           <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.patientsNeedingPrep}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Prep today</div></div>
           <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.vitalsOutliers}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Vitals outliers</div></div>
         </div>
+        <div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">${_esc(data.evidenceSource || '')}</div>
+        <div style="margin-top:4px;font-size:10px;color:var(--text-tertiary)">${_esc(data.evidenceWarning || '')}</div>
       `;
     } else if (a.id === 'clinic.manager') {
       metrics = `
@@ -3414,6 +3441,8 @@ function _renderAgentDashboardWidgets(hiredAgents) {
           <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${_esc(data.staffOnCall)}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Staff on-call</div></div>
           <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.pendingInvoices}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Pending invoices</div></div>
         </div>
+        <div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">${_esc(data.evidenceSource || '')}</div>
+        <div style="margin-top:4px;font-size:10px;color:var(--text-tertiary)">${_esc(data.evidenceWarning || '')}</div>
       `;
     } else if (a.id === 'clinic.dr_ai') {
       metrics = `
@@ -3422,6 +3451,8 @@ function _renderAgentDashboardWidgets(hiredAgents) {
           <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.newEvidenceAlerts}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Evidence alerts</div></div>
           <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.protocolSuggestions}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Protocol suggestions</div></div>
         </div>
+        <div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">${_esc(data.evidenceSource || '')}</div>
+        <div style="margin-top:4px;font-size:10px;color:var(--text-tertiary)">${_esc(data.evidenceWarning || '')}</div>
       `;
     } else if (a.id === 'clinic.drclaw_telegram') {
       metrics = `
@@ -5170,6 +5201,18 @@ export const __aiAgentV2TestApi__ = {
   },
   renderLocalAuditPanel() {
     return _renderAiAgentV2LocalAuditPanel();
+  },
+  formatEvidenceSourceBadge(status) {
+    return _formatEvidenceSourceBadge(status);
+  },
+  formatEvidenceWarning(status) {
+    return _formatEvidenceWarning(status);
+  },
+  renderAgentDashboardWidgets(hiredAgents) {
+    return _renderAgentDashboardWidgets(hiredAgents);
+  },
+  setWidgetData(data) {
+    _widgetDataCache = { ...(data || {}) };
   },
 };
 

@@ -2106,6 +2106,7 @@ export const api = {
 
   // Public counts + last_updated timestamp (no auth required).
   evidenceStatus: () => apiFetch('/api/v1/evidence/status'),
+  evidenceSourceStatus: () => apiFetch('/api/v1/evidence/source-status'),
 
   // ── Live Indications Spine (added 2026-05-08) ───────────────────────────
   // Read-only views over the curated evidence DB junction tables. Each

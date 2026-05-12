@@ -582,7 +582,7 @@ def run_agent(
         try:
             from .broker import fetch_context
 
-            live_context = fetch_context(agent, actor, db)
+            live_context = fetch_context(agent, actor, db, message=message)
             context_used = sorted(live_context.keys())
         except Exception as exc:  # noqa: BLE001 — fail-safe envelope
             logger.warning(

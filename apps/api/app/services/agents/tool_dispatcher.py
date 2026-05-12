@@ -523,6 +523,118 @@ def _h_tasks_create(
     }
 
 
+def _guard_patient_scope(
+    actor: "AuthenticatedActor", db: "Session", patient_id: str
+) -> dict | None:
+    from app.auth import require_patient_owner
+    from app.repositories.patients import resolve_patient_clinic_id
+
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if not exists:
+        return {"ok": False, "result": "Patient not found."}
+    try:
+        require_patient_owner(actor, clinic_id)
+    except Exception:
+        return {"ok": False, "result": "Patient not found or not in your clinic."}
+    return None
+
+
+class EvidenceDraftReportCitationsArgs(BaseModel):
+    patient_id: str = Field(..., min_length=1, max_length=64)
+    finding_ids: list[str] = Field(default_factory=list)
+    include_saved: bool = True
+    max_results_per_finding: int = Field(default=5, ge=1, le=10)
+    context_kind: str | None = Field(default=None, max_length=64)
+    analysis_id: str | None = Field(default=None, max_length=64)
+    report_id: str | None = Field(default=None, max_length=64)
+
+
+def _h_evidence_draft_report_citations(
+    actor: "AuthenticatedActor", db: "Session", args: BaseModel
+) -> dict:
+    assert isinstance(args, EvidenceDraftReportCitationsArgs)
+    blocked = _guard_patient_scope(actor, db, args.patient_id)
+    if blocked is not None:
+        return blocked
+
+    from app.services.evidence_intelligence import (
+        ReportPayloadRequest,
+        build_report_payload,
+    )
+
+    payload = build_report_payload(
+        ReportPayloadRequest(
+            patient_id=args.patient_id,
+            finding_ids=list(args.finding_ids),
+            include_saved=args.include_saved,
+            max_results_per_finding=args.max_results_per_finding,
+            context_kind=args.context_kind,
+            analysis_id=args.analysis_id,
+            report_id=args.report_id,
+        ),
+        db,
+    )
+    citation_count = len(payload.get("citations", []))
+    return {
+        "ok": True,
+        "result": {
+            "status": "draft_ready_for_clinician_review",
+            "patient_id": args.patient_id,
+            "citation_count": citation_count,
+            "finding_count": len(payload.get("findings", [])),
+            "payload": payload,
+        },
+        "audit_extra": {
+            "patient_id": args.patient_id,
+            "citation_count": citation_count,
+        },
+    }
+
+
+class EvidenceSaveCitationRequestArgs(BaseModel):
+    patient_id: str = Field(..., min_length=1, max_length=64)
+    finding_id: str = Field(..., min_length=1, max_length=128)
+    finding_label: str = Field(..., min_length=1, max_length=255)
+    claim: str = Field(..., min_length=1, max_length=4000)
+    paper_id: str = Field(..., min_length=1, max_length=64)
+    paper_title: str = Field(..., min_length=1, max_length=4000)
+    pmid: str | None = Field(default=None, max_length=60)
+    doi: str | None = Field(default=None, max_length=255)
+    context_kind: str | None = Field(default=None, max_length=32)
+    analysis_id: str | None = Field(default=None, max_length=64)
+    report_id: str | None = Field(default=None, max_length=64)
+    citation_payload: dict[str, Any] = Field(default_factory=dict)
+
+
+def _h_evidence_save_citation_request(
+    actor: "AuthenticatedActor", db: "Session", args: BaseModel
+) -> dict:
+    assert isinstance(args, EvidenceSaveCitationRequestArgs)
+    blocked = _guard_patient_scope(actor, db, args.patient_id)
+    if blocked is not None:
+        return blocked
+
+    from app.services.evidence_intelligence import SaveCitationRequest, save_citation
+
+    record = save_citation(
+        SaveCitationRequest(**args.model_dump()),
+        actor.actor_id,
+        db,
+    )
+    return {
+        "ok": True,
+        "result": {
+            "status": "saved_for_clinician_review",
+            "record": record,
+        },
+        "audit_extra": {
+            "patient_id": args.patient_id,
+            "paper_id": args.paper_id,
+            "finding_id": args.finding_id,
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -533,6 +645,14 @@ WRITE_HANDLERS: dict[str, tuple[type[BaseModel], ToolWriteHandler]] = {
     "sessions.cancel": (SessionsCancelArgs, _h_sessions_cancel),
     "notes.approve_draft": (NotesApproveDraftArgs, _h_notes_approve_draft),
     "tasks.create": (TasksCreateArgs, _h_tasks_create),
+    "evidence.draft_report_citations": (
+        EvidenceDraftReportCitationsArgs,
+        _h_evidence_draft_report_citations,
+    ),
+    "evidence.save_citation_request": (
+        EvidenceSaveCitationRequestArgs,
+        _h_evidence_save_citation_request,
+    ),
 }
 
 
