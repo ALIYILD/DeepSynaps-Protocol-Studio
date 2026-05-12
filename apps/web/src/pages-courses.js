@@ -1058,6 +1058,21 @@ function _cdHighestSeverity(assessmentSummary, aeSummary) {
   return bestKey;
 }
 
+/* ── Dual-review helpers (module scope) ───────────────────────────────── */
+function _cdReviewerCount(c) {
+  let n = 0;
+  if (c?.reviewer_1_id) n++;
+  if (c?.reviewer_2_id) n++;
+  return n;
+}
+function _cdReviewerLabel(c) {
+  const n = _cdReviewerCount(c);
+  return n === 0 ? '0/2 reviewers' : n === 1 ? '1/2 reviewers' : '2/2 reviewers';
+}
+function _cdDualReviewMet(c) {
+  return _cdReviewerCount(c) >= 2;
+}
+
 // ── pgCourseDetail — Full course detail ──────────────────────────────────────
 export async function pgCourseDetail(setTopbar, navigate) {
   const id = window._selectedCourseId;
@@ -1120,6 +1135,9 @@ export async function pgCourseDetail(setTopbar, navigate) {
   const statusCol = STATUS_COLOR[course.status] || 'var(--text-tertiary)';
   const finalization = _courseFinalizationSummary(sessions, adverseEvents, aeSummary);
 
+  // Expose to module-scope handlers (e.g. _cdGovAction)
+  window._selectedCourse = course;
+
   // Mount-time audit ping — best-effort, fire-and-forget. Surfaces this view
   // event in the audit timeline (see /audit-events) so regulators can see who
   // opened the Course Detail page and when. Soft-fails on any backend error.
@@ -1130,7 +1148,9 @@ export async function pgCourseDetail(setTopbar, navigate) {
     `<button class="btn btn-ghost btn-sm" onclick="window._nav('courses')">← Courses</button>
      <button class="btn btn-sm" onclick="window._showExportPanel()">↓ Export Options</button>
      ${course.status === 'pending_approval'
-       ? `<button class="btn btn-primary btn-sm" onclick="window._activateCourseDetail('${course.id}')">Approve &amp; Activate</button>`
+       ? _cdDualReviewMet(course)
+         ? `<button class="btn btn-primary btn-sm" onclick="window._activateCourseDetail('${course.id}')">Approve &amp; Activate</button>`
+         : `<button class="btn btn-primary btn-sm" disabled title="Dual-review required: ${_cdReviewerLabel(course)}. A second independent clinician must approve before activation." style="opacity:0.55;cursor:not-allowed">Approve &amp; Activate (${_cdReviewerLabel(course)})</button>`
        : course.status === 'active'
        ? `<button class="btn btn-sm" onclick="window._nav('session-execution')">Log Session →</button>`
        : ''}`
@@ -2135,6 +2155,8 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
     const canDiscontinue = canClose;
     const canResume = !isTerminal && course.status === 'paused';
     const canApprove = !isTerminal && course.status === 'pending_approval';
+    const dualReviewMet = _cdDualReviewMet(course);
+    const reviewerLabel = _cdReviewerLabel(course);
 
     return `<div class="g2">
       <div>
@@ -2144,7 +2166,9 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
           fr('Label Status',   labelBadge(course.on_label !== false)) +
           fr('Evidence Grade', evidenceBadge(course.evidence_grade)) +
           fr('Created',        course.created_at?.split('T')[0] || '—') +
-          fr('Clinician ID',   `<span class="mono" style="font-size:11px">${course.clinician_id || '—'}</span>`)
+          fr('Clinician ID',   `<span class="mono" style="font-size:11px">${course.clinician_id || '—'}</span>`) +
+          fr('Reviewer 1',     course.reviewer_1_id ? `<span class="mono" style="font-size:11px">${_cdEscHtml(course.reviewer_1_id)}</span>` : '<span style="color:var(--text-tertiary)">—</span>') +
+          fr('Reviewer 2',     course.reviewer_2_id ? `<span class="mono" style="font-size:11px">${_cdEscHtml(course.reviewer_2_id)}</span>` : '<span style="color:var(--text-tertiary)">—</span>')
         )}
         ${cardWrap('Course Actions',
           `<div id="cd-gov-error" role="alert" style="color:var(--red);font-size:12px;display:none;margin-bottom:8px"></div>
@@ -2154,8 +2178,10 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
           <div style="display:flex;flex-direction:column;gap:10px">
             ${canApprove ? `
               <div>
-                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Approve this course to allow session execution.</div>
-                <button class="btn btn-primary btn-sm" onclick="window._cdGovAction('approve')">✓ Approve Course</button>
+                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Approve this course to allow session execution. <strong>${reviewerLabel}</strong> approved.</div>
+                ${dualReviewMet
+                  ? `<button class="btn btn-primary btn-sm" onclick="window._cdGovAction('approve')">✓ Approve Course</button>`
+                  : `<button class="btn btn-primary btn-sm" disabled title="Dual-review required: ${reviewerLabel}. A second independent clinician must approve before activation." style="opacity:0.55;cursor:not-allowed">✓ Approve Course (${reviewerLabel})</button>`}
               </div>` : ''}
             ${canResume ? `
               <div>
@@ -2711,6 +2737,11 @@ window._cdGovAction = async function(action) {
 
   try {
     if (action === 'approve') {
+      const course = window._selectedCourse;
+      if (!_cdDualReviewMet(course)) {
+        setErr(`Dual-review gate: ${_cdReviewerLabel(course)}. A second independent clinician must approve before activation.`);
+        return;
+      }
       await api.activateCourse(courseId);
     } else if (action === 'pause') {
       const note = readNote('cd-pause-note');
