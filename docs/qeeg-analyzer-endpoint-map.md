@@ -39,7 +39,7 @@
 | analysis | AI upgrades | `computeQEEGEmbedding`, `predictQEEGBrainAge`, … | `POST .../compute-embedding`, etc. | Buttons toast in demo | Feature flag `DEEPSYNAPS_ENABLE_AI_UPGRADES` |
 | analysis | Workbench panels | `mountSafetyCockpit`, `mountRedFlags`, … | `GET .../safety-cockpit`, `red-flags`, `POST protocol-fit` | Not mounted for `analysisId === 'demo'` | Migration 048 |
 | analysis | Normative model card | `api.getQEEGNormativeModelCard` | `GET .../{id}/normative-model-card` | Not mounted for `id=demo` (client `buildDemoNormativeModelCard`) | **403** if `ai_analysis` missing (live patient); strict `_is_demo_id` bypass; **`qeeg.consent_denied`** app log on denial |
-| report | List / generate | `listQEEGAnalysisReports`, `generateQEEGAIReport` | `GET .../{id}/reports`, `POST .../{id}/ai-report` | `DEMO_QEEG_REPORT` if empty + demo | **`POST .../ai-report`:** `ai_analysis` consent required (live patient); **`qeeg.consent_denied`** on denial. `ai_interpretation_*`, `ai_report_demo_fallback` |
+| report | List / generate | `listQEEGAnalysisReports`, `generateQEEGAIReport`, `generateQEEGRAGDraftReport` | `GET .../{id}/reports`, `POST .../{id}/ai-report`, `POST .../{id}/rag-report` | `DEMO_QEEG_REPORT` if empty + demo | **`POST .../ai-report` / `POST .../rag-report`:** `ai_analysis` consent required (live patient); **`qeeg.consent_denied`** on denial. `ai_interpretation_*`, `rag_report_*`, `ai_report_demo_fallback` |
 | report | PDF / printable | `exportQEEGAnalysisPDF`, brain map | Binary / HTML routes | Demo CSV/FHIR/BIDS blocked paths | `export_pdf_requested` |
 | compare | Create / get | `createQEEGComparison`, `getQEEGComparison` | `POST /compare`, `GET /compare/{id}` | `DEMO_QEEG_COMPARISON` | `comparison_created` |
 | raw | Workbench | dynamic import | `/api/v1/qeeg-raw/...` family | Auto-select `demo` in demo mode | Routed inside workbench |
@@ -70,7 +70,7 @@ Today, the qEEG router enforces **`ai_analysis`** consent on these paths only:
 
 **Recording condition:** Condition override is **session-local in this PR** unless a server-side `PATCH` endpoint is implemented. **Production use should persist `recording_condition` before relying on longitudinal or cross-device workflows.**
 
-**PR 3 guardrail:** RAG-backed report generation must keep the order `ai_analysis` consent → permission check → findings/evidence lookup → draft generation only → real citations only → clinician-review-required persistence. If export/report download routes add document creation gates later, they should use `document_generation` explicitly rather than rely on ownership checks alone.
+**PR 3 guardrail:** RAG-backed report generation must keep the order `ai_analysis` consent → permission check → findings/evidence lookup → draft generation only → real citations only → clinician-review-required persistence. `POST /api/v1/qeeg-analysis/{analysis_id}/rag-report` now returns a structured draft payload (`status=clinician_review_required`, `clinical_use=decision_support_only`) while persisting the underlying qEEG report row in `NEEDS_REVIEW`. If export/report download routes add document creation gates later, they should use `document_generation` explicitly rather than rely on ownership checks alone.
 
 ---
 
@@ -129,7 +129,7 @@ Used by `evidence-intelligence.js` from the report context (not exhaustive): sav
 
 ## Known gaps (for later PRs)
 
-- Normalised **RAG report** `POST .../rag-report` — planned PR 3; not in client until implemented server-side.
+- Normalised **RAG report** `POST .../rag-report` — implemented for evidence-grounded draft generation; follow-up work is still needed for stronger export/document-consent linkage and persisted recording-condition overrides.
 - **Persisted** recording-condition override — **planned** `PATCH .../recording-condition` (see PR2 section); current UI uses **sessionStorage only** (production limitation until PATCH + audit land).
 - Full **normative z-score provider** plug-in and age-matched clinical databases — future licensed/research adapters only.
 - **Refs #841:** qEEG hardening is still partial in the current branch; the repo-wide issue also remains open until the MRI and DeepTwin router work lands.

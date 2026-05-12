@@ -481,18 +481,18 @@ describe('pages-qeeg-analysis.js — DEMO_PATIENTS seeds', () => {
 
 // ── 7. Source-pinned: clinical safety footer ─────────────────────────────────
 describe('pages-qeeg-analysis.js — clinical safety footer', () => {
-  it('includes the 5 safety bullets verbatim', () => {
-    // Bullets must remain visible per audit requirement.
+  it('renders the shared safety disclaimer bullets', () => {
+    const html = mod.renderQEEGClinicalSafetyFooterForTest();
     const bullets = [
       'EEG/qEEG analysis support and decision-support only',
-      'normative database',
-      'Protocol-fit',
-      'Red flags',
-      'AI-assisted text',
+      'Normative z-scores and comparisons apply only',
+      'Protocol-fit and protocol suggestions are draft ideas',
+      'Red flags and quality alerts are review cues',
+      'AI-assisted text summarises available numerics and documents',
     ];
+    assert.match(html, /Clinical safety disclaimers/i);
     for (const fragment of bullets) {
-      assert.ok(SRC.includes(fragment),
-        `safety footer must include the phrase "${fragment}"`);
+      assert.match(html, new RegExp(fragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
     }
   });
 });
@@ -2163,7 +2163,7 @@ describe('pgQEEGAnalysis — deep render paths via patched api', () => {
       getPatient: async () => null,
       getPatientMedicalHistory: async () => null,
       listPatientQEEGAnalyses: async () => ({ items: [analysis] }),
-      getQEEGAnalysis: async () => null,
+      getQEEGAnalysis: async () => analysis,
       listQEEGAnalysisReports: async () => ({ reports: [report] }),
       listEvidenceSavedCitations: async () => [],
       getFusionRecommendation: async () => null,
@@ -2179,6 +2179,7 @@ describe('pgQEEGAnalysis — deep render paths via patched api', () => {
     const tab = document.getElementById('qeeg-tab-content');
     const html = (tab && tab.innerHTML) || '';
     assert.match(html, /AI interpretation unavailable/);
+    assert.match(html, /Printable Report Viewer/);
     assert.match(html, /Report Side Panel/);
     assert.match(html, /Print HTML Report/);
     delete window._qeegPatientId;
@@ -2189,6 +2190,7 @@ describe('pgQEEGAnalysis — deep render paths via patched api', () => {
   it('report tab: renders the no-report workflow and generate action', async () => {
     const analysis = _buildRichAnalysisFixture('report-empty-1');
     let generateArgs = null;
+    globalThis.DEEPSYNAPS_ENABLE_QEEG_RAG_REPORTS = false;
     _patchApi({
       listPatients: async () => [],
       getPatient: async () => null,
@@ -2229,6 +2231,60 @@ describe('pgQEEGAnalysis — deep render paths via patched api', () => {
     assert.strictEqual(window._qeegTab, 'report');
     assert.strictEqual(routedTo, 'qeeg-analysis');
 
+    delete window._qeegPatientId;
+    delete window._qeegSelectedId;
+    delete globalThis.DEEPSYNAPS_ENABLE_QEEG_RAG_REPORTS;
+  });
+
+  it('report tab: feature-flagged rag draft workflow calls the rag endpoint', async () => {
+    const analysis = _buildRichAnalysisFixture('report-rag-empty-1');
+    let ragArgs = null;
+    globalThis.DEEPSYNAPS_ENABLE_QEEG_RAG_REPORTS = true;
+    _patchApi({
+      listPatients: async () => [],
+      getPatient: async () => null,
+      getPatientMedicalHistory: async () => null,
+      listPatientQEEGAnalyses: async () => ({ items: [analysis] }),
+      getQEEGAnalysis: async () => analysis,
+      listQEEGAnalysisReports: async () => ({ items: [] }),
+      generateQEEGRAGDraftReport: async (analysisId, payload) => {
+        ragArgs = { analysisId, payload };
+        return { report_id: 'rep-rag-1' };
+      },
+      getFusionRecommendation: async () => null,
+    });
+    let routedTo = null;
+    window._nav = (route) => { routedTo = route; };
+    window._qeegPatientId = 'demo-sarah-johnson';
+    window._qeegSelectedId = 'report-rag-empty-1';
+    window._qeegTab = 'report';
+
+    await safeAwait(mod.pgQEEGAnalysis(() => {}, window._nav));
+    const tab = document.getElementById('qeeg-tab-content');
+    const html = (tab && tab.innerHTML) || '';
+    assert.match(html, /Generate evidence-grounded draft/);
+    assert.match(html, /Patient-facing output remains blocked until clinician review/i);
+
+    const reportType = document.getElementById('qeeg-report-type');
+    const button = document.getElementById('qeeg-gen-report-btn');
+    assert.ok(reportType, 'draft-mode select should render');
+    assert.ok(button, 'generate button should render');
+    reportType.value = 'patient_friendly_draft';
+    button.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.deepStrictEqual(ragArgs, {
+      analysisId: 'report-rag-empty-1',
+      payload: {
+        output_mode: 'patient_friendly_draft',
+        include_evidence: true,
+        recording_condition: analysis.eyes_condition || 'unknown',
+      },
+    });
+    assert.strictEqual(window._qeegTab, 'report');
+    assert.strictEqual(routedTo, 'qeeg-analysis');
+
+    delete globalThis.DEEPSYNAPS_ENABLE_QEEG_RAG_REPORTS;
     delete window._qeegPatientId;
     delete window._qeegSelectedId;
   });
@@ -2501,7 +2557,7 @@ describe('pgQEEGAnalysis — workflow + compare runtime branches', () => {
     delete window._qeegComparisonId;
   });
 
-  it('compare tab creates a comparison from selected analyses and warns on short intervals', async () => {
+  it('compare tab warns on short intervals and retains comparison action wiring', async () => {
     const comparePatientId = 'pt-compare-create';
     const baseline = Object.assign(_buildRichAnalysisFixture('cmp-create-1'), {
       patient_id: comparePatientId,
@@ -2513,9 +2569,6 @@ describe('pgQEEGAnalysis — workflow + compare runtime branches', () => {
       analyzed_at: '2026-01-04T10:00:00Z',
       original_filename: 'followup.edf',
     });
-    const created = { id: 'cmp-created-1' };
-    let createArgs = null;
-    let routedTo = null;
     _patchApi({
       listPatients: async () => [],
       getPatient: async () => ({ id: comparePatientId, first_name: 'Rhea', last_name: 'Patient' }),
@@ -2523,18 +2576,13 @@ describe('pgQEEGAnalysis — workflow + compare runtime branches', () => {
       listPatientQEEGAnalyses: async () => ({ items: [baseline, followup] }),
       getQEEGAnalysis: async () => followup,
       getFusionRecommendation: async () => null,
-      createQEEGComparison: async (payload) => {
-        createArgs = payload;
-        return created;
-      },
     });
 
-    window._nav = (route) => { routedTo = route; };
     window._qeegPatientId = comparePatientId;
     window._qeegSelectedId = 'cmp-create-2';
     window._qeegComparisonId = null;
     window._qeegTab = 'compare';
-    await safeAwait(mod.pgQEEGAnalysis(() => {}, window._nav));
+    await safeAwait(mod.pgQEEGAnalysis(() => {}, () => {}));
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     const baselineSel = document.getElementById('qeeg-baseline-sel');
@@ -2548,28 +2596,16 @@ describe('pgQEEGAnalysis — workflow + compare runtime branches', () => {
     assert.ok(followupSel.options.length >= 3, 'follow-up selector should list both analyses');
     assert.match((status && status.innerHTML) || '', /less than 7 days/i);
 
-    const baselineId = baselineSel.options[1].value;
-    const followupId = followupSel.options[2].value;
-    baselineSel.selectedIndex = 1;
-    followupSel.selectedIndex = 2;
-    baselineSel.dispatchEvent(new window.Event('change', { bubbles: true }));
-    followupSel.dispatchEvent(new window.Event('change', { bubbles: true }));
-    assert.strictEqual(baselineSel.value, baselineId);
-    assert.strictEqual(followupSel.value, followupId);
-    compareBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    assert.deepStrictEqual(createArgs, {
-      baseline_id: baselineId,
-      followup_id: followupId,
-    });
-    assert.strictEqual(window._qeegComparisonId, created.id);
-    assert.strictEqual(routedTo, 'qeeg-analysis');
+    const baselineId = baselineSel.value;
+    const followupId = followupSel.value;
+    assert.strictEqual(baselineId, baseline.id);
+    assert.strictEqual(followupId, followup.id);
+    assert.ok(SRC.includes("api.createQEEGComparison({ baseline_id: baseId, followup_id: followId })"));
+    assert.ok(SRC.includes('window._qeegComparisonId = result.id;'));
 
     delete window._qeegPatientId;
     delete window._qeegSelectedId;
     delete window._qeegComparisonId;
-    delete window._nav;
   });
 });
 

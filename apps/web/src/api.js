@@ -3189,6 +3189,8 @@ export const api = {
   },
   generateQEEGAIReport: (analysisId, body = {}) =>
     apiFetch(`/api/v1/qeeg-analysis/${analysisId}/ai-report`, { method: 'POST', body: JSON.stringify(body) }),
+  generateQEEGRAGDraftReport: (analysisId, body = {}) =>
+    apiFetch(`/api/v1/qeeg-analysis/${analysisId}/rag-report`, { method: 'POST', body: JSON.stringify(body) }),
 
   // ── Unified Analyzer AI Report (decision-support) ──────────────────────
   // Single endpoint family that powers "Generate AI Report" + "Download PDF"
