@@ -3174,6 +3174,51 @@ function _formatEvidenceWarning(status) {
   return `Bundled/offline registry snapshot (${_esc(EVIDENCE_DATASET_VERSION)})`;
 }
 
+function _isEvidenceStatusStale(status) {
+  if (!status?.updated_at) return false;
+  const ts = Date.parse(status.updated_at);
+  if (Number.isNaN(ts)) return false;
+  return (Date.now() - ts) > (1000 * 60 * 60 * 24 * 30);
+}
+
+function _formatEvidenceGovernanceNote(status, agentId) {
+  if (!status || typeof status !== 'object') return 'Evidence governance unavailable.';
+  const livePaperCount = Number(status.paper_count || 0);
+  const bundledCount = Number(EVIDENCE_TOTAL_PAPERS || 0);
+  const dsPaperCount = Number(status.ds_paper_count || 0);
+  const literaturePaperCount = Number(status.literature_paper_count || 0);
+  const drift = status.source_kind === 'live_sqlite' && dsPaperCount > 0 && livePaperCount > 0 && dsPaperCount !== livePaperCount;
+  const stale = _isEvidenceStatusStale(status);
+
+  if (agentId === 'clinic.dr_ai') {
+    if (status.source_kind !== 'live_sqlite') return 'Evidence is in degraded mode. Draft citations require clinician review before report use.';
+    if (stale) return 'Live evidence is stale. Treat recommendations as decision support only until the corpus is refreshed.';
+    if (drift) return `Count drift labelled: live corpus ${livePaperCount.toLocaleString()} vs app corpus ${dsPaperCount.toLocaleString()}. Draft citations remain review-only.`;
+    return 'Citations remain draft-only and clinician-reviewed before final reports.';
+  }
+
+  if (agentId === 'clinic.head_of_clinic') {
+    if (status.source_kind !== 'live_sqlite') return 'Governance warning: bundled/offline evidence fallback is active.';
+    if (stale) return 'Governance warning: live evidence corpus looks stale.';
+    if (drift) return `Governance note: source counts differ across corpora (${livePaperCount.toLocaleString()} live, ${dsPaperCount.toLocaleString()} app, ${literaturePaperCount.toLocaleString()} library).`;
+    return 'Evidence governance nominal. Live source labels are consistent.';
+  }
+
+  if (agentId === 'clinic.nurse') {
+    if (status.source_kind !== 'live_sqlite') return 'Patient evidence context is limited while bundled/offline fallback is active.';
+    return 'Patient evidence context and saved citations still require clinician review.';
+  }
+
+  if (agentId === 'clinic.manager') {
+    if (status.source_kind !== 'live_sqlite') return 'Operational evidence status only: system is degraded or bundled/offline.';
+    if (stale) return 'Operational warning: evidence corpus refresh appears stale.';
+    if (drift || bundledCount !== livePaperCount) return `Operational note: labeled source counts differ across live and bundled corpora.`;
+    return 'Operational evidence status nominal.';
+  }
+
+  return 'Evidence governance status available.';
+}
+
 async function _loadAgentDashboardWidgets() {
   if (_widgetDataLoading) return;
   const now = Date.now();
@@ -3249,7 +3294,7 @@ async function _loadReceptionWidgetData() {
 
 async function _loadHeadOfClinicWidgetData() {
   if (_isMarketplaceDemoMode()) {
-    return { activePatients: 124, openEscalations: 2, roomOccupancy: '78%', adverseEvents: 0, evidenceSource: 'Bundled fallback · 184,669 papers', evidenceWarning: 'Bundled/offline registry snapshot' };
+    return { activePatients: 124, openEscalations: 2, roomOccupancy: '78%', adverseEvents: 0, evidenceSource: 'Bundled fallback · 184,669 papers', evidenceWarning: 'Bundled/offline registry snapshot', evidenceGovernance: 'Governance warning: bundled/offline evidence fallback is active.' };
   }
   try {
     const [patients, review, rooms, adverse, risk, evidence] = await Promise.all([
@@ -3267,7 +3312,7 @@ async function _loadHeadOfClinicWidgetData() {
     if (!activePatients && !openEscalations && !roomOccupancy && !adverseEvents) {
       return { empty: true, reason: 'Clinic analytics coming soon' };
     }
-    return { activePatients, openEscalations, roomOccupancy: roomOccupancy || '—', adverseEvents, evidenceSource: _formatEvidenceSourceBadge(evidence), evidenceWarning: _formatEvidenceWarning(evidence) };
+    return { activePatients, openEscalations, roomOccupancy: roomOccupancy || '—', adverseEvents, evidenceSource: _formatEvidenceSourceBadge(evidence), evidenceWarning: _formatEvidenceWarning(evidence), evidenceGovernance: _formatEvidenceGovernanceNote(evidence, 'clinic.head_of_clinic') };
   } catch {
     return { empty: true, reason: 'Clinic analytics coming soon' };
   }
@@ -3275,7 +3320,7 @@ async function _loadHeadOfClinicWidgetData() {
 
 async function _loadNurseWidgetData() {
   if (_isMarketplaceDemoMode()) {
-    return { pendingTasks: 4, patientsNeedingPrep: 3, vitalsOutliers: 1, evidenceSource: 'Bundled fallback · 184,669 papers', evidenceWarning: 'Patient evidence activates when a patient is selected.' };
+    return { pendingTasks: 4, patientsNeedingPrep: 3, vitalsOutliers: 1, evidenceSource: 'Bundled fallback · 184,669 papers', evidenceWarning: 'Patient evidence activates when a patient is selected.', evidenceGovernance: 'Patient evidence context is limited while bundled/offline fallback is active.' };
   }
   try {
     const [dayQueue, assessments, tasks, evidence] = await Promise.all([
@@ -3290,7 +3335,7 @@ async function _loadNurseWidgetData() {
     if (!pendingTasks && !patientsNeedingPrep && !vitalsOutliers) {
       return { empty: true, reason: 'No nurse tasks on the board' };
     }
-    return { pendingTasks, patientsNeedingPrep, vitalsOutliers, evidenceSource: _formatEvidenceSourceBadge(evidence), evidenceWarning: 'Patient evidence activates when a patient is selected.' };
+    return { pendingTasks, patientsNeedingPrep, vitalsOutliers, evidenceSource: _formatEvidenceSourceBadge(evidence), evidenceWarning: 'Patient evidence activates when a patient is selected.', evidenceGovernance: _formatEvidenceGovernanceNote(evidence, 'clinic.nurse') };
   } catch {
     return { empty: true, reason: 'No nurse tasks on the board' };
   }
@@ -3298,7 +3343,7 @@ async function _loadNurseWidgetData() {
 
 async function _loadManagerWidgetData() {
   if (_isMarketplaceDemoMode()) {
-    return { roomUtilization: '82%', staffOnCall: 5, pendingInvoices: 7, evidenceSource: 'Bundled fallback · 184,669 papers', evidenceWarning: 'Operational evidence status only.' };
+    return { roomUtilization: '82%', staffOnCall: 5, pendingInvoices: 7, evidenceSource: 'Bundled fallback · 184,669 papers', evidenceWarning: 'Operational evidence status only.', evidenceGovernance: 'Operational evidence status only: system is degraded or bundled/offline.' };
   }
   try {
     const [rooms, invoices, evidence] = await Promise.all([
@@ -3312,7 +3357,7 @@ async function _loadManagerWidgetData() {
     if (!roomUtilization && !pendingInvoices) {
       return { empty: true, reason: 'Operations data unavailable' };
     }
-    return { roomUtilization: roomUtilization || '—', staffOnCall, pendingInvoices, evidenceSource: _formatEvidenceSourceBadge(evidence), evidenceWarning: 'Operational evidence status only.' };
+    return { roomUtilization: roomUtilization || '—', staffOnCall, pendingInvoices, evidenceSource: _formatEvidenceSourceBadge(evidence), evidenceWarning: 'Operational evidence status only.', evidenceGovernance: _formatEvidenceGovernanceNote(evidence, 'clinic.manager') };
   } catch {
     return { empty: true, reason: 'Operations data unavailable' };
   }
@@ -3320,7 +3365,7 @@ async function _loadManagerWidgetData() {
 
 async function _loadDrAiWidgetData() {
   if (_isMarketplaceDemoMode()) {
-    return { pendingDrafts: 2, newEvidenceAlerts: 1, protocolSuggestions: 3, evidenceSource: 'Bundled fallback · 184,669 papers', evidenceWarning: 'Bundled/offline registry snapshot' };
+    return { pendingDrafts: 2, newEvidenceAlerts: 1, protocolSuggestions: 3, evidenceSource: 'Bundled fallback · 184,669 papers', evidenceWarning: 'Bundled/offline registry snapshot', evidenceGovernance: 'Evidence is in degraded mode. Draft citations require clinician review before report use.' };
   }
   try {
     const [media, evidence, suggestions, sourceStatus] = await Promise.all([
@@ -3332,7 +3377,7 @@ async function _loadDrAiWidgetData() {
     const pendingDrafts = media?.total ?? media?.items?.length ?? 0;
     const newEvidenceAlerts = evidence?.new_alerts ?? 0;
     const protocolSuggestions = Array.isArray(suggestions?.items) ? suggestions.items.length : (Array.isArray(suggestions) ? suggestions.length : 0);
-    return { pendingDrafts, newEvidenceAlerts, protocolSuggestions, evidenceSource: _formatEvidenceSourceBadge(sourceStatus), evidenceWarning: _formatEvidenceWarning(sourceStatus) };
+    return { pendingDrafts, newEvidenceAlerts, protocolSuggestions, evidenceSource: _formatEvidenceSourceBadge(sourceStatus), evidenceWarning: _formatEvidenceWarning(sourceStatus), evidenceGovernance: _formatEvidenceGovernanceNote(sourceStatus, 'clinic.dr_ai') };
   } catch {
     return { empty: true, reason: 'No pending clinical decisions' };
   }
@@ -3423,6 +3468,7 @@ function _renderAgentDashboardWidgets(hiredAgents) {
         </div>
         <div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">${_esc(data.evidenceSource || '')}</div>
         <div style="margin-top:4px;font-size:10px;color:var(--text-tertiary)">${_esc(data.evidenceWarning || '')}</div>
+        <div style="margin-top:4px;font-size:10px;color:var(--text-tertiary)">${_esc(data.evidenceGovernance || '')}</div>
       `;
     } else if (a.id === 'clinic.nurse') {
       metrics = `
@@ -3433,6 +3479,7 @@ function _renderAgentDashboardWidgets(hiredAgents) {
         </div>
         <div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">${_esc(data.evidenceSource || '')}</div>
         <div style="margin-top:4px;font-size:10px;color:var(--text-tertiary)">${_esc(data.evidenceWarning || '')}</div>
+        <div style="margin-top:4px;font-size:10px;color:var(--text-tertiary)">${_esc(data.evidenceGovernance || '')}</div>
       `;
     } else if (a.id === 'clinic.manager') {
       metrics = `
@@ -3443,6 +3490,7 @@ function _renderAgentDashboardWidgets(hiredAgents) {
         </div>
         <div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">${_esc(data.evidenceSource || '')}</div>
         <div style="margin-top:4px;font-size:10px;color:var(--text-tertiary)">${_esc(data.evidenceWarning || '')}</div>
+        <div style="margin-top:4px;font-size:10px;color:var(--text-tertiary)">${_esc(data.evidenceGovernance || '')}</div>
       `;
     } else if (a.id === 'clinic.dr_ai') {
       metrics = `
@@ -3453,6 +3501,7 @@ function _renderAgentDashboardWidgets(hiredAgents) {
         </div>
         <div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">${_esc(data.evidenceSource || '')}</div>
         <div style="margin-top:4px;font-size:10px;color:var(--text-tertiary)">${_esc(data.evidenceWarning || '')}</div>
+        <div style="margin-top:4px;font-size:10px;color:var(--text-tertiary)">${_esc(data.evidenceGovernance || '')}</div>
       `;
     } else if (a.id === 'clinic.drclaw_telegram') {
       metrics = `
@@ -5207,6 +5256,9 @@ export const __aiAgentV2TestApi__ = {
   },
   formatEvidenceWarning(status) {
     return _formatEvidenceWarning(status);
+  },
+  formatEvidenceGovernanceNote(status, agentId) {
+    return _formatEvidenceGovernanceNote(status, agentId);
   },
   renderAgentDashboardWidgets(hiredAgents) {
     return _renderAgentDashboardWidgets(hiredAgents);

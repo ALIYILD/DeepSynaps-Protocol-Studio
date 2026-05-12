@@ -196,6 +196,27 @@ describe('__aiAgentV2TestApi__ patient context panel', () => {
     assert.match(label, /184,669 papers/);
   });
 
+  it('formats governance drift notes honestly for head of clinic', () => {
+    const note = mod.__aiAgentV2TestApi__.formatEvidenceGovernanceNote({
+      source_kind: 'live_sqlite',
+      paper_count: 184670,
+      ds_paper_count: 87654,
+      literature_paper_count: 1200,
+      updated_at: new Date().toISOString(),
+    }, 'clinic.head_of_clinic');
+    assert.match(note, /Governance note/i);
+    assert.match(note, /184,670/);
+    assert.match(note, /87,654/);
+  });
+
+  it('formats degraded governance notes for dr ai', () => {
+    const note = mod.__aiAgentV2TestApi__.formatEvidenceGovernanceNote({
+      source_kind: 'degraded',
+    }, 'clinic.dr_ai');
+    assert.match(note, /degraded mode/i);
+    assert.match(note, /clinician review/i);
+  });
+
   it('renders evidence status copy in dashboard widgets', () => {
     mod.__aiAgentV2TestApi__.setWidgetData({
       'clinic.dr_ai': {
@@ -204,6 +225,7 @@ describe('__aiAgentV2TestApi__ patient context panel', () => {
         protocolSuggestions: 3,
         evidenceSource: 'Live SQLite · 184,670 papers',
         evidenceWarning: 'Updated just now',
+        evidenceGovernance: 'Citations remain draft-only and clinician-reviewed before final reports.',
       },
     });
     const html = mod.__aiAgentV2TestApi__.renderAgentDashboardWidgets([
@@ -211,6 +233,7 @@ describe('__aiAgentV2TestApi__ patient context panel', () => {
     ]);
     assert.match(html, /Live SQLite · 184,670 papers/);
     assert.match(html, /Updated just now/);
+    assert.match(html, /draft-only and clinician-reviewed/i);
   });
 });
 
