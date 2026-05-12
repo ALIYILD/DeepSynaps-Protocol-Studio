@@ -78,6 +78,204 @@ Lowercase `qeeg` in an older commit subject is harmless; do **not** force-push t
 
 Merge **#874** when CI or a dependency-complete local environment confirms **`npm run build`**, or when reviewers explicitly accept **#844** as the documented frontend dependency/environment caveat.
 
+## NEXT — finish #874 merge gate, then PR 3
+
+There are **two valid paths**. Use **Path 1** until **#874** is merged; use **Path 2** only after merge.
+
+### Path 1 — #874 is not merged yet (do this first)
+
+1. **Confirm PR #874 status** (title must match):
+
+   ```bash
+   gh pr view 874 --json state,mergeStateStatus,statusCheckRollup,url,title
+   ```
+
+   Expected **title:** `fix(consent): complete qEEG router ai_analysis consent sweep`
+
+   If **mergeStateStatus** is **BLOCKED** or any required check shows **FAILURE**, fix CI (or document an explicit maintainer override) before merge — do not merge on title alone.
+
+2. **Do not pop unrelated stash** until **#874** is merged (or move it to another branch):
+
+   - Stash: **`wip-unrelated-to-qeeg-consent-pr-874`**
+   - Keep **out of #874:** `apps/api/app/repositories/patients.py`, `apps/api/app/routers/data_console_router.py`, `apps/api/app/routers/research_dataset_router.py`, `apps/api/app/services/data_console_service.py`
+
+3. **Merge condition** (same as above): merge only when **`npm run build`** is confirmed in CI or a full local environment **or** reviewers explicitly accept **#844**.
+
+4. **Issue wording:** **Refs #841**, **Refs #844**, **Refs #845**. Do **not** use **Closes #841**.
+
+### Path 2 — after #874 is merged (start PR 3)
+
+```bash
+git checkout main
+git pull --ff-only origin main
+git checkout -b feat/qeeg-rag-draft-reports
+```
+
+- **PR title:** `feat(qeeg): evidence-grounded RAG draft reports`
+- **Scope:** **AI Report tab first.** Not Analysis tab. Not advanced metrics. Not source localization. Not modular refactor of the whole qEEG Analyzer frontend.
+- **Pipeline order (backend/product):** (1) **ai_analysis** consent → (2) role → (3) findings → (4) evidence → (5) draft only → (6) real citations → (7) decision-support copy → (8) audit → (9) store as **clinician_review_required**.
+
+### PR 3 — Cursor step 1 (inspect only; paste first)
+
+Review Cursor’s plan **before** allowing edits.
+
+```
+You are working inside DeepSynaps Protocol Studio.
+
+Mission:
+Prepare PR 3 for the qEEG Analyzer:
+feat(qeeg): evidence-grounded RAG draft reports
+
+Do not edit yet.
+
+Inspect:
+- apps/api/app/routers/qeeg_analysis_router.py
+- apps/api/app/services/consent_enforcement.py
+- apps/web/src/pages-qeeg-analysis.js
+- apps/web/src/api.js
+- apps/web/src/evidence-intelligence.js
+- apps/web/src/qeeg-clinician-report.js
+- apps/web/src/qeeg-patient-report.js
+- apps/web/src/clinical-ai-safety-copy.js
+- docs/qeeg-analyzer-endpoint-map.md
+- QEEG_REGULATORY_AUDIT.md
+
+Produce a plan only.
+
+The plan must include:
+1. Current qEEG AI report generation path.
+2. Existing consent checks.
+3. Existing role checks.
+4. Existing audit events.
+5. Existing evidence-intelligence integration points.
+6. Proposed backend endpoint and schema.
+7. Proposed frontend UI changes in the AI Report tab.
+8. Tests to add.
+9. Safety copy required.
+10. Known risks.
+
+Guardrails:
+- Do not claim diagnosis.
+- Do not invent citations.
+- Do not generate RAG output before consent, role, and audit checks.
+- Do not modify MRI or DeepTwin.
+- Do not add advanced qEEG metrics yet.
+- Do not refactor the qEEG Analyzer frontend yet.
+```
+
+### PR 3 — Cursor step 2 (implementation; paste after plan review)
+
+```
+Implement PR 3:
+feat(qeeg): evidence-grounded RAG draft reports
+
+Scope:
+qEEG Analyzer AI Report tab only.
+
+Required backend behaviour:
+1. Check ai_analysis consent before any report generation.
+2. Check role permission before any report generation.
+3. Retrieve qEEG findings only after consent and role checks pass.
+4. Retrieve evidence only after consent and role checks pass.
+5. Generate a draft report only.
+6. Attach real citations only.
+7. Store report as clinician_review_required.
+8. Audit requested / generated / failed events.
+9. Use PHI-safe errors.
+10. Do not claim diagnosis.
+
+Suggested endpoint:
+POST /api/v1/qeeg-analysis/{analysis_id}/rag-report
+
+Request:
+{
+  "output_mode": "clinician_draft | patient_friendly_draft",
+  "recording_condition": "eyes_closed | eyes_open | task | unknown",
+  "include_evidence": true
+}
+
+Response:
+{
+  "report_id": "string",
+  "status": "clinician_review_required",
+  "clinical_use": "decision_support_only",
+  "sections": [
+    {
+      "title": "string",
+      "body": "string",
+      "source": "measured | generated | evidence_grounded | clinician_entered",
+      "evidence_refs": []
+    }
+  ],
+  "evidence": [
+    {
+      "title": "string",
+      "pmid": "string | null",
+      "doi": "string | null",
+      "url": "string | null",
+      "relevance": 0.0
+    }
+  ],
+  "disclaimer": "Decision-support only. Not diagnostic. Clinician review required."
+}
+
+Frontend behaviour:
+- Add "Generate evidence-grounded draft" action in the AI Report tab.
+- Show "not diagnostic" badge.
+- Show "clinician review required" badge.
+- Show evidence/citation panel.
+- Label each report section as: measured, generated, evidence_grounded, clinician_entered
+- Block patient-facing export until clinician review exists.
+- Show safe degraded state if evidence service is unavailable.
+- Do not remove existing standard AI report behaviour unless replacing it safely.
+
+Tests:
+- Missing ai_analysis consent returns 403.
+- Missing consent does not call evidence/RAG/report generation.
+- Invalid role is blocked.
+- Generated report includes decision-support disclaimer.
+- Generated report status is clinician_review_required.
+- Citations render only when real evidence refs are returned.
+- Patient-facing export is blocked before clinician review.
+- Frontend button renders only when analysis exists.
+- Frontend displays not diagnostic and clinician review required badges.
+- Evidence-unavailable state renders safely.
+
+Docs:
+Update docs/qeeg-analyzer-endpoint-map.md with the new RAG draft report endpoint.
+Do not close #841.
+Use Refs #841/#844/#845 only if relevant.
+
+Output:
+1. Files changed.
+2. Backend changes.
+3. Frontend changes.
+4. Tests added.
+5. Tests run.
+6. Known limitations.
+7. Ready for review: yes/no.
+```
+
+### PR 3 acceptance criteria (review-ready bar)
+
+PR **3** is review-ready only when:
+
+- Consent check happens **before** findings / evidence / RAG generation.
+- Role check happens **before** findings / evidence / RAG generation.
+- No invented citations are possible.
+- Report status is **clinician_review_required**.
+- All sections are **source-labelled**.
+- Every generated report states **decision-support only** and **not diagnostic**.
+- Patient-facing export is **blocked** before clinician review.
+- Audit events exist for **requested** / **generated** / **failed**.
+- PHI-safe **403** / error behaviour remains intact.
+
+### After PR 3 (do not start until RAG drafts are stable)
+
+**PR 4 — qEEG advanced metrics and visualisation scaffolds** — e.g. phase coherence, amplitude asymmetry, alpha peak frequency, fluctuation time, percentage deviant activity, source-view scaffolds, seizure probability trend (research-only scaffold), processing history tree.
+
+**Immediate build sequence:** merge **#874** → branch **`feat/qeeg-rag-draft-reports`** → **AI Report tab** evidence-grounded draft reports only.
+
 ## Local verification commands
 
 **API (`apps/api`):**
@@ -151,173 +349,4 @@ The previous backend CI caveat is resolved: **tests/test_neuro_signs.py** now co
 
 Do **not** close **#841** until MRI and DeepTwin router consent sweeps are also complete.
 
-## After merge — PR 3 branch and scope
-
-```bash
-git checkout main
-git pull --ff-only origin main
-git checkout -b feat/qeeg-rag-draft-reports
-```
-
-**PR 3 title:** `feat(qeeg): evidence-grounded RAG draft reports`
-
-**UI scope:** upgrade the **AI Report** tab first — not the Analysis tab yet.
-
-**PR 3 must start with this pipeline (in order):**
-
-1. Check **ai_analysis** consent.  
-2. Check role permission.  
-3. Retrieve qEEG findings.  
-4. Retrieve evidence.  
-5. Generate draft report.  
-6. Attach real citations only.  
-7. Show decision-support copy.  
-8. Audit report generation.  
-9. Store draft as clinician-review required.
-
-**Main guardrails:** no diagnosis claim; no invented citations; no RAG generation before consent, role, and audit checks.
-
-### PR 3 — how to use Cursor (after #874 merges)
-
-**Step 1 — send this first (plan only; do not edit yet):**
-
-```
-Inspect the current qEEG AI report endpoint, apps/web/src/pages-qeeg-analysis.js report tab logic, apps/web/src/api.js, apps/web/src/evidence-intelligence.js, and clinical-ai-safety-copy.js. Do not edit yet. Produce a plan for PR 3: evidence-grounded qEEG draft reports, including existing consent checks, role checks, audit events, evidence integration points, backend schema, frontend UI changes, and tests.
-```
-
-**Step 2 — only after reviewing the plan:**
-
-```
-Implement PR 3 with consent-first, role-checked, evidence-grounded draft report generation. Do not claim diagnosis. Do not invent citations. Do not generate RAG output before consent, role, and audit checks.
-```
-
-### Full PR 3 reference prompt (optional detail)
-
-Paste or attach in the same thread as needed for constraints, suggested endpoint, tests, and docs:
-
-```
-You are working inside DeepSynaps Protocol Studio.
-
-Mission:
-Start PR 3 for the qEEG Analyzer:
-feat(qeeg): evidence-grounded RAG draft reports
-
-Do not modify MRI or DeepTwin.
-Do not add advanced qEEG metrics yet.
-Do not refactor the qEEG Analyzer frontend yet.
-Do not claim diagnosis.
-Do not invent citations.
-Do not generate RAG output before consent, role, and audit checks.
-
-Context:
-PR 2 added the qEEG normative scaffold and EC/EO condition model.
-PR #874 completed the qEEG consent-sweep baseline relative to current main.
-Now build the qEEG AI Report tab's evidence-grounded draft report flow.
-
-Primary files to inspect:
-- apps/api/app/routers/qeeg_analysis_router.py
-- apps/api/app/services/consent_enforcement.py
-- apps/web/src/pages-qeeg-analysis.js
-- apps/web/src/evidence-intelligence.js
-- apps/web/src/api.js
-- apps/web/src/qeeg-clinician-report.js
-- apps/web/src/qeeg-patient-report.js
-- apps/web/src/clinical-ai-safety-copy.js
-- docs/qeeg-analyzer-endpoint-map.md
-- QEEG_REGULATORY_AUDIT.md
-
-First step:
-Inspect the current qEEG AI report endpoint and report tab. Do not edit yet. Produce a plan showing:
-1. Current report generation path.
-2. Existing consent checks.
-3. Existing role checks.
-4. Existing audit events.
-5. Existing evidence-intelligence integration points.
-6. Proposed backend request/response schema.
-7. Proposed frontend UI changes.
-8. Tests to add.
-
-Required backend behaviour:
-- ai_analysis consent before generation.
-- role permission before generation.
-- no downstream AI/RAG/evidence work before consent and role checks.
-- real citations only.
-- report status must be draft / clinician_review_required.
-- audit report generation requested/succeeded/failed.
-- PHI-safe errors.
-- no diagnostic claims.
-
-Suggested endpoint:
-POST /api/v1/qeeg-analysis/{analysis_id}/rag-report
-Request:
-{
-  "output_mode": "clinician_draft | patient_friendly_draft",
-  "recording_condition": "eyes_closed | eyes_open | task | unknown",
-  "include_evidence": true
-}
-Response:
-{
-  "report_id": "string",
-  "status": "clinician_review_required",
-  "clinical_use": "decision_support_only",
-  "sections": [
-    {
-      "title": "string",
-      "body": "string",
-      "source": "measured | generated | evidence_grounded | clinician_entered",
-      "evidence_refs": []
-    }
-  ],
-  "evidence": [
-    {
-      "title": "string",
-      "pmid": "string | null",
-      "doi": "string | null",
-      "url": "string | null",
-      "relevance": 0.0
-    }
-  ],
-  "disclaimer": "Decision-support only. Not diagnostic. Clinician review required."
-}
-
-Frontend behaviour:
-- Add "Generate evidence-grounded draft" action in AI Report tab.
-- Show "not diagnostic" badge.
-- Show "clinician review required" badge.
-- Show citation/evidence panel.
-- Label each section: measured, generated, evidence_grounded, clinician_entered
-- Block patient-facing export until clinician review exists.
-- Show safe degraded state if evidence service is unavailable.
-
-Tests:
-- missing ai_analysis consent returns 403 and does not call RAG/evidence service
-- invalid role blocked
-- generated report includes decision-support disclaimer
-- no citations are shown unless real evidence refs are returned
-- report status is clinician_review_required
-- patient export blocked before clinician review
-- frontend button renders only when analysis exists
-- frontend displays badges and evidence refs
-
-Docs:
-Update docs/qeeg-analyzer-endpoint-map.md with the new RAG report endpoint.
-Use Refs #841/#844/#845 only if relevant.
-Do not close #841 unless MRI and DeepTwin consent sweeps are also complete.
-
-Output:
-1. Plan before editing.
-2. Files changed.
-3. Tests added.
-4. Tests run.
-5. Known limitations.
-6. Ready for review: yes/no.
-```
-
-**Stash:** do **not** `git stash pop` **wip-unrelated-to-qeeg-consent-pr-874** until **#874** is merged (or move that work to a separate branch). It contains unrelated changes under `apps/api/app/repositories/patients.py`, `apps/api/app/routers/data_console_router.py`, `apps/api/app/routers/research_dataset_router.py`, `apps/api/app/services/data_console_service.py`.
-
-## Clean sequence (EEG Analyzer)
-
-1. Merge **#874**.  
-2. `git checkout main` → `git pull --ff-only origin main` → `git checkout -b feat/qeeg-rag-draft-reports`.  
-3. **PR 3:** AI Report tab — evidence-grounded draft only (not Analysis tab enhancements yet).  
-4. No diagnosis claim; no invented citations; **clinician-review required** end state.
+## Local verification commands
