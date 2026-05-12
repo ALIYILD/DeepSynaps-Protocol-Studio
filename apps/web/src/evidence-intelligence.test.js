@@ -82,6 +82,96 @@ test('PatientEvidenceTab renders filters and empty loading state', () => {
   assert.match(html, /No evidence summaries yet/);
 });
 
+test('patient evidence workspace search keeps working after rerender', async () => {
+  const realSetTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
+  globalThis.setTimeout = (cb) => { cb(); return 1; };
+  globalThis.clearTimeout = () => {};
+
+  const host = {
+    _html: '',
+    _currentSearch: null,
+    _currentChip: null,
+    querySelectorAll(selector) {
+      if (selector === '[data-evidence-target]') return this._currentChip ? [this._currentChip] : [];
+      return [];
+    },
+    querySelector(selector) {
+      if (selector === '[data-evidence-search]') return this._currentSearch;
+      return null;
+    },
+  };
+
+  const overview = {
+    patient_id: 'pat-1',
+    highlights: [
+      { finding_id: 'f1', label: 'Depression Risk', claim: 'PHQ-9 support', target_name: 'depression_risk', context_type: 'risk_score', paper_count: 2, evidence_level: 'high' },
+      { finding_id: 'f2', label: 'Hippocampal Atrophy', claim: 'MRI volume support', target_name: 'hippocampal_atrophy', context_type: 'biomarker', paper_count: 1, evidence_level: 'moderate' },
+    ],
+    by_score: [],
+    by_protocol: [],
+    by_modality: {},
+    saved_citations: [],
+    compare_with_literature_phenotype: { summary: '', matched_tags: [] },
+    evidence_used_in_report: [],
+  };
+
+  const renderSearchNode = () => {
+    const handlers = {};
+    return {
+      value: '',
+      addEventListener(type, cb) { handlers[type] = cb; },
+      dispatch(type) { handlers[type]?.(); },
+    };
+  };
+  const renderChipNode = () => {
+    return {
+      getAttribute(name) { return name === 'data-evidence-target' ? 'depression_risk' : ''; },
+      addEventListener() {},
+    };
+  };
+
+  let renderCount = 0;
+  Object.defineProperty(host, 'innerHTML', {
+    configurable: true,
+    get() { return this._html || ''; },
+    set(v) {
+      this._html = String(v);
+      renderCount += 1;
+      this._currentSearch = renderSearchNode();
+      this._currentChip = renderChipNode();
+    },
+  });
+
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('/api/v1/evidence/patient/pat-1/overview')) {
+      return { ok: true, status: 200, json: async () => overview };
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+
+  try {
+    await mod.renderPatientEvidenceWorkspace('pat-1', host, {});
+    const settledRenderCount = renderCount;
+    assert.ok(settledRenderCount >= 2);
+
+    const firstSearch = host._currentSearch;
+    firstSearch.value = 'depression';
+    firstSearch.dispatch('input');
+    assert.equal(renderCount, settledRenderCount + 1);
+    assert.match(host.innerHTML, /Depression Risk/);
+
+    const secondSearch = host._currentSearch;
+    secondSearch.value = 'hippocampal';
+    secondSearch.dispatch('input');
+    assert.equal(renderCount, settledRenderCount + 2);
+    assert.match(host.innerHTML, /Hippocampal Atrophy/);
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+    globalThis.clearTimeout = realClearTimeout;
+  }
+});
+
 test('filter summaries matches text and modality', () => {
   const rows = [
     { label: 'Depression Risk', claim: 'PHQ-9 and HRV support', target_name: 'depression_risk', context_type: 'risk_score', evidence_level: 'high' },

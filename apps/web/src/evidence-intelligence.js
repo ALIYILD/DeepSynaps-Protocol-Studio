@@ -262,25 +262,25 @@ export async function renderPatientEvidenceWorkspace(patientId, host, filter = {
   try {
     const overviewFn = api.getPatientEvidenceOverview || api.evidencePatientOverview;
     const overview = await overviewFn(patientId);
-    host.innerHTML = PatientEvidenceTab(overview, filter);
-    host.querySelectorAll('[data-evidence-target]').forEach((node) => {
-      node.addEventListener('click', () => openEvidenceDrawer({ patientId, target: node.getAttribute('data-evidence-target') }));
-    });
-    const search = host.querySelector('[data-evidence-search]');
-    if (search) {
-      search.addEventListener('input', () => {
-        window.clearTimeout(search._evidenceTimer);
-        search._evidenceTimer = window.setTimeout(() => {
-          host.innerHTML = PatientEvidenceTab(overview, { search: search.value });
-          host.querySelectorAll('[data-evidence-target]').forEach((node) => {
-            node.addEventListener('click', () => openEvidenceDrawer({ patientId, target: node.getAttribute('data-evidence-target') }));
-          });
-        }, 120);
-      });
-    }
+    _renderPatientEvidenceWorkspaceView(patientId, host, overview, filter);
   } catch (err) {
     host.innerHTML = `<div class="ds-evidence-error">Could not load patient evidence: ${esc(err.message || err)}</div>`;
   }
+}
+
+function _renderPatientEvidenceWorkspaceView(patientId, host, overview, filter = {}) {
+  host.innerHTML = PatientEvidenceTab(overview, filter);
+  host.querySelectorAll('[data-evidence-target]').forEach((node) => {
+    node.addEventListener('click', () => openEvidenceDrawer({ patientId, target: node.getAttribute('data-evidence-target') }));
+  });
+  const search = host.querySelector('[data-evidence-search]');
+  if (!search) return;
+  search.addEventListener('input', () => {
+    window.clearTimeout(search._evidenceTimer);
+    search._evidenceTimer = window.setTimeout(() => {
+      _renderPatientEvidenceWorkspaceView(patientId, host, overview, { ...filter, search: search.value });
+    }, 120);
+  });
 }
 
 export function wireEvidenceChips(root, patientId) {
