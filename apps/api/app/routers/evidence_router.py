@@ -55,7 +55,7 @@ from app.services.consent_enforcement import (
 )
 from app.errors import ApiServiceError
 from app.logging_setup import get_logger
-from app.persistence.models import AssessmentRecord, ClinicalSession, DsPaper, EvidenceSavedCitation, LiteraturePaper, OutcomeSeries, Patient, TreatmentCourse
+from app.persistence.models import AssessmentRecord, ClinicalSession, DsPaper, EvidenceSavedCitation, LiteraturePaper, OutcomeSeries, Patient, TreatmentCourse, User
 from app.repositories.patients import resolve_patient_clinic_id
 from app.schemas.evidence_terminal import (
     EvidenceTerminalGradeDistributionOut,
@@ -779,6 +779,32 @@ class EvidenceSourceStatusOut(BaseModel):
     degraded_reason: Optional[str] = None
 
 
+def _scoped_saved_citation_status_counts(
+    actor: AuthenticatedActor,
+    db: Session,
+) -> tuple[int, int]:
+    counts = (
+        db.query(
+            func.sum(
+                EvidenceSavedCitation.citation_payload_json.like(
+                    '%"approval_status": "pending_clinician_review"%'
+                )
+            ).label("pending"),
+            func.sum(
+                EvidenceSavedCitation.citation_payload_json.like('%"status": "unverified"%')
+            ).label("unverified"),
+        )
+        .join(Patient, Patient.id == EvidenceSavedCitation.patient_id)
+        .join(User, User.id == Patient.clinician_id, isouter=True)
+    )
+    if actor.clinic_id:
+        counts = counts.filter(User.clinic_id == actor.clinic_id)
+    elif actor.role != "admin":
+        counts = counts.filter(Patient.id == "__no_visible_patients__")
+    row = counts.one()
+    return int(row.pending or 0), int(row.unverified or 0)
+
+
 class ByFindingRequest(BaseModel):
     patient_id: str
     context_type: str = "biomarker"
@@ -961,24 +987,15 @@ def evidence_status() -> StatusOut:
 
 @router.get("/source-status", response_model=EvidenceSourceStatusOut)
 def evidence_source_status(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> EvidenceSourceStatusOut:
+    require_minimum_role(actor, "clinician")
     path = _default_db_path()
     generated_at = datetime.now(timezone.utc).isoformat()
     ds_paper_count = int(db.query(func.count(DsPaper.id)).scalar() or 0)
     literature_paper_count = int(db.query(func.count(LiteraturePaper.id)).scalar() or 0)
-    pending_review_citation_count = int(
-        db.query(func.count(EvidenceSavedCitation.id))
-        .filter(EvidenceSavedCitation.citation_payload_json.like('%"approval_status": "pending_clinician_review"%'))
-        .scalar()
-        or 0
-    )
-    unverified_saved_citation_count = int(
-        db.query(func.count(EvidenceSavedCitation.id))
-        .filter(EvidenceSavedCitation.citation_payload_json.like('%"status": "unverified"%'))
-        .scalar()
-        or 0
-    )
+    pending_review_citation_count, unverified_saved_citation_count = _scoped_saved_citation_status_counts(actor, db)
     base = {
         "source_kind": "bundled_fallback",
         "source_label": "Bundled evidence snapshot",

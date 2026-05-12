@@ -348,30 +348,34 @@ def _h_evidence_status(
     actor: "AuthenticatedActor",
     db: "Session",
 ) -> dict:
-    _ = actor
     from sqlalchemy import func
 
-    from app.persistence.models import DsPaper, EvidenceSavedCitation, LiteraturePaper
+    from app.persistence.models import DsPaper, EvidenceSavedCitation, LiteraturePaper, Patient, User
     from app.services.evidence_terminal_service import resolve_evidence_db_path
 
     ds_paper_count = int(db.query(func.count(DsPaper.id)).scalar() or 0)
     literature_paper_count = int(db.query(func.count(LiteraturePaper.id)).scalar() or 0)
-    pending_review_citation_count = int(
-        db.query(func.count(EvidenceSavedCitation.id))
-        .filter(
-            EvidenceSavedCitation.citation_payload_json.like(
-                '%"approval_status": "pending_clinician_review"%'
-            )
+    citation_counts = (
+        db.query(
+            func.sum(
+                EvidenceSavedCitation.citation_payload_json.like(
+                    '%"approval_status": "pending_clinician_review"%'
+                )
+            ).label("pending"),
+            func.sum(
+                EvidenceSavedCitation.citation_payload_json.like('%"status": "unverified"%')
+            ).label("unverified"),
         )
-        .scalar()
-        or 0
+        .join(Patient, Patient.id == EvidenceSavedCitation.patient_id)
+        .join(User, User.id == Patient.clinician_id, isouter=True)
     )
-    unverified_saved_citation_count = int(
-        db.query(func.count(EvidenceSavedCitation.id))
-        .filter(EvidenceSavedCitation.citation_payload_json.like('%"status": "unverified"%'))
-        .scalar()
-        or 0
-    )
+    if actor.clinic_id:
+        citation_counts = citation_counts.filter(User.clinic_id == actor.clinic_id)
+    elif actor.role != "admin":
+        citation_counts = citation_counts.filter(Patient.id == "__no_visible_patients__")
+    counts_row = citation_counts.one()
+    pending_review_citation_count = int(counts_row.pending or 0)
+    unverified_saved_citation_count = int(counts_row.unverified or 0)
     path = resolve_evidence_db_path()
     base = {
         "source_kind": "bundled_fallback",
