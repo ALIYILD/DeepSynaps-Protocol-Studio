@@ -26,8 +26,15 @@ function renderNormativeModelCard(card) {
   else if (status === 'unavailable') statusPill = _pill('Norms Unavailable', '#ef4444');
   else if (status === 'configured') statusPill = _pill('Configured', '#22c55e');
 
+  var recCond = card.recording_condition ? String(card.recording_condition) : '';
+  var recLabel = recCond === 'eyes_closed' ? 'Eyes closed'
+    : recCond === 'eyes_open' ? 'Eyes open'
+      : recCond === 'task' ? 'Task / other'
+        : recCond === 'unknown' ? 'Unknown' : (recCond || '—');
+
   var rows = [
     ['Status', card.status || '—'],
+    ['Resolved recording condition', recCond ? recLabel + ' (' + recCond + ')' : '—'],
     ['Normative Database', card.normative_db_name || '—'],
     ['Version', card.normative_db_version || '—'],
     ['Age Range', card.age_range || '—'],
@@ -38,6 +45,26 @@ function renderNormativeModelCard(card) {
   ].map(function (r) {
     return '<tr><td style="font-weight:600;width:40%">' + esc(r[0]) + '</td><td>' + esc(r[1]) + '</td></tr>';
   }).join('');
+
+  var prov = card.normative_provider && typeof card.normative_provider === 'object' ? card.normative_provider : null;
+  var provHtml = '';
+  if (prov) {
+    var pt = esc(prov.type || '—');
+    var pn = esc(prov.name || '—');
+    var pv = esc(prov.version || '—');
+    var pcu = prov.clinical_use ? 'true' : 'false';
+    var pd = esc(prov.disclaimer || '');
+    provHtml = '<div style="margin-top:12px;padding:10px 12px;border-radius:8px;background:rgba(29,111,122,0.06);border:1px solid rgba(29,111,122,0.18)">'
+      + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:6px">Normative provider (transparency)</div>'
+      + '<table class="ds-table" style="width:100%;font-size:12px"><tbody>'
+      + '<tr><td style="font-weight:600;width:34%">Type</td><td>' + pt + '</td></tr>'
+      + '<tr><td style="font-weight:600">Name</td><td>' + pn + '</td></tr>'
+      + '<tr><td style="font-weight:600">Version</td><td>' + pv + '</td></tr>'
+      + '<tr><td style="font-weight:600">Clinical use flag</td><td>' + esc(pcu) + '</td></tr>'
+      + '</tbody></table>'
+      + (pd ? '<p style="margin:8px 0 0;font-size:11px;color:var(--text-secondary)">' + pd + '</p>' : '')
+      + '</div>';
+  }
 
   var oodBanner = ood
     ? '<div style="padding:10px 14px;border-radius:6px;margin-bottom:10px;background:#fffbeb;border-left:4px solid #f59e0b">'
@@ -61,6 +88,7 @@ function renderNormativeModelCard(card) {
     + caveat
     + oodBanner
     + '<table class="ds-table" style="width:100%;font-size:13px"><tbody>' + rows + '</tbody></table>'
+    + provHtml
     + (lims ? '<h4 style="margin:12px 0 4px;font-size:13px">Limitations</h4>' + lims : '')
     + '<p style="margin-top:12px;font-size:11px;color:var(--text-secondary)">This is decision-support information. Please consult your clinician for care decisions.</p>'
     + '</div></div>';

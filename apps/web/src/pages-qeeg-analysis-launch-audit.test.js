@@ -118,19 +118,19 @@ test('demo banner output is marked data-demo for downstream filtering', () => {
 });
 
 test('clinical safety footer lists non-diagnosis and review-required disclaimers', () => {
-  const src = _readSrc('pages-qeeg-analysis.js');
-  // Canonical strict copy from PR 446b1596 — match by durable phrases.
-  assert.match(src, /not autonomous diagnosis/);
-  assert.match(src, /draft ideas for clinician review/);
-  assert.match(src, /Normative Model Card/);
-  assert.match(src, /Red flags and quality alerts are review cues/);
-  assert.match(src, /AI-assisted text summarises/);
+  const html = pageMod.renderQEEGClinicalSafetyFooterForTest();
+  assert.match(html, /not autonomous diagnosis/);
+  assert.match(html, /draft ideas for clinician review/);
+  assert.match(html, /Normative Model Card/);
+  assert.match(html, /Red flags and quality alerts are review cues/);
+  assert.match(html, /AI-assisted text summarises/);
 });
 
-test('Open Raw Workbench hero button is wired to the canonical workbench id', () => {
+test('Open Raw Workbench hero button is wired to open the raw tab in-analyzer', () => {
   const src = _readSrc('pages-qeeg-analysis.js');
   assert.match(src, /qeeg-hero-open-workbench/);
-  assert.match(src, /#\/qeeg-raw-workbench\//);
+  assert.match(src, /window\._qeegTab\s*=\s*['"]raw['"]/);
+  assert.match(src, /_qeegAudit\('open_raw_workbench'/);
 });
 
 test('demo CSV export is prefixed with DEMO and labelled in body', () => {
@@ -177,6 +177,8 @@ test('audit log helpers are wired into upload, analyze, exports, and AI report f
   assert.match(src, /_qeegAudit\('export_pdf_requested'/);
   // AI interpretation audit
   assert.match(src, /_qeegAudit\('ai_interpretation_requested'/);
+  // Recording condition selector (normative scaffold)
+  assert.match(src, /_qeegAudit\('qeeg\.condition\.changed'/);
   // Comparison audit
   assert.match(src, /_qeegAudit\('comparison_created'/);
   // Open workbench audit

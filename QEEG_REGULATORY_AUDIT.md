@@ -292,3 +292,5 @@ The following strings in `qeeg-brain-map-template.js` and `qeeg_protocol_fit.py`
 ---
 
 *This audit covers only regulatory copy. It does not cover security, performance, or clinical validity of the normative model.*
+
+**API consent (post-PR2 hardening, 2026-05):** Live patient paths for `GET /api/v1/qeeg-analysis/{id}/normative-model-card` and `POST .../ai-report` require active **`ai_analysis`** consent (`require_ai_analysis_consent`); synthetic bypass uses **strict** `_is_demo_id` (exact `demo`/`mock`/`test`, `demo-pt-*`, `demo-patient*`) — not broad `demo-*` prefix matching. See `docs/qeeg-analyzer-endpoint-map.md`.

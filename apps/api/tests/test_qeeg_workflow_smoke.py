@@ -59,7 +59,7 @@ class TestQEEGWorkflowSmoke:
     """Full qEEG Clinical Workbench smoke test."""
 
     def test_full_workflow(self, client: TestClient, clinician_token: str) -> None:
-        from app.persistence.models import Clinic, Patient, QEEGAnalysis, User
+        from app.persistence.models import Clinic, ConsentRecord, Patient, QEEGAnalysis, User
 
         async def _fake_generate_ai_report(**kwargs):
             return {
@@ -131,6 +131,15 @@ class TestQEEGWorkflowSmoke:
             dob="1990-01-15",
         )
         db.add(patient)
+        db.add(
+            ConsentRecord(
+                patient_id=patient.id,
+                clinician_id="test_clinician_1",
+                consent_type="ai_analysis",
+                status="active",
+                signed=True,
+            )
+        )
         db.commit()
 
         # 1. Create qEEG analysis
@@ -173,6 +182,9 @@ class TestQEEGWorkflowSmoke:
         assert r.status_code == 200
         card = r.json()
         assert "zscore_method" in card
+        assert card.get("recording_condition") == "eyes_closed"
+        assert card.get("normative_provider") is not None
+        assert card["normative_provider"].get("type") in ("unavailable", "demo", "research")
 
         with mock.patch(
             "app.services.qeeg_ai_interpreter.generate_ai_report",

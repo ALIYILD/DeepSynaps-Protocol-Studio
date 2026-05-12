@@ -1,13 +1,17 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // pages-qeeg-analysis.js — qEEG Analyzer (Clinic Portal)
 //
-// Tabs:
-//   1. Patient & Upload — patient clinical info + EDF/BDF/EEG upload
-//   2. Analysis         — spectral results + topographic heatmaps
-//   3. AI Report        — AI interpretation + clinician review
-//   4. Compare          — pre/post comparison
+// Tabs (window._qeegTab ids — see TAB_META):
+//   patient   — Patient & Upload (clinical info + EDF/BDF/EEG upload workflow)
+//   analysis  — Spectral / quantitative results, advanced panels, normative cues
+//   raw       — Raw EEG workbench (embedded pages-qeeg-raw-workbench)
+//   erp       — Event-related potentials (BIDS / markers; decision-support)
+//   report    — AI-assisted draft report + Brain Map + clinician review
+//   compare   — Baseline vs follow-up comparison
+//   learning  — Learning EEG reference (educational cross-check)
 // ─────────────────────────────────────────────────────────────────────────────
 import { api, downloadBlob, API_BASE } from './api.js';
+import { QEEG_ANALYZER_SAFETY_FOOTER_BULLETS, PROTOCOL_SUGGESTIONS_ARE_DRAFT_COPY, NOT_DIAGNOSTIC_COPY } from './clinical-ai-safety-copy.js';
 import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { isDemoSession } from './demo-session.js';
 import { handleAPIError as handleConsentError, renderConsentStatusBadge, disableRunButton, enableRunButton } from './consent-error-handler.js';
@@ -29,6 +33,11 @@ import {
 import { renderSafetyCockpit, mountSafetyCockpit } from './qeeg-safety-cockpit.js';
 import { renderRedFlags, mountRedFlags } from './qeeg-red-flags.js';
 import { renderNormativeModelCard, mountNormativeModelCard } from './qeeg-normative-card.js';
+import {
+  buildDemoNormativeModelCard,
+  renderRecordingConditionPanel,
+  wireRecordingConditionPanel,
+} from './qeeg-analysis-normative-engine.js';
 import { renderProtocolFit, mountProtocolFit } from './qeeg-protocol-fit.js';
 import { filterGatedSuggestions } from './qeeg-protocol-suggestion-filter.js';
 import { renderClinicianReview, mountClinicianReview } from './qeeg-clinician-review.js';
@@ -2826,17 +2835,19 @@ function _renderComprehensiveReport(report, analysis, savedEvidenceCitations) {
     clinicalHtml += obsHtml;
   }
 
-  // FIRDA / OIRDA findings
+  // FIRDA / OIRDA — label as review cue only (never "detected" clinical pattern)
   if (narrative.firda_oirda) {
     clinicalHtml += '<div style="margin-top:12px;padding:10px;background:rgba(255,181,71,0.06);border-radius:8px;border:1px solid rgba(255,181,71,0.15)">'
-      + '<strong style="font-size:12px;color:var(--amber)">FIRDA / OIRDA Findings</strong>'
+      + '<strong style="font-size:12px;color:var(--amber)">FIRDA / OIRDA — review cue (decision-support only)</strong>'
+      + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + esc('Does not establish disorder labels from morphology alone. Verify on raw EEG and clinical context.') + '</div>'
       + '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">' + esc(narrative.firda_oirda) + '</div></div>';
   }
 
-  // Epileptiform analysis
+  // Sharply contoured / rhythmic morphology — never framed as seizure detection
   if (narrative.epileptiform) {
     clinicalHtml += '<div style="margin-top:12px;padding:10px;background:rgba(239,83,80,0.06);border-radius:8px;border:1px solid rgba(239,83,80,0.15)">'
-      + '<strong style="font-size:12px;color:var(--red)">Epileptiform Activity</strong>'
+      + '<strong style="font-size:12px;color:var(--red)">Rhythmic / sharply contoured review cue</strong>'
+      + '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + esc('Research or quality flag only — not a seizure detection result. Decision-support only; clinician review and raw EEG verification required.') + '</div>'
       + '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">' + esc(narrative.epileptiform) + '</div></div>';
   }
 
@@ -2848,7 +2859,7 @@ function _renderComprehensiveReport(report, analysis, savedEvidenceCitations) {
   }
 
   if (clinicalHtml) {
-    html += card('Clinical Overview', clinicalHtml);
+    html += card('Decision-Support Overview (draft)', clinicalHtml);
   }
 
   // ── Section 6: Visualizations ───────────────────────────────────────────
@@ -2998,7 +3009,7 @@ function _renderComprehensiveReport(report, analysis, savedEvidenceCitations) {
     }
     // Disclaimer
     bioHtml += '<div style="margin-top:12px;padding:10px;background:var(--surface-tint-1);border-radius:6px;border:1px solid var(--border);font-size:11px;color:var(--text-tertiary);font-style:italic">'
-      + 'These biomarkers reflect momentary patterns in brainwave activity based on mathematical models. They are not diagnostic conclusions.</div>';
+      + 'These biomarkers reflect momentary patterns in brainwave activity based on mathematical models. They are descriptive similarity summaries, not clinical conclusions.</div>';
     html += card('Biomarker Analysis', bioHtml);
   }
 
@@ -3016,9 +3027,11 @@ function _renderComprehensiveReport(report, analysis, savedEvidenceCitations) {
       + sectionsHtml;
   }
 
-  // ── Section 11: Condition Pattern Matches ───────────────────────────────
+  // ── Section 11: Condition similarity indices (not diagnostic) ─────────────
   if (conditions.length) {
-    var condHtml = '<div style="display:flex;flex-direction:column;gap:8px">';
+    var condHtml = '<p style="font-size:12px;color:var(--text-tertiary);margin:0 0 10px;line-height:1.5">' + esc(NOT_DIAGNOSTIC_COPY)
+      + ' Similarity indices below are decision-support only; they do not establish a disorder label.</p>'
+      + '<div style="display:flex;flex-direction:column;gap:8px">';
     conditions.forEach(function (c) {
       var conf = (c.confidence || 0);
       var pct = Math.round(conf * 100);
@@ -3030,19 +3043,20 @@ function _renderComprehensiveReport(report, analysis, savedEvidenceCitations) {
         + '<span style="position:absolute;right:8px;top:2px;font-size:11px;color:var(--text-primary)">' + pct + '%</span></div></div>';
     });
     condHtml += '</div>';
-    html += card('Condition Pattern Matches', condHtml);
+    html += card('Condition similarity indices (draft)', condHtml);
   }
 
-  // ── Section 12: Protocol Suggestions ────────────────────────────────────
+  // ── Section 12: Protocol-fit draft ideas ─────────────────────────────────
   if (suggestions.length) {
-    var sugHtml = '<ul style="margin:0;padding-left:20px">';
+    var sugHtml = '<p style="font-size:12px;color:var(--text-tertiary);margin:0 0 10px;line-height:1.5">' + esc(PROTOCOL_SUGGESTIONS_ARE_DRAFT_COPY) + '</p>'
+      + '<ul style="margin:0;padding-left:20px">';
     suggestions.forEach(function (s) {
       sugHtml += '<li style="margin-bottom:8px;font-size:13px;color:var(--text-secondary)">'
         + '<strong>' + esc(s.protocol || s.title || '') + '</strong>'
         + (s.rationale ? ': ' + esc(s.rationale) : '') + '</li>';
     });
     sugHtml += '</ul>';
-    html += card('Protocol Suggestions', sugHtml);
+    html += card('Protocol-fit draft ideas (clinician review required)', sugHtml);
   }
 
   // ── Section 13: Clinician Review ────────────────────────────────────────
@@ -3207,16 +3221,17 @@ function _qeegCapabilitiesBadgeHtml(capStatus) {
 // reviewing clinician cannot miss them. These are static strings — they are
 // not gated on demo mode and never disappear once the analyzer renders.
 function _qeegClinicalSafetyFooter() {
+  var items = QEEG_ANALYZER_SAFETY_FOOTER_BULLETS.map(function (text) {
+    return '<li>' + esc(text) + '</li>';
+  });
   return '<div data-testid="qeeg-safety-footer" class="qeeg-safety-footer" style="margin-top:24px;padding:14px 16px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border);font-size:12px;color:var(--text-secondary);line-height:1.6">'
     + '<div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:6px">Clinical safety disclaimers</div>'
-    + '<ul style="margin:0;padding-left:18px">'
-    + '<li><strong>This is a controlled preview using synthetic or clinician-provided data where applicable.</strong> This page supports clinical review and decision support only. It does not diagnose, prescribe, triage emergencies, approve treatment, or act autonomously. All outputs require clinician review.</li>'
-    + '<li>This workspace provides <strong>EEG/qEEG analysis support and decision-support only</strong>. It is not autonomous diagnosis, psychiatry, epilepsy determination, emergency triage, protocol prescription, device control, or AI-directed therapy.</li>'
-    + '<li>Normative z-scores and comparisons apply only when the pipeline reports a real normative database version — verify the Normative Model Card for source and applicability.</li>'
-    + '<li>Protocol-fit and protocol suggestions are <strong>draft ideas for clinician review</strong>; they are not treatment approval or stimulation targeting.</li>'
-    + '<li>Red flags and quality alerts are review cues — confirm against raw data and local policy before any clinical action.</li>'
-    + '<li>AI-assisted text summarises available numerics and documents — it <strong>does not replace</strong> clinical interpretation or independent findings.</li>'
-    + '</ul></div>';
+    + '<ul style="margin:0;padding-left:18px">' + items.join('') + '</ul></div>';
+}
+
+/** Test hook: returns the same HTML as the analyzer page footer (data-testid=qeeg-safety-footer). */
+export function renderQEEGClinicalSafetyFooterForTest() {
+  return _qeegClinicalSafetyFooter();
 }
 
 // ── Best-effort audit logger ─────────────────────────────────────────────────
@@ -4052,27 +4067,27 @@ var DEMO_QEEG_REPORT = {
       {title: 'Cognitive and Neurological Profile', content: 'Elevated IAPF with frontal high-arousal patterns. Theta/beta ratio of 3.17 is associated with attentional-regulation profiles in the research literature. Higher delta amplitude across channels relative to research norms. Asymmetry indices in temporal (~39.9%) and occipital (~90.5%) regions are surfaced for clinician review.'},
       {title: 'Mental Health and Brain Function', content: 'Subtle frontal asymmetries are associated with affective-processing profiles in the research literature. Inattention index 6.3 at Fz (research norm 2). Pattern of increased delta with reduced beta2/gamma is associated with hyperarousal profiles in the research literature.'},
       {title: 'Sensory Processing and Brain Function', content: 'Occipital channels show alpha peaks within research-norm bands. Temporal channels show higher delta amplitude relative to research norms. The overall delta-band distribution is associated with sensorimotor-integration profiles in the research literature.'},
-      {title: 'Nonverbal Communication and Brain Activity', content: 'Elevated frontal synchronisation with atypical temporal activity may affect facial expression recognition and social cue integration. Temporal asymmetry may correlate with difficulties in auditory-linguistic processing.'},
-      {title: 'Everyday Strengths and Challenges', content: 'Enhanced frontal activation supports executive functions. Persistent asymmetries denote multisensory integration challenges. Elevated attention indices create a mixed adaptability profile.'},
-      {title: 'Cognitive and Behavioural Trends', content: 'Sustained elevated theta/beta ratio indicates attentional control issues. Reduced beta2 and gamma power correlates with cognitive fatigability. Dynamic microstate patterns hint at reduced neural flexibility.'},
-      {title: 'Nutrition and Brain Health', content: 'Incorporate omega-3 fatty acids, B-vitamins, magnesium, and antioxidants. Regular balanced meals stabilize glucose for sustained cognitive effort.'},
-      {title: 'Tailored Lifestyle Recommendations', content: 'Regular aerobic exercise 3-4 times weekly. Mind-body practices like yoga for stress regulation. Cognitive training exercises. Structured daily schedule with planned breaks.'},
-      {title: 'Long-Term Learning and Career Guidance', content: 'Structured environments with clear task delineation suit the profile. Roles emphasising systematic planning and detailed task management. Productivity tools and organisational apps recommended.'},
-      {title: 'Social and Recreational Support', content: 'Structured group activities. Social skills training. Recreational pursuits combining physical movement with social interaction.'},
+      {title: 'Nonverbal Communication and Brain Activity', content: 'Demo narrative only: elevated frontal synchronisation with atypical temporal activity may be discussed in research on social cue processing. These are illustrative phrases — descriptive only. Verify against raw EEG.'},
+      {title: 'Everyday Strengths and Challenges', content: 'Demo narrative only: relative activation patterns are sometimes linked in the literature to attention and sensory integration styles. Decision-support only; clinician review required.'},
+      {title: 'Cognitive and Behavioural Trends', content: 'Demo narrative only: sustained theta/beta patterns are discussed as review cues in attention research. Decision-support only; does not replace clinical assessment.'},
+      {title: 'Nutrition and Brain Health', content: 'General wellness topics sometimes co-discussed with lifestyle in research summaries. Not medical nutrition therapy or a treatment plan from this tool.'},
+      {title: 'Tailored Lifestyle Recommendations', content: 'Illustrative wellness examples only (exercise, stress practices, scheduling). Not treatment recommendations; discuss any changes with a qualified clinician.'},
+      {title: 'Long-Term Learning and Career Guidance', content: 'Illustrative career-environment examples from demo text only. Not vocational or medical advice from this system.'},
+      {title: 'Social and Recreational Support', content: 'Illustrative examples of structured activities. Not a social-care prescription; clinician review required.'},
       {title: 'Illustrative Wellness Strategies (not treatment recommendations)', content: 'Examples discussed in the research literature for similar EEG profiles include: neurofeedback training; mindfulness and meditation practice; cognitive training; behavioural therapies for attentional regulation. Any actual treatment plan must be set by a qualified clinician — these are illustrative examples only.'},
-      {title: 'Ongoing Development and Monitoring', content: 'Follow-up QEEG evaluations every 3-6 months. Detailed symptom diary. Regular consultations with neuropsychological and nutritional specialists. Adjust interventions based on longitudinal data.'}
+      {title: 'Ongoing Development and Monitoring', content: 'Illustrative follow-up cadence examples only. Any monitoring plan must be set by the care team — not prescribed by this demo.'}
     ]
   },
   condition_matches: [
-    { condition: 'Major Depressive Disorder', confidence: 0.68 },
-    { condition: 'Generalized Anxiety Disorder', confidence: 0.52 },
-    { condition: 'ADHD - Combined Type', confidence: 0.48 },
-    { condition: 'Mild Cognitive Impairment', confidence: 0.35 },
+    { condition: 'MDD — research similarity label (illustrative only)', confidence: 0.68 },
+    { condition: 'GAD — research similarity label (illustrative only)', confidence: 0.52 },
+    { condition: 'ADHD combined — research similarity label (illustrative only)', confidence: 0.48 },
+    { condition: 'MCI — research similarity label (illustrative only)', confidence: 0.35 },
   ],
   protocol_suggestions: [
-    { protocol: 'rTMS - Left DLPFC (10 Hz)', rationale: 'Grade A evidence for MDD. Left frontal alpha asymmetry supports targeting left DLPFC to increase excitability and normalize frontal activation patterns.' },
-    { protocol: 'tDCS - Bifrontal Montage (2 mA)', rationale: 'Grade B evidence. Anodal left DLPFC / cathodal right DLPFC may address both mood-related asymmetry and attentional theta excess.' },
-    { protocol: 'Neurofeedback - SMR/Theta Protocol', rationale: 'Grade B evidence. Enhance SMR (12-15 Hz) at Cz while inhibiting frontal theta at Fz to improve attention and reduce rumination.' },
+    { protocol: 'rTMS — Left DLPFC (10 Hz) draft idea', rationale: 'Illustrative protocol-fit draft only (clinician review required). Frequently cited in research for MDD; left frontal alpha asymmetry is sometimes discussed as a review cue in the literature — not treatment approval or targeting authority.' },
+    { protocol: 'tDCS — bifrontal montage draft idea', rationale: 'Illustrative draft only. Some trials explore anodal left / cathodal right DLPFC for overlapping mood and attention profiles; verify against raw EEG, indications, and local policy.' },
+    { protocol: 'Neurofeedback — SMR/theta draft idea', rationale: 'Illustrative training concept only. SMR up-training with theta inhibition is discussed in neurofeedback research; not a prescribed protocol here.' },
   ],
   clinician_reviewed: false,
   clinician_amendments: '',
@@ -4084,11 +4099,11 @@ var DEMO_QEEG_REPORT = {
     findings: [
       { region: 'frontal midline (Fz)', band: 'theta', observation: 'Theta z = +2.10 at Fz, pattern commonly reported in inattention and rumination studies [1][4].', citations: [1, 4] },
       { region: 'posterior (Pz, O1, O2)', band: 'alpha', observation: 'Posterior alpha hyper-amplitude (z 2.5–2.8) consistent with hypoaroused vigilance state [2].', citations: [2] },
-      { region: 'frontal (F3/F4)', band: 'alpha', observation: 'Frontal alpha asymmetry F3/F4 = +0.21 — left hypoactivation signature often reported in depressive phenotypes [3].', citations: [3] },
+      { region: 'frontal (F3/F4)', band: 'alpha', observation: 'Frontal alpha asymmetry F3/F4 = +0.21 — a pattern sometimes discussed with depressive phenotypes in research samples [3]. Decision-support only; verify on raw EEG.', citations: [3] },
     ],
     protocol_recommendations: [
-      { protocol: 'rTMS - Left DLPFC (10 Hz)', rationale: 'Left-frontal hypoactivation → excitatory HF rTMS over left DLPFC [3].' },
-      { protocol: 'SMR / theta neurofeedback at Fz', rationale: 'Up-train SMR (12–15 Hz) while inhibiting theta (4–8 Hz) at Fz [1].' },
+      { protocol: 'rTMS — Left DLPFC (10 Hz) draft idea', rationale: 'Illustrative literature-linked draft only: excitatory HF rTMS over left DLPFC is discussed in research contexts similar to this demo pattern [3]. Clinician review required; not treatment approval.' },
+      { protocol: 'SMR / theta neurofeedback at Fz (draft idea)', rationale: 'Illustrative training concept: SMR up-train with theta inhibition at Fz appears in neurofeedback research summaries [1]. Not a prescribed protocol here.' },
     ],
     confidence_level: 'moderate',
   },
@@ -4132,13 +4147,12 @@ var DEMO_QEEG_COMPARISON = {
     frontal_alpha_asymmetry: { baseline: 0.18, followup: 0.09 },
   },
   baseline_band_powers: _buildDemoBandPowers(),
-  ai_comparison_narrative: 'Follow-up qEEG recorded after 20 sessions of combined rTMS and neurofeedback treatment shows notable improvements in key biomarkers. '
-    + 'Frontal theta power decreased significantly at Fz (-12.5%) and Cz (-8.3%), bringing the theta/beta ratio from 3.82 to 3.34, well below the clinical concern threshold. '
-    + 'Posterior alpha power increased at O1 (+8.2%) and O2 (+7.5%), with the most pronounced gains at Pz (+11.2%) and P3 (+10.1%), suggesting improved cortical efficiency and attentional regulation. '
-    + 'Frontal alpha asymmetry normalized from 0.18 to 0.09, indicating improved bilateral frontal activation balance. '
-    + 'Mild increases in high-beta at frontal sites (Fp1: +2.5%, Fp2: +3.1%) should be monitored in subsequent recordings. '
-    + 'Overall, 8 of 17 measured parameters improved, 7 remained stable, and 2 showed minor elevation. '
-    + 'Clinical re-evaluation is recommended to correlate these neurophysiological improvements with symptomatic changes.',
+  ai_comparison_narrative: 'Illustrative pre/post demo narrative (decision-support only). Follow-up qEEG after a hypothetical combined neuromodulation and neurofeedback course shows quantitative shifts in selected biomarkers. '
+    + 'Frontal theta power decreased at Fz (-12.5%) and Cz (-8.3%), moving the theta/beta ratio from 3.82 to 3.34 — a change to review against raw EEG and clinical context rather than a threshold label. '
+    + 'Posterior alpha power increased at O1 (+8.2%) and O2 (+7.5%), with larger relative shifts at Pz (+11.2%) and P3 (+10.1%); interpret as spectral change, not proof of clinical improvement. '
+    + 'Frontal alpha asymmetry moved from 0.18 to 0.09; verify morphology and state on the primary recording. '
+    + 'Overall, 8 of 17 tracked parameters shifted in the illustrated direction, 7 were stable, and 2 moved slightly the other way. '
+    + 'Clinician correlation with symptoms and independent EEG review are required before any clinical inference.',
   delta_powers: _buildDemoDeltas(),
 };
 
@@ -5459,6 +5473,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           html += renderAiUpgradePanels(data);
         }
         // Clinical Intelligence Workbench panels (Migration 048)
+        html += '<div id="qeeg-recording-condition-panel"></div>';
         html += '<div id="qeeg-safety-cockpit-panel"></div>';
         html += '<div id="qeeg-red-flags-panel"></div>';
         html += '<div id="qeeg-normative-card-panel"></div>';
@@ -5541,11 +5556,30 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             vizMount.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;padding:8px;">Viz v2 not available: ' + esc(String(err.message || err)) + '</p>';
           });
         }
+        // ── Recording condition + normative context (PR2 scaffold) ───────────
+        var rcpHost = document.getElementById('qeeg-recording-condition-panel');
+        if (rcpHost && data) {
+          rcpHost.innerHTML = renderRecordingConditionPanel(data, analysisId);
+          wireRecordingConditionPanel(analysisId, function () {
+            if (typeof window._nav === 'function') window._nav('qeeg-analysis');
+          }, function (extra) {
+            try {
+              _qeegAudit('qeeg.condition.changed', Object.assign({ analysis_id: analysisId }, extra || {}));
+            } catch (_e) {}
+          });
+        }
+        var normHost = document.getElementById('qeeg-normative-card-panel');
+        if (normHost) {
+          if (analysisId === 'demo' && _isDemoMode()) {
+            normHost.innerHTML = renderNormativeModelCard(buildDemoNormativeModelCard(data));
+          } else if (analysisId && analysisId !== 'demo') {
+            mountNormativeModelCard('qeeg-normative-card-panel', analysisId, api);
+          }
+        }
         // ── Mount Clinical Intelligence Workbench panels (Migration 048) ────
         if (analysisId && analysisId !== 'demo') {
           mountSafetyCockpit('qeeg-safety-cockpit-panel', analysisId, api);
           mountRedFlags('qeeg-red-flags-panel', analysisId, api);
-          mountNormativeModelCard('qeeg-normative-card-panel', analysisId, api);
           mountProtocolFit('qeeg-protocol-fit-panel', analysisId, api);
         }
         var runBtn = document.getElementById('qeeg-run-advanced-btn');
@@ -7076,14 +7110,14 @@ if (typeof window !== 'undefined') window._qeegPrintReport = function () {
     html += '<h2>Detailed Findings</h2>' + _formatNarrative(narrative.detailed_findings);
   }
   if (conditions.length) {
-    html += '<h2>Condition Pattern Matches</h2><table><tr><th>Condition</th><th>Confidence</th></tr>';
+    html += '<h2>Condition similarity indices (draft)</h2><p style="font-size:12px;color:#666">Decision-support only; does not establish a disorder label. Similarity labels are illustrative.</p><table><tr><th>Label</th><th>Confidence estimate</th></tr>';
     conditions.forEach(function (c) {
       html += '<tr><td>' + esc(c.condition || c.name || '') + '</td><td>' + Math.round((c.confidence || 0) * 100) + '%</td></tr>';
     });
     html += '</table>';
   }
   if (suggestions.length) {
-    html += '<h2>Protocol Suggestions</h2><ol>';
+    html += '<h2>Protocol-fit draft ideas</h2><p style="font-size:12px;color:#666">Draft ideas for clinician review only — not treatment approval.</p><ol>';
     suggestions.forEach(function (s) {
       html += '<li><strong>' + esc(s.protocol || s.title || '') + '</strong>' + (s.rationale ? ': ' + esc(s.rationale) : '') + '</li>';
     });

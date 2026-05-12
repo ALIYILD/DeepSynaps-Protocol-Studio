@@ -344,6 +344,64 @@ class NormativeModelCardOut(BaseModel):
     clinical_caveat: Optional[str] = None
     limitations: list[str] = Field(default_factory=list)
     complete: bool = False
+    # Canonical recording state for normative matching (UI + API contract; PR2 scaffold).
+    recording_condition: Optional[str] = Field(
+        default=None,
+        description="eyes_closed | eyes_open | task | unknown — resolved from analysis.eyes_condition",
+    )
+    # Provider identity for transparency; never implies licensed clinical normative clearance.
+    normative_provider: Optional[dict] = Field(
+        default=None,
+        description="Metadata: type (demo|licensed|research|unavailable), name, version, clinical_use, disclaimer",
+    )
+
+
+def _resolve_recording_condition(eyes: Optional[str]) -> str:
+    """Map persisted eyes_condition strings to a small canonical vocabulary."""
+    if not eyes:
+        return "unknown"
+    s = str(eyes).strip().lower()
+    if s in ("closed", "eyes_closed", "ec", "eye_closed", "eyes closed"):
+        return "eyes_closed"
+    if s in ("open", "eyes_open", "eo", "eye_open", "eyes open"):
+        return "eyes_open"
+    if s in ("task", "other", "mixed", "both", "eyes_mixed"):
+        return "task"
+    return "unknown"
+
+
+def _normative_provider_payload(norm_db: Optional[str], status: Optional[str]) -> dict:
+    key = (norm_db or "unknown").strip().lower()
+    st = (status or "").strip().lower()
+    if st == "unavailable" or key == "unknown":
+        return {
+            "type": "unavailable",
+            "name": "No normative provider configured",
+            "version": "n/a",
+            "clinical_use": False,
+            "disclaimer": (
+                "Normative scoring metadata unavailable; treat quantitative outputs as "
+                "analysis-only until a disclosed provider is configured. Decision-support only."
+            ),
+        }
+    if st == "toy" or "toy" in key:
+        return {
+            "type": "demo",
+            "name": "Demo synthetic model",
+            "version": norm_db or "toy",
+            "clinical_use": False,
+            "disclaimer": "Synthetic demo reference only; not clinical normative scoring.",
+        }
+    return {
+        "type": "research",
+        "name": "Configured normative reference",
+        "version": norm_db or "unspecified",
+        "clinical_use": False,
+        "disclaimer": (
+            "Decision-support only; verify database provenance, eyes-state match, and local policy "
+            "before clinical use."
+        ),
+    }
 
 
 def _normative_card_defaults(norm_db: str) -> NormativeModelCardOut:
@@ -1340,6 +1398,10 @@ async def generate_ai_report_endpoint(
     # out arbitrary analysis_id values and exfiltrate another clinic's
     # PHI-rich survey + AI narrative.
     _gate_patient_access(actor, analysis.patient_id, db)
+
+    _enforce_qeeg_ai_consent_for_patient_derived_endpoint(
+        db, actor, analysis_id, analysis.patient_id, endpoint="ai-report",
+    )
 
     if analysis.analysis_status != "completed" or not analysis.band_powers_json:
         raise ApiServiceError(
@@ -2440,16 +2502,65 @@ _TRACKED_METRICS: list[str] = [
     "spectral_edge_frequency",
 ]
 
-# Demo patient-ID prefixes that trigger synthetic data instead of a DB query.
-_DEMO_ID_PREFIXES = ("demo-", "demo_", "mock-", "mock_")
+# Synthetic identifiers that may bypass patient-linked consent checks in this
+# router. Intentionally **not** a broad ``startswith("demo")`` rule: substrings
+# such as "demographic" or "demoed" must not match, and arbitrary ``demo-*``
+# hospital IDs must not receive a silent bypass.
+_DEMO_ID_EXACT = frozenset({"demo", "mock", "test"})
 
 
 def _is_demo_id(value: str) -> bool:
-    """Return True when *value* looks like a demo / mock identifier."""
-    lower = value.lower()
-    return any(lower.startswith(p) for p in _DEMO_ID_PREFIXES) or lower in {
-        "demo", "mock", "test",
-    }
+    """Return True only for known synthetic/demo identifiers used by fixtures/SPA.
+
+    Allowed shapes:
+    - Exact SPA / harness tokens: ``demo``, ``mock``, ``test``
+    - Canonical fixture roster: ``demo-pt-*`` (see ``demo-fixtures-analyzers.js``)
+    - Launcher defaults: ``demo-patient``, ``demo-patient-*``, ``demo-patient-synthetic``
+    """
+    if not value or not isinstance(value, str):
+        return False
+    lower = value.strip().lower()
+    if lower in _DEMO_ID_EXACT:
+        return True
+    if lower.startswith("demo-pt-"):
+        return True
+    if lower == "demo-patient" or lower.startswith("demo-patient-"):
+        return True
+    return False
+
+
+def _enforce_qeeg_ai_consent_for_patient_derived_endpoint(
+    db: Session,
+    actor: AuthenticatedActor,
+    analysis_id: str,
+    patient_id: str,
+    *,
+    endpoint: str,
+) -> None:
+    """Require ``ai_analysis`` consent before live patient qEEG normative / AI outputs.
+
+    Uses the shared :func:`require_ai_analysis_consent` helper (denials already
+    emit ``AuditEventRecord`` + ``SafetyFlag`` via ``_log_consent_denial``).
+    Synthetic bypass uses strict :func:`_is_demo_id` (fixture/SPA allowlist only).
+
+    Router adds a PHI-safe ``qeeg.consent_denied`` log line for ops correlation
+    (analysis id hashed; no patient_id in log).
+    """
+    if _is_demo_id(analysis_id) or _is_demo_id(patient_id):
+        return
+    try:
+        require_ai_analysis_consent(db, patient_id, actor, ai_modality="qeeg")
+    except ConsentMissingError:
+        _log.warning(
+            "qeeg.consent_denied endpoint=%s analysis_sha=%s",
+            endpoint,
+            hashlib.sha256(analysis_id.encode("utf-8")).hexdigest()[:12],
+        )
+        raise ApiServiceError(
+            code="consent_missing",
+            message="ai_analysis consent required",
+            status_code=403,
+        ) from None
 
 
 class LongitudinalRequest(BaseModel):
@@ -3710,6 +3821,10 @@ def get_normative_model_card(
         raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
     _gate_patient_access(actor, analysis.patient_id, db)
 
+    _enforce_qeeg_ai_consent_for_patient_derived_endpoint(
+        db, actor, analysis_id, analysis.patient_id, endpoint="normative-model-card",
+    )
+
     meta = None
     if analysis.normative_metadata_json:
         try:
@@ -3717,14 +3832,27 @@ def get_normative_model_card(
         except (TypeError, ValueError):
             pass
 
-    if meta:
-        return NormativeModelCardOut(**meta)
-
-    # Build from norm_db_version and best-guess defaults
     norm_db = analysis.norm_db_version or "unknown"
-    card = _normative_card_defaults(norm_db)
-    card.eyes_condition_compatible = bool(analysis.eyes_condition)
-    return card
+    allowed = set(NormativeModelCardOut.model_fields.keys())
+    if meta:
+        meta_clean = {k: v for k, v in meta.items() if k in allowed}
+        try:
+            card = NormativeModelCardOut(**meta_clean)
+        except Exception:
+            card = _normative_card_defaults(norm_db)
+            card.eyes_condition_compatible = bool(analysis.eyes_condition)
+    else:
+        card = _normative_card_defaults(norm_db)
+        card.eyes_condition_compatible = bool(analysis.eyes_condition)
+
+    rc = _resolve_recording_condition(analysis.eyes_condition)
+    provider = _normative_provider_payload(norm_db, card.status)
+    return card.model_copy(
+        update={
+            "recording_condition": rc,
+            "normative_provider": provider,
+        }
+    )
 
 
 @router.post("/{analysis_id}/protocol-fit", response_model=ProtocolFitOut)
