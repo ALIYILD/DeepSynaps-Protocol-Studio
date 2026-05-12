@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 from app.database import SessionLocal
-from app.persistence.models import Patient, QEEGAnalysis, QEEGAIReport, QeegCleaningVersion
+from app.persistence.models import ConsentRecord, Patient, QEEGAIReport, QEEGAnalysis, QeegCleaningVersion
 
 
 def test_ai_report_persists_raw_review_handoff(client, auth_headers, monkeypatch) -> None:
@@ -18,6 +18,15 @@ def test_ai_report_persists_raw_review_handoff(client, auth_headers, monkeypatch
             last_name="Handoff",
         )
         db.add(patient)
+        db.add(
+            ConsentRecord(
+                patient_id=patient.id,
+                clinician_id="actor-clinician-demo",
+                consent_type="ai_analysis",
+                status="active",
+                signed=True,
+            )
+        )
         analysis = QEEGAnalysis(
             id="analysis-qeeg-raw-handoff",
             patient_id=patient.id,
@@ -89,6 +98,17 @@ def test_ai_report_persists_raw_review_handoff(client, auth_headers, monkeypatch
                 ],
                 "protocol_recommendations": [],
                 "confidence_level": "moderate",
+                "raw_review_handoff": {
+                    "cleaning_version_id": "cleaning-qeeg-raw-handoff",
+                    "cleaning_version_number": 2,
+                    "bad_channels": ["Fp1", "T7"],
+                    "rejected_segments": [
+                        {"start_sec": 1.0, "end_sec": 2.0, "description": "BAD_user"}
+                    ],
+                    "rejected_ica_components": [0, 3],
+                    "interpolated_channels": ["Fp1"],
+                    "medication_confounds": ["methylphenidate"],
+                },
             },
         }
 
