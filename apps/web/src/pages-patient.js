@@ -8429,31 +8429,44 @@ function _wireSettingsPage() {
 
   const saveBtn = document.getElementById('st-save');
   const discardBtn = document.getElementById('st-discard');
-  let toggleIndex = 0;
-  function togglePrefKey(toggleEl) {
-    const row = toggleEl.closest('.st-row');
-    const label = row?.querySelector('.st-row-label')?.textContent?.trim();
-    if (label) {
-      return label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-    }
-    const fallback = `toggle_${toggleIndex}`;
-    toggleIndex += 1;
-    return fallback;
+  const toggleMap = {
+    'Session reminders': ['notification_prefs', 'sessionReminders'],
+    'New messages': ['notification_prefs', 'patientMessages'],
+    'Product analytics': ['analytics_opt_in'],
+  };
+  function buildSettingsPrefs() {
+    const prefs = {};
+    st.querySelectorAll('[data-st-toggle]').forEach(t => {
+      const row = t.closest('.st-row');
+      const label = row?.querySelector('.st-row-label')?.textContent?.trim();
+      const target = label ? toggleMap[label] : null;
+      if (!target) return;
+      const enabled = t.classList.contains('on');
+      if (target[0] === 'notification_prefs') {
+        prefs.notification_prefs = prefs.notification_prefs || {};
+        prefs.notification_prefs[target[1]] = { inapp: enabled };
+      } else {
+        prefs[target[0]] = enabled;
+      }
+    });
+    return prefs;
   }
   if (saveBtn) saveBtn.addEventListener('click', async () => {
-    clearDirty();
+    const prefs = buildSettingsPrefs();
+    const originalLabel = saveBtn.innerHTML;
+    saveBtn.disabled = true;
+    saveBtn.setAttribute('aria-busy', 'true');
     try {
-      if (api.updatePatientPreferences) {
-        const prefs = {};
-        st.querySelectorAll('[data-st-toggle]').forEach(t => {
-          prefs[t.dataset.stToggle || togglePrefKey(t)] = t.classList.contains('on');
-        });
-        await api.updatePatientPreferences(prefs);
-      }
-      stToast('Settings saved in this browser');
+      await api.updatePatientPreferences(prefs);
+      clearDirty();
+      stToast('Supported settings saved');
     } catch (err) {
       stToast('Save failed \u2014 try again');
       console.error('[settings] save failed', err);
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.removeAttribute('aria-busy');
+      saveBtn.innerHTML = originalLabel;
     }
   });
   if (discardBtn) discardBtn.addEventListener('click', () => { clearDirty(); stToast('Changes discarded'); window.location.reload(); });
