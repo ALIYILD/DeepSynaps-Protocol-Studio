@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 import uuid
 
 from app.main import app
-from app.database import get_db
+from app.database import get_db_session
 from app.persistence.models.neuro_signs import (
     NeuroSign, CaseNeuroSign, NeuroSignAnnotation
 )
@@ -29,10 +29,10 @@ def db_session(monkeypatch):
     from app.database import SessionLocal
     db = SessionLocal()
     
-    def override_get_db():
+    def override_get_db_session():
         yield db
-    
-    app.dependency_overrides[get_db] = override_get_db
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
     
     yield db
     
