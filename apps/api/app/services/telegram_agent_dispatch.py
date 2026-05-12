@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 
 from app.auth import AuthenticatedActor
 from app.persistence.models import User
+from app.services.agents import audit as agent_audit
 from app.services.agents import pending_calls
 from app.services.agents.registry import AGENT_REGISTRY
 from app.services.agents.runner import run_agent
@@ -218,12 +219,14 @@ def dispatch_to_agent(
             "parse_mode": None,
         }
 
-    response = run_agent(
-        agent,
-        message=message_text,
-        actor=actor,
-        db=db,
-    )
+    with agent_audit.redact_previews_scope(True):
+        response = run_agent(
+            agent,
+            message=message_text,
+            actor=actor,
+            db=db,
+            transport="telegram",
+        )
 
     envelope = _compose_dispatch_envelope(response, agent_id=agent_id)
     logger.info(
@@ -436,13 +439,15 @@ def handle_drclaw_callback(
         )
     else:
         # Approve path → drive the runner's confirmation flow.
-        response = run_agent(
-            agent,
-            message="approve",
-            actor=actor,
-            db=db,
-            confirmed_tool_call_id=call_id,
-        )
+        with agent_audit.redact_previews_scope(True):
+            response = run_agent(
+                agent,
+                message="approve",
+                actor=actor,
+                db=db,
+                confirmed_tool_call_id=call_id,
+                transport="telegram",
+            )
         executed = response.get("tool_call_executed")
         if executed:
             preview = (executed.get("result_preview") or "").strip()

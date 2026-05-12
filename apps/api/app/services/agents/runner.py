@@ -86,6 +86,21 @@ TOOL_CALL_SYSTEM_TEMPLATE = (
     "If no write is needed, just reply normally."
 )
 
+TELEGRAM_SYSTEM_FOOTER = (
+    "You are replying over Telegram. Keep replies concise and scannable: "
+    "3-6 short lines or bullets, lead with the most important point, and "
+    "format for Telegram MarkdownV2."
+)
+
+TELEGRAM_EVIDENCE_SYSTEM_FOOTER = (
+    "When the request is about evidence or literature, include evidence "
+    "strength, one clear caution or limitation, and 1-3 source identifiers "
+    "(PMID, DOI, or exact paper title) when available. Do not fabricate "
+    "citations. Do not expose PHI beyond an explicitly provided patient_id, "
+    "and do not include phone numbers, email addresses, dates of birth, or "
+    "postal addresses."
+)
+
 
 def _build_user_message(message: str, context: dict[str, Any] | None) -> str:
     """Render the final user-message string sent to the LLM (legacy path).
@@ -139,17 +154,22 @@ def _agent_write_tool_ids(agent: AgentDefinition) -> list[str]:
 
 
 def _augment_system_prompt(
-    base_prompt: str, agent: AgentDefinition
+    base_prompt: str, agent: AgentDefinition, *, transport: str | None = None
 ) -> str:
     """Return ``base_prompt`` with the tool-calling instruction appended.
 
     Returns the unchanged prompt when the agent has no write tools.
     """
+    prompt = base_prompt
+    if transport == "telegram":
+        prompt = f"{prompt}\n\n{TELEGRAM_SYSTEM_FOOTER}"
+        if any(tool_id.startswith("evidence.") for tool_id in agent.tool_allowlist):
+            prompt = f"{prompt}\n\n{TELEGRAM_EVIDENCE_SYSTEM_FOOTER}"
     write_tools = _agent_write_tool_ids(agent)
     if not write_tools:
-        return base_prompt
+        return prompt
     block = TOOL_CALL_SYSTEM_TEMPLATE.format(tools_csv=", ".join(write_tools))
-    return f"{base_prompt}\n\n{block}"
+    return f"{prompt}\n\n{block}"
 
 
 def _try_parse_tool_call(reply: str) -> dict | None:
@@ -423,6 +443,7 @@ def run_agent(
     actor: "AuthenticatedActor | None" = None,
     db: "Session | None" = None,
     confirmed_tool_call_id: str | None = None,
+    transport: str | None = None,
 ) -> dict:
     """Execute one turn of ``agent`` against ``message``.
 
@@ -614,7 +635,11 @@ def run_agent(
         user_content = _build_user_message(message, context)
 
     # ---- Phase 2.5: tool-calling instruction ---------------------------
-    system_prompt = _augment_system_prompt(system_prompt, agent)
+    system_prompt = _augment_system_prompt(
+        system_prompt,
+        agent,
+        transport=transport,
+    )
 
     t0 = time.monotonic()
     try:

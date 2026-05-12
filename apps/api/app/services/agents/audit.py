@@ -18,11 +18,14 @@ breadcrumbs even if the table is unavailable.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 import json as _json
 import logging
 from typing import TYPE_CHECKING
 
 from app.persistence.models import AgentRunAudit
+from app.qeeg.services.phi_redaction import redact_phi
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -30,6 +33,11 @@ if TYPE_CHECKING:
     from app.auth import AuthenticatedActor
 
 logger = logging.getLogger(__name__)
+
+_REDACT_AGENT_AUDIT_PREVIEWS: ContextVar[bool] = ContextVar(
+    "agent_audit_redact_previews",
+    default=False,
+)
 
 #: Max characters retained from the user's *message* preview. Mirrors the
 #: ``message_preview`` column width in :class:`AgentRunAudit`.
@@ -87,6 +95,16 @@ def _truncate(text: str | None, *, limit: int) -> str:
     if len(clean) <= limit:
         return clean
     return clean[:limit] + "…"
+
+
+@contextmanager
+def redact_previews_scope(enabled: bool = True):
+    """Temporarily enable PHI redaction for audit previews in this context."""
+    token = _REDACT_AGENT_AUDIT_PREVIEWS.set(bool(enabled))
+    try:
+        yield
+    finally:
+        _REDACT_AGENT_AUDIT_PREVIEWS.reset(token)
 
 
 def record_run(
@@ -148,6 +166,10 @@ def record_run(
     AgentRunAudit
         The persisted row, with ``id`` / ``created_at`` populated.
     """
+    if _REDACT_AGENT_AUDIT_PREVIEWS.get():
+        message = redact_phi(message or "").redacted_text
+        reply = redact_phi(reply or "").redacted_text
+
     msg_preview = _truncate(message, limit=MESSAGE_PREVIEW_MAX_CHARS)
     reply_preview = _truncate(reply, limit=REPLY_PREVIEW_MAX_CHARS)
     ctx_list = list(context_used or [])
@@ -219,5 +241,6 @@ __all__ = [
     "PRICE_PENCE_PER_INPUT_TOKEN",
     "PRICE_PENCE_PER_OUTPUT_TOKEN",
     "compute_cost_pence",
+    "redact_previews_scope",
     "record_run",
 ]

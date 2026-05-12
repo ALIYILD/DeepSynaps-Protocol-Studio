@@ -12,6 +12,9 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from app.database import SessionLocal
+from app.persistence.models import TelegramUserChat
+
 
 # ── GET /api/v1/telegram/link-code ───────────────────────────────────────────
 
@@ -94,6 +97,65 @@ def test_clinician_webhook_unlinked_chat_returns_ok(client: TestClient) -> None:
     )
     if resp.status_code == 200:
         assert resp.json().get("ok") is True
+
+
+def test_clinician_webhook_ask_dr_ai_routes_to_selected_agent(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = SessionLocal()
+    try:
+        session.add(
+            TelegramUserChat(
+                user_id="actor-clinician-demo",
+                chat_id="660001",
+                bot_kind="clinician",
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    captured: dict = {}
+
+    def fake_dispatch_to_agent(**kwargs):
+        captured.update(kwargs)
+        return {
+            "ok": True,
+            "reason": None,
+            "reply_text": "Evidence strength: moderate\nPMID: 123456",
+            "parse_mode": None,
+        }
+
+    sent: list[dict] = []
+
+    monkeypatch.setattr(
+        "app.services.telegram_agent_dispatch.dispatch_to_agent",
+        fake_dispatch_to_agent,
+    )
+    monkeypatch.setattr(
+        "app.routers.telegram_router.tg.send_message",
+        lambda chat_id, text, **kwargs: sent.append(
+            {"chat_id": chat_id, "text": text, **kwargs}
+        ) or True,
+    )
+
+    resp = client.post(
+        "/api/v1/telegram/webhook/clinician",
+        json={
+            "update_id": 444444,
+            "message": {
+                "chat": {"id": 660001},
+                "from": {"id": 660001},
+                "text": "/ask_dr_ai what evidence supports TMS?",
+            },
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+    assert captured["agent_id"] == "clinic.dr_ai"
+    assert captured["message_text"] == "what evidence supports TMS?"
+    assert sent[0]["chat_id"] == 660001
+    assert "PMID: 123456" in sent[0]["text"]
 
 
 # ── POST /api/v1/telegram/send-test ──────────────────────────────────────────
