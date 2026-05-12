@@ -761,6 +761,7 @@ class StatusOut(BaseModel):
     last_updated: Optional[str] = None
 
 
+# core-schema-exempt: router-local status payload for evidence source health endpoint.
 class EvidenceSourceStatusOut(BaseModel):
     source_kind: str
     source_label: str
