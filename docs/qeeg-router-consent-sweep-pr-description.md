@@ -38,6 +38,27 @@ This PR includes a narrow test/runtime alignment fix:
 
 **Auth behaviour note (neuro_signs shim):** `get_authenticated_actor` returns an anonymous **guest** actor when no `Authorization` header is present (test/dev behaviour matches the rest of the API); invalid non-demo tokens still raise **401**. The shim maps `actor_id` → `id` and derives `is_admin` from `role` in `{admin, supervisor}` — it does not silently create a user row.
 
+## CI lint unblock
+
+GitHub Actions initially blocked this PR on **Router Schema Lint** and **Router Repo Lint**. The failures were from **existing main-line router patterns** rather than qEEG consent logic:
+
+- `data_console_router.py` and `research_dataset_router.py` had router-local **`BaseModel`** classes that required explicit **`# core-schema-exempt:`** markers.
+- `research_dataset_router.py` directly imported **`Patient`** from `app.persistence.models`, which violates the router no-model-import lint rule.
+
+This PR includes a **minimal lint unblock** (not a product scope expansion into data console / research export features):
+
+- Added **`list_patients_for_research_preflight(...)`** to `apps/api/app/repositories/patients.py`.
+- Replaced the direct **`Patient`** import/query in `research_dataset_router.py` with that repository helper.
+- Added **`core-schema-exempt`** markers for router-local admin/scaffold request/response models.
+- Normalized **`clinic_admin`** to **`admin`** for data-console audit events because the audit schema expects known roles.
+
+**Verification:**
+
+- `python3 tools/lint_router_basemodel.py` → clean
+- `python3 tools/lint_router_no_models.py` → OK
+- `pytest tests/test_router_basemodel_lint.py tests/test_router_no_models_lint.py tests/test_neuro_signs.py -q` → 29 passed
+- `pytest tests/ -k qeeg -q` → 630 passed, 1 skipped, 1 xpassed
+
 ## Tests (qEEG)
 
 - **Do not claim** in the PR body that `tests/test_qeeg_router_consent_sweep.py` was added unless that file is actually present on the final PR branch. Some clones (including a local verification workspace) may not contain it.
@@ -69,6 +90,7 @@ Use exactly: **Refs #841**, **Refs #844**, **Refs #845**. Do **not** use **Close
 
 - Backend qEEG selector (`pytest tests/ -k qeeg -q`): green — 630 passed, 1 skipped, 1 xpassed.
 - Neuro signs tests (`pytest tests/test_neuro_signs.py -q`): green — 19 passed.
+- Router lints: `lint_router_basemodel.py` clean; `lint_router_no_models.py` OK; router lint pytest bundle — 29 passed (with `test_neuro_signs`).
 - Frontend targeted qEEG `node --test` files (four files): green — 61 passed, 0 failed.
 - `npm run build`: still pending / blocked locally (`vite: command not found` → **Refs #844**).
 
@@ -76,7 +98,12 @@ Lowercase `qeeg` in an older commit subject is harmless; do **not** force-push t
 
 ## Merge condition
 
-Merge **#874** when CI or a dependency-complete local environment confirms **`npm run build`**, or when reviewers explicitly accept **#844** as the documented frontend dependency/environment caveat.
+Merge **#874** only when **all required GitHub checks are green**, **and** one of the following is true:
+
+- **`npm run build`** is green in CI or in a dependency-complete local environment, **or**
+- Reviewers **explicitly accept #844** as the documented frontend dependency/environment caveat.
+
+Keep **Refs #841**, **Refs #844**, **Refs #845**. Do **not** use **Closes #841**.
 
 ## NEXT — finish #874 merge gate, then PR 3
 
@@ -94,14 +121,30 @@ There are **two valid paths**. Use **Path 1** until **#874** is merged; use **Pa
 
    If **mergeStateStatus** is **BLOCKED** or any required check shows **FAILURE**, fix CI (or document an explicit maintainer override) before merge — do not merge on title alone.
 
-2. **Do not pop unrelated stash** until **#874** is merged (or move it to another branch):
+2. **Watch checks** (until router lints and the rest are green):
 
-   - Stash: **`wip-unrelated-to-qeeg-consent-pr-874`**
-   - Keep **out of #874:** `apps/api/app/repositories/patients.py`, `apps/api/app/routers/data_console_router.py`, `apps/api/app/routers/research_dataset_router.py`, `apps/api/app/services/data_console_service.py`
+   ```bash
+   gh pr checks 874 --watch
+   gh pr view 874 --json mergeStateStatus,statusCheckRollup
+   ```
 
-3. **Merge condition** (same as above): merge only when **`npm run build`** is confirmed in CI or a full local environment **or** reviewers explicitly accept **#844**.
+   Target: **Router Schema Lint** / **Router Repo Lint** → pass; **mergeStateStatus** → **CLEAN** or **MERGEABLE**.
 
-4. **Issue wording:** **Refs #841**, **Refs #844**, **Refs #845**. Do **not** use **Closes #841**.
+3. **Stash `wip-unrelated-to-qeeg-consent-pr-874`:** do **not** `git stash pop` blindly — see **Stash overlap warning** below. Those paths may overlap lint-unblock edits; prefer `git stash branch …` after **#874** merges.
+
+4. **Merge condition** (see **Merge condition** above): required checks green **and** (web build confirmed **or** explicit **#844** acceptance).
+
+5. **Issue wording:** **Refs #841**, **Refs #844**, **Refs #845**. Do **not** use **Closes #841**.
+
+### Stash overlap warning (`wip-unrelated-to-qeeg-consent-pr-874`)
+
+Do **not** blindly `git stash pop` — the stash may **overlap** files touched for the router lint unblock (`patients.py`, `data_console_router.py`, `research_dataset_router.py`, etc.).
+
+**Safer after #874 merges:** fork the stash onto its own branch and resolve overlaps there, e.g.:
+
+```bash
+git stash branch wip/data-console-research wip-unrelated-to-qeeg-consent-pr-874
+```
 
 ### Path 2 — after #874 is merged (start PR 3)
 
