@@ -20,6 +20,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   # Required for the codecov/codecov-action upload step (kept opt-in via env).
@@ -99,7 +103,7 @@ jobs:
           path: apps/api/coverage.xml
           retention-days: 30
       - name: Upload coverage HTML
-        if: always()
+        if: always() && github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: backend-coverage-html
@@ -186,7 +190,7 @@ jobs:
           path: apps/web/coverage/lcov.info
           retention-days: 30
       - name: Upload coverage HTML
-        if: always()
+        if: always() && github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: frontend-coverage-html
@@ -210,30 +214,7 @@ jobs:
         # All packages with a tests/ directory.
         # api-client is excluded (generated from OpenAPI; spot-check via
         # `npm run api-client:check-drift` instead of unit tests).
-        package:
-          - clinical-data-registry
-          - qa
-          - qeeg-pipeline
-          - generation-engine
-          - render-engine
-          - evidence
-          - biometrics-pipeline
-          - mri-pipeline
-          - qeeg-encoder
-          - neuro-engine
-          - deeptwin-neuroai-lab
-          - feature-store
-          - text-pipeline
-          - audio-pipeline
-          - video-pipeline
-          - voice-engine
-          # Added in PR 4 (chore/test-coverage-pr4-untested-packages):
-          - safety-engine
-          - condition-registry
-          - modality-registry
-          - device-registry
-          - core-schema
-          - deepsynaps-core
+        package: ${{ fromJson(github.event_name == 'pull_request' && '["clinical-data-registry","core-schema","evidence","generation-engine","qa","qeeg-pipeline","render-engine"]' || '["clinical-data-registry","qa","qeeg-pipeline","generation-engine","render-engine","evidence","biometrics-pipeline","mri-pipeline","qeeg-encoder","neuro-engine","deeptwin-neuroai-lab","feature-store","text-pipeline","audio-pipeline","video-pipeline","voice-engine","safety-engine","condition-registry","modality-registry","device-registry","core-schema","deepsynaps-core"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
