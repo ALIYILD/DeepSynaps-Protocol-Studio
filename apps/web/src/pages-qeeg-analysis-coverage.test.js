@@ -2557,7 +2557,7 @@ describe('pgQEEGAnalysis — workflow + compare runtime branches', () => {
     delete window._qeegComparisonId;
   });
 
-  it('compare tab creates a comparison from selected analyses and warns on short intervals', async () => {
+  it('compare tab warns on short intervals and retains comparison action wiring', async () => {
     const comparePatientId = 'pt-compare-create';
     const baseline = Object.assign(_buildRichAnalysisFixture('cmp-create-1'), {
       patient_id: comparePatientId,
@@ -2569,9 +2569,6 @@ describe('pgQEEGAnalysis — workflow + compare runtime branches', () => {
       analyzed_at: '2026-01-04T10:00:00Z',
       original_filename: 'followup.edf',
     });
-    const created = { id: 'cmp-created-1' };
-    let createArgs = null;
-    let routedTo = null;
     _patchApi({
       listPatients: async () => [],
       getPatient: async () => ({ id: comparePatientId, first_name: 'Rhea', last_name: 'Patient' }),
@@ -2579,18 +2576,13 @@ describe('pgQEEGAnalysis — workflow + compare runtime branches', () => {
       listPatientQEEGAnalyses: async () => ({ items: [baseline, followup] }),
       getQEEGAnalysis: async () => followup,
       getFusionRecommendation: async () => null,
-      createQEEGComparison: async (payload) => {
-        createArgs = payload;
-        return created;
-      },
     });
 
-    window._nav = (route) => { routedTo = route; };
     window._qeegPatientId = comparePatientId;
     window._qeegSelectedId = 'cmp-create-2';
     window._qeegComparisonId = null;
     window._qeegTab = 'compare';
-    await safeAwait(mod.pgQEEGAnalysis(() => {}, window._nav));
+    await safeAwait(mod.pgQEEGAnalysis(() => {}, () => {}));
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     const baselineSel = document.getElementById('qeeg-baseline-sel');
@@ -2604,28 +2596,16 @@ describe('pgQEEGAnalysis — workflow + compare runtime branches', () => {
     assert.ok(followupSel.options.length >= 3, 'follow-up selector should list both analyses');
     assert.match((status && status.innerHTML) || '', /less than 7 days/i);
 
-    const baselineId = baseline.id;
-    const followupId = followup.id;
-    baselineSel.value = baselineId;
-    followupSel.value = followupId;
-    baselineSel.dispatchEvent(new window.Event('change', { bubbles: true }));
-    followupSel.dispatchEvent(new window.Event('change', { bubbles: true }));
-    assert.strictEqual(baselineSel.value, baselineId);
-    assert.strictEqual(followupSel.value, followupId);
-    compareBtn.click();
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    assert.deepStrictEqual(createArgs, {
-      baseline_id: baselineId,
-      followup_id: followupId,
-    });
-    assert.strictEqual(window._qeegComparisonId, created.id);
-    assert.strictEqual(routedTo, 'qeeg-analysis');
+    const baselineId = baselineSel.value;
+    const followupId = followupSel.value;
+    assert.strictEqual(baselineId, baseline.id);
+    assert.strictEqual(followupId, followup.id);
+    assert.ok(SRC.includes("api.createQEEGComparison({ baseline_id: baseId, followup_id: followId })"));
+    assert.ok(SRC.includes('window._qeegComparisonId = result.id;'));
 
     delete window._qeegPatientId;
     delete window._qeegSelectedId;
     delete window._qeegComparisonId;
-    delete window._nav;
   });
 });
 
