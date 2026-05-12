@@ -20,10 +20,11 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role, require_patient_owner
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import ReminderCampaign, ReminderOutboxMessage
+from app.persistence.models import Patient, ReminderCampaign, ReminderOutboxMessage
+from app.repositories.patients import resolve_patient_clinic_id
 
 router = APIRouter(prefix="/api/v1/reminders", tags=["Reminder Campaigns"])
 
@@ -172,6 +173,37 @@ def _get_campaign_or_404(db: Session, campaign_id: str, actor: AuthenticatedActo
     return campaign
 
 
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
+    """Cross-clinic ownership gate.
+
+    Resolves the patient's owning clinic via ``resolve_patient_clinic_id``
+    and delegates to ``require_patient_owner``.  When the patient's owning
+    clinician has no clinic_id (solo practitioner, not yet assigned to a
+    clinic), falls back to checking ``actor.actor_id == patient.clinician_id``
+    so that solo-clinician workflows are not broken.
+
+    Raises 404 for non-existent patient_id (existence not confirmed to
+    cross-clinic callers).  Raises 403 on clinic mismatch.
+    """
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if not exists:
+        raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+    if clinic_id is not None:
+        # Clinic-scoped check: delegate to canonical require_patient_owner.
+        require_patient_owner(actor, clinic_id)
+    else:
+        # Orphaned / solo-practitioner patient: fall back to clinician_id ownership.
+        if actor.role == "admin":
+            return
+        patient = db.query(Patient).filter_by(id=patient_id).first()
+        if patient is None or patient.clinician_id != actor.actor_id:
+            raise ApiServiceError(
+                code="forbidden",
+                message="You are not authorised to access this patient's data.",
+                status_code=403,
+            )
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
 @router.get("/campaigns", response_model=CampaignListResponse)
@@ -278,6 +310,7 @@ def send_message(
     db: Session = Depends(get_db_session),
 ) -> OutboxMessageOut:
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, body.patient_id, db)
     scheduled_at: Optional[datetime] = None
     if body.scheduled_at:
         try:
@@ -307,6 +340,7 @@ def get_patient_adherence(
     db: Session = Depends(get_db_session),
 ) -> AdherenceScore:
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
     q = db.query(ReminderOutboxMessage).filter(ReminderOutboxMessage.patient_id == patient_id)
     if actor.role != "admin":
         q = q.filter(ReminderOutboxMessage.clinician_id == actor.actor_id)

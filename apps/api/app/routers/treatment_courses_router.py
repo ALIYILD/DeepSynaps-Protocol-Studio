@@ -50,9 +50,10 @@ from deepsynaps_core_schema import (
     SessionLogOut,
 )
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role, require_patient_owner
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.repositories.patients import resolve_patient_clinic_id
 from app.repositories.treatment_courses import (
     close_pending_review_items_for_course,
     count_delivered_sessions,
@@ -247,6 +248,37 @@ def _get_course_or_404(db: Session, course_id: str, actor: AuthenticatedActor) -
     return course
 
 
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
+    """Cross-clinic ownership gate.
+
+    Resolves the patient's owning clinic via ``resolve_patient_clinic_id``
+    and delegates to ``require_patient_owner``.  When the patient's owning
+    clinician has no clinic_id (solo practitioner, not yet assigned to a
+    clinic), falls back to checking ``actor.actor_id == patient.clinician_id``
+    so that solo-clinician workflows are not broken.
+
+    Raises 404 for non-existent patient_id (existence not confirmed to
+    cross-clinic callers).  Raises 403 on clinic mismatch.
+    """
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if not exists:
+        raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+    if clinic_id is not None:
+        # Clinic-scoped check: delegate to canonical require_patient_owner.
+        require_patient_owner(actor, clinic_id)
+    else:
+        # Orphaned / solo-practitioner patient: fall back to clinician_id ownership.
+        if actor.role == "admin":
+            return
+        patient = get_patient_by_id(db, patient_id)
+        if patient is None or patient.clinician_id != actor.actor_id:
+            raise ApiServiceError(
+                code="forbidden",
+                message="You are not authorised to access this patient's data.",
+                status_code=403,
+            )
+
+
 def _push_review_queue(db: Session, course: "TreatmentCourse", actor: AuthenticatedActor) -> None:
     insert_review_queue_item(
         db,
@@ -269,6 +301,7 @@ def create_course(
     db: Session = Depends(get_db_session),
 ) -> CourseOut:
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, body.patient_id, db)
 
     # Resolve protocol from registry
     params = get_protocol_parameters(body.protocol_id)
@@ -377,6 +410,8 @@ def list_courses(
     db: Session = Depends(get_db_session),
 ) -> CourseListResponse:
     require_minimum_role(actor, "clinician")
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
 
     records = list_treatment_courses(
         db,
