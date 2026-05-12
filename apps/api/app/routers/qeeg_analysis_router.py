@@ -1377,6 +1377,7 @@ class AIReportRequest(BaseModel):
     patient_context: Optional[str] = None
 
 
+# core-schema-exempt: qEEG RAG draft DTO is a router-local contract pending broader API-client adoption.
 class QEEGRAGReportRequest(BaseModel):
     output_mode: str = Field(
         default="clinician_draft",
@@ -1390,6 +1391,7 @@ class QEEGRAGReportRequest(BaseModel):
     patient_context: Optional[str] = None
 
 
+# core-schema-exempt: qEEG RAG draft section shape is currently only emitted by this router.
 class QEEGRAGReportSectionOut(BaseModel):
     title: str
     body: str
@@ -1397,6 +1399,7 @@ class QEEGRAGReportSectionOut(BaseModel):
     evidence_refs: list[int] = Field(default_factory=list)
 
 
+# core-schema-exempt: qEEG RAG evidence rows are router-local response objects for the draft endpoint.
 class QEEGRAGEvidenceOut(BaseModel):
     title: str
     pmid: Optional[str] = None
@@ -1405,6 +1408,7 @@ class QEEGRAGEvidenceOut(BaseModel):
     relevance: float = 0.0
 
 
+# core-schema-exempt: qEEG RAG draft response is a router-local contract until shared clients consume it.
 class QEEGRAGReportOut(BaseModel):
     report_id: str
     analysis_id: str
