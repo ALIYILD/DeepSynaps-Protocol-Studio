@@ -440,6 +440,62 @@ def test_report_payload_respects_saved_citation_context_filters():
         session.close()
 
 
+def test_report_payload_excludes_pending_clinician_review_citations():
+    _seed_patient("pat-report-approved-only")
+    session = SessionLocal()
+    try:
+        save_citation(
+            SaveCitationRequest(
+                patient_id="pat-report-approved-only",
+                finding_id="finding-approved",
+                finding_label="Approved finding",
+                claim="Claim Approved",
+                paper_id="paper-approved",
+                paper_title="Approved Paper",
+                context_kind="qeeg",
+                analysis_id="qeeg-approved",
+                report_id="report-approved",
+                citation_payload={"inline_citation": "(A, 2024)"},
+            ),
+            "clinician-approved",
+            session,
+        )
+        save_citation(
+            SaveCitationRequest(
+                patient_id="pat-report-approved-only",
+                finding_id="finding-pending",
+                finding_label="Pending finding",
+                claim="Claim Pending",
+                paper_id="paper-pending",
+                paper_title="Pending Paper",
+                context_kind="qeeg",
+                analysis_id="qeeg-approved",
+                report_id="report-approved",
+                citation_payload={
+                    "inline_citation": "(P, 2024)",
+                    "approval_status": "pending_clinician_review",
+                    "approval_required": True,
+                },
+            ),
+            "clinician-approved",
+            session,
+        )
+        payload = build_report_payload(
+            body=__import__("app.services.evidence_intelligence", fromlist=["ReportPayloadRequest"]).ReportPayloadRequest(
+                patient_id="pat-report-approved-only",
+                finding_ids=["frontal_alpha_asymmetry"],
+                include_saved=True,
+                context_kind="qeeg",
+                analysis_id="qeeg-approved",
+                report_id="report-approved",
+            ),
+            db=session,
+        )
+        assert [row["paper_id"] for row in payload["saved_citations"]] == ["paper-approved"]
+    finally:
+        session.close()
+
+
 def test_save_citation_adds_unverified_status_when_paper_cannot_be_verified():
     _seed_patient("pat-unverified")
     session = SessionLocal()
