@@ -349,10 +349,14 @@ test('pgPatientSettings covers dirty state, save, nav, action, and export branch
     assert.equal(document.querySelector('.st-nav-item[data-target="st-security"]').classList.contains('active'), true);
 
     document.getElementById('st-save').click();
+    // Two microtask flushes: 1st resolves the awaited API call,
+    // 2nd resolves the finally{} block where dirty is cleared.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(prefCalls.length, 1);
+    assert.equal(prefCalls[0].notification_prefs.sessionReminders.inapp, false);
     assert.equal(saveBar.classList.contains('show'), false);
-    assert.equal(document.getElementById('st-toast-text').textContent, 'Settings saved in this browser');
+    assert.equal(document.getElementById('st-toast-text').textContent, 'Supported settings saved');
   } finally {
     api.updatePatientPreferences = originals.updatePatientPreferences;
   }

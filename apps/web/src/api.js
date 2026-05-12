@@ -1142,6 +1142,18 @@ async function apiFetchWithRetry(path, opts = {}, maxRetries = 2) {
   throw lastError;
 }
 
+function mergeNotificationPrefs(existing, patch) {
+  const merged = { ...(existing || {}) };
+  Object.entries(patch || {}).forEach(([key, value]) => {
+    if (value && typeof value === 'object' && !Array.isArray(value) && merged[key] && typeof merged[key] === 'object' && !Array.isArray(merged[key])) {
+      merged[key] = { ...merged[key], ...value };
+    } else {
+      merged[key] = value;
+    }
+  });
+  return merged;
+}
+
 async function apiFetchBlob(path, data) {
   const token = getToken();
   const res = await globalThis.fetch(`${API_BASE}${path}`, {
@@ -3434,6 +3446,23 @@ export const api = {
     apiFetch(`/api/v1/patient-portal/messages/${encodeURIComponent(messageId)}/read`, { method: 'PATCH' }),
   submitSelfAssessment: (data) =>
     apiFetch('/api/v1/patient-portal/self-assessments', { method: 'POST', body: JSON.stringify(data) }),
+  // Patient Settings save. Merge notification patches with the existing
+  // preference blob so portal toggles cannot erase unrelated state such as
+  // channel matrices or read_article_ids.
+  updatePatientPreferences: async (prefs) => {
+    const current = await apiFetch('/api/v1/preferences').catch(() => ({}));
+    const body = { ...(prefs || {}) };
+    if (body.notification_prefs) {
+      body.notification_prefs = mergeNotificationPrefs(
+        current?.notification_prefs || {},
+        body.notification_prefs
+      );
+    }
+    return apiFetch('/api/v1/preferences', {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  },
 
   // ── Wearable monitoring ───────────────────────────────────────────────────
   patientPortalWearables: () => apiFetch('/api/v1/patient-portal/wearables'),

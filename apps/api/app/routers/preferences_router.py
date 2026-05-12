@@ -16,10 +16,11 @@ Endpoints:
   GET   /api/v1/preferences/clinical-defaults   -> ClinicDefaultsResponse
   PATCH /api/v1/preferences/clinical-defaults   -> ClinicDefaultsResponse  (admin)
 
-PATCH semantics: partial update. For JSON-typed columns
-(``notification_prefs``, ``quiet_hours``, ``reminder_timing``,
-``default_assessments``) the whole blob is replaced when the body provides a
-value (no deep-merge in v0 — too error-prone for nested matrices).
+PATCH semantics: partial update. For JSON-typed columns, most blobs are
+replaced whole when provided. ``notification_prefs`` is the exception:
+top-level event keys and one-level channel maps are merged so patient-portal
+toggles cannot wipe unrelated preference state that lives in the same JSON
+column.
 
 See apps/api/SETTINGS_API_DESIGN.md - Preferences router for the full spec.
 """
@@ -179,6 +180,18 @@ def _load_json(raw: str | None, fallback):
 
 def _dump_json(value) -> str:
     return json.dumps(value, ensure_ascii=False)
+
+
+def _merge_notification_prefs(existing: dict, patch: dict) -> dict:
+    merged = dict(existing or {})
+    for key, value in (patch or {}).items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            nested = dict(merged[key])
+            nested.update(value)
+            merged[key] = nested
+        else:
+            merged[key] = value
+    return merged
 
 
 def _get_or_create_user_prefs(db: Session, user_id: str) -> UserPreferences:
@@ -420,7 +433,10 @@ def update_preferences(
     row = _get_or_create_user_prefs(db, user.id)
 
     if body.notification_prefs is not None:
-        row.notification_prefs = _dump_json(body.notification_prefs)
+        current = _load_json(row.notification_prefs, DEFAULT_NOTIFICATION_PREFS)
+        row.notification_prefs = _dump_json(
+            _merge_notification_prefs(current, body.notification_prefs)
+        )
     if body.quiet_hours is not None:
         row.quiet_hours = _dump_json(body.quiet_hours)
     if body.reminder_timing is not None:

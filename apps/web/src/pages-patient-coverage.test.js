@@ -978,7 +978,7 @@ describe('pgPatientSettings() interactions', () => {
     await ppModule.pgPatientSettings({ display_name: 'Test User', email: 't@example.test' });
   });
 
-  it('saves toggles under stable preference keys', async () => {
+  it('saves only supported settings under structured preference keys', async () => {
     let prefs = null;
     stubApi({
       updatePatientPreferences: async (next) => {
@@ -1004,9 +1004,11 @@ describe('pgPatientSettings() interactions', () => {
 
     document.getElementById('st-save').click();
     await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
 
     assert.ok(prefs, 'preference payload should be submitted');
-    assert.ok(Object.prototype.hasOwnProperty.call(prefs, 'session_reminders'));
+    assert.equal(prefs.notification_prefs.sessionReminders.inapp, false);
+    assert.ok(Object.prototype.hasOwnProperty.call(prefs, 'analytics_opt_in'));
     assert.strictEqual(document.getElementById('st-savebar').classList.contains('show'), false);
   });
 });
