@@ -2189,6 +2189,7 @@ describe('pgQEEGAnalysis — deep render paths via patched api', () => {
   it('report tab: renders the no-report workflow and generate action', async () => {
     const analysis = _buildRichAnalysisFixture('report-empty-1');
     let generateArgs = null;
+    globalThis.DEEPSYNAPS_ENABLE_QEEG_RAG_REPORTS = false;
     _patchApi({
       listPatients: async () => [],
       getPatient: async () => null,
@@ -2229,6 +2230,60 @@ describe('pgQEEGAnalysis — deep render paths via patched api', () => {
     assert.strictEqual(window._qeegTab, 'report');
     assert.strictEqual(routedTo, 'qeeg-analysis');
 
+    delete window._qeegPatientId;
+    delete window._qeegSelectedId;
+    delete globalThis.DEEPSYNAPS_ENABLE_QEEG_RAG_REPORTS;
+  });
+
+  it('report tab: feature-flagged rag draft workflow calls the rag endpoint', async () => {
+    const analysis = _buildRichAnalysisFixture('report-rag-empty-1');
+    let ragArgs = null;
+    globalThis.DEEPSYNAPS_ENABLE_QEEG_RAG_REPORTS = true;
+    _patchApi({
+      listPatients: async () => [],
+      getPatient: async () => null,
+      getPatientMedicalHistory: async () => null,
+      listPatientQEEGAnalyses: async () => ({ items: [analysis] }),
+      getQEEGAnalysis: async () => analysis,
+      listQEEGAnalysisReports: async () => ({ items: [] }),
+      generateQEEGRAGDraftReport: async (analysisId, payload) => {
+        ragArgs = { analysisId, payload };
+        return { report_id: 'rep-rag-1' };
+      },
+      getFusionRecommendation: async () => null,
+    });
+    let routedTo = null;
+    window._nav = (route) => { routedTo = route; };
+    window._qeegPatientId = 'demo-sarah-johnson';
+    window._qeegSelectedId = 'report-rag-empty-1';
+    window._qeegTab = 'report';
+
+    await safeAwait(mod.pgQEEGAnalysis(() => {}, window._nav));
+    const tab = document.getElementById('qeeg-tab-content');
+    const html = (tab && tab.innerHTML) || '';
+    assert.match(html, /Generate evidence-grounded draft/);
+    assert.match(html, /Patient-facing output remains blocked until clinician review/i);
+
+    const reportType = document.getElementById('qeeg-report-type');
+    const button = document.getElementById('qeeg-gen-report-btn');
+    assert.ok(reportType, 'draft-mode select should render');
+    assert.ok(button, 'generate button should render');
+    reportType.value = 'patient_friendly_draft';
+    button.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.deepStrictEqual(ragArgs, {
+      analysisId: 'report-rag-empty-1',
+      payload: {
+        output_mode: 'patient_friendly_draft',
+        include_evidence: true,
+        recording_condition: analysis.eyes_condition || 'unknown',
+      },
+    });
+    assert.strictEqual(window._qeegTab, 'report');
+    assert.strictEqual(routedTo, 'qeeg-analysis');
+
+    delete globalThis.DEEPSYNAPS_ENABLE_QEEG_RAG_REPORTS;
     delete window._qeegPatientId;
     delete window._qeegSelectedId;
   });

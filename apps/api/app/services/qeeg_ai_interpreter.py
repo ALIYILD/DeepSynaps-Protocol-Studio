@@ -569,6 +569,7 @@ async def generate_ai_report(
     patient_context: Optional[str] = None,
     condition_matches: Optional[list[dict]] = None,
     report_type: str = "standard",
+    require_real_citations: bool = False,
     db_session: Optional[Any] = None,
 ) -> dict[str, Any]:
     """Generate an AI interpretation report grounded in RAG literature.
@@ -596,6 +597,10 @@ async def generate_ai_report(
         Output of :func:`match_condition_patterns`. Computed by caller.
     report_type
         ``"standard"`` | ``"comparison"`` | ``"prediction"``.
+    require_real_citations
+        When true, do not call the LLM unless at least one real literature
+        reference was retrieved. This keeps evidence-grounded draft flows from
+        inventing citations when retrieval is empty or unavailable.
     db_session
         Optional SQLAlchemy session for the RAG fallback path.
 
@@ -664,6 +669,20 @@ async def generate_ai_report(
             "Do NOT use bracketed citations [1]..[N] in your output; cite only "
             "from your training data and clearly mark inferences as such."
         )
+        if require_real_citations:
+            fallback_prompt_hash = hashlib.sha256(
+                json.dumps(
+                    {
+                        "flagged": flagged,
+                        "modalities": modalities,
+                        "rag_failed": rag_failed,
+                    },
+                    sort_keys=True,
+                ).encode()
+            ).hexdigest()[:16]
+            return _deterministic_fallback(
+                band_powers_local, condition_matches, fallback_prompt_hash, literature_refs
+            )
 
     # ── Build the LLM prompt ─────────────────────────────────────────────
     powers_text = _format_band_powers_for_prompt(band_powers_local)

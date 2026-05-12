@@ -9,6 +9,7 @@ import json
 import logging
 import math
 import os
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -1376,6 +1377,248 @@ class AIReportRequest(BaseModel):
     patient_context: Optional[str] = None
 
 
+class QEEGRAGReportRequest(BaseModel):
+    output_mode: str = Field(
+        default="clinician_draft",
+        pattern="^(clinician_draft|patient_friendly_draft)$",
+    )
+    recording_condition: str = Field(
+        default="unknown",
+        pattern="^(eyes_closed|eyes_open|task|unknown)$",
+    )
+    include_evidence: bool = True
+    patient_context: Optional[str] = None
+
+
+class QEEGRAGReportSectionOut(BaseModel):
+    title: str
+    body: str
+    source: str = Field(pattern="^(measured|generated|evidence_grounded|clinician_entered)$")
+    evidence_refs: list[int] = Field(default_factory=list)
+
+
+class QEEGRAGEvidenceOut(BaseModel):
+    title: str
+    pmid: Optional[str] = None
+    doi: Optional[str] = None
+    url: Optional[str] = None
+    relevance: float = 0.0
+
+
+class QEEGRAGReportOut(BaseModel):
+    report_id: str
+    analysis_id: str
+    status: str = Field(default="clinician_review_required", pattern="^clinician_review_required$")
+    clinical_use: str = Field(default="decision_support_only", pattern="^decision_support_only$")
+    sections: list[QEEGRAGReportSectionOut]
+    evidence: list[QEEGRAGEvidenceOut]
+    disclaimer: str
+    report_state: str
+    evidence_status: str
+    output_mode: str
+    created_at: str
+
+
+_RAG_CITATION_RE = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
+
+
+def _extract_rag_citation_numbers(text: Optional[str], valid_numbers: set[int]) -> list[int]:
+    if not text:
+        return []
+    seen: set[int] = set()
+    ordered: list[int] = []
+    for raw in _RAG_CITATION_RE.findall(text):
+        for raw_number in raw.split(","):
+            try:
+                number = int(raw_number.strip())
+            except (TypeError, ValueError):
+                continue
+            if number not in valid_numbers or number in seen:
+                continue
+            seen.add(number)
+            ordered.append(number)
+    return ordered
+
+
+def _build_qeeg_rag_evidence(
+    literature_refs: list[dict],
+    *,
+    include_evidence: bool,
+) -> list[QEEGRAGEvidenceOut]:
+    if not include_evidence:
+        return []
+    evidence: list[QEEGRAGEvidenceOut] = []
+    total = max(len(literature_refs or []), 1)
+    for index, ref in enumerate(literature_refs or [], start=1):
+        title = str(ref.get("title") or ref.get("pmid") or ref.get("doi") or "Evidence reference")
+        try:
+            relevance = float(ref.get("relevance_score") or ref.get("relevance") or 0.0)
+        except (TypeError, ValueError):
+            relevance = 0.0
+        if relevance <= 0.0:
+            relevance = round((total - index + 1) / total, 4)
+        evidence.append(
+            QEEGRAGEvidenceOut(
+                title=title,
+                pmid=ref.get("pmid"),
+                doi=ref.get("doi"),
+                url=ref.get("url"),
+                relevance=relevance,
+            )
+        )
+    return evidence
+
+
+def _build_qeeg_rag_sections(
+    *,
+    analysis: QEEGAnalysis,
+    report_data: dict,
+    patient_report: dict,
+    literature_refs: list[dict],
+    output_mode: str,
+    recording_condition: str,
+) -> list[QEEGRAGReportSectionOut]:
+    valid_numbers = {
+        int(ref["n"])
+        for ref in (literature_refs or [])
+        if isinstance(ref, dict) and str(ref.get("n", "")).isdigit()
+    }
+    payload = patient_report if output_mode == "patient_friendly_draft" else report_data
+    sections: list[QEEGRAGReportSectionOut] = []
+
+    measured_bits: list[str] = []
+    resolved_condition = (
+        recording_condition
+        if recording_condition != "unknown"
+        else _resolve_recording_condition(analysis.eyes_condition)
+    )
+    if resolved_condition:
+        measured_bits.append(
+            f"Recording condition: {resolved_condition.replace('_', ' ')}."
+        )
+    quality = _maybe_json_loads(getattr(analysis, "quality_metrics_json", None)) or {}
+    retained = quality.get("n_epochs_retained")
+    total = quality.get("n_epochs_total")
+    if retained is not None and total is not None:
+        measured_bits.append(f"Retained epochs: {retained}/{total}.")
+    if analysis.norm_db_version:
+        measured_bits.append(f"Normative database: {analysis.norm_db_version}.")
+    flagged = _maybe_json_loads(getattr(analysis, "flagged_conditions", None)) or []
+    if isinstance(flagged, list) and flagged:
+        measured_bits.append(
+            "Pipeline-flagged patterns: " + ", ".join(str(item) for item in flagged[:4]) + "."
+        )
+    sections.append(
+        QEEGRAGReportSectionOut(
+            title="Measured qEEG context",
+            body=" ".join(measured_bits)
+            or "Quantitative qEEG review generated from the completed analysis record.",
+            source="measured",
+            evidence_refs=[],
+        )
+    )
+
+    executive_summary = payload.get("executive_summary")
+    if isinstance(executive_summary, str) and executive_summary.strip():
+        evidence_refs = _extract_rag_citation_numbers(executive_summary, valid_numbers)
+        sections.append(
+            QEEGRAGReportSectionOut(
+                title="Executive Summary",
+                body=executive_summary.strip(),
+                source="evidence_grounded" if evidence_refs else "generated",
+                evidence_refs=evidence_refs,
+            )
+        )
+
+    findings = payload.get("findings") or []
+    if isinstance(findings, list):
+        for index, finding in enumerate(findings, start=1):
+            if not isinstance(finding, dict):
+                continue
+            body = finding.get("observation") or finding.get("description") or finding.get("statement") or ""
+            if not isinstance(body, str) or not body.strip():
+                continue
+            evidence_refs: list[int] = []
+            for raw in finding.get("citations") or []:
+                try:
+                    number = int(raw)
+                except (TypeError, ValueError):
+                    continue
+                if number in valid_numbers and number not in evidence_refs:
+                    evidence_refs.append(number)
+            if not evidence_refs:
+                evidence_refs = _extract_rag_citation_numbers(body, valid_numbers)
+            region = str(finding.get("region") or "").strip()
+            band = str(finding.get("band") or "").strip()
+            title_bits = [bit for bit in (region.title() if region else "", band if band else "") if bit]
+            title = " / ".join(title_bits) if title_bits else f"Finding {index}"
+            sections.append(
+                QEEGRAGReportSectionOut(
+                    title=title,
+                    body=body.strip(),
+                    source="evidence_grounded" if evidence_refs else "generated",
+                    evidence_refs=evidence_refs,
+                )
+            )
+
+    recommendations = payload.get("protocol_recommendations") or []
+    if isinstance(recommendations, list) and recommendations:
+        lines: list[str] = []
+        for item in recommendations:
+            if isinstance(item, str) and item.strip():
+                lines.append(item.strip())
+                continue
+            if not isinstance(item, dict):
+                continue
+            modality = str(item.get("modality") or "").strip()
+            target = str(item.get("target") or "").strip()
+            rationale = str(item.get("rationale") or "").strip()
+            header = " — ".join(bit for bit in (modality, target) if bit)
+            line = ": ".join(bit for bit in (header, rationale) if bit)
+            if line:
+                lines.append(line)
+        if lines:
+            sections.append(
+                QEEGRAGReportSectionOut(
+                    title="Protocol Considerations",
+                    body="\n".join(lines),
+                    source="generated",
+                    evidence_refs=[],
+                )
+            )
+
+    return sections
+
+
+def _record_qeeg_backend_audit_event(
+    db: Session,
+    *,
+    actor: AuthenticatedActor,
+    analysis_id: str,
+    patient_id: str,
+    event: str,
+    note: str,
+) -> None:
+    from app.repositories.audit import create_audit_event
+
+    now = datetime.now(timezone.utc)
+    event_id = f"qeeg-{event}-{actor.actor_id}-{int(now.timestamp())}-{uuid.uuid4().hex[:6]}"
+    try:
+        create_audit_event(
+            db,
+            event_id=event_id,
+            target_id=str(analysis_id),
+            target_type="qeeg",
+            action=f"qeeg.{event}",
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=f"patient={patient_id}; analysis={analysis_id}; {note}"[:1024],
+            created_at=now.isoformat(),
+        )
+    except Exception:  # pragma: no cover - audit must never block report generation
+        _log.exception("qeeg backend audit persistence failed for %s", event)
+
+
 @router.post("/{analysis_id}/ai-report", response_model=AIReportOut, status_code=201)
 @limiter.limit("20/minute")
 async def generate_ai_report_endpoint(
@@ -1613,6 +1856,279 @@ async def generate_ai_report_endpoint(
     db.commit()
 
     return AIReportOut.from_record(report)
+
+
+@router.post("/{analysis_id}/rag-report", response_model=QEEGRAGReportOut, status_code=201)
+@limiter.limit("20/minute")
+async def generate_qeeg_rag_report_endpoint(
+    request: Request,
+    analysis_id: str,
+    body: QEEGRAGReportRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> QEEGRAGReportOut:
+    """Generate an evidence-grounded qEEG draft report for clinician review."""
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+
+    _gate_patient_access(actor, analysis.patient_id, db)
+    _enforce_qeeg_ai_consent_for_patient_derived_endpoint(
+        db, actor, analysis_id, analysis.patient_id, endpoint="rag-report",
+    )
+    require_minimum_role(actor, "clinician")
+
+    if analysis.analysis_status != "completed" or not analysis.band_powers_json:
+        raise ApiServiceError(
+            code="analysis_not_ready",
+            message="Analysis must be completed before generating a RAG draft report",
+            status_code=400,
+        )
+
+    _record_qeeg_backend_audit_event(
+        db,
+        actor=actor,
+        analysis_id=analysis_id,
+        patient_id=analysis.patient_id,
+        event="rag_report_requested",
+        note=f"output_mode={body.output_mode}; include_evidence={body.include_evidence}",
+    )
+
+    band_powers = json.loads(analysis.band_powers_json)
+
+    from app.services.qeeg_ai_interpreter import match_condition_patterns, generate_ai_report
+    from app.services.qeeg_context_extractor import (
+        extract_qeeg_context,
+        format_context_for_prompt,
+    )
+    from app.services.qeeg_claim_governance import classify_claims, sanitize_for_patient
+    from app.services.qeeg_safety_engine import compute_safety_cockpit, compute_interpretability_status
+
+    def _maybe_load(col_value: Optional[str]) -> Optional[dict]:
+        if not col_value:
+            return None
+        try:
+            return json.loads(col_value)
+        except (ValueError, TypeError):
+            return None
+
+    aperiodic = _maybe_load(getattr(analysis, "aperiodic_json", None))
+    peak_alpha_freq = _maybe_load(getattr(analysis, "peak_alpha_freq_json", None))
+    connectivity = _maybe_load(getattr(analysis, "connectivity_json", None))
+    asymmetry = _maybe_load(getattr(analysis, "asymmetry_json", None))
+    graph_metrics = _maybe_load(getattr(analysis, "graph_metrics_json", None))
+    source_roi = _maybe_load(getattr(analysis, "source_roi_json", None))
+    zscores = _maybe_load(getattr(analysis, "normative_zscores_json", None))
+    quality = _maybe_load(getattr(analysis, "quality_metrics_json", None))
+
+    flagged_raw = getattr(analysis, "flagged_conditions", None)
+    flagged_conditions: Optional[list[str]] = None
+    if flagged_raw:
+        parsed_flagged = _maybe_load(flagged_raw)
+        if isinstance(parsed_flagged, list):
+            flagged_conditions = [str(c).strip().lower() for c in parsed_flagged if c]
+
+    features: Optional[dict] = None
+    if any([aperiodic, peak_alpha_freq, connectivity, asymmetry, graph_metrics, source_roi]):
+        spectral_bands: dict = {}
+        legacy_bands = (band_powers or {}).get("bands") or {}
+        for band, info in legacy_bands.items():
+            channels = (info or {}).get("channels") or {}
+            spectral_bands[band] = {
+                "absolute_uv2": {
+                    ch: float(v.get("absolute_uv2", 0.0) or 0.0) for ch, v in channels.items()
+                },
+                "relative": {
+                    ch: float(v.get("relative_pct", 0.0) or 0.0) / 100.0
+                    for ch, v in channels.items()
+                },
+            }
+        features = {
+            "spectral": {
+                "bands": spectral_bands,
+                "aperiodic": aperiodic or {},
+                "peak_alpha_freq": peak_alpha_freq or {},
+            },
+            "connectivity": connectivity or {},
+            "asymmetry": asymmetry or {},
+            "graph": graph_metrics or {},
+            "source": (
+                {
+                    "roi_band_power": source_roi or {},
+                    "method": (source_roi or {}).get("method", "eLORETA"),
+                }
+                if source_roi
+                else {}
+            ),
+        }
+
+    condition_matches = match_condition_patterns(
+        features if features is not None else band_powers
+    )
+
+    merged_patient_context = None
+    survey_sources_used: list[str] = []
+    if analysis.qeeg_record_id:
+        linked_record = db.query(QEEGRecord).filter_by(id=analysis.qeeg_record_id).first()
+        if linked_record is not None:
+            survey_ctx = extract_qeeg_context(linked_record.summary_notes)
+            if survey_ctx:
+                survey_block = format_context_for_prompt(survey_ctx)
+                merged_patient_context = survey_block
+                survey_sources_used.append("qeeg_clinical_context_survey_v1")
+
+    if body.recording_condition and body.recording_condition != "unknown":
+        recording_line = f"Recording condition: {body.recording_condition.replace('_', ' ')}."
+        merged_patient_context = (
+            f"{merged_patient_context}\n\n{recording_line}"
+            if merged_patient_context
+            else recording_line
+        )
+
+    try:
+        report_result = await generate_ai_report(
+            band_powers=band_powers,
+            features=features,
+            zscores=zscores,
+            flagged_conditions=flagged_conditions,
+            quality=quality,
+            patient_context=merged_patient_context,
+            condition_matches=condition_matches,
+            report_type="standard",
+            require_real_citations=body.include_evidence,
+            db_session=db,
+        )
+    except Exception as exc:
+        _record_qeeg_backend_audit_event(
+            db,
+            actor=actor,
+            analysis_id=analysis_id,
+            patient_id=analysis.patient_id,
+            event="rag_report_failed",
+            note=f"output_mode={body.output_mode}; reason={exc.__class__.__name__}",
+        )
+        raise
+
+    report_data = report_result.get("data", {})
+    literature_refs = report_result.get("literature_refs") or []
+    evidence_status = (
+        "available"
+        if body.include_evidence and literature_refs
+        else "unavailable"
+        if body.include_evidence
+        else "disabled"
+    )
+
+    cockpit = compute_safety_cockpit(analysis)
+    analysis.safety_cockpit_json = json.dumps(cockpit)
+    analysis.interpretability_status = compute_interpretability_status(cockpit)
+
+    governance = classify_claims(report_data)
+    patient_report = sanitize_for_patient(report_data)
+
+    sections = _build_qeeg_rag_sections(
+        analysis=analysis,
+        report_data=report_data,
+        patient_report=patient_report,
+        literature_refs=literature_refs if body.include_evidence else [],
+        output_mode=body.output_mode,
+        recording_condition=body.recording_condition,
+    )
+    evidence = _build_qeeg_rag_evidence(
+        literature_refs,
+        include_evidence=body.include_evidence,
+    )
+    stored_payload = dict(report_data)
+    stored_payload["sections"] = [section.model_dump() for section in sections]
+    stored_payload["clinical_use"] = "decision_support_only"
+    stored_payload["status"] = "clinician_review_required"
+    stored_payload["evidence_status"] = evidence_status
+    stored_payload["output_mode"] = body.output_mode
+    stored_payload["disclaimer"] = (
+        "Decision-support only. Not diagnostic. Clinician review required."
+    )
+
+    report = QEEGAIReport(
+        analysis_id=analysis_id,
+        patient_id=analysis.patient_id,
+        clinician_id=actor.actor_id,
+        report_type="rag_draft",
+        ai_narrative_json=json.dumps(stored_payload),
+        clinical_impressions=stored_payload.get("executive_summary", ""),
+        condition_matches_json=json.dumps(condition_matches),
+        protocol_suggestions_json=json.dumps(stored_payload.get("protocol_recommendations", [])),
+        literature_refs_json=json.dumps(literature_refs) if literature_refs else None,
+        model_used=report_result.get("model_used"),
+        prompt_hash=report_result.get("prompt_hash"),
+        confidence_note=stored_payload.get("confidence_level"),
+        report_state="NEEDS_REVIEW",
+        model_version=report_result.get("model_used"),
+        prompt_version=report_result.get("prompt_hash"),
+        report_version="1.0.0",
+        claim_governance_json=json.dumps(governance),
+        patient_facing_report_json=json.dumps(patient_report),
+    )
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+
+    for finding in report_data.get("findings", []):
+        finding_text = finding.get("description") or finding.get("observation") or ""
+        finding_gov = classify_claims({"findings": [{"observation": finding_text}]})
+        claim_type = "INFERRED"
+        if finding_gov and len(finding_gov) > 0:
+            claim_type = finding_gov[0].get("claim_type", "INFERRED")
+        db.add(
+            QEEGReportFinding(
+                report_id=report.id,
+                finding_text=finding_text,
+                claim_type=claim_type,
+                evidence_grade="C" if claim_type in ("INFERRED", "UNSUPPORTED") else "B",
+            )
+        )
+    db.commit()
+
+    sources_used = ["edf_analysis", "qeeg_condition_map", "qeeg_rag_draft_report"]
+    if literature_refs and body.include_evidence:
+        sources_used.append("qeeg_rag_literature")
+    elif body.include_evidence:
+        sources_used.append("qeeg_rag_unavailable")
+    audit = AiSummaryAudit(
+        patient_id=analysis.patient_id,
+        actor_id=actor.actor_id,
+        actor_role=actor.role,
+        summary_type="qeeg_rag_draft_report",
+        prompt_hash=report_result.get("prompt_hash"),
+        response_preview=str(stored_payload.get("executive_summary", ""))[:200],
+        sources_used=json.dumps([*sources_used, *survey_sources_used]),
+        model_used=report_result.get("model_used"),
+    )
+    db.add(audit)
+    db.commit()
+
+    _record_qeeg_backend_audit_event(
+        db,
+        actor=actor,
+        analysis_id=analysis_id,
+        patient_id=analysis.patient_id,
+        event="rag_report_generated",
+        note=(
+            f"output_mode={body.output_mode}; refs={len(evidence)}; "
+            f"evidence_status={evidence_status}; report_id={report.id}"
+        ),
+    )
+
+    return QEEGRAGReportOut(
+        report_id=report.id,
+        analysis_id=analysis_id,
+        sections=sections,
+        evidence=evidence,
+        disclaimer="Decision-support only. Not diagnostic. Clinician review required.",
+        report_state=report.report_state,
+        evidence_status=evidence_status,
+        output_mode=body.output_mode,
+        created_at=report.created_at.isoformat() if report.created_at else "",
+    )
 
 
 # ── List Reports for Analysis ────────────────────────────────────────────────

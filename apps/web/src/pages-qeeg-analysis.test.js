@@ -57,6 +57,10 @@ describe('pages-qeeg-analysis public exports', () => {
     assert.strictEqual(typeof mod._canRenderQEEGPrintableReport, 'function');
   });
 
+  it('exports _qeegRagReportsFeatureFlagEnabled as a function', () => {
+    assert.strictEqual(typeof mod._qeegRagReportsFeatureFlagEnabled, 'function');
+  });
+
   it('exports _qeegAnalysisIsSyntheticDemo as a function', () => {
     assert.strictEqual(typeof mod._qeegAnalysisIsSyntheticDemo, 'function');
   });
@@ -95,6 +99,10 @@ describe('pages-qeeg-analysis public exports', () => {
 
   it('exports renderAINarrativeWithCitations as a function', () => {
     assert.strictEqual(typeof mod.renderAINarrativeWithCitations, 'function');
+  });
+
+  it('exports renderQEEGRagDraftCard as a function', () => {
+    assert.strictEqual(typeof mod.renderQEEGRagDraftCard, 'function');
   });
 
   it('exports renderQEEGDecisionSupport as a function', () => {
@@ -142,6 +150,37 @@ describe('renderQEEGRawFlightDeck', () => {
     const html = mod.renderQEEGRawFlightDeck('patient-1', 'analysis-1');
     assert.match(html, /Open AI Report/);
     assert.match(html, /Recording loaded/);
+  });
+});
+
+describe('renderQEEGRagDraftCard', () => {
+  it('renders clinician-review and not-diagnostic badges for rag drafts', () => {
+    const html = mod.renderQEEGRagDraftCard({
+      report_type: 'clinician_draft',
+      ai_narrative: {
+        executive_summary: 'Summary [1].',
+        findings: [{ region: 'frontal', band: 'theta', observation: 'Theta elevated [1].', citations: [1] }],
+      },
+      literature_refs: [{ n: 1, title: 'Evidence Paper', url: 'https://example.com' }],
+    }, []);
+    assert.match(html, /Evidence-Grounded Draft/);
+    assert.match(html, /Clinician review required/);
+    assert.match(html, /Not diagnostic/);
+    assert.match(html, /Executive Summary/);
+    assert.match(html, /frontal \/ theta/i);
+  });
+
+  it('renders safe degraded copy when evidence is unavailable', () => {
+    const html = mod.renderQEEGRagDraftCard({
+      report_type: 'patient_friendly_draft',
+      ai_narrative: {
+        executive_summary: 'No linked evidence.',
+        findings: [],
+      },
+      literature_refs: [],
+    }, []);
+    assert.match(html, /Evidence unavailable/);
+    assert.match(html, /patient-facing output and downstream sharing should remain clinician-gated/i);
   });
 });
 

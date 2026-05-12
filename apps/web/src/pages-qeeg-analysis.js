@@ -11,7 +11,13 @@
 //   learning  — Learning EEG reference (educational cross-check)
 // ─────────────────────────────────────────────────────────────────────────────
 import { api, downloadBlob, API_BASE } from './api.js';
-import { QEEG_ANALYZER_SAFETY_FOOTER_BULLETS, PROTOCOL_SUGGESTIONS_ARE_DRAFT_COPY, NOT_DIAGNOSTIC_COPY } from './clinical-ai-safety-copy.js';
+import {
+  AI_DECISION_SUPPORT_DISCLAIMER,
+  CLINICIAN_REVIEW_REQUIRED_COPY,
+  NOT_DIAGNOSTIC_COPY,
+  QEEG_ANALYZER_SAFETY_FOOTER_BULLETS,
+  PROTOCOL_SUGGESTIONS_ARE_DRAFT_COPY,
+} from './clinical-ai-safety-copy.js';
 import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { isDemoSession } from './demo-session.js';
 import { handleAPIError as handleConsentError, renderConsentStatusBadge, disableRunButton, enableRunButton } from './consent-error-handler.js';
@@ -75,6 +81,25 @@ export function _aiUpgradesFeatureFlagEnabled() {
     if (v === false || v === 'false' || v === 0 || v === '0') return false;
     return true;
   } catch (_) { return true; }
+}
+
+export function _qeegRagReportsFeatureFlagEnabled() {
+  try {
+    var winFlag = (typeof window !== 'undefined' && window)
+      ? window.DEEPSYNAPS_ENABLE_QEEG_RAG_REPORTS
+      : undefined;
+    var globalFlag = typeof globalThis !== 'undefined'
+      ? globalThis.DEEPSYNAPS_ENABLE_QEEG_RAG_REPORTS
+      : undefined;
+    var resolvedFlag = winFlag != null ? winFlag : globalFlag;
+    if (resolvedFlag === true || resolvedFlag === 'true' || resolvedFlag === 1 || resolvedFlag === '1') return true;
+    if (resolvedFlag === false || resolvedFlag === 'false' || resolvedFlag === 0 || resolvedFlag === '0') return false;
+  } catch (_) { /* fall through to env probe */ }
+  try {
+    return !!(import.meta && import.meta.env && import.meta.env.VITE_ENABLE_QEEG_RAG_REPORTS === '1');
+  } catch (_) {
+    return false;
+  }
 }
 
 // ── XSS escape ───────────────────────────────────────────────────────────────
@@ -421,6 +446,7 @@ function _getReportSortTimestamp(report) {
 function _formatReportVersionLabel(report, index, total) {
   if (!report) return 'Report';
   var mode = report.report_type || report.kind || 'standard';
+  if (mode === 'rag_draft') mode = 'evidence-grounded draft';
   var raw = report.generated_at || report.created_at || report.updated_at || null;
   var dateText = raw ? new Date(raw).toLocaleString() : 'Undated';
   var reviewText = report.clinician_reviewed ? 'Reviewed' : 'Draft';
@@ -2397,6 +2423,106 @@ function _renderQEEGSavedEvidencePanel(citations) {
       : '<div style="font-size:12px;color:var(--text-tertiary)">No evidence citations have been added from the evidence drawer for this patient yet.</div>'
   );
 }
+
+function _qeegIsRagDraftReport(report) {
+  var reportType = report && report.report_type;
+  return reportType === 'rag_draft'
+    || reportType === 'clinician_draft'
+    || reportType === 'patient_friendly_draft';
+}
+
+function _buildQEEGRagDraftSections(report) {
+  var narrative = report && (report.ai_narrative || report.ai_narrative_json) || {};
+  var refs = Array.isArray(report && report.literature_refs) ? report.literature_refs : [];
+  if (Array.isArray(narrative && narrative.sections) && narrative.sections.length) {
+    return narrative.sections.map(function (section, index) {
+      return {
+        title: (section && section.title) || ('Section ' + (index + 1)),
+        body: (section && section.body) || '',
+        source: (section && section.source) || 'generated',
+        evidence_refs: Array.isArray(section && section.evidence_refs) ? section.evidence_refs : [],
+      };
+    });
+  }
+  var sections = [];
+  if (narrative && narrative.executive_summary) {
+    sections.push({
+      title: 'Executive Summary',
+      body: narrative.executive_summary,
+      source: refs.length ? 'evidence_grounded' : 'generated',
+      evidence_refs: refs.length ? refs.map(function (ref) { return ref && ref.n; }).filter(Boolean) : [],
+    });
+  }
+  var findings = Array.isArray(narrative && narrative.findings) ? narrative.findings : [];
+  findings.slice(0, 4).forEach(function (finding, index) {
+    if (!finding || !finding.observation) return;
+    var titleBits = [];
+    if (finding.region) titleBits.push(String(finding.region));
+    if (finding.band) titleBits.push(String(finding.band));
+    sections.push({
+      title: titleBits.length ? titleBits.join(' / ') : ('Finding ' + (index + 1)),
+      body: finding.observation,
+      source: Array.isArray(finding.citations) && finding.citations.length ? 'evidence_grounded' : 'generated',
+      evidence_refs: Array.isArray(finding.citations) ? finding.citations : [],
+    });
+  });
+  var recs = Array.isArray(narrative && narrative.protocol_recommendations) ? narrative.protocol_recommendations : [];
+  if (recs.length) {
+    sections.push({
+      title: 'Protocol Considerations',
+      body: recs.map(function (item) {
+        if (typeof item === 'string') return item;
+        var head = [item && item.modality, item && item.target].filter(Boolean).join(' — ');
+        return [head, item && item.rationale].filter(Boolean).join(': ');
+      }).filter(Boolean).join('\n'),
+      source: 'generated',
+      evidence_refs: [],
+    });
+  }
+  return sections;
+}
+
+export function renderQEEGRagDraftCard(report, savedEvidenceCitations) {
+  if (!_qeegIsRagDraftReport(report)) return '';
+  var refs = Array.isArray(report && report.literature_refs) ? report.literature_refs : [];
+  var saved = Array.isArray(savedEvidenceCitations) ? savedEvidenceCitations : [];
+  var sections = _buildQEEGRagDraftSections(report);
+  var hasEvidence = refs.length > 0 || saved.length > 0;
+  var sourceBadge = hasEvidence
+    ? badge('Evidence grounded draft', 'var(--teal)')
+    : badge('Evidence unavailable', 'var(--amber)');
+  var reviewBadge = badge('Clinician review required', 'var(--violet)');
+  var diagnosticBadge = badge('Not diagnostic', 'var(--red)');
+  var evidenceMeta = hasEvidence
+    ? '<div style="font-size:12px;color:var(--text-secondary)">Evidence references: <strong>' + refs.length + '</strong> · Saved citations: <strong>' + saved.length + '</strong></div>'
+    : '<div style="font-size:12px;color:var(--text-secondary)">No verified evidence references are attached yet. Patient-facing output and downstream sharing should remain clinician-gated.</div>';
+  var sectionHtml = sections.length
+    ? sections.map(function (section) {
+      var refsLabel = Array.isArray(section.evidence_refs) && section.evidence_refs.length
+        ? ' · refs [' + section.evidence_refs.join(', ') + ']'
+        : '';
+      return '<div style="padding:12px;border-radius:12px;background:var(--surface-tint-1);border:1px solid var(--border)">'
+        + '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap">'
+        + '<strong style="font-size:13px;color:var(--text-primary)">' + esc(section.title) + '</strong>'
+        + '<span style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em">' + esc(section.source || 'generated') + refsLabel + '</span>'
+        + '</div>'
+        + '<div style="margin-top:8px;font-size:13px;color:var(--text-secondary);line-height:1.6;white-space:pre-wrap">' + esc(section.body || '') + '</div>'
+        + '</div>';
+    }).join('')
+    : '<div style="font-size:12px;color:var(--text-secondary)">No draft sections are available yet.</div>';
+  return card('Evidence-Grounded Draft',
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">' + sourceBadge + reviewBadge + diagnosticBadge + '</div>'
+    + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-bottom:12px">'
+    + esc(AI_DECISION_SUPPORT_DISCLAIMER) + ' ' + esc(CLINICIAN_REVIEW_REQUIRED_COPY)
+    + '</div>'
+    + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-bottom:12px">'
+    + esc(NOT_DIAGNOSTIC_COPY)
+    + '</div>'
+    + '<div style="margin-bottom:12px">' + evidenceMeta + '</div>'
+    + '<div style="display:grid;gap:10px">' + sectionHtml + '</div>'
+  );
+}
+
 var _coherenceBand = 'alpha';
 
 // ── Comprehensive Report Renderer ────────────────────────────────────────────
@@ -2456,40 +2582,47 @@ function _renderComprehensiveReport(report, analysis, savedEvidenceCitations) {
   // patient_facing_report_json) so it always tracks whatever the analyzer
   // generated, automatically or manually, when the AI report saved.
   var _brainMapBtns = '';
+  var _ragDraftBtn = '';
   if (report && report.id) {
     var _bmId = encodeURIComponent(report.id);
     _brainMapBtns = ''
       + '<button class="btn btn-sm btn-primary" aria-label="Open qEEG Brain Map report in a new tab" onclick="window._qeegOpenBrainMapReport(\'' + _bmId + '\')">Open Brain Map Report</button>'
       + '<button class="btn btn-sm btn-outline" aria-label="Download qEEG Brain Map PDF" onclick="window._qeegDownloadBrainMapReport(\'' + _bmId + '\')">Brain Map PDF</button>';
+    if (_qeegRagReportsFeatureFlagEnabled() && analysis && analysis.id && analysis.id !== 'demo') {
+      _ragDraftBtn = '<button class="btn btn-sm btn-outline" id="qeeg-rag-draft-btn">Generate Evidence-Grounded Draft</button>';
+    }
   }
   html += '<div class="qeeg-export-bar" style="justify-content:flex-end;margin-bottom:8px;gap:6px;display:flex;flex-wrap:wrap">'
     + _brainMapBtns
+    + _ragDraftBtn
     + '<button class="btn btn-sm btn-outline" aria-label="Print AI report" onclick="window._qeegPrintReport()">Print HTML Report</button>'
     + '<button class="btn btn-sm btn-outline" aria-label="Download printable report" onclick="window._qeegDownloadPDF()">Download Printable Report</button></div>';
-  if (hasPrintableReport || callouts.length) {
+  var _reportSidePanelHtml = card('Report Side Panel',
+    '<div class="qeeg-report-callouts">'
+      + '<div class="qeeg-report-callouts__intro">Interactive HTML stays below. The viewer loads the authenticated printable report when the backend render is available, alongside key pipeline callouts.</div>'
+      + (callouts.length
+        ? callouts.map(function (item) {
+          return '<div class="qeeg-report-callout"><div class="qeeg-report-callout__label">' + esc(item.label)
+            + '</div><div class="qeeg-report-callout__value">' + esc(item.value) + '</div></div>';
+        }).join('')
+        : '<div class="qeeg-report-callout"><div class="qeeg-report-callout__value">Printable report rendering becomes available when the backend report endpoint returns a downloadable artifact.</div></div>')
+    + '</div>'
+  );
+  if (hasPrintableReport) {
     html += '<div class="qeeg-report-layout">';
-    if (hasPrintableReport) {
-      html += card('Printable Report Viewer',
-        '<div class="qeeg-report-viewer">'
-          + '<iframe class="qeeg-report-viewer__frame" id="qeeg-printable-report-frame" title="qEEG printable report viewer" loading="lazy"></iframe>'
-        + '</div>'
-      );
-    }
-    html += card('Report Side Panel',
-      '<div class="qeeg-report-callouts">'
-        + '<div class="qeeg-report-callouts__intro">Interactive HTML stays below. The viewer loads the authenticated printable report when the backend render is available, alongside key pipeline callouts.</div>'
-        + (callouts.length
-          ? callouts.map(function (item) {
-            return '<div class="qeeg-report-callout"><div class="qeeg-report-callout__label">' + esc(item.label)
-              + '</div><div class="qeeg-report-callout__value">' + esc(item.value) + '</div></div>';
-          }).join('')
-          : '<div class="qeeg-report-callout"><div class="qeeg-report-callout__value">Printable report rendering becomes available when the backend report endpoint returns a downloadable artifact.</div></div>')
+    html += card('Printable Report Viewer',
+      '<div class="qeeg-report-viewer">'
+        + '<iframe class="qeeg-report-viewer__frame" id="qeeg-printable-report-frame" title="qEEG printable report viewer" loading="lazy"></iframe>'
       + '</div>'
     );
+    html += _reportSidePanelHtml;
     html += '</div>';
+  } else {
+    html += _reportSidePanelHtml;
   }
 
   html += _renderQEEGSavedEvidencePanel(savedEvidenceCitations);
+  html += renderQEEGRagDraftCard(report, savedEvidenceCitations);
 
   // ── MNE narrative + RAG citations (§4.6 of CONTRACT.md) ─────────────────
   // Rendered when the new-shape narrative is present (executive_summary or
@@ -5744,6 +5877,10 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       }
 
       if (reports.length === 0) {
+        if ((!_currentAnalysis || _currentAnalysis.id !== analysisId) && analysisId !== 'demo') {
+          try { _currentAnalysis = await api.getQEEGAnalysis(analysisId); } catch (_) {}
+        }
+        var ragEnabled = _qeegRagReportsFeatureFlagEnabled();
         tabEl.innerHTML = card('Generate AI Interpretation',
           renderQEEGSessionRail(_currentAnalysis, {
             title: 'Selected qEEG session',
@@ -5753,13 +5890,19 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           + '<div style="text-align:center;padding:24px">'
           + '<p style="color:var(--text-secondary);margin-bottom:16px;font-size:13px">No AI report has been generated for this analysis yet.</p>'
           + '<div style="display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap">'
-          + '<label for="qeeg-report-type" style="font-size:12px;font-weight:600;color:var(--text-secondary)">Report Mode</label>'
+          + '<label for="qeeg-report-type" style="font-size:12px;font-weight:600;color:var(--text-secondary)">' + (ragEnabled ? 'Draft Mode' : 'Report Mode') + '</label>'
           + '<select id="qeeg-report-type" class="form-select" style="font-size:13px;padding:6px 10px;min-width:180px">'
-          + '<option value="standard">Standard Report</option>'
-          + '<option value="prediction">Predictive Analysis</option>'
+          + (ragEnabled
+            ? '<option value="clinician_draft">Clinician Draft</option>'
+              + '<option value="patient_friendly_draft">Patient-Friendly Draft</option>'
+            : '<option value="standard">Standard Report</option>'
+              + '<option value="prediction">Predictive Analysis</option>')
           + '</select>'
-          + '<button class="btn btn-primary" id="qeeg-gen-report-btn">Generate AI Report</button>'
+          + '<button class="btn btn-primary" id="qeeg-gen-report-btn">' + (ragEnabled ? 'Generate evidence-grounded draft' : 'Generate AI Report') + '</button>'
           + '</div>'
+          + (ragEnabled
+            ? '<div style="margin-top:10px;font-size:12px;color:var(--text-secondary)">Decision-support only. Not diagnostic. Patient-facing output remains blocked until clinician review.</div>'
+            : '')
           + '<div id="qeeg-gen-status" role="status" aria-live="polite" style="margin-top:12px"></div></div>'
         );
         const btn = document.getElementById('qeeg-gen-report-btn');
@@ -5769,23 +5912,31 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             var reportTypeSel = document.getElementById('qeeg-report-type');
             var selectedType = reportTypeSel ? reportTypeSel.value : 'standard';
             const st = document.getElementById('qeeg-gen-status');
-            if (st) st.innerHTML = spinner('Generating AI interpretation...');
+            if (st) st.innerHTML = spinner(ragEnabled ? 'Generating evidence-grounded draft...' : 'Generating AI interpretation...');
             try {
-              _qeegAudit('ai_interpretation_requested', {
+              _qeegAudit(ragEnabled ? 'rag_report_requested' : 'ai_interpretation_requested', {
                 analysis_id: analysisId,
-                note: 'report_type=' + selectedType,
+                note: (ragEnabled ? 'output_mode=' : 'report_type=') + selectedType,
               });
-              await api.generateQEEGAIReport(analysisId, { report_type: selectedType });
-              _qeegAudit('ai_interpretation_completed', { analysis_id: analysisId });
-              showToast('AI report generated', 'success');
+              if (ragEnabled) {
+                await api.generateQEEGRAGDraftReport(analysisId, {
+                  output_mode: selectedType,
+                  include_evidence: true,
+                  recording_condition: (_currentAnalysis && _currentAnalysis.eyes_condition) || 'unknown',
+                });
+              } else {
+                await api.generateQEEGAIReport(analysisId, { report_type: selectedType });
+              }
+              _qeegAudit(ragEnabled ? 'rag_report_generated' : 'ai_interpretation_completed', { analysis_id: analysisId });
+              showToast(ragEnabled ? 'Evidence-grounded draft generated' : 'AI report generated', 'success');
               window._qeegTab = 'report';
               window._nav('qeeg-analysis');
             } catch (err) {
-              _qeegAudit('ai_interpretation_failed', {
+              _qeegAudit(ragEnabled ? 'rag_report_failed' : 'ai_interpretation_failed', {
                 analysis_id: analysisId,
                 note: (err && err.message ? err.message : String(err)).slice(0, 200),
               });
-              showToast('AI report generation failed: ' + (err.message || err), 'error');
+              showToast((ragEnabled ? 'RAG draft generation failed: ' : 'AI report generation failed: ') + (err.message || err), 'error');
               if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px" role="alert">Error: ' + esc(String(err && err.message ? err.message : err || "Unknown error")) + '</div>';
               btn.disabled = false;
             }
@@ -5866,6 +6017,38 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           window._qeegSelectedReportId = reportVersionSel.value || null;
           window._qeegTab = 'report';
           window._nav('qeeg-analysis');
+        });
+      }
+
+      var ragDraftBtn = document.getElementById('qeeg-rag-draft-btn');
+      if (ragDraftBtn && analysisId && analysisData && analysisId !== 'demo') {
+        ragDraftBtn.addEventListener('click', async function () {
+          ragDraftBtn.disabled = true;
+          try {
+            _qeegAudit('rag_report_requested', {
+              analysis_id: analysisId,
+              note: 'output_mode=clinician_draft',
+            });
+            const ragResponse = await api.generateQEEGRAGDraftReport(analysisId, {
+              output_mode: 'clinician_draft',
+              include_evidence: true,
+              recording_condition: (analysisData && analysisData.eyes_condition) || 'unknown',
+            });
+            if (ragResponse && ragResponse.report_id) {
+              window._qeegSelectedReportId = ragResponse.report_id;
+            }
+            _qeegAudit('rag_report_generated', { analysis_id: analysisId });
+            showToast('Evidence-grounded draft generated', 'success');
+            window._qeegTab = 'report';
+            window._nav('qeeg-analysis');
+          } catch (err) {
+            _qeegAudit('rag_report_failed', {
+              analysis_id: analysisId,
+              note: (err && err.message ? err.message : String(err)).slice(0, 200),
+            });
+            showToast('RAG draft generation failed: ' + (err && err.message ? err.message : err), 'error');
+            ragDraftBtn.disabled = false;
+          }
         });
       }
 
