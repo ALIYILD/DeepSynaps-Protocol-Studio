@@ -405,6 +405,19 @@ def _h_tasks_list(actor: "AuthenticatedActor", db: "Session") -> dict:
     return {"items": items, "count": len(items)}
 
 
+def _h_stub_unavailable(
+    actor: "AuthenticatedActor", db: "Session"
+) -> dict:
+    """Placeholder handler for read tools not yet wired in Phase 1.
+
+    Returns a canonical ``{"unavailable": True, ...}`` envelope so the
+    broker can JSON-serialise the result without raising. Swapped for a
+    real implementation in a follow-up phase.
+    """
+    _ = actor, db
+    return {"unavailable": True, "reason": "tool not yet wired in Phase 1"}
+
+
 # ── Patient-side tools (gated; pending clinical signoff) ──────────────
 # These handlers back the four patient-side agents in the marketplace.
 # They are registered for visibility but every handler short-circuits to
@@ -578,6 +591,179 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
         handler=None,
         requires_role="clinician",
         write_only=True,
+    ),
+    # ── Phase 1 expansion placeholders (read stubs + write stubs) ─────
+    "patients.list": ToolDefinition(
+        id="patients.list",
+        name="All patients",
+        description=(
+            "Returns all patients on the actor's roster. STUB — not yet "
+            "wired in Phase 1."
+        ),
+        handler=_h_stub_unavailable,
+        requires_role="clinician",
+    ),
+    "vitals.recent": ToolDefinition(
+        id="vitals.recent",
+        name="Recent vitals",
+        description=(
+            "Recent vital-sign readings for a patient. STUB — not yet "
+            "wired in Phase 1."
+        ),
+        handler=_h_stub_unavailable,
+        requires_role="clinician",
+    ),
+    "sessions.today": ToolDefinition(
+        id="sessions.today",
+        name="Today's sessions",
+        description=(
+            "Clinical sessions scheduled for today. STUB — not yet wired "
+            "in Phase 1."
+        ),
+        handler=_h_stub_unavailable,
+        requires_role="clinician",
+    ),
+    "notes.draft": ToolDefinition(
+        id="notes.draft",
+        name="Draft note",
+        description=(
+            "WRITE: create a draft clinical note. Not pre-fetched. "
+            "Wired in a follow-up phase via LLM function-calling."
+        ),
+        handler=None,
+        requires_role="clinician",
+        write_only=True,
+    ),
+    "rooms.schedule": ToolDefinition(
+        id="rooms.schedule",
+        name="Room schedule",
+        description=(
+            "Room availability and booking schedule. STUB — not yet "
+            "wired in Phase 1."
+        ),
+        handler=_h_stub_unavailable,
+        requires_role="clinician",
+    ),
+    "invoices.pending": ToolDefinition(
+        id="invoices.pending",
+        name="Pending invoices",
+        description=(
+            "Outstanding invoices awaiting payment. STUB — not yet wired "
+            "in Phase 1."
+        ),
+        handler=_h_stub_unavailable,
+        requires_role="admin",
+    ),
+    "inventory.list": ToolDefinition(
+        id="inventory.list",
+        name="Inventory list",
+        description=(
+            "Clinic inventory items and stock levels. STUB — not yet "
+            "wired in Phase 1."
+        ),
+        handler=_h_stub_unavailable,
+        requires_role="clinician",
+    ),
+    "clinic.settings": ToolDefinition(
+        id="clinic.settings",
+        name="Clinic settings",
+        description=(
+            "Operational settings for the clinic. STUB — not yet wired "
+            "in Phase 1."
+        ),
+        handler=_h_stub_unavailable,
+        requires_role="admin",
+    ),
+    "clinic.kpis": ToolDefinition(
+        id="clinic.kpis",
+        name="Clinic KPIs",
+        description=(
+            "Key performance indicators for the clinic. STUB — not yet "
+            "wired in Phase 1."
+        ),
+        handler=_h_stub_unavailable,
+        requires_role="admin",
+    ),
+    "escalation.chains": ToolDefinition(
+        id="escalation.chains",
+        name="Escalation chains",
+        description=(
+            "Configured escalation chains and contacts. STUB — not yet "
+            "wired in Phase 1."
+        ),
+        handler=_h_stub_unavailable,
+        requires_role="admin",
+    ),
+    "staff.roster": ToolDefinition(
+        id="staff.roster",
+        name="Staff roster",
+        description=(
+            "Clinic staff roster and role assignments. STUB — not yet "
+            "wired in Phase 1."
+        ),
+        handler=_h_stub_unavailable,
+        requires_role="clinician",
+    ),
+    "protocols.recommend": ToolDefinition(
+        id="protocols.recommend",
+        name="Protocol recommendations",
+        description=(
+            "Evidence-based protocol recommendations. STUB — not yet "
+            "wired in Phase 1."
+        ),
+        handler=_h_stub_unavailable,
+        requires_role="clinician",
+    ),
+    "patients.summary": ToolDefinition(
+        id="patients.summary",
+        name="Patient summary",
+        description=(
+            "Condensed summary for a specific patient. STUB — not yet "
+            "wired in Phase 1."
+        ),
+        handler=_h_stub_unavailable,
+        requires_role="clinician",
+    ),
+    "assessments.recent": ToolDefinition(
+        id="assessments.recent",
+        name="Recent assessments",
+        description=(
+            "Recent clinical assessments and outcome scores. STUB — not "
+            "yet wired in Phase 1."
+        ),
+        handler=_h_stub_unavailable,
+        requires_role="clinician",
+    ),
+    "reports.draft": ToolDefinition(
+        id="reports.draft",
+        name="Draft report",
+        description=(
+            "WRITE: generate a draft clinical report. Not pre-fetched. "
+            "Wired in a follow-up phase via LLM function-calling."
+        ),
+        handler=None,
+        requires_role="clinician",
+        write_only=True,
+    ),
+    "contraindications.check": ToolDefinition(
+        id="contraindications.check",
+        name="Contraindication check",
+        description=(
+            "Check contraindications for a patient or protocol. STUB — "
+            "not yet wired in Phase 1."
+        ),
+        handler=_h_stub_unavailable,
+        requires_role="clinician",
+    ),
+    "conditions.lookup": ToolDefinition(
+        id="conditions.lookup",
+        name="Condition lookup",
+        description=(
+            "Lookup clinical conditions and symptom profiles. STUB — not "
+            "yet wired in Phase 1."
+        ),
+        handler=_h_stub_unavailable,
+        requires_role="clinician",
     ),
     # ── Patient-side tools (gated; pending clinical signoff) ──────────
     # All seven of these back the patient-side agents in the marketplace.

@@ -961,6 +961,8 @@ function _marketplaceAuthHeaders() {
 
 // POST /api/v1/agents/{id}/hire — idempotent on the backend.
 async function _hireAgent(agentId) {
+  _widgetDataCache = {};
+  _widgetDataLastFetch = 0;
   try {
     const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/${encodeURIComponent(agentId)}/hire`, {
       method: 'POST', headers: _marketplaceAuthHeaders(), credentials: 'include',
@@ -978,6 +980,8 @@ async function _hireAgent(agentId) {
 
 // DELETE /api/v1/agents/{id}/hire — idempotent on the backend.
 async function _unhireAgent(agentId) {
+  _widgetDataCache = {};
+  _widgetDataLastFetch = 0;
   try {
     const res = await fetch(`${_marketplaceApiBase()}/api/v1/agents/${encodeURIComponent(agentId)}/hire`, {
       method: 'DELETE', headers: _marketplaceAuthHeaders(), credentials: 'include',
@@ -1132,7 +1136,11 @@ export async function pgAgentChat(setTopbar) {
       if (_agentView === 'hub') {
         try { pgAgentChat(_lastSetTopbar); } catch {}
       }
+      _loadAgentDashboardWidgets().catch(() => {});
     }).catch(() => {});
+  }
+  if (_marketplaceLoaded && !_widgetDataLoading) {
+    _loadAgentDashboardWidgets().catch(() => {});
   }
   if (_agentView === 'hub') return _renderHub(setTopbar);
   if (_agentView === 'chat-clinician') return _renderChat(setTopbar, 'clinician');
@@ -3138,6 +3146,317 @@ function _renderMarketplaceModal() {
   `;
 }
 
+// ── Agent Dashboard Widgets ──────────────────────────────────────────────────
+let _widgetDataCache = {};
+let _widgetDataLoading = false;
+let _widgetDataLastFetch = 0;
+const WIDGET_CACHE_MS = 30_000;
+
+async function _loadAgentDashboardWidgets() {
+  if (_widgetDataLoading) return;
+  const now = Date.now();
+  if (now - _widgetDataLastFetch < WIDGET_CACHE_MS) return;
+  const agents = Array.isArray(_marketplaceAgents) ? _marketplaceAgents : [];
+  const hired = agents.filter(a => a && a.hired);
+  if (!hired.length) return;
+  _widgetDataLoading = true;
+  try {
+    const results = await Promise.all(
+      hired.map(async (a) => {
+        try {
+          let data;
+          switch (a.id) {
+            case 'clinic.reception':
+              data = await _loadReceptionWidgetData();
+              break;
+            case 'clinic.head_of_clinic':
+              data = await _loadHeadOfClinicWidgetData();
+              break;
+            case 'clinic.nurse':
+              data = await _loadNurseWidgetData();
+              break;
+            case 'clinic.manager':
+              data = await _loadManagerWidgetData();
+              break;
+            case 'clinic.dr_ai':
+              data = await _loadDrAiWidgetData();
+              break;
+            case 'clinic.drclaw_telegram':
+              data = await _loadDrclawWidgetData();
+              break;
+            default:
+              data = { empty: true, reason: 'No dashboard for this agent' };
+          }
+          return { id: a.id, data };
+        } catch (e) {
+          return { id: a.id, data: { empty: true, reason: 'Load failed' } };
+        }
+      })
+    );
+    const nextCache = {};
+    for (const r of results) nextCache[r.id] = r.data;
+    _widgetDataCache = nextCache;
+    _widgetDataLastFetch = Date.now();
+    if (_agentView === 'hub') {
+      try { pgAgentChat(_lastSetTopbar); } catch {}
+    }
+  } finally {
+    _widgetDataLoading = false;
+  }
+}
+
+async function _loadReceptionWidgetData() {
+  if (_isMarketplaceDemoMode()) {
+    return { appointments: 8, noShows: 1, pendingIntake: 3 };
+  }
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const [dayQueue, sessions] = await Promise.all([
+      api.getClinicDayQueue(today).catch(() => null),
+      api.listSessions({ from: today, to: today, limit: 200 }).catch(() => null),
+    ]);
+    const appointments = Array.isArray(dayQueue?.queue) ? dayQueue.queue.length : (Array.isArray(sessions?.items) ? sessions.items.length : 0);
+    const noShows = dayQueue?.no_show_count ?? 0;
+    const pendingIntake = dayQueue?.pending_intake_count ?? 0;
+    if (!appointments && !noShows && !pendingIntake) return { empty: true, reason: 'No sessions scheduled today' };
+    return { appointments, noShows, pendingIntake };
+  } catch {
+    return { empty: true, reason: 'No sessions scheduled today' };
+  }
+}
+
+async function _loadHeadOfClinicWidgetData() {
+  if (_isMarketplaceDemoMode()) {
+    return { activePatients: 124, openEscalations: 2, roomOccupancy: '78%', adverseEvents: 0 };
+  }
+  try {
+    const [patients, review, rooms, adverse, risk] = await Promise.all([
+      api.listPatients({ limit: 1 }).catch(() => null),
+      api.listReviewQueue({ status: 'pending', limit: 1 }).catch(() => null),
+      api.listRooms().catch(() => null),
+      api.listAdverseEvents({ limit: 1 }).catch(() => null),
+      api.getClinicRiskSummary().catch(() => null),
+    ]);
+    const activePatients = patients?.total ?? patients?.items?.length ?? 0;
+    const openEscalations = review?.total ?? review?.items?.length ?? 0;
+    const roomOccupancy = rooms?.occupancy ?? (Array.isArray(rooms?.items) ? `${Math.round(rooms.items.filter(r => r.occupied).length / Math.max(rooms.items.length, 1) * 100)}%` : null);
+    const adverseEvents = adverse?.total ?? adverse?.items?.length ?? 0;
+    if (!activePatients && !openEscalations && !roomOccupancy && !adverseEvents) {
+      return { empty: true, reason: 'Clinic analytics coming soon' };
+    }
+    return { activePatients, openEscalations, roomOccupancy: roomOccupancy || '—', adverseEvents };
+  } catch {
+    return { empty: true, reason: 'Clinic analytics coming soon' };
+  }
+}
+
+async function _loadNurseWidgetData() {
+  if (_isMarketplaceDemoMode()) {
+    return { pendingTasks: 4, patientsNeedingPrep: 3, vitalsOutliers: 1 };
+  }
+  try {
+    const [dayQueue, assessments, tasks] = await Promise.all([
+      api.getClinicDayQueue().catch(() => null),
+      api.assessmentsV2Queue().catch(() => null),
+      api.listHomeProgramTasks({ source: 'agent' }).catch(() => null),
+    ]);
+    const pendingTasks = tasks?.items?.filter(t => t.status === 'pending' || t.status === 'in_progress').length ?? 0;
+    const patientsNeedingPrep = dayQueue?.prep_count ?? 0;
+    const vitalsOutliers = dayQueue?.vitals_outlier_count ?? 0;
+    if (!pendingTasks && !patientsNeedingPrep && !vitalsOutliers) {
+      return { empty: true, reason: 'No nurse tasks on the board' };
+    }
+    return { pendingTasks, patientsNeedingPrep, vitalsOutliers };
+  } catch {
+    return { empty: true, reason: 'No nurse tasks on the board' };
+  }
+}
+
+async function _loadManagerWidgetData() {
+  if (_isMarketplaceDemoMode()) {
+    return { roomUtilization: '82%', staffOnCall: 5, pendingInvoices: 7 };
+  }
+  try {
+    const [rooms, invoices] = await Promise.all([
+      api.listRooms().catch(() => null),
+      api.finance.listInvoices({ status: 'pending', limit: 1 }).catch(() => null),
+    ]);
+    const roomUtilization = rooms?.utilization ?? (Array.isArray(rooms?.items) ? `${Math.round(rooms.items.filter(r => r.occupied).length / Math.max(rooms.items.length, 1) * 100)}%` : null);
+    const pendingInvoices = invoices?.total ?? invoices?.items?.length ?? 0;
+    const staffOnCall = '—';
+    if (!roomUtilization && !pendingInvoices) {
+      return { empty: true, reason: 'Operations data unavailable' };
+    }
+    return { roomUtilization: roomUtilization || '—', staffOnCall, pendingInvoices };
+  } catch {
+    return { empty: true, reason: 'Operations data unavailable' };
+  }
+}
+
+async function _loadDrAiWidgetData() {
+  if (_isMarketplaceDemoMode()) {
+    return { pendingDrafts: 2, newEvidenceAlerts: 1, protocolSuggestions: 3 };
+  }
+  try {
+    const [media, evidence, suggestions] = await Promise.all([
+      api.listMediaQueue().catch(() => null),
+      api.evidenceStatus().catch(() => null),
+      api.evidenceSuggest({ limit: 5 }).catch(() => null),
+    ]);
+    const pendingDrafts = media?.total ?? media?.items?.length ?? 0;
+    const newEvidenceAlerts = evidence?.new_alerts ?? 0;
+    const protocolSuggestions = Array.isArray(suggestions?.items) ? suggestions.items.length : (Array.isArray(suggestions) ? suggestions.length : 0);
+    if (!pendingDrafts && !newEvidenceAlerts && !protocolSuggestions) {
+      return { empty: true, reason: 'No pending clinical decisions' };
+    }
+    return { pendingDrafts, newEvidenceAlerts, protocolSuggestions };
+  } catch {
+    return { empty: true, reason: 'No pending clinical decisions' };
+  }
+}
+
+async function _loadDrclawWidgetData() {
+  if (_isMarketplaceDemoMode()) {
+    return { pendingApprovals: 3, recentActivity: 5 };
+  }
+  try {
+    const review = await api.listReviewQueue({ status: 'pending', limit: 1 }).catch(() => null);
+    const pendingApprovals = review?.total ?? review?.items?.length ?? 0;
+    const recentActivity = review?.recent_count ?? 0;
+    if (!pendingApprovals && !recentActivity) {
+      return { empty: true, reason: 'Queue is clear' };
+    }
+    return { pendingApprovals, recentActivity };
+  } catch {
+    return { empty: true, reason: 'Queue is clear' };
+  }
+}
+
+function _renderAgentDashboardWidgets(hiredAgents) {
+  if (!hiredAgents.length) return '';
+  const widgets = hiredAgents.map(a => {
+    const data = _widgetDataCache[a.id];
+    const titleMap = {
+      'clinic.reception': 'Reception Dashboard',
+      'clinic.head_of_clinic': 'Clinic Overview',
+      'clinic.nurse': 'Nurse Task Board',
+      'clinic.manager': 'Operations Dashboard',
+      'clinic.dr_ai': 'Clinical Decision Support',
+      'clinic.drclaw_telegram': 'DrClaw Queue',
+    };
+    const title = titleMap[a.id] || `${_esc(a.name || a.id)} Dashboard`;
+    const iconMap = {
+      'clinic.reception': '📅',
+      'clinic.head_of_clinic': '🏥',
+      'clinic.nurse': '🩺',
+      'clinic.manager': '⚙️',
+      'clinic.dr_ai': '🧠',
+      'clinic.drclaw_telegram': '🤖',
+    };
+    const icon = iconMap[a.id] || '🤖';
+
+    if (!data) {
+      return `
+        <div class="card" style="padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-height:140px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:16px">${icon}</span>
+            <span style="font-size:13px;font-weight:700;color:var(--text-primary)">${_esc(title)}</span>
+          </div>
+          <div style="font-size:11.5px;color:var(--text-tertiary);flex:1">Loading…</div>
+          <button class="btn btn-sm btn-ghost" style="font-size:11px;align-self:flex-start" onclick="window._agentMarketplaceTry('${_esc(a.id)}')">Open chat</button>
+        </div>
+      `;
+    }
+
+    if (data.empty) {
+      return `
+        <div class="card" style="padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-height:140px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:16px">${icon}</span>
+            <span style="font-size:13px;font-weight:700;color:var(--text-primary)">${_esc(title)}</span>
+          </div>
+          <div style="font-size:11.5px;color:var(--text-tertiary);flex:1">${data.reason ? _esc(data.reason) : 'No data'}</div>
+          <button class="btn btn-sm btn-ghost" style="font-size:11px;align-self:flex-start" onclick="window._agentMarketplaceTry('${_esc(a.id)}')">Open chat</button>
+        </div>
+      `;
+    }
+
+    let metrics = '';
+    if (a.id === 'clinic.reception') {
+      metrics = `
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.appointments}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Appointments</div></div>
+          <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.noShows}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">No-shows</div></div>
+          <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.pendingIntake}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Pending intake</div></div>
+        </div>
+      `;
+    } else if (a.id === 'clinic.head_of_clinic') {
+      metrics = `
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.activePatients}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Active patients</div></div>
+          <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.openEscalations}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Escalations</div></div>
+          <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${_esc(data.roomOccupancy)}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Room occupancy</div></div>
+          <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.adverseEvents}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">AE flags</div></div>
+        </div>
+      `;
+    } else if (a.id === 'clinic.nurse') {
+      metrics = `
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.pendingTasks}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Pending tasks</div></div>
+          <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.patientsNeedingPrep}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Prep today</div></div>
+          <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.vitalsOutliers}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Vitals outliers</div></div>
+        </div>
+      `;
+    } else if (a.id === 'clinic.manager') {
+      metrics = `
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${_esc(data.roomUtilization)}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Room utilisation</div></div>
+          <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${_esc(data.staffOnCall)}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Staff on-call</div></div>
+          <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.pendingInvoices}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Pending invoices</div></div>
+        </div>
+      `;
+    } else if (a.id === 'clinic.dr_ai') {
+      metrics = `
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.pendingDrafts}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Draft reports</div></div>
+          <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.newEvidenceAlerts}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Evidence alerts</div></div>
+          <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.protocolSuggestions}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Protocol suggestions</div></div>
+        </div>
+      `;
+    } else if (a.id === 'clinic.drclaw_telegram') {
+      metrics = `
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.pendingApprovals}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Pending approvals</div></div>
+          <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.recentActivity}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Recent activity</div></div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="card" style="padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-height:140px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:16px">${icon}</span>
+          <span style="font-size:13px;font-weight:700;color:var(--text-primary)">${_esc(title)}</span>
+        </div>
+        <div style="flex:1">${metrics}</div>
+        <button class="btn btn-sm btn-ghost" style="font-size:11px;align-self:flex-start" onclick="window._agentMarketplaceTry('${_esc(a.id)}')">Open chat</button>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div style="margin-bottom:16px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px">
+        <h3 style="font-size:13px;font-weight:700;color:var(--text-primary);margin:0">Agent dashboards</h3>
+        <span style="font-size:11px;color:var(--text-tertiary)">${hiredAgents.length} widget${hiredAgents.length === 1 ? '' : 's'}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr));gap:10px">
+        ${widgets}
+      </div>
+    </div>
+  `;
+}
+
 // ── Hub View ─────────────────────────────────────────────────────────────────
 function _renderHub(setTopbar) {
   setTopbar('AI Practice Agents', `
@@ -3213,6 +3532,13 @@ function _renderHub(setTopbar) {
          at least one agent. Sourced from /api/v1/agents (hired flag folded
          into each tile) so no extra round-trip is needed. -->
     ${_renderHiredAgentsRail()}
+
+    <!-- Agent Dashboard Widgets -->
+    ${(() => {
+      const agents = Array.isArray(_marketplaceAgents) ? _marketplaceAgents : [];
+      const hired = agents.filter(a => a && a.hired);
+      return _renderAgentDashboardWidgets(hired);
+    })()}
 
     <!-- Agent Marketplace (above existing clinician/patient launch cards) -->
     ${_renderMarketplaceSection()}
