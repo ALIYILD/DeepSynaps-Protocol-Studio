@@ -96,7 +96,9 @@ TELEGRAM_EVIDENCE_SYSTEM_FOOTER = (
     "When the request is about evidence or literature, include evidence "
     "strength, one clear caution or limitation, and 1-3 source identifiers "
     "(PMID, DOI, or exact paper title) when available. Do not fabricate "
-    "citations. Do not expose PHI beyond an explicitly provided patient_id, "
+    "citations. Only use patient-specific evidence context when the message "
+    "contains an explicit patient_id and the tool context authorises it. "
+    "Do not expose PHI beyond an explicitly provided patient_id, "
     "and do not include phone numbers, email addresses, dates of birth, or "
     "postal addresses."
 )

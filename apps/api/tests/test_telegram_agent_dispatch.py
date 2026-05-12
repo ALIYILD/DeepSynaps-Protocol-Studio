@@ -1279,6 +1279,7 @@ def test_runner_telegram_evidence_footer_mentions_citations_and_caution() -> Non
     assert "DOI" in prompt
     assert "evidence strength" in prompt
     assert "caution" in prompt
+    assert "explicit patient_id" in prompt
 
 
 def test_callback_query_smoke_still_works_after_markdown_upgrade(

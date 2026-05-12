@@ -158,6 +158,87 @@ def test_clinician_webhook_ask_dr_ai_routes_to_selected_agent(
     assert "PMID: 123456" in sent[0]["text"]
 
 
+@pytest.mark.parametrize(
+    ("update_id", "command_text", "expected_agent_id", "expected_message"),
+    [
+        (
+            444445,
+            "/ask_nurse show evidence context for today's prep tasks",
+            "clinic.nurse",
+            "show evidence context for today's prep tasks",
+        ),
+        (
+            444446,
+            "/ask_head which protocols have weaker evidence or safety flags?",
+            "clinic.head_of_clinic",
+            "which protocols have weaker evidence or safety flags?",
+        ),
+        (
+            444447,
+            "/ask_manager show evidence system status",
+            "clinic.manager",
+            "show evidence system status",
+        ),
+    ],
+)
+def test_clinician_webhook_ask_commands_route_to_selected_agent(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    update_id: int,
+    command_text: str,
+    expected_agent_id: str,
+    expected_message: str,
+) -> None:
+    session = SessionLocal()
+    try:
+        session.add(
+            TelegramUserChat(
+                user_id="actor-clinician-demo",
+                chat_id="660002",
+                bot_kind="clinician",
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    captured: dict = {}
+
+    def fake_dispatch_to_agent(**kwargs):
+        captured.update(kwargs)
+        return {
+            "ok": True,
+            "reason": None,
+            "reply_text": "ok",
+            "parse_mode": None,
+        }
+
+    monkeypatch.setattr(
+        "app.services.telegram_agent_dispatch.dispatch_to_agent",
+        fake_dispatch_to_agent,
+    )
+    monkeypatch.setattr(
+        "app.routers.telegram_router.tg.send_message",
+        lambda *args, **kwargs: True,
+    )
+
+    resp = client.post(
+        "/api/v1/telegram/webhook/clinician",
+        json={
+            "update_id": update_id,
+            "message": {
+                "chat": {"id": 660002},
+                "from": {"id": 660002},
+                "text": command_text,
+            },
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+    assert captured["agent_id"] == expected_agent_id
+    assert captured["message_text"] == expected_message
+
+
 # ── POST /api/v1/telegram/send-test ──────────────────────────────────────────
 
 def test_send_test_requires_auth(client: TestClient) -> None:
