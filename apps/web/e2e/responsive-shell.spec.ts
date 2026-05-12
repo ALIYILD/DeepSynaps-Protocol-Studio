@@ -162,11 +162,14 @@ test.describe('responsive shell smoke', () => {
     await page.waitForSelector('#content', { timeout: 12000 });
 
     const metrics = await page.evaluate(() => {
+      const sidebar = document.getElementById('sidebar');
       const content = document.getElementById('content');
       const topbar = document.getElementById('topbar');
+      const rootStyle = getComputedStyle(document.documentElement);
       const contentRect = content?.getBoundingClientRect();
       const topbarRect = topbar?.getBoundingClientRect();
       return {
+        sidebarVisible: !!sidebar && getComputedStyle(sidebar).display !== 'none',
         bodyScrollWidth: document.body.scrollWidth,
         clientWidth: document.documentElement.clientWidth,
         contentRight: contentRect?.right ?? 0,
@@ -188,14 +191,17 @@ test.describe('responsive shell smoke', () => {
     await waitForAnyVisibleShell(page, ['app-shell', 'public-shell']);
     await waitForNonEmpty(page, '#content');
 
+    await expect(page.locator('#user-name')).toContainText('Dr. Cached');
+
     const metrics = await page.evaluate(() => ({
-      appShellVisible: document.getElementById('app-shell')?.classList.contains('visible') ?? false,
-      publicShellVisible: document.getElementById('public-shell')?.classList.contains('visible') ?? false,
+      shellVisible: document.getElementById('app-shell')?.classList.contains('visible') ?? false,
+      sidebarVisible: document.getElementById('sidebar')?.classList.contains('visible') ?? false,
       bodyScrollWidth: document.body.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
     }));
 
-    expect(metrics.appShellVisible || metrics.publicShellVisible).toBe(true);
+    expect(metrics.shellVisible).toBe(true);
+    expect(metrics.sidebarVisible).toBe(true);
     expect(metrics.bodyScrollWidth - metrics.clientWidth).toBeLessThanOrEqual(2);
   });
 });

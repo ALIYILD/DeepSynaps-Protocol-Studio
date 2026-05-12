@@ -41,6 +41,7 @@ from app.auth import (
 )
 from app.database import get_db_session
 from app.models.research_dataset import ResearchDataset
+from app.repositories.research_datasets import list_patient_sample
 from app.services.anonymization_service import (
     K_ANONYMITY_THRESHOLD,
     age_bucket,
@@ -85,6 +86,7 @@ def _require_research_export_enabled() -> None:
 # ── Request / response schemas ───────────────────────────────────────────────
 
 
+# core-schema-exempt: research export scaffold remains router-local until external consumers exist
 class ResearchDatasetCreateRequest(BaseModel):
     """Body for ``POST /api/v1/research-datasets``.
 
@@ -114,6 +116,7 @@ class ResearchDatasetCreateRequest(BaseModel):
         return value
 
 
+# core-schema-exempt: research export scaffold remains router-local until external consumers exist
 class ResearchDatasetSummary(BaseModel):
     """Listing-row shape — drops ``export_uri`` unless ``status=ready``."""
 
@@ -125,6 +128,7 @@ class ResearchDatasetSummary(BaseModel):
     export_uri: str | None = None
 
 
+# core-schema-exempt: research export scaffold remains router-local until external consumers exist
 class ResearchDatasetDetail(BaseModel):
     """Full record — admin only via ``GET /{id}``."""
 
@@ -143,6 +147,7 @@ class ResearchDatasetDetail(BaseModel):
     export_uri: str | None
 
 
+# core-schema-exempt: research export scaffold remains router-local until external consumers exist
 class PreflightSampleRow(BaseModel):
     """One anonymized row in the preflight preview."""
 
@@ -152,6 +157,7 @@ class PreflightSampleRow(BaseModel):
     quasi_id_values: dict[str, Any]
 
 
+# core-schema-exempt: research export scaffold remains router-local until external consumers exist
 class PreflightResponse(BaseModel):
     """``POST /{id}/preflight`` response envelope."""
 
@@ -162,6 +168,7 @@ class PreflightResponse(BaseModel):
     consent_filtered_out: int
 
 
+# core-schema-exempt: research export scaffold remains router-local until external consumers exist
 class BuildResponse(BaseModel):
     """``POST /{id}/build`` response — always deferred in this PR."""
 
@@ -369,11 +376,7 @@ def preflight_research_dataset(
     # every dataset is keyed on it. Real build job will fan out to
     # ``included_tables``; for preflight, this is the minimal cohort
     # whose consent state we must check.
-    from app.persistence.models import Patient
-
-    candidates: list[Patient] = (
-        session.query(Patient).limit(200).all()
-    )
+    candidates = list_patient_sample(session, limit=200)
     candidate_ids = [p.id for p in candidates]
     allowed_ids = _get_consent_filter(candidate_ids, session)
 

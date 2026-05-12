@@ -360,6 +360,31 @@ def create_invoice_endpoint(
     invoice = finance_repo.create_invoice(
         session, actor.actor_id, **body.model_dump()
     )
+    finance_repo.record_finance_audit(
+        session,
+        action="invoice:create",
+        target_type="invoice",
+        target_id=invoice.id,
+        actor_id=actor.actor_id,
+        actor_role=actor.role,
+        clinic_id=actor.clinic_id,
+        patient_id=invoice.patient_id,
+        amount=invoice.total,
+        currency=invoice.currency,
+        snapshot={
+            "invoice_number": invoice.invoice_number,
+            "patient_name": invoice.patient_name,
+            "service": invoice.service,
+            "amount": float(invoice.amount or 0.0),
+            "vat_rate": float(invoice.vat_rate or 0.0),
+            "vat": float(invoice.vat or 0.0),
+            "total": float(invoice.total or 0.0),
+            "status": invoice.status,
+            "currency": invoice.currency,
+            "issue_date": invoice.issue_date,
+            "due_date": invoice.due_date,
+        },
+    )
     return InvoiceOut.from_record(invoice)
 
 
@@ -387,11 +412,55 @@ def update_invoice_endpoint(
     existing = _require_invoice_write_scope(
         actor, finance_repo.get_invoice(session, actor.actor_id, invoice_id), session
     )
+    old_snapshot = {
+        "patient_name": existing.patient_name,
+        "service": existing.service,
+        "amount": float(existing.amount or 0.0),
+        "vat_rate": float(existing.vat_rate or 0.0),
+        "vat": float(existing.vat or 0.0),
+        "total": float(existing.total or 0.0),
+        "paid": float(existing.paid or 0.0),
+        "status": existing.status,
+        "currency": existing.currency,
+        "issue_date": existing.issue_date,
+        "due_date": existing.due_date,
+        "notes": existing.notes,
+    }
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     target_patient_id = updates.get("patient_id", existing.patient_id)
     _gate_finance_patient_access(actor, target_patient_id, session)
     invoice = finance_repo.update_invoice(
         session, actor.actor_id, invoice_id, **updates
+    )
+    new_snapshot = {
+        "patient_name": invoice.patient_name,
+        "service": invoice.service,
+        "amount": float(invoice.amount or 0.0),
+        "vat_rate": float(invoice.vat_rate or 0.0),
+        "vat": float(invoice.vat or 0.0),
+        "total": float(invoice.total or 0.0),
+        "paid": float(invoice.paid or 0.0),
+        "status": invoice.status,
+        "currency": invoice.currency,
+        "issue_date": invoice.issue_date,
+        "due_date": invoice.due_date,
+        "notes": invoice.notes,
+    }
+    delta = {k: {"old": old_snapshot.get(k), "new": new_snapshot.get(k)}
+             for k in old_snapshot if old_snapshot.get(k) != new_snapshot.get(k)}
+    finance_repo.record_finance_audit(
+        session,
+        action="invoice:update",
+        target_type="invoice",
+        target_id=invoice.id,
+        actor_id=actor.actor_id,
+        actor_role=actor.role,
+        clinic_id=actor.clinic_id,
+        patient_id=invoice.patient_id,
+        amount=invoice.total,
+        currency=invoice.currency,
+        snapshot=new_snapshot,
+        delta=delta if delta else None,
     )
     return InvoiceOut.from_record(invoice)
 
@@ -403,8 +472,28 @@ def delete_invoice_endpoint(
     session: Session = Depends(get_db_session),
 ) -> None:
     _require_finance_write(actor)
-    _require_invoice_write_scope(
+    invoice = _require_invoice_write_scope(
         actor, finance_repo.get_invoice(session, actor.actor_id, invoice_id), session
+    )
+    finance_repo.record_finance_audit(
+        session,
+        action="invoice:delete",
+        target_type="invoice",
+        target_id=invoice_id,
+        actor_id=actor.actor_id,
+        actor_role=actor.role,
+        clinic_id=actor.clinic_id,
+        patient_id=invoice.patient_id,
+        amount=float(invoice.total or 0.0),
+        currency=invoice.currency,
+        snapshot={
+            "invoice_number": invoice.invoice_number,
+            "patient_name": invoice.patient_name,
+            "service": invoice.service,
+            "amount": float(invoice.amount or 0.0),
+            "total": float(invoice.total or 0.0),
+            "status": invoice.status,
+        },
     )
     ok = finance_repo.delete_invoice(session, actor.actor_id, invoice_id)
     if not ok:
@@ -419,9 +508,10 @@ def mark_invoice_paid_endpoint(
     session: Session = Depends(get_db_session),
 ) -> InvoiceOut:
     _require_finance_write(actor)
-    _require_invoice_write_scope(
+    invoice_before = _require_invoice_write_scope(
         actor, finance_repo.get_invoice(session, actor.actor_id, invoice_id), session
     )
+    outstanding = max(0.0, round(float(invoice_before.total or 0.0) - float(invoice_before.paid or 0.0), 2))
     invoice = finance_repo.mark_invoice_paid(
         session,
         actor.actor_id,
@@ -431,6 +521,25 @@ def mark_invoice_paid_endpoint(
     )
     if invoice is None:
         raise HTTPException(status_code=404, detail="Invoice not found")
+    finance_repo.record_finance_audit(
+        session,
+        action="invoice:mark-paid",
+        target_type="invoice",
+        target_id=invoice.id,
+        actor_id=actor.actor_id,
+        actor_role=actor.role,
+        clinic_id=actor.clinic_id,
+        patient_id=invoice.patient_id,
+        amount=outstanding,
+        currency=invoice.currency,
+        snapshot={
+            "invoice_number": invoice.invoice_number,
+            "paid": float(invoice.paid or 0.0),
+            "total": float(invoice.total or 0.0),
+            "status": invoice.status,
+        },
+        note=f"method={body.method}; ref={body.reference}",
+    )
     return InvoiceOut.from_record(invoice)
 
 
@@ -464,6 +573,26 @@ def create_payment_endpoint(
     payment = finance_repo.create_payment(
         session, actor.actor_id, invoice_id=invoice_id, **payload
     )
+    finance_repo.record_finance_audit(
+        session,
+        action="payment:create",
+        target_type="payment",
+        target_id=payment.id,
+        actor_id=actor.actor_id,
+        actor_role=actor.role,
+        clinic_id=actor.clinic_id,
+        patient_id=invoice.patient_id if invoice else None,
+        amount=float(payment.amount or 0.0),
+        currency=invoice.currency if invoice else None,
+        snapshot={
+            "invoice_id": payment.invoice_id,
+            "patient_name": payment.patient_name,
+            "amount": float(payment.amount or 0.0),
+            "method": payment.method,
+            "reference": payment.reference,
+            "payment_date": payment.payment_date,
+        },
+    )
     return PaymentOut.from_record(payment)
 
 
@@ -490,6 +619,28 @@ def create_claim_endpoint(
     _require_finance_write(actor)
     _gate_finance_patient_access(actor, body.patient_id, session)
     claim = finance_repo.create_claim(session, actor.actor_id, **body.model_dump())
+    finance_repo.record_finance_audit(
+        session,
+        action="claim:create",
+        target_type="claim",
+        target_id=claim.id,
+        actor_id=actor.actor_id,
+        actor_role=actor.role,
+        clinic_id=actor.clinic_id,
+        patient_id=claim.patient_id,
+        amount=claim.amount,
+        snapshot={
+            "claim_number": claim.claim_number,
+            "patient_name": claim.patient_name,
+            "insurer": claim.insurer,
+            "policy_number": claim.policy_number,
+            "description": claim.description,
+            "amount": float(claim.amount or 0.0),
+            "status": claim.status,
+            "submitted_date": claim.submitted_date,
+            "decision_date": claim.decision_date,
+        },
+    )
     return ClaimOut.from_record(claim)
 
 
@@ -517,10 +668,47 @@ def update_claim_endpoint(
     existing = _require_claim_write_scope(
         actor, finance_repo.get_claim(session, actor.actor_id, claim_id), session
     )
+    old_snapshot = {
+        "patient_name": existing.patient_name,
+        "insurer": existing.insurer,
+        "policy_number": existing.policy_number,
+        "description": existing.description,
+        "amount": float(existing.amount or 0.0),
+        "status": existing.status,
+        "submitted_date": existing.submitted_date,
+        "decision_date": existing.decision_date,
+        "notes": existing.notes,
+    }
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     target_patient_id = updates.get("patient_id", existing.patient_id)
     _gate_finance_patient_access(actor, target_patient_id, session)
     claim = finance_repo.update_claim(session, actor.actor_id, claim_id, **updates)
+    new_snapshot = {
+        "patient_name": claim.patient_name,
+        "insurer": claim.insurer,
+        "policy_number": claim.policy_number,
+        "description": claim.description,
+        "amount": float(claim.amount or 0.0),
+        "status": claim.status,
+        "submitted_date": claim.submitted_date,
+        "decision_date": claim.decision_date,
+        "notes": claim.notes,
+    }
+    delta = {k: {"old": old_snapshot.get(k), "new": new_snapshot.get(k)}
+             for k in old_snapshot if old_snapshot.get(k) != new_snapshot.get(k)}
+    finance_repo.record_finance_audit(
+        session,
+        action="claim:update",
+        target_type="claim",
+        target_id=claim.id,
+        actor_id=actor.actor_id,
+        actor_role=actor.role,
+        clinic_id=actor.clinic_id,
+        patient_id=claim.patient_id,
+        amount=claim.amount,
+        snapshot=new_snapshot,
+        delta=delta if delta else None,
+    )
     return ClaimOut.from_record(claim)
 
 
@@ -531,8 +719,27 @@ def delete_claim_endpoint(
     session: Session = Depends(get_db_session),
 ) -> None:
     _require_finance_write(actor)
-    _require_claim_write_scope(
+    claim = _require_claim_write_scope(
         actor, finance_repo.get_claim(session, actor.actor_id, claim_id), session
+    )
+    finance_repo.record_finance_audit(
+        session,
+        action="claim:delete",
+        target_type="claim",
+        target_id=claim_id,
+        actor_id=actor.actor_id,
+        actor_role=actor.role,
+        clinic_id=actor.clinic_id,
+        patient_id=claim.patient_id,
+        amount=float(claim.amount or 0.0),
+        snapshot={
+            "claim_number": claim.claim_number,
+            "patient_name": claim.patient_name,
+            "insurer": claim.insurer,
+            "description": claim.description,
+            "amount": float(claim.amount or 0.0),
+            "status": claim.status,
+        },
     )
     ok = finance_repo.delete_claim(session, actor.actor_id, claim_id)
     if not ok:

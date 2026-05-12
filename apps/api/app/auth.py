@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
 from typing import Iterable
@@ -29,7 +31,7 @@ def _log_denial(reason: str, *, actor: "AuthenticatedActor", patient_clinic_id: 
     )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class AuthenticatedActor:
     actor_id: str
     display_name: str

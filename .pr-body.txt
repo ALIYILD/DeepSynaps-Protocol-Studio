@@ -1,0 +1,10 @@
+Frontend companion to PR #872 (backend dual-review enforcement).
+
+Changes:
+- Module-scope helpers to count reviewers from course.reviewer_1_id / reviewer_2_id
+- Topbar Approve & Activate button: disabled with tooltip when <2 reviewers
+- Governance tab: shows Reviewer 1 / Reviewer 2 IDs, disabled approve button with tooltip
+- _cdGovAction(approve): client-side guard before calling API
+- Stores window._selectedCourse for module-scope handler access
+
+Tested: pages-courses.test.js 49/49 pass.

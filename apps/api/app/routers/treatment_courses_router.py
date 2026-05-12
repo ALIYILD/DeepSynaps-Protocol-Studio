@@ -871,14 +871,25 @@ def post_review_action(
         item.completed_at = now
         # P0 dual-review protocol gate: record independent clinician approval on the course
         if item.target_type == "treatment_course" and item.target_id:
-            try:
-                record_protocol_approval(db, item.target_id, actor.actor_id)
-            except ValueError as exc:
-                raise ApiServiceError(
-                    code="approval_conflict",
-                    message=str(exc),
-                    status_code=409,
+            course = get_treatment_course(db, item.target_id)
+            if course is None:
+                _log.warning(
+                    "review_queue.orphaned_treatment_course_item",
+                    extra={
+                        "review_item_id": item.id,
+                        "target_id": item.target_id,
+                        "actor_id": actor.actor_id,
+                    },
                 )
+            else:
+                try:
+                    record_protocol_approval(db, item.target_id, actor.actor_id)
+                except ValueError as exc:
+                    raise ApiServiceError(
+                        code="approval_conflict",
+                        message=str(exc),
+                        status_code=409,
+                    )
     elif action == "reject":
         item.status = "rejected"
         item.completed_at = now

@@ -207,6 +207,43 @@ class QualityFindingRevision(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
+class FinanceAuditRecord(Base):
+    """Immutable append-only audit trail for every financial write operation.
+
+    Clinic-safe: every row carries clinic_id so cross-clinic leakage is
+    impossible at the query layer. The snapshot_json stores the full object
+    state AFTER the change (for create/update) or BEFORE deletion (for delete)
+    so the trail is reconstructible without joining back to the mutable tables.
+    """
+
+    __tablename__ = "finance_audit_records"
+    __table_args__ = (
+        Index("ix_finance_audit_clinic_created", "clinic_id", "created_at"),
+        Index("ix_finance_audit_target", "target_type", "target_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_id: Mapped[str] = mapped_column(String(36), unique=True, index=True, default=lambda: str(uuid.uuid4()))
+    action: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    # invoice | payment | claim
+    target_type: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    target_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    patient_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    actor_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_role: Mapped[str] = mapped_column(String(32), nullable=False)
+    clinic_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    amount: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    currency: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    # Full object state AFTER create/update; BEFORE for delete.
+    snapshot_json: Mapped[str] = mapped_column(Text(), nullable=False)
+    # JSON of changed fields only (null for create/delete).
+    delta_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), nullable=False, default=lambda: datetime.now(timezone.utc), index=True
+    )
+
+
 # ── IRB Manager (launch-audit 2026-04-30) ────────────────────────────────────
 # Regulator-credible IRB protocol register. Distinct from the legacy
 # ``irb_studies`` table (kept intact for back-compat with the old IRB router):

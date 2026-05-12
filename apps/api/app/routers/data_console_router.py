@@ -237,6 +237,7 @@ async def get_data_console_audit_log(
 _CLINIC_AGGREGATE_ROLES = frozenset({"admin", "clinic_admin"})
 
 
+# core-schema-exempt: clinic-wide data-console aggregate stays router-local for this admin-only endpoint
 class ClinicTableSummary(BaseModel):
     """Clinic-wide aggregate row counts for the data console."""
 
