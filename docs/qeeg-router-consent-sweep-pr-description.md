@@ -149,13 +149,19 @@ There are **two valid paths**. Use **Path 1** until **#874** is merged; use **Pa
 
 Do **not** blindly `git stash pop` — the stash may **overlap** files touched for the router lint unblock (`patients.py`, `data_console_router.py`, `research_dataset_router.py`, etc.).
 
-**Safer after #874 merges:** fork the stash onto its own branch and resolve overlaps there, e.g.:
+**Safer after #874 merges** (on **`main`**, after **`git pull --ff-only origin main`**): fork the stash onto its own branch so overlaps never land on **`main`** or **PR #874**:
 
 ```bash
+git checkout main
+git pull --ff-only origin main
 git stash branch wip/data-console-research wip-unrelated-to-qeeg-consent-pr-874
 ```
 
-### Path 2 — after #874 is merged (start PR 3)
+(`git stash branch` applies the named stash and checks out the new branch; if the stash no longer exists, skip this block.)
+
+### Path 2 — after #874 is merged (then PR 3)
+
+Return to **`main`**, sync, and **only then** create the PR 3 feature branch:
 
 ```bash
 git checkout main
@@ -164,7 +170,7 @@ git checkout -b feat/qeeg-rag-draft-reports
 ```
 
 - **PR title:** `feat(qeeg): evidence-grounded RAG draft reports`
-- **Scope:** **AI Report tab first.** Not Analysis tab. Not advanced metrics. Not source localization. Not modular refactor of the whole qEEG Analyzer frontend.
+- **Scope:** **AI Report tab only** — consent-first, role-checked, real citations only, **clinician-review required**, no diagnosis claims. Not Analysis tab metrics. Not source localization. Not a big qEEG Analyzer refactor.
 - **Pipeline order (backend/product):** (1) **ai_analysis** consent → (2) role → (3) findings → (4) evidence → (5) draft only → (6) real citations → (7) decision-support copy → (8) audit → (9) store as **clinician_review_required**.
 
 ### PR 3 — Cursor step 1 (inspect only; paste first)
@@ -326,7 +332,7 @@ PR **3** is review-ready only when:
 
 **PR 4 — qEEG advanced metrics and visualisation scaffolds** — e.g. phase coherence, amplitude asymmetry, alpha peak frequency, fluctuation time, percentage deviant activity, source-view scaffolds, seizure probability trend (research-only scaffold), processing history tree.
 
-**Immediate build sequence:** merge **#874** → branch **`feat/qeeg-rag-draft-reports`** → **AI Report tab** evidence-grounded draft reports only.
+**Immediate build sequence:** merge **#874** → **`main`** + **`git pull --ff-only`** → (optional) **`git stash branch wip/data-console-research …`** if stash exists → **`main`** + **`feat/qeeg-rag-draft-reports`** → **AI Report tab** evidence-grounded draft reports only.
 
 ## Local verification commands
 
