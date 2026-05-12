@@ -4,6 +4,10 @@
 
 This PR does **not** use **Closes #841** — issue #841 tracks consent coverage across routers; this change completes the **qEEG analysis router** slice only (MRI and DeepTwin sweeps may still be open).
 
+## Scope relative to `main`
+
+On this repository, **`qeeg_analysis_router.py` may already match `main`** (patient gates, consent helpers, export pair, and `_is_demo_id` behaviour may have landed in an earlier merge). The **PR diff** can still be correct and complete for the consent-sweep *release* while omitting that file: review **`qeeg_analysis_router.py` on `main`** as the source of truth for router gates, and use this PR for **test alignment** (`pytest … -k qeeg`), **neuro_signs** CI collection unblock, **docs** (`qeeg-analyzer-endpoint-map.md`), and the PR description.
+
 ## Summary
 
 - Audited every FastAPI route in `apps/api/app/routers/qeeg_analysis_router.py` and applied the existing consent helpers (`require_ai_analysis_consent`, `require_document_generation_consent`) via router wrappers `_enforce_qeeg_ai_consent_for_patient_derived_endpoint`, `_enforce_qeeg_document_generation_consent_for_export`, and `_enforce_qeeg_export_consents`.
