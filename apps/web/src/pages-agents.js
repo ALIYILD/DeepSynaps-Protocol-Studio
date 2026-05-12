@@ -3189,11 +3189,15 @@ function _formatEvidenceGovernanceNote(status, agentId) {
   const literaturePaperCount = Number(status.literature_paper_count || 0);
   const drift = status.source_kind === 'live_sqlite' && dsPaperCount > 0 && livePaperCount > 0 && dsPaperCount !== livePaperCount;
   const stale = _isEvidenceStatusStale(status);
+  const pendingReviewCitations = Number(status.pending_review_citation_count || 0);
+  const unverifiedSaved = Number(status.unverified_saved_citation_count || 0);
 
   if (agentId === 'clinic.dr_ai') {
-    if (status.source_kind !== 'live_sqlite') return 'Evidence is in degraded mode. Draft citations require clinician review before report use.';
+    if (status.source_kind !== 'live_sqlite') return `Evidence is in degraded mode. ${pendingReviewCitations ? `${pendingReviewCitations} draft citation${pendingReviewCitations === 1 ? '' : 's'} waiting for clinician review.` : 'Draft citations require clinician review before report use.'}`;
     if (stale) return 'Live evidence is stale. Treat recommendations as decision support only until the corpus is refreshed.';
-    if (drift) return `Count drift labelled: live corpus ${livePaperCount.toLocaleString()} vs app corpus ${dsPaperCount.toLocaleString()}. Draft citations remain review-only.`;
+    if (drift) return `Count drift labelled: live corpus ${livePaperCount.toLocaleString()} vs app corpus ${dsPaperCount.toLocaleString()}. ${pendingReviewCitations ? `${pendingReviewCitations} draft citation${pendingReviewCitations === 1 ? '' : 's'} waiting for review.` : 'Draft citations remain review-only.'}`;
+    if (pendingReviewCitations) return `${pendingReviewCitations} draft citation${pendingReviewCitations === 1 ? '' : 's'} waiting for clinician review before final reports.`;
+    if (unverifiedSaved) return `${unverifiedSaved} saved citation${unverifiedSaved === 1 ? '' : 's'} marked unverified.`;
     return 'Citations remain draft-only and clinician-reviewed before final reports.';
   }
 
@@ -3201,11 +3205,13 @@ function _formatEvidenceGovernanceNote(status, agentId) {
     if (status.source_kind !== 'live_sqlite') return 'Governance warning: bundled/offline evidence fallback is active.';
     if (stale) return 'Governance warning: live evidence corpus looks stale.';
     if (drift) return `Governance note: source counts differ across corpora (${livePaperCount.toLocaleString()} live, ${dsPaperCount.toLocaleString()} app, ${literaturePaperCount.toLocaleString()} library).`;
+    if (pendingReviewCitations || unverifiedSaved) return `Governance note: ${pendingReviewCitations} pending-review citation${pendingReviewCitations === 1 ? '' : 's'}, ${unverifiedSaved} unverified saved citation${unverifiedSaved === 1 ? '' : 's'}.`;
     return 'Evidence governance nominal. Live source labels are consistent.';
   }
 
   if (agentId === 'clinic.nurse') {
     if (status.source_kind !== 'live_sqlite') return 'Patient evidence context is limited while bundled/offline fallback is active.';
+    if (pendingReviewCitations) return `${pendingReviewCitations} saved citation${pendingReviewCitations === 1 ? '' : 's'} still need clinician review.`;
     return 'Patient evidence context and saved citations still require clinician review.';
   }
 
@@ -3213,6 +3219,7 @@ function _formatEvidenceGovernanceNote(status, agentId) {
     if (status.source_kind !== 'live_sqlite') return 'Operational evidence status only: system is degraded or bundled/offline.';
     if (stale) return 'Operational warning: evidence corpus refresh appears stale.';
     if (drift || bundledCount !== livePaperCount) return `Operational note: labeled source counts differ across live and bundled corpora.`;
+    if (pendingReviewCitations || unverifiedSaved) return `Operational note: ${pendingReviewCitations} pending-review citation${pendingReviewCitations === 1 ? '' : 's'} and ${unverifiedSaved} unverified saved citation${unverifiedSaved === 1 ? '' : 's'}.`;
     return 'Operational evidence status nominal.';
   }
 

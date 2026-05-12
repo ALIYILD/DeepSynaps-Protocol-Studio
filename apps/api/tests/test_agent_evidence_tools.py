@@ -135,6 +135,66 @@ def test_evidence_source_status_degraded_when_sqlite_missing(client, monkeypatch
     assert body["source_label"] == "Evidence DB unavailable"
 
 
+def test_evidence_source_status_counts_pending_and_unverified_saved_citations(
+    client,
+    auth_headers,
+) -> None:
+    from app.database import SessionLocal
+    from app.persistence.models import Patient
+    from app.services.evidence_intelligence import SaveCitationRequest, save_citation
+
+    session = SessionLocal()
+    try:
+        if session.get(Patient, "pat-status") is None:
+            session.add(
+                Patient(
+                    id="pat-status",
+                    clinician_id="actor-clinician-demo",
+                    first_name="Status",
+                    last_name="Patient",
+                )
+            )
+            session.commit()
+
+        save_citation(
+            SaveCitationRequest(
+                patient_id="pat-status",
+                finding_id="finding-pending",
+                finding_label="Finding Pending",
+                claim="Claim Pending",
+                paper_id="paper-pending",
+                paper_title="Pending citation",
+                citation_payload={
+                    "approval_status": "pending_clinician_review",
+                    "approval_required": True,
+                },
+            ),
+            "clinician-status",
+            session,
+        )
+        save_citation(
+            SaveCitationRequest(
+                patient_id="pat-status",
+                finding_id="finding-unverified",
+                finding_label="Finding Unverified",
+                claim="Claim Unverified",
+                paper_id="paper-unverified",
+                paper_title="Unverified citation",
+                citation_payload={},
+            ),
+            "clinician-status",
+            session,
+        )
+    finally:
+        session.close()
+
+    resp = client.get("/api/v1/evidence/source-status", headers=auth_headers["clinician"])
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["pending_review_citation_count"] >= 1
+    assert body["unverified_saved_citation_count"] >= 1
+
+
 def test_evidence_save_citation_request_is_persisted_as_pending_review(
     clinician_actor: AuthenticatedActor,
     db_session,

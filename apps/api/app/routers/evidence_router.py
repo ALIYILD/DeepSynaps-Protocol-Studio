@@ -55,7 +55,7 @@ from app.services.consent_enforcement import (
 )
 from app.errors import ApiServiceError
 from app.logging_setup import get_logger
-from app.persistence.models import AssessmentRecord, ClinicalSession, DsPaper, LiteraturePaper, OutcomeSeries, Patient, TreatmentCourse
+from app.persistence.models import AssessmentRecord, ClinicalSession, DsPaper, EvidenceSavedCitation, LiteraturePaper, OutcomeSeries, Patient, TreatmentCourse
 from app.repositories.patients import resolve_patient_clinic_id
 from app.schemas.evidence_terminal import (
     EvidenceTerminalGradeDistributionOut,
@@ -772,6 +772,8 @@ class EvidenceSourceStatusOut(BaseModel):
     meta_analysis_count: Optional[int] = None
     ds_paper_count: int = 0
     literature_paper_count: int = 0
+    pending_review_citation_count: int = 0
+    unverified_saved_citation_count: int = 0
     updated_at: Optional[str] = None
     generated_at: str
     degraded_reason: Optional[str] = None
@@ -965,6 +967,18 @@ def evidence_source_status(
     generated_at = datetime.now(timezone.utc).isoformat()
     ds_paper_count = int(db.query(func.count(DsPaper.id)).scalar() or 0)
     literature_paper_count = int(db.query(func.count(LiteraturePaper.id)).scalar() or 0)
+    pending_review_citation_count = int(
+        db.query(func.count(EvidenceSavedCitation.id))
+        .filter(EvidenceSavedCitation.citation_payload_json.like('%"approval_status": "pending_clinician_review"%'))
+        .scalar()
+        or 0
+    )
+    unverified_saved_citation_count = int(
+        db.query(func.count(EvidenceSavedCitation.id))
+        .filter(EvidenceSavedCitation.citation_payload_json.like('%"status": "unverified"%'))
+        .scalar()
+        or 0
+    )
     base = {
         "source_kind": "degraded",
         "source_label": "Evidence DB unavailable",
@@ -976,6 +990,8 @@ def evidence_source_status(
         "meta_analysis_count": None,
         "ds_paper_count": ds_paper_count,
         "literature_paper_count": literature_paper_count,
+        "pending_review_citation_count": pending_review_citation_count,
+        "unverified_saved_citation_count": unverified_saved_citation_count,
         "updated_at": None,
         "generated_at": generated_at,
         "degraded_reason": "sqlite_evidence_db_missing",

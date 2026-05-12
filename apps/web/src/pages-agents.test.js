@@ -209,6 +209,17 @@ describe('__aiAgentV2TestApi__ patient context panel', () => {
     assert.match(note, /87,654/);
   });
 
+  it('formats pending review citation counts for dr ai', () => {
+    const note = mod.__aiAgentV2TestApi__.formatEvidenceGovernanceNote({
+      source_kind: 'live_sqlite',
+      paper_count: 184670,
+      pending_review_citation_count: 3,
+      unverified_saved_citation_count: 1,
+      updated_at: new Date().toISOString(),
+    }, 'clinic.dr_ai');
+    assert.match(note, /3 draft citations waiting for clinician review/i);
+  });
+
   it('formats degraded governance notes for dr ai', () => {
     const note = mod.__aiAgentV2TestApi__.formatEvidenceGovernanceNote({
       source_kind: 'degraded',
