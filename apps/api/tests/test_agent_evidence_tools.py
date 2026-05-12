@@ -10,6 +10,7 @@ from app.services.agent_brain.schemas import Citation, ProviderResponse
 from app.services.agents.registry import AGENT_REGISTRY
 from app.services.agents.tool_dispatcher import WRITE_HANDLERS
 from app.services.agents.tools.registry import TOOL_REGISTRY
+from app.services.agents.tool_dispatcher import EvidenceSaveCitationRequestArgs
 from app.services.evidence_intelligence import PatientEvidenceOverview
 
 
@@ -132,3 +133,42 @@ def test_evidence_source_status_degraded_when_sqlite_missing(client, monkeypatch
     body = resp.json()
     assert body["source_kind"] == "degraded"
     assert body["source_label"] == "Evidence DB unavailable"
+
+
+def test_evidence_save_citation_request_is_persisted_as_pending_review(
+    clinician_actor: AuthenticatedActor,
+    db_session,
+) -> None:
+    _model, handler = WRITE_HANDLERS["evidence.save_citation_request"]
+    with patch(
+        "app.services.agents.tool_dispatcher._guard_patient_scope",
+        return_value=None,
+    ), patch(
+        "app.services.evidence_intelligence.save_citation",
+        return_value={
+            "id": "saved-1",
+            "citation_payload": {
+                "approval_status": "pending_clinician_review",
+                "approval_required": True,
+                "requested_via": "agent_tool",
+            },
+        },
+    ) as mocked_save:
+        out = handler(
+            clinician_actor,
+            db_session,
+            EvidenceSaveCitationRequestArgs(
+                patient_id="pat-1",
+                finding_id="finding-1",
+                finding_label="Finding 1",
+                claim="Claim 1",
+                paper_id="paper-1",
+                paper_title="Paper 1",
+                citation_payload={"inline_citation": "(A, 2026)"},
+            ),
+        )
+    sent_request = mocked_save.call_args.args[0]
+    assert sent_request.citation_payload["approval_status"] == "pending_clinician_review"
+    assert sent_request.citation_payload["approval_required"] is True
+    assert sent_request.citation_payload["requested_via"] == "agent_tool"
+    assert out["result"]["record"]["citation_payload"]["approval_status"] == "pending_clinician_review"

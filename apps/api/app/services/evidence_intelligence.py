@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.logging_setup import get_logger
 from app.persistence.models import DsPaper, EvidenceSavedCitation, LiteraturePaper
+from app.services.report_citations import citation_from_text
 from app.services.neuromodulation_research import search_adjunct_evidence
 
 EvidenceLevel = Literal["low", "moderate", "high"]
@@ -866,6 +867,8 @@ def save_citation(body: SaveCitationRequest, actor_id: str, db: Session) -> dict
             "Cannot save demo evidence as a real citation. "
             "Demo papers (paper_id 'demo-*' or pmid 90000xxx) are seed data only."
         )
+    payload = _normalize_saved_citation_payload(body, db)
+
     existing = db.scalar(select(EvidenceSavedCitation).where(
         EvidenceSavedCitation.patient_id == body.patient_id,
         EvidenceSavedCitation.finding_id == body.finding_id,
@@ -887,9 +890,13 @@ def save_citation(body: SaveCitationRequest, actor_id: str, db: Session) -> dict
             context_kind=body.context_kind,
             analysis_id=body.analysis_id,
             report_id=body.report_id,
-            citation_payload_json=json.dumps(body.citation_payload),
+            citation_payload_json=json.dumps(payload),
         )
         db.add(existing)
+        db.commit()
+        db.refresh(existing)
+    else:
+        existing.citation_payload_json = json.dumps(payload)
         db.commit()
         db.refresh(existing)
     return saved_record_to_dict(existing)
@@ -939,6 +946,95 @@ def saved_record_to_dict(row: EvidenceSavedCitation) -> dict[str, Any]:
         "citation_payload": payload,
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }
+
+
+def _normalize_saved_citation_payload(
+    body: SaveCitationRequest,
+    db: Session,
+) -> dict[str, Any]:
+    payload = dict(body.citation_payload or {})
+    payload.setdefault("approval_status", "clinician_saved")
+    payload.setdefault("approval_required", False)
+    payload.setdefault("saved_at", datetime.now(timezone.utc).isoformat())
+    payload["citation_verification"] = _build_citation_verification(body, db)
+    return payload
+
+
+def _build_citation_verification(
+    body: SaveCitationRequest,
+    db: Session,
+) -> dict[str, Any]:
+    ds_paper = _resolve_ds_paper(body, db)
+    if ds_paper is not None:
+        return {
+            "status": "verified",
+            "source": "ds_papers",
+            "paper_id": ds_paper.id,
+            "pmid": ds_paper.pmid,
+            "doi": ds_paper.doi,
+            "title": ds_paper.title,
+            "grade": ds_paper.grade,
+            "evidence_level": ds_paper.evidence_level,
+        }
+
+    lib_paper = _resolve_literature_paper(body, db)
+    if lib_paper is not None:
+        return {
+            "status": "verified",
+            "source": "literature_papers",
+            "paper_id": lib_paper.id,
+            "pmid": lib_paper.pubmed_id,
+            "doi": lib_paper.doi,
+            "title": lib_paper.title,
+            "grade": lib_paper.evidence_grade,
+            "evidence_level": lib_paper.study_type,
+        }
+
+    raw = " ".join(
+        part for part in [body.paper_title, body.doi or "", body.pmid or ""] if part
+    ).strip()
+    ref = citation_from_text(raw, citation_id="saved-citation", db=db)
+    return {
+        "status": ref.status,
+        "source": "report_citations",
+        "pmid": ref.pmid,
+        "doi": ref.doi,
+        "title": ref.title,
+        "raw_text": ref.raw_text,
+    }
+
+
+def _resolve_ds_paper(body: SaveCitationRequest, db: Session) -> DsPaper | None:
+    if body.paper_id:
+        row = db.get(DsPaper, body.paper_id)
+        if row is not None:
+            return row
+    clauses = []
+    if body.pmid:
+        clauses.append(DsPaper.pmid == body.pmid)
+    if body.doi:
+        clauses.append(DsPaper.doi == body.doi)
+    if not clauses:
+        return None
+    return db.scalar(select(DsPaper).where(or_(*clauses)))
+
+
+def _resolve_literature_paper(
+    body: SaveCitationRequest,
+    db: Session,
+) -> LiteraturePaper | None:
+    if body.paper_id:
+        row = db.get(LiteraturePaper, body.paper_id)
+        if row is not None:
+            return row
+    clauses = []
+    if body.pmid:
+        clauses.append(LiteraturePaper.pubmed_id == body.pmid)
+    if body.doi:
+        clauses.append(LiteraturePaper.doi == body.doi)
+    if not clauses:
+        return None
+    return db.scalar(select(LiteraturePaper).where(or_(*clauses)))
 
 
 def build_report_payload(body: ReportPayloadRequest, db: Session) -> dict[str, Any]:

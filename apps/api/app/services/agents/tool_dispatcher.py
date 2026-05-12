@@ -616,8 +616,15 @@ def _h_evidence_save_citation_request(
 
     from app.services.evidence_intelligence import SaveCitationRequest, save_citation
 
+    arg_payload = args.model_dump()
+    merged_payload = dict(arg_payload.get("citation_payload") or {})
+    merged_payload.setdefault("approval_status", "pending_clinician_review")
+    merged_payload.setdefault("approval_required", True)
+    merged_payload.setdefault("requested_via", "agent_tool")
+    arg_payload["citation_payload"] = merged_payload
+
     record = save_citation(
-        SaveCitationRequest(**args.model_dump()),
+        SaveCitationRequest(**arg_payload),
         actor.actor_id,
         db,
     )

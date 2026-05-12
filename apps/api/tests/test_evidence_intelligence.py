@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
-from app.persistence.models import Clinic, DsPaper, Patient, User
+from app.persistence.models import Clinic, DsPaper, LiteraturePaper, Patient, User
 from app.services.evidence_intelligence import (
     EvidenceQuery,
     SaveCitationRequest,
@@ -436,6 +436,106 @@ def test_report_payload_respects_saved_citation_context_filters():
         assert payload["report_context"]["context_kind"] == "qeeg"
         assert len(payload["saved_citations"]) == 1
         assert payload["saved_citations"][0]["paper_id"] == "paper-qeeg"
+    finally:
+        session.close()
+
+
+def test_save_citation_adds_unverified_status_when_paper_cannot_be_verified():
+    _seed_patient("pat-unverified")
+    session = SessionLocal()
+    try:
+        row = save_citation(
+            SaveCitationRequest(
+                patient_id="pat-unverified",
+                finding_id="finding-u",
+                finding_label="Finding U",
+                claim="Claim U",
+                paper_id="paper-u",
+                paper_title="Unknown evidence note without corpus row",
+                citation_payload={"inline_citation": "(U, 2026)"},
+            ),
+            "clinician-u",
+            session,
+        )
+        assert row["citation_payload"]["approval_status"] == "clinician_saved"
+        assert row["citation_payload"]["approval_required"] is False
+        assert row["citation_payload"]["citation_verification"]["status"] == "unverified"
+    finally:
+        session.close()
+
+
+def test_save_citation_marks_ds_paper_as_verified():
+    _seed_patient("pat-verified-ds")
+    paper_id = _seed_ds_paper(
+        title="Verified ds_paper citation",
+        abstract="Evidence abstract.",
+        pub_types=["Systematic Review"],
+        citations=333,
+    )
+    session = SessionLocal()
+    try:
+        paper = session.get(DsPaper, paper_id)
+        assert paper is not None
+        row = save_citation(
+            SaveCitationRequest(
+                patient_id="pat-verified-ds",
+                finding_id="finding-vds",
+                finding_label="Finding VDS",
+                claim="Claim VDS",
+                paper_id=paper.id,
+                paper_title=paper.title or "Verified ds_paper citation",
+                pmid=paper.pmid,
+                doi=paper.doi,
+                citation_payload={"inline_citation": "(VDS, 2026)"},
+            ),
+            "clinician-vds",
+            session,
+        )
+        verification = row["citation_payload"]["citation_verification"]
+        assert verification["status"] == "verified"
+        assert verification["source"] == "ds_papers"
+        assert verification["paper_id"] == paper.id
+    finally:
+        session.close()
+
+
+def test_save_citation_marks_literature_paper_as_verified():
+    _seed_patient("pat-verified-lib")
+    session = SessionLocal()
+    try:
+        paper = LiteraturePaper(
+            id=str(uuid.uuid4()),
+            added_by="actor-clinician-demo",
+            title="Literature verified citation",
+            pubmed_id="7654321",
+            doi="10.1000/lib-verified",
+            journal="Library",
+            authors="Tester",
+            year=2025,
+            tags_json="[]",
+        )
+        session.add(paper)
+        session.commit()
+
+        row = save_citation(
+            SaveCitationRequest(
+                patient_id="pat-verified-lib",
+                finding_id="finding-vlib",
+                finding_label="Finding VLIB",
+                claim="Claim VLIB",
+                paper_id=paper.id,
+                paper_title=paper.title or "Literature verified citation",
+                pmid=paper.pubmed_id,
+                doi=paper.doi,
+                citation_payload={"inline_citation": "(VLIB, 2026)"},
+            ),
+            "clinician-vlib",
+            session,
+        )
+        verification = row["citation_payload"]["citation_verification"]
+        assert verification["status"] == "verified"
+        assert verification["source"] == "literature_papers"
+        assert verification["paper_id"] == paper.id
     finally:
         session.close()
 
