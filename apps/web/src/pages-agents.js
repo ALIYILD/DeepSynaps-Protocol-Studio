@@ -3323,6 +3323,9 @@ async function _loadHeadOfClinicWidgetData() {
     const roomOccupancy = rooms?.occupancy ?? (Array.isArray(rooms?.items) ? `${Math.round(rooms.items.filter(r => r.occupied).length / Math.max(rooms.items.length, 1) * 100)}%` : null);
     const adverseEvents = adverse?.total ?? adverse?.items?.length ?? 0;
     if (!activePatients && !openEscalations && !roomOccupancy && !adverseEvents) {
+      if (evidence) {
+        return { activePatients: 0, openEscalations: 0, roomOccupancy: '—', adverseEvents: 0, evidenceSource: _formatEvidenceSourceBadge(evidence), evidenceWarning: _formatEvidenceWarning(evidence), evidenceGovernance: _formatEvidenceGovernanceNote(evidence, 'clinic.head_of_clinic') };
+      }
       return { empty: true, reason: 'Clinic analytics coming soon' };
     }
     return { activePatients, openEscalations, roomOccupancy: roomOccupancy || '—', adverseEvents, evidenceSource: _formatEvidenceSourceBadge(evidence), evidenceWarning: _formatEvidenceWarning(evidence), evidenceGovernance: _formatEvidenceGovernanceNote(evidence, 'clinic.head_of_clinic') };
@@ -3346,6 +3349,9 @@ async function _loadNurseWidgetData() {
     const patientsNeedingPrep = dayQueue?.prep_count ?? 0;
     const vitalsOutliers = dayQueue?.vitals_outlier_count ?? 0;
     if (!pendingTasks && !patientsNeedingPrep && !vitalsOutliers) {
+      if (evidence) {
+        return { pendingTasks: 0, patientsNeedingPrep: 0, vitalsOutliers: 0, evidenceSource: _formatEvidenceSourceBadge(evidence), evidenceWarning: 'Patient evidence activates when a patient is selected.', evidenceGovernance: _formatEvidenceGovernanceNote(evidence, 'clinic.nurse') };
+      }
       return { empty: true, reason: 'No nurse tasks on the board' };
     }
     return { pendingTasks, patientsNeedingPrep, vitalsOutliers, evidenceSource: _formatEvidenceSourceBadge(evidence), evidenceWarning: 'Patient evidence activates when a patient is selected.', evidenceGovernance: _formatEvidenceGovernanceNote(evidence, 'clinic.nurse') };
@@ -3368,6 +3374,9 @@ async function _loadManagerWidgetData() {
     const pendingInvoices = invoices?.total ?? invoices?.items?.length ?? 0;
     const staffOnCall = '—';
     if (!roomUtilization && !pendingInvoices) {
+      if (evidence) {
+        return { roomUtilization: '—', staffOnCall, pendingInvoices: 0, evidenceSource: _formatEvidenceSourceBadge(evidence), evidenceWarning: 'Operational evidence status only.', evidenceGovernance: _formatEvidenceGovernanceNote(evidence, 'clinic.manager') };
+      }
       return { empty: true, reason: 'Operations data unavailable' };
     }
     return { roomUtilization: roomUtilization || '—', staffOnCall, pendingInvoices, evidenceSource: _formatEvidenceSourceBadge(evidence), evidenceWarning: 'Operational evidence status only.', evidenceGovernance: _formatEvidenceGovernanceNote(evidence, 'clinic.manager') };
