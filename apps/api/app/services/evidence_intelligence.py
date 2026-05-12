@@ -909,6 +909,7 @@ def list_saved_citations(
     context_kind: str | None = None,
     analysis_id: str | None = None,
     report_id: str | None = None,
+    include_pending_review: bool = True,
 ) -> list[dict[str, Any]]:
     stmt = (
         select(EvidenceSavedCitation)
@@ -921,6 +922,12 @@ def list_saved_citations(
         stmt = stmt.where(EvidenceSavedCitation.analysis_id == analysis_id)
     if report_id:
         stmt = stmt.where(EvidenceSavedCitation.report_id == report_id)
+    if not include_pending_review:
+        stmt = stmt.where(
+            ~EvidenceSavedCitation.citation_payload_json.like(
+                '%"approval_status": "pending_clinician_review"%'
+            )
+        )
     rows = db.scalars(stmt).all()
     return [saved_record_to_dict(row) for row in rows]
 
@@ -1051,6 +1058,7 @@ def build_report_payload(body: ReportPayloadRequest, db: Session) -> dict[str, A
         context_kind=body.context_kind,
         analysis_id=body.analysis_id,
         report_id=body.report_id,
+        include_pending_review=False,
     ) if body.include_saved else []
     adjunct_evidence = _build_adjunct_evidence_context(targets)
     return {

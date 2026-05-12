@@ -2473,6 +2473,7 @@ def export_report_html(
         context_kind="qeeg",
         analysis_id=analysis_id,
         report_id=report_id,
+        include_pending_review=False,
     )
     html_content = _render_report_html(report, analysis, saved_citations=saved_citations)
     short_id = report_id[:8]
