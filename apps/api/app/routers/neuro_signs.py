@@ -4,10 +4,12 @@ Neuro MRI Signs API routes.
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import String, or_
 from typing import Optional, List
+from types import SimpleNamespace
 import uuid
 
+from app.auth import AuthenticatedActor, get_authenticated_actor
 from app.database import get_db
 from app.persistence.models.neuro_signs import (
     NeuroSign, CaseNeuroSign, NeuroSignAnnotation
@@ -17,9 +19,26 @@ from app.schemas.neuro_signs import (
     CaseNeuroSignCreate, CaseNeuroSignUpdate, CaseNeuroSignResponse,
     NeuroSignAnnotationCreate, NeuroSignAnnotationResponse
 )
-from app.auth import get_current_user
 
 router = APIRouter(prefix="/api/neuro-signs", tags=["neuro-signs"])
+
+
+def get_current_user(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+):
+    """Compatibility shim for legacy neuro-signs routes.
+
+    This router still expects a ``current_user`` object with ``id`` and
+    ``is_admin`` attributes. Convert the platform-wide ``AuthenticatedActor``
+    dependency into the older shape without changing the route bodies.
+    """
+    return SimpleNamespace(
+        id=actor.actor_id,
+        role=actor.role,
+        clinic_id=actor.clinic_id,
+        display_name=actor.display_name,
+        is_admin=(actor.role == "admin"),
+    )
 
 
 def _is_admin(current_user) -> bool:
@@ -56,8 +75,8 @@ async def list_neuro_signs(
                 NeuroSign.visual_description.ilike(search_term),
                 NeuroSign.pathophysiology_explanation.ilike(search_term),
                 # For JSON arrays, use text-based search (approximate)
-                NeuroSign.aliases.cast(str).ilike(search_term),
-                NeuroSign.primary_conditions.cast(str).ilike(search_term),
+                NeuroSign.aliases.cast(String).ilike(search_term),
+                NeuroSign.primary_conditions.cast(String).ilike(search_term),
             )
         )
     
@@ -69,9 +88,9 @@ async def list_neuro_signs(
     
     # For JSON array filters, use text-based matching
     if anatomy:
-        query = query.filter(NeuroSign.anatomy.cast(str).ilike(f"%{anatomy}%"))
+        query = query.filter(NeuroSign.anatomy.cast(String).ilike(f"%{anatomy}%"))
     if sequence:
-        query = query.filter(NeuroSign.sequences.cast(str).ilike(f"%{sequence}%"))
+        query = query.filter(NeuroSign.sequences.cast(String).ilike(f"%{sequence}%"))
     
     total = query.count()
     signs = query.order_by(NeuroSign.name).offset(skip).limit(limit).all()

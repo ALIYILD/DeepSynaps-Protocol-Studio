@@ -115,3 +115,9 @@ def get_db_session() -> Generator[Session, None, None]:
         yield session
     finally:
         session.close()
+
+
+# Backwards-compatible alias retained for older tests and modules that still
+# import the historical dependency name.
+def get_db() -> Generator[Session, None, None]:
+    yield from get_db_session()
