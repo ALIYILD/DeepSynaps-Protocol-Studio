@@ -303,6 +303,81 @@ def test_run_agent_embeds_live_context_block_in_user_message(
     assert "sessions.cancel" not in result["context_used"]
 
 
+def test_run_agent_dr_ai_uses_message_aware_evidence_context(
+    clinician_actor: AuthenticatedActor,
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.agents import run_agent
+    from app.services.agents.registry import AGENT_REGISTRY
+    from app.services.evidence_intelligence import PatientEvidenceOverview
+
+    captured: dict[str, object] = {}
+
+    def _capture(**kwargs):
+        captured.update(kwargs)
+        return "evidence grounded"
+
+    monkeypatch.setattr("app.services.chat_service._llm_chat", _capture)
+    monkeypatch.setattr(
+        "app.repositories.patients.resolve_patient_clinic_id",
+        lambda session, patient_id: (True, "clinic-demo-default"),
+    )
+
+    class _FakeResult:
+        finding_id = "frontal_alpha_asymmetry"
+        target_name = "frontal_alpha_asymmetry"
+        claim = "Evidence-backed claim"
+        evidence_strength = "moderate"
+        confidence_score = 0.82
+        supporting_papers = []
+        conflicting_papers = []
+        literature_summary = "Matched patient-scoped evidence."
+        recommended_caution = "Use as decision support only."
+
+        class _Prov:
+            def model_dump(self, mode="json"):
+                return {"source_kind": "live_sqlite", "matched_on": ["patient_id", "target_name"]}
+
+        provenance = _Prov()
+
+    monkeypatch.setattr(
+        "app.services.evidence_intelligence.query_evidence",
+        lambda query, db: _FakeResult(),
+    )
+    monkeypatch.setattr(
+        "app.services.evidence_intelligence.build_patient_overview",
+        lambda patient_id, db: PatientEvidenceOverview(
+            patient_id=patient_id,
+            highlights=[],
+            by_modality={},
+            by_score=[],
+            by_protocol=[],
+            contradictory_findings=[],
+            saved_citations=[],
+            compare_with_literature_phenotype={},
+            evidence_used_in_report=[],
+        ),
+    )
+
+    result = run_agent(
+        AGENT_REGISTRY["clinic.dr_ai"],
+        message="patient_id: pat-dr-ai summarize frontal alpha asymmetry evidence",
+        actor=clinician_actor,
+        db=db_session,
+    )
+
+    user_content = captured["messages"][0]["content"]  # type: ignore[index]
+    assert '<context source="clinic_live">' in user_content
+    assert '"evidence.query"' in user_content
+    assert '"mode": "patient_intelligence"' in user_content
+    assert '"patient_id": "pat-dr-ai"' in user_content
+    assert '"evidence.patient_overview"' in user_content
+    assert "patient_id: pat-dr-ai summarize frontal alpha asymmetry evidence" in user_content
+    assert "evidence.query" in result["context_used"]
+    assert "evidence.patient_overview" in result["context_used"]
+
+
 def test_run_agent_skips_context_when_db_or_actor_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

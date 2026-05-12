@@ -3323,6 +3323,9 @@ async function _loadHeadOfClinicWidgetData() {
     const roomOccupancy = rooms?.occupancy ?? (Array.isArray(rooms?.items) ? `${Math.round(rooms.items.filter(r => r.occupied).length / Math.max(rooms.items.length, 1) * 100)}%` : null);
     const adverseEvents = adverse?.total ?? adverse?.items?.length ?? 0;
     if (!activePatients && !openEscalations && !roomOccupancy && !adverseEvents) {
+      if (evidence) {
+        return { activePatients: 0, openEscalations: 0, roomOccupancy: '—', adverseEvents: 0, evidenceSource: _formatEvidenceSourceBadge(evidence), evidenceWarning: _formatEvidenceWarning(evidence), evidenceGovernance: _formatEvidenceGovernanceNote(evidence, 'clinic.head_of_clinic') };
+      }
       return { empty: true, reason: 'Clinic analytics coming soon' };
     }
     return { activePatients, openEscalations, roomOccupancy: roomOccupancy || '—', adverseEvents, evidenceSource: _formatEvidenceSourceBadge(evidence), evidenceWarning: _formatEvidenceWarning(evidence), evidenceGovernance: _formatEvidenceGovernanceNote(evidence, 'clinic.head_of_clinic') };
@@ -3346,6 +3349,9 @@ async function _loadNurseWidgetData() {
     const patientsNeedingPrep = dayQueue?.prep_count ?? 0;
     const vitalsOutliers = dayQueue?.vitals_outlier_count ?? 0;
     if (!pendingTasks && !patientsNeedingPrep && !vitalsOutliers) {
+      if (evidence) {
+        return { pendingTasks: 0, patientsNeedingPrep: 0, vitalsOutliers: 0, evidenceSource: _formatEvidenceSourceBadge(evidence), evidenceWarning: 'Patient evidence activates when a patient is selected.', evidenceGovernance: _formatEvidenceGovernanceNote(evidence, 'clinic.nurse') };
+      }
       return { empty: true, reason: 'No nurse tasks on the board' };
     }
     return { pendingTasks, patientsNeedingPrep, vitalsOutliers, evidenceSource: _formatEvidenceSourceBadge(evidence), evidenceWarning: 'Patient evidence activates when a patient is selected.', evidenceGovernance: _formatEvidenceGovernanceNote(evidence, 'clinic.nurse') };
@@ -3368,6 +3374,9 @@ async function _loadManagerWidgetData() {
     const pendingInvoices = invoices?.total ?? invoices?.items?.length ?? 0;
     const staffOnCall = '—';
     if (!roomUtilization && !pendingInvoices) {
+      if (evidence) {
+        return { roomUtilization: '—', staffOnCall, pendingInvoices: 0, evidenceSource: _formatEvidenceSourceBadge(evidence), evidenceWarning: 'Operational evidence status only.', evidenceGovernance: _formatEvidenceGovernanceNote(evidence, 'clinic.manager') };
+      }
       return { empty: true, reason: 'Operations data unavailable' };
     }
     return { roomUtilization: roomUtilization || '—', staffOnCall, pendingInvoices, evidenceSource: _formatEvidenceSourceBadge(evidence), evidenceWarning: 'Operational evidence status only.', evidenceGovernance: _formatEvidenceGovernanceNote(evidence, 'clinic.manager') };
@@ -3378,19 +3387,18 @@ async function _loadManagerWidgetData() {
 
 async function _loadDrAiWidgetData() {
   if (_isMarketplaceDemoMode()) {
-    return { pendingDrafts: 2, newEvidenceAlerts: 1, protocolSuggestions: 3, evidenceSource: 'Bundled fallback · 184,669 papers', evidenceWarning: 'Bundled/offline registry snapshot', evidenceGovernance: 'Evidence is in degraded mode. Draft citations require clinician review before report use.' };
+    return { pendingDrafts: 2, pendingCitationReviews: 1, protocolSuggestions: 3, evidenceSource: 'Bundled fallback · 184,669 papers', evidenceWarning: 'Bundled/offline registry snapshot', evidenceGovernance: 'Evidence is in degraded mode. Draft citations require clinician review before report use.' };
   }
   try {
-    const [media, evidence, suggestions, sourceStatus] = await Promise.all([
+    const [media, suggestions, sourceStatus] = await Promise.all([
       api.listMediaQueue().catch(() => null),
-      api.evidenceStatus().catch(() => null),
       api.evidenceSuggest({ limit: 5 }).catch(() => null),
       api.evidenceSourceStatus?.().catch(() => null),
     ]);
     const pendingDrafts = media?.total ?? media?.items?.length ?? 0;
-    const newEvidenceAlerts = evidence?.new_alerts ?? 0;
+    const pendingCitationReviews = Number(sourceStatus?.pending_review_citation_count || 0);
     const protocolSuggestions = Array.isArray(suggestions?.items) ? suggestions.items.length : (Array.isArray(suggestions) ? suggestions.length : 0);
-    return { pendingDrafts, newEvidenceAlerts, protocolSuggestions, evidenceSource: _formatEvidenceSourceBadge(sourceStatus), evidenceWarning: _formatEvidenceWarning(sourceStatus), evidenceGovernance: _formatEvidenceGovernanceNote(sourceStatus, 'clinic.dr_ai') };
+    return { pendingDrafts, pendingCitationReviews, protocolSuggestions, evidenceSource: _formatEvidenceSourceBadge(sourceStatus), evidenceWarning: _formatEvidenceWarning(sourceStatus), evidenceGovernance: _formatEvidenceGovernanceNote(sourceStatus, 'clinic.dr_ai') };
   } catch {
     return { empty: true, reason: 'No pending clinical decisions' };
   }
@@ -3509,7 +3517,7 @@ function _renderAgentDashboardWidgets(hiredAgents) {
       metrics = `
         <div style="display:flex;gap:12px;flex-wrap:wrap">
           <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.pendingDrafts}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Draft reports</div></div>
-          <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.newEvidenceAlerts}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Evidence alerts</div></div>
+          <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.pendingCitationReviews}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Pending citations</div></div>
           <div><div style="font-size:20px;font-weight:700;color:var(--text-primary)">${data.protocolSuggestions}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em">Protocol suggestions</div></div>
         </div>
         <div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">${_esc(data.evidenceSource || '')}</div>

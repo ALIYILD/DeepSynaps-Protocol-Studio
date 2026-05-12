@@ -128,7 +128,7 @@ def test_evidence_patient_overview_returns_authorized_overview(
 
 def test_evidence_source_status_uses_bundled_fallback_when_sqlite_missing(client, monkeypatch) -> None:
     monkeypatch.setenv("EVIDENCE_DB_PATH", "/tmp/definitely-missing-evidence.db")
-    resp = client.get("/api/v1/evidence/source-status")
+    resp = client.get("/api/v1/evidence/source-status", headers={"Authorization": "Bearer clinician-demo-token"})
     assert resp.status_code == 200
     body = resp.json()
     assert body["source_kind"] == "bundled_fallback"
@@ -159,7 +159,7 @@ def test_evidence_source_status_counts_pending_and_unverified_saved_citations(
     auth_headers,
 ) -> None:
     from app.database import SessionLocal
-    from app.persistence.models import Patient
+    from app.persistence.models import Clinic, Patient, User
     from app.services.evidence_intelligence import SaveCitationRequest, save_citation
 
     session = SessionLocal()
@@ -171,6 +171,33 @@ def test_evidence_source_status_counts_pending_and_unverified_saved_citations(
                     clinician_id="actor-clinician-demo",
                     first_name="Status",
                     last_name="Patient",
+                )
+            )
+            session.commit()
+
+        if session.get(Clinic, "clinic-other") is None:
+            session.add(Clinic(id="clinic-other", name="Other Clinic"))
+            session.commit()
+        if session.get(User, "actor-other-clinic") is None:
+            session.add(
+                User(
+                    id="actor-other-clinic",
+                    email="other_clinic@example.com",
+                    display_name="Other Clinic User",
+                    hashed_password="x",
+                    role="clinician",
+                    package_id="clinician_pro",
+                    clinic_id="clinic-other",
+                )
+            )
+            session.commit()
+        if session.get(Patient, "pat-other-clinic") is None:
+            session.add(
+                Patient(
+                    id="pat-other-clinic",
+                    clinician_id="actor-other-clinic",
+                    first_name="Other",
+                    last_name="Clinic",
                 )
             )
             session.commit()
@@ -204,14 +231,121 @@ def test_evidence_source_status_counts_pending_and_unverified_saved_citations(
             "clinician-status",
             session,
         )
+        save_citation(
+            SaveCitationRequest(
+                patient_id="pat-other-clinic",
+                finding_id="finding-other",
+                finding_label="Finding Other",
+                claim="Claim Other",
+                paper_id="paper-other",
+                paper_title="Other clinic citation",
+                citation_payload={
+                    "approval_status": "pending_clinician_review",
+                    "approval_required": True,
+                },
+            ),
+            "clinician-other",
+            session,
+        )
     finally:
         session.close()
 
     resp = client.get("/api/v1/evidence/source-status", headers=auth_headers["clinician"])
     assert resp.status_code == 200
     body = resp.json()
-    assert body["pending_review_citation_count"] >= 1
+    assert body["pending_review_citation_count"] == 1
     assert body["unverified_saved_citation_count"] >= 1
+
+
+def test_evidence_status_tool_scopes_saved_citation_counts_to_actor_clinic(
+    clinician_actor: AuthenticatedActor,
+    db_session,
+) -> None:
+    from app.persistence.models import Clinic, Patient, User
+    from app.services.evidence_intelligence import SaveCitationRequest, save_citation
+
+    if db_session.get(Patient, "pat-status-tool") is None:
+        db_session.add(
+            Patient(
+                id="pat-status-tool",
+                clinician_id="actor-clinician-demo",
+                first_name="Status",
+                last_name="Tool",
+            )
+        )
+        db_session.commit()
+    if db_session.get(Clinic, "clinic-other-tool") is None:
+        db_session.add(Clinic(id="clinic-other-tool", name="Other Clinic Tool"))
+        db_session.commit()
+    if db_session.get(User, "actor-other-tool") is None:
+        db_session.add(
+            User(
+                id="actor-other-tool",
+                email="other_tool@example.com",
+                display_name="Other Clinic Tool User",
+                hashed_password="x",
+                role="clinician",
+                package_id="clinician_pro",
+                clinic_id="clinic-other-tool",
+            )
+        )
+        db_session.commit()
+    if db_session.get(Patient, "pat-other-tool") is None:
+        db_session.add(
+            Patient(
+                id="pat-other-tool",
+                clinician_id="actor-other-tool",
+                first_name="Other",
+                last_name="Tool",
+            )
+        )
+        db_session.commit()
+
+    save_citation(
+        SaveCitationRequest(
+            patient_id="pat-status-tool",
+            finding_id="finding-tool-local",
+            finding_label="Finding Tool Local",
+            claim="Claim Tool Local",
+            paper_id="paper-tool-local",
+            paper_title="Tool local citation",
+            citation_payload={
+                "approval_status": "pending_clinician_review",
+                "approval_required": True,
+            },
+        ),
+        "clinician-tool-local",
+        db_session,
+    )
+    save_citation(
+        SaveCitationRequest(
+            patient_id="pat-other-tool",
+            finding_id="finding-tool-other",
+            finding_label="Finding Tool Other",
+            claim="Claim Tool Other",
+            paper_id="paper-tool-other",
+            paper_title="Tool other citation",
+            citation_payload={
+                "approval_status": "pending_clinician_review",
+                "approval_required": True,
+            },
+        ),
+        "clinician-tool-other",
+        db_session,
+    )
+
+    handler = TOOL_REGISTRY["evidence.status"].handler
+    assert handler is not None
+
+    payload = handler(clinician_actor, db_session)
+
+    assert payload["pending_review_citation_count"] == 1
+    assert payload["unverified_saved_citation_count"] >= 1
+
+
+def test_evidence_source_status_requires_authenticated_clinician(client) -> None:
+    resp = client.get("/api/v1/evidence/source-status")
+    assert resp.status_code == 403
 
 
 def test_evidence_save_citation_request_is_persisted_as_pending_review(

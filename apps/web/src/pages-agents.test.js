@@ -244,7 +244,7 @@ describe('__aiAgentV2TestApi__ patient context panel', () => {
     mod.__aiAgentV2TestApi__.setWidgetData({
       'clinic.dr_ai': {
         pendingDrafts: 2,
-        newEvidenceAlerts: 0,
+        pendingCitationReviews: 0,
         protocolSuggestions: 3,
         evidenceSource: 'Live SQLite · 184,670 papers',
         evidenceWarning: 'Updated just now',
@@ -256,7 +256,28 @@ describe('__aiAgentV2TestApi__ patient context panel', () => {
     ]);
     assert.match(html, /Live SQLite · 184,670 papers/);
     assert.match(html, /Updated just now/);
+    assert.match(html, /Pending citations/i);
     assert.match(html, /draft-only and clinician-reviewed/i);
+  });
+
+  it('renders governance copy for zero-metric head-of-clinic widget when evidence status exists', () => {
+    mod.__aiAgentV2TestApi__.setWidgetData({
+      'clinic.head_of_clinic': {
+        activePatients: 0,
+        openEscalations: 0,
+        roomOccupancy: '—',
+        adverseEvents: 0,
+        evidenceSource: 'Bundled fallback · 184,669 papers',
+        evidenceWarning: 'Bundled/offline registry snapshot',
+        evidenceGovernance: 'Governance warning: bundled/offline evidence fallback is active.',
+      },
+    });
+    const html = mod.__aiAgentV2TestApi__.renderAgentDashboardWidgets([
+      { id: 'clinic.head_of_clinic', name: 'Head of Clinic', hired: true },
+    ]);
+    assert.match(html, /Bundled fallback · 184,669 papers/);
+    assert.match(html, /Governance warning/i);
+    assert.doesNotMatch(html, /Clinic analytics coming soon/i);
   });
 });
 

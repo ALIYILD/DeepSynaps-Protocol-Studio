@@ -84,6 +84,17 @@ function strengthHelp(key) {
   return 'Mechanistic, review, or indirect evidence.';
 }
 
+function formatEvidenceProvenance(provenance = null) {
+  const corpus = String(provenance?.corpus || provenance?.source_kind || '').trim();
+  if (!corpus) return 'Source not labelled';
+  const normalized = corpus.toLowerCase();
+  if (normalized.includes('bundled')) return 'Bundled/offline evidence snapshot';
+  if (normalized.includes('degraded')) return 'Degraded evidence source';
+  if (normalized.includes('sqlite')) return 'Live SQLite evidence corpus';
+  if (normalized.includes('pgvector') || normalized.includes('postgres')) return 'Postgres/pgvector evidence corpus';
+  return corpus.replaceAll('_', ' ');
+}
+
 export function EvidencePaperList(papers = [], result = null) {
   if (!papers.length) {
     return '<div class="ds-evidence-empty">No ranked papers returned for this claim.</div>';
@@ -146,6 +157,7 @@ export function EvidenceDrawer(result, { patientId = '' } = {}) {
   if (!result) return '';
   const papers = result.supporting_papers || [];
   const conflicting = result.conflicting_papers || [];
+  const provenanceLabel = formatEvidenceProvenance(result.provenance);
   return `<div class="ds-evidence-backdrop" data-evidence-close="1"></div>
     <aside class="ds-evidence-drawer" role="dialog" aria-modal="true" aria-label="Evidence details">
       <header class="ds-evidence-drawer__header">
@@ -153,6 +165,7 @@ export function EvidenceDrawer(result, { patientId = '' } = {}) {
           <div class="ds-evidence-eyebrow">Decision support evidence</div>
           <h2>${esc(result.target_name?.replaceAll('_', ' ') || 'Evidence')}</h2>
           <p>${esc(result.claim)}</p>
+          <div class="ds-evidence-paper__meta">Source: ${esc(provenanceLabel)}</div>
         </div>
         <button type="button" class="ds-evidence-drawer__close" data-evidence-close="1">Close</button>
       </header>
@@ -194,10 +207,12 @@ export function PatientEvidenceTab(overview, filter = {}) {
     seen.add(item.finding_id);
     return true;
   }), filter);
+  const contradictory = filterEvidenceSummaries(overview?.contradictory_findings || [], filter);
   const saved = overview?.saved_citations || [];
+  const overviewSource = formatEvidenceProvenance(overview?.provenance || overview?.source_status || null);
   return `<div class="ds-evidence-tab">
     <div class="ds-evidence-tab__hero">
-      <div><div class="ds-evidence-eyebrow">Patient 360 Evidence</div><h2>Evidence workspace</h2><p>Aggregates evidence linked to biomarkers, scores, longitudinal changes, recommendations, and saved report citations.</p></div>
+      <div><div class="ds-evidence-eyebrow">Patient 360 Evidence</div><h2>Evidence workspace</h2><p>Aggregates evidence linked to biomarkers, scores, longitudinal changes, recommendations, and saved report citations.</p><div class="ds-evidence-paper__meta">Source: ${esc(overviewSource)}</div></div>
       <input class="ds-evidence-search" data-evidence-search placeholder="Search title, abstract, entity, concept" value="${esc(filter.search || '')}" />
     </div>
     <div class="ds-evidence-tab__sections">
@@ -205,6 +220,7 @@ export function PatientEvidenceTab(overview, filter = {}) {
     </div>
     <div class="ds-evidence-tab__grid">
       <section><h3>Highlights</h3>${unique.map(EvidenceSummaryCard).join('') || '<div class="ds-evidence-empty">No evidence summaries yet.</div>'}</section>
+      <section><h3>Conflicting evidence</h3>${contradictory.map(EvidenceSummaryCard).join('') || '<div class="ds-evidence-empty">No contradictory findings surfaced.</div>'}</section>
       <section><h3>Compare with literature phenotype</h3><p>${esc(overview?.compare_with_literature_phenotype?.summary || 'No phenotype comparison available.')}</p><div class="ds-evidence-tags">${(overview?.compare_with_literature_phenotype?.matched_tags || []).map((t) => `<span>${esc(t)}</span>`).join('')}</div></section>
       <section><h3>Evidence used in report</h3>${(overview?.evidence_used_in_report || []).map((c) => `<div class="ds-evidence-citation">${esc(c.inline_citation)} ${esc(c.title)}</div>`).join('') || '<div class="ds-evidence-empty">No report citations staged.</div>'}</section>
       <section><h3>Saved evidence</h3>${saved.map((s) => `<div class="ds-evidence-citation"><strong>${esc(s.finding_label)}</strong><br>${esc(s.paper_title)}</div>`).join('') || '<div class="ds-evidence-empty">No saved citations.</div>'}</section>
@@ -262,25 +278,25 @@ export async function renderPatientEvidenceWorkspace(patientId, host, filter = {
   try {
     const overviewFn = api.getPatientEvidenceOverview || api.evidencePatientOverview;
     const overview = await overviewFn(patientId);
-    host.innerHTML = PatientEvidenceTab(overview, filter);
-    host.querySelectorAll('[data-evidence-target]').forEach((node) => {
-      node.addEventListener('click', () => openEvidenceDrawer({ patientId, target: node.getAttribute('data-evidence-target') }));
-    });
-    const search = host.querySelector('[data-evidence-search]');
-    if (search) {
-      search.addEventListener('input', () => {
-        window.clearTimeout(search._evidenceTimer);
-        search._evidenceTimer = window.setTimeout(() => {
-          host.innerHTML = PatientEvidenceTab(overview, { search: search.value });
-          host.querySelectorAll('[data-evidence-target]').forEach((node) => {
-            node.addEventListener('click', () => openEvidenceDrawer({ patientId, target: node.getAttribute('data-evidence-target') }));
-          });
-        }, 120);
-      });
-    }
+    _renderPatientEvidenceWorkspaceView(patientId, host, overview, filter);
   } catch (err) {
     host.innerHTML = `<div class="ds-evidence-error">Could not load patient evidence: ${esc(err.message || err)}</div>`;
   }
+}
+
+function _renderPatientEvidenceWorkspaceView(patientId, host, overview, filter = {}) {
+  host.innerHTML = PatientEvidenceTab(overview, filter);
+  host.querySelectorAll('[data-evidence-target]').forEach((node) => {
+    node.addEventListener('click', () => openEvidenceDrawer({ patientId, target: node.getAttribute('data-evidence-target') }));
+  });
+  const search = host.querySelector('[data-evidence-search]');
+  if (!search) return;
+  search.addEventListener('input', () => {
+    window.clearTimeout(search._evidenceTimer);
+    search._evidenceTimer = window.setTimeout(() => {
+      _renderPatientEvidenceWorkspaceView(patientId, host, overview, { ...filter, search: search.value });
+    }, 120);
+  });
 }
 
 export function wireEvidenceChips(root, patientId) {
@@ -389,19 +405,28 @@ function wireDrawer(host, result, patientId) {
     const paper = (result?.supporting_papers || []).find((p) => p.paper_id === node.getAttribute('data-evidence-save'));
     if (!paper || !result) return;
     const citation = (result.export_citations || []).find((c) => c.paper_id === paper.paper_id) || {};
-    await api.saveEvidenceCitation({
-      patient_id: patientId || result.patient_id || 'demo-patient',
-      finding_id: result.finding_id,
-      finding_label: result.target_name,
-      claim: result.claim,
-      paper_id: paper.paper_id,
-      paper_title: paper.title,
-      pmid: paper.pmid,
-      doi: paper.doi,
-      citation_payload: citation,
-    });
-    node.textContent = 'Saved';
+    const originalText = node.textContent || 'Save';
     node.disabled = true;
+    node.textContent = 'Saving…';
+    try {
+      await api.saveEvidenceCitation({
+        patient_id: patientId || result.patient_id || 'demo-patient',
+        finding_id: result.finding_id,
+        finding_label: result.target_name,
+        claim: result.claim,
+        paper_id: paper.paper_id,
+        paper_title: paper.title,
+        pmid: paper.pmid,
+        doi: paper.doi,
+        citation_payload: citation,
+      });
+      node.textContent = 'Saved';
+      _toastEvidence('Evidence saved', 'Citation saved for clinician review and patient evidence context.', 'success');
+    } catch (err) {
+      node.disabled = false;
+      node.textContent = originalText;
+      _toastEvidence('Evidence save failed', err?.message || String(err), 'error');
+    }
   }));
   host.querySelectorAll('[data-evidence-full-tab]').forEach((node) => node.addEventListener('click', () => {
     if (typeof window.__dsEvidenceOpenFullTab === 'function') {
