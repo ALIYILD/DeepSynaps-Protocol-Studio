@@ -60,14 +60,23 @@ The local verification commands below were adjusted for a workspace where `tests
 
 Use exactly: **Refs #841**, **Refs #844**, **Refs #845**. Do **not** use **Closes #841** — this PR completes the **qEEG analysis router** consent sweep only; MRI and DeepTwin sweeps remain outside scope. Do **not** close **#841** until those router sweeps are also complete.
 
-## Verdict
+## Current status (PR #874)
 
-- **Review-ready / merge-ready** on API and consent-sweep scope.
-- **Pending:** `npm run build` confirmation in a dependency-complete environment (unless reviewers explicitly accept the **#844** caveat).
+- **Review-ready.** **Main** already carries the qEEG router consent gates; **#874** finishes the remaining registration, tests, docs, neuro_signs CI unblock, and PR description alignment.
+- **Issue wording:** **Refs #841**, **Refs #844**, **Refs #845** — do **not** close **#841** yet.
+
+**Known verification state (last recorded):**
+
+- Backend qEEG selector (`pytest tests/ -k qeeg -q`): green — 630 passed, 1 skipped, 1 xpassed.
+- Neuro signs tests (`pytest tests/test_neuro_signs.py -q`): green — 19 passed.
+- Frontend targeted qEEG `node --test` files (four files): green — 61 passed, 0 failed.
+- `npm run build`: still pending / blocked locally (`vite: command not found` → **Refs #844**).
+
+Lowercase `qeeg` in an older commit subject is harmless; do **not** force-push to rewrite it.
 
 ## Merge condition
 
-**Merge is acceptable** if CI or a dependency-complete local environment confirms **`npm run build`**. If reviewers **explicitly accept** the **#844** dependency caveat (`vite: command not found` / incomplete install is an environment gap, not a consent-sweep product defect), the API-side evidence is sufficient for merge from a product perspective while the web build awaits CI or a full install.
+Merge **#874** when CI or a dependency-complete local environment confirms **`npm run build`**, or when reviewers explicitly accept **#844** as the documented frontend dependency/environment caveat.
 
 ## Local verification commands
 
@@ -168,7 +177,23 @@ git checkout -b feat/qeeg-rag-draft-reports
 
 **Main guardrails:** no diagnosis claim; no invented citations; no RAG generation before consent, role, and audit checks.
 
-### Cursor prompt for PR 3 (paste after #874 merges)
+### PR 3 — how to use Cursor (after #874 merges)
+
+**Step 1 — send this first (plan only; do not edit yet):**
+
+```
+Inspect the current qEEG AI report endpoint, apps/web/src/pages-qeeg-analysis.js report tab logic, apps/web/src/api.js, apps/web/src/evidence-intelligence.js, and clinical-ai-safety-copy.js. Do not edit yet. Produce a plan for PR 3: evidence-grounded qEEG draft reports, including existing consent checks, role checks, audit events, evidence integration points, backend schema, frontend UI changes, and tests.
+```
+
+**Step 2 — only after reviewing the plan:**
+
+```
+Implement PR 3 with consent-first, role-checked, evidence-grounded draft report generation. Do not claim diagnosis. Do not invent citations. Do not generate RAG output before consent, role, and audit checks.
+```
+
+### Full PR 3 reference prompt (optional detail)
+
+Paste or attach in the same thread as needed for constraints, suggested endpoint, tests, and docs:
 
 ```
 You are working inside DeepSynaps Protocol Studio.
@@ -288,4 +313,11 @@ Output:
 6. Ready for review: yes/no.
 ```
 
-**Stash:** do **not** `git stash pop` **wip-unrelated-to-qeeg-consent-pr-874** until **#874** is merged (or move that work to a separate branch). It contains unrelated changes under `patients.py`, `data_console_router.py`, `research_dataset_router.py`, `data_console_service.py`.
+**Stash:** do **not** `git stash pop` **wip-unrelated-to-qeeg-consent-pr-874** until **#874** is merged (or move that work to a separate branch). It contains unrelated changes under `apps/api/app/repositories/patients.py`, `apps/api/app/routers/data_console_router.py`, `apps/api/app/routers/research_dataset_router.py`, `apps/api/app/services/data_console_service.py`.
+
+## Clean sequence (EEG Analyzer)
+
+1. Merge **#874**.  
+2. `git checkout main` → `git pull --ff-only origin main` → `git checkout -b feat/qeeg-rag-draft-reports`.  
+3. **PR 3:** AI Report tab — evidence-grounded draft only (not Analysis tab enhancements yet).  
+4. No diagnosis claim; no invented citations; **clinician-review required** end state.
