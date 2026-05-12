@@ -237,6 +237,7 @@ async def get_data_console_audit_log(
 _CLINIC_AGGREGATE_ROLES = frozenset({"admin", "clinic_admin"})
 
 
+# core-schema-exempt: clinic aggregate summary is an admin-only router facade with no shared consumers yet.
 class ClinicTableSummary(BaseModel):
     """Clinic-wide aggregate row counts for the data console."""
 
@@ -269,6 +270,7 @@ def _audit_clinic_data_console_access(
     body returns so an aborted stream still leaves a trail.
     """
     try:
+        audit_role = "admin" if actor.role == "clinic_admin" else actor.role
         payload = json.dumps(
             {"clinic_id": clinic_id, **(note or {})},
             default=str,
@@ -279,7 +281,7 @@ def _audit_clinic_data_console_access(
             target_id=clinic_id[:64],
             target_type="clinic",
             action=action,
-            role=actor.role,
+            role=audit_role,
             actor_id=actor.actor_id,
             note=payload,
             created_at=datetime.now(timezone.utc).isoformat(),

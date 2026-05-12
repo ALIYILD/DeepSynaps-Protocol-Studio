@@ -81,28 +81,37 @@ def _audit_plan_event(
     )
 
 
+def _get_row_attr(row: Any, key: str, default: Any = None) -> Any:
+    if isinstance(row, dict):
+        return row.get(key, default)
+    return getattr(row, key, default)
+
+
 def _row_to_response(row: Any) -> BrainMapPlanResponse:
     """Convert DB row to response schema."""
+    created_at = _get_row_attr(row, "created_at")
+    updated_at = _get_row_attr(row, "updated_at")
+
     return BrainMapPlanResponse(
-        id=row.id,
-        patient_id=row.patient_id,
-        created_by=row.created_by,
-        created_at=row.created_at.isoformat() if isinstance(row.created_at, datetime) else row.created_at,
-        updated_at=row.updated_at.isoformat() if row.updated_at and isinstance(row.updated_at, datetime) else row.updated_at,
-        status=row.status,
-        region=row.region,
-        target_anchor=row.target_anchor,
-        protocol_id=row.protocol_id,
-        protocol_name=row.protocol_name,
-        intensity_ma=row.intensity_ma,
-        frequency_hz=row.frequency_hz,
-        session_duration_min=row.session_duration_min,
-        num_sessions=row.num_sessions,
-        qeeg_analysis_id=row.qeeg_analysis_id,
-        analyzer_fit=row.analyzer_fit,
-        demo_stamp=row.demo_stamp,
-        full_artifact=row.full_artifact,
-        notes=row.notes,
+        id=_get_row_attr(row, "id"),
+        patient_id=_get_row_attr(row, "patient_id"),
+        created_by=_get_row_attr(row, "created_by"),
+        created_at=created_at.isoformat() if isinstance(created_at, datetime) else created_at,
+        updated_at=updated_at.isoformat() if updated_at and isinstance(updated_at, datetime) else updated_at,
+        status=_get_row_attr(row, "status"),
+        region=_get_row_attr(row, "region"),
+        target_anchor=_get_row_attr(row, "target_anchor"),
+        protocol_id=_get_row_attr(row, "protocol_id"),
+        protocol_name=_get_row_attr(row, "protocol_name"),
+        intensity_ma=_get_row_attr(row, "intensity_ma"),
+        frequency_hz=_get_row_attr(row, "frequency_hz"),
+        session_duration_min=_get_row_attr(row, "session_duration_min"),
+        num_sessions=_get_row_attr(row, "num_sessions"),
+        qeeg_analysis_id=_get_row_attr(row, "qeeg_analysis_id"),
+        analyzer_fit=_get_row_attr(row, "analyzer_fit"),
+        demo_stamp=_get_row_attr(row, "demo_stamp"),
+        full_artifact=_get_row_attr(row, "full_artifact"),
+        notes=_get_row_attr(row, "notes"),
     )
 
 
@@ -139,6 +148,13 @@ def create_brain_map_plan(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="patient_id required for production plans",
+        )
+    
+    # Safety gate: only clinician, admin, or demo can create plans
+    if actor.role not in ("clinician", "admin", "demo"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only clinician, admin, or demo roles can create brain map plans",
         )
     
     plan_id = _generate_plan_id()
@@ -326,7 +342,7 @@ def update_brain_map_plan_status(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found")
     
     # IDOR check: only creator or admin can update
-    if row.created_by != actor.actor_id and actor.role not in ("admin",):
+    if _get_row_attr(row, "created_by") != actor.actor_id and actor.role not in ("admin",):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to update this plan")
     
     # Update

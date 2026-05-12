@@ -13,6 +13,7 @@ on:
       - 'apps/web/**'
       - 'package-lock.json'
       - 'package.json'
+  workflow_dispatch:
 
 jobs:
   e2e:
@@ -46,7 +47,7 @@ jobs:
 
       - name: Install Playwright browsers
         working-directory: apps/web
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium firefox webkit
 
       - name: Build app
         run: npm run build:web

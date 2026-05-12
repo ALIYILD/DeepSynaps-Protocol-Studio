@@ -13,9 +13,12 @@ Key behaviours:
 - Creating a ``PatientPayment`` linked to an invoice increments ``invoice.paid``
   and flips the invoice status to ``partial`` or ``paid`` as appropriate.
 - ``finance_summary`` / ``monthly_revenue`` power the Analytics tab.
+- Every write operation (create/update/delete/mark-paid/payment/claim) is
+  logged to ``FinanceAuditRecord`` for clinic-safe immutable audit trail.
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date, datetime, timezone
 from typing import Optional
@@ -24,9 +27,56 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.persistence.models import InsuranceClaim, Invoice, PatientPayment
+from app.persistence.models import FinanceAuditRecord, InsuranceClaim, Invoice, PatientPayment
 
 _log = logging.getLogger(__name__)
+
+# ── Audit helper ─────────────────────────────────────────────────────────────
+
+
+def record_finance_audit(
+    session: Session,
+    *,
+    action: str,
+    target_type: str,
+    target_id: str,
+    actor_id: str,
+    actor_role: str,
+    clinic_id: Optional[str] = None,
+    patient_id: Optional[str] = None,
+    amount: Optional[float] = None,
+    currency: Optional[str] = None,
+    snapshot: Optional[dict] = None,
+    delta: Optional[dict] = None,
+    note: Optional[str] = None,
+) -> None:
+    """Write an immutable FinanceAuditRecord row.
+
+    This is a fire-and-forget audit append: failures are logged but never
+    raised, so a network hiccup on the audit table can't break a legitimate
+    financial mutation.
+    """
+    try:
+        record = FinanceAuditRecord(
+            action=action,
+            target_type=target_type,
+            target_id=target_id,
+            patient_id=patient_id,
+            actor_id=actor_id,
+            actor_role=actor_role,
+            clinic_id=clinic_id,
+            amount=amount,
+            currency=currency,
+            snapshot_json=json.dumps(snapshot, default=str) if snapshot else "{}",
+            delta_json=json.dumps(delta, default=str) if delta else None,
+            note=note,
+        )
+        session.add(record)
+        session.commit()
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        _log.warning("Finance audit write failed for %s %s: %s", action, target_id, exc)
+
 
 # ── Internal helpers ─────────────────────────────────────────────────────────
 

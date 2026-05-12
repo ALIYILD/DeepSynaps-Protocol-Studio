@@ -348,18 +348,42 @@ class SessionRecording(Base):
     layout is partitioned by clinician so a directory delete cleans up an
     owner's blobs). The DB row is the source of truth — `file_path` is the
     storage-relative path so reads don't need the absolute disk root.
+
+    Consent + retention (go-live P0):
+    - ``consent_granted`` is required when ``patient_id`` is set.
+    - ``expires_at`` is computed from ``uploaded_at + retention_days``.
+    - ``auto_deleted`` is set by the retention cleanup job; the row is kept
+      as an audit stub but the on-disk blob may be removed.
     """
     __tablename__ = "session_recordings"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     owner_clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    patient_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    clinic_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    patient_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     file_path: Mapped[str] = mapped_column(String(512), nullable=False)
     mime_type: Mapped[str] = mapped_column(String(80), nullable=False)
     byte_size: Mapped[int] = mapped_column(BigInteger(), nullable=False)
     duration_seconds: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    # Consent gate
+    consent_granted: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    consent_recorded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    consent_document_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    # Retention
+    retention_days: Mapped[int] = mapped_column(Integer(), nullable=False, default=90)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    auto_deleted: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    deleted_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+    __table_args__ = (
+        Index("ix_session_recordings_clinic_id_uploaded_at", "clinic_id", "uploaded_at"),
+        Index("ix_session_recordings_clinic_id_expires_at", "clinic_id", "expires_at"),
+        Index("ix_session_recordings_patient_id_uploaded_at", "patient_id", "uploaded_at"),
+        Index("ix_session_recordings_auto_deleted_expires_at", "auto_deleted", "expires_at"),
+    )
 
 class AgentSkill(Base):
     """Admin-configurable AI Practice Agent skill (replaces hard-coded grid).

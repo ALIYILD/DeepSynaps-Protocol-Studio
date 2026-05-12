@@ -101,6 +101,24 @@ def list_patients(
     )
 
 
+def list_patients_for_research_preflight(
+    session: Session,
+    *,
+    limit: int = 200,
+) -> list[Patient]:
+    """Return a bounded patient cohort for research-export preflight.
+
+    Keeps ORM access in the repository layer so routers stay lint-clean.
+    """
+    return list(
+        session.scalars(
+            select(Patient)
+            .order_by(Patient.created_at.desc(), Patient.id.desc())
+            .limit(limit)
+        ).all()
+    )
+
+
 def update_patient(
     session: Session,
     patient_id: str,

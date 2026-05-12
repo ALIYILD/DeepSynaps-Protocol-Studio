@@ -39,7 +39,7 @@
 | analysis | AI upgrades | `computeQEEGEmbedding`, `predictQEEGBrainAge`, … | `POST .../compute-embedding`, etc. | Buttons toast in demo | Feature flag `DEEPSYNAPS_ENABLE_AI_UPGRADES` |
 | analysis | Workbench panels | `mountSafetyCockpit`, `mountRedFlags`, … | `GET .../safety-cockpit`, `red-flags`, `POST protocol-fit` | Not mounted for `analysisId === 'demo'` | Migration 048 |
 | analysis | Normative model card | `api.getQEEGNormativeModelCard` | `GET .../{id}/normative-model-card` | Not mounted for `id=demo` (client `buildDemoNormativeModelCard`) | **403** if `ai_analysis` missing (live patient); strict `_is_demo_id` bypass; **`qeeg.consent_denied`** app log on denial |
-| report | List / generate | `listQEEGAnalysisReports`, `generateQEEGAIReport` | `GET .../{id}/reports`, `POST .../{id}/ai-report` | `DEMO_QEEG_REPORT` if empty + demo | **`POST .../ai-report`:** `ai_analysis` consent required (live patient); **`qeeg.consent_denied`** on denial. `ai_interpretation_*`, `ai_report_demo_fallback` |
+| report | List / generate | `listQEEGAnalysisReports`, `generateQEEGAIReport`, `generateQEEGRAGDraftReport` | `GET .../{id}/reports`, `POST .../{id}/ai-report`, `POST .../{id}/rag-report` | `DEMO_QEEG_REPORT` if empty + demo | **`POST .../ai-report` / `POST .../rag-report`:** `ai_analysis` consent required (live patient); **`qeeg.consent_denied`** on denial. `ai_interpretation_*`, `rag_report_*`, `ai_report_demo_fallback` |
 | report | PDF / printable | `exportQEEGAnalysisPDF`, brain map | Binary / HTML routes | Demo CSV/FHIR/BIDS blocked paths | `export_pdf_requested` |
 | compare | Create / get | `createQEEGComparison`, `getQEEGComparison` | `POST /compare`, `GET /compare/{id}` | `DEMO_QEEG_COMPARISON` | `comparison_created` |
 | raw | Workbench | dynamic import | `/api/v1/qeeg-raw/...` family | Auto-select `demo` in demo mode | Routed inside workbench |
@@ -47,31 +47,30 @@
 
 ---
 
-## Consent (qEEG analysis router — PR2 hardening)
+## Consent Matrix (qEEG analysis router)
 
-This PR **guards**:
+Current branch state is **partial hardening**, not a full qEEG router sweep. Issue **#841 remains open**, and qEEG-only follow-up should still use **`Refs #841`** semantics until the wider router coverage is actually landed.
 
-- `GET /api/v1/qeeg-analysis/{analysis_id}/normative-model-card`
-- `POST /api/v1/qeeg-analysis/{analysis_id}/ai-report`
+Today, the qEEG router enforces **`ai_analysis`** consent on these paths only:
 
-This PR **does not guard**: every other qEEG route, MRI routes, DeepTwin routes, all export/download routes, or future RAG/report routes. A follow-up is planned: **`fix(consent): complete qEEG router ai_analysis consent sweep`** — paste-ready Hermes briefing (includes **OBJECTIVE 0** demo-id centralisation): `docs/hermes-qeeg-consent-sweep-after-pr2.md`.
+| Endpoint | Method | Consent path | Demo behaviour | Notes |
+|----------|--------|--------------|----------------|-------|
+| `/api/v1/qeeg-analysis/{analysis_id}/analyze` | POST | Direct `require_ai_analysis_consent(...)` | No router-local `_is_demo_id` bypass | Consent checked after analysis row lookup |
+| `/api/v1/qeeg-analysis/{analysis_id}/analyze-mne` | POST | Direct `require_ai_analysis_consent(...)` | No router-local `_is_demo_id` bypass | Same direct helper call as `/analyze` |
+| `/api/v1/qeeg-analysis/{analysis_id}/ai-report` | POST | `_enforce_qeeg_ai_consent_for_patient_derived_endpoint(...)` | Strict `_is_demo_id` bypass | Denials log PHI-safe `qeeg.consent_denied` |
+| `/api/v1/qeeg-analysis/{analysis_id}/normative-model-card` | GET | `_enforce_qeeg_ai_consent_for_patient_derived_endpoint(...)` | Strict `_is_demo_id` bypass | Same helper/logging as `/ai-report` |
 
-Live patient-linked endpoints above require active **`ai_analysis`** consent via `require_ai_analysis_consent` (`apps/api/app/services/consent_enforcement.py`). Missing consent returns **403** with `code: consent_missing`; denials emit the standard `AuditEventRecord` + `SafetyFlag` from `_log_consent_denial`, and the router logs a PHI-safe line **`qeeg.consent_denied`** (hashed analysis id only).
+**Strict demo boundary:** `_is_demo_id` is allowlisted, not prefix-wide. Allowed: exact `demo` / `mock` / `test`, `demo-pt-*`, `demo-patient`, and `demo-patient-*`. Strings such as `demographic-patient-123`, `demoed-real-patient-id`, `mockery-real-analysis`, `sample-real-upload`, and `demo-clinical-trial-007` do **not** bypass consent.
 
-**Demo bypass (`_is_demo_id`)** is **allowlisted**, not substring-based: exact tokens `demo` / `mock` / `test` (SPA/harness), prefix `demo-pt-*` (fixture roster), and `demo-patient` / `demo-patient-*` (synthetic launcher). Strings such as `demographic-patient-123`, `demoed-real-patient-id`, or `mockery-real-analysis` **do not** bypass consent.
+**Where `_is_demo_id` is currently used:** the shared qEEG consent helper above, plus the dedicated synthetic-response branches for `POST /api/v1/qeeg-analysis/longitudinal` and `POST /api/v1/qeeg-analysis/{analysis_id}/assessment-correlation`.
 
-| Endpoint | Method | Consent | Demo / synthetic bypass |
-|----------|--------|---------|-------------------------|
-| `GET /api/v1/qeeg-analysis/{analysis_id}/normative-model-card` | GET | `ai_analysis` required for real patients | Strict `_is_demo_id` only (see above) |
-| `POST /api/v1/qeeg-analysis/{analysis_id}/ai-report` | POST | `ai_analysis` required for real patients | Same |
-
-**Other qEEG GETs** (e.g. safety cockpit, raw `GET /api/v1/qeeg-analysis/{id}`) are not gated by this PR; broader #841 coverage may extend consent to additional routes later.
+**Not yet landed in this router:** no qEEG route currently calls `require_document_generation_consent(...)`, and exports/downloads such as PDF, FHIR, BIDS, and CSV are still guarded by clinic ownership rather than `document_generation` consent. Most other patient-linked qEEG routes are likewise ownership-gated, but not yet `ai_analysis`-gated, in the branch state on disk.
 
 **UI:** `consent-error-handler.js` patterns apply to 403 responses from the web client.
 
 **Recording condition:** Condition override is **session-local in this PR** unless a server-side `PATCH` endpoint is implemented. **Production use should persist `recording_condition` before relying on longitudinal or cross-device workflows.**
 
-**PR 3 handoff (planned, not implemented here):** RAG-backed report generation must reuse **`recording_condition`** and **`normative_provider`**, require **`ai_analysis`** consent before generation, and **`document_generation`** consent before export. Never invent PubMed/DOI citations; label sections `measured` | `generated` | `evidence_grounded` | `clinician_entered`; surface decision-support-only disclaimers.
+**PR 3 guardrail:** RAG-backed report generation must keep the order `ai_analysis` consent → permission check → findings/evidence lookup → draft generation only → real citations only → clinician-review-required persistence. `POST /api/v1/qeeg-analysis/{analysis_id}/rag-report` now returns a structured draft payload (`status=clinician_review_required`, `clinical_use=decision_support_only`) while persisting the underlying qEEG report row in `NEEDS_REVIEW`. If export/report download routes add document creation gates later, they should use `document_generation` explicitly rather than rely on ownership checks alone.
 
 ---
 
@@ -130,10 +129,10 @@ Used by `evidence-intelligence.js` from the report context (not exhaustive): sav
 
 ## Known gaps (for later PRs)
 
-- Normalised **RAG report** `POST .../rag-report` — planned PR 3; not in client until implemented server-side.
+- Normalised **RAG report** `POST .../rag-report` — implemented for evidence-grounded draft generation; follow-up work is still needed for stronger export/document-consent linkage and persisted recording-condition overrides.
 - **Persisted** recording-condition override — **planned** `PATCH .../recording-condition` (see PR2 section); current UI uses **sessionStorage only** (production limitation until PATCH + audit land).
 - Full **normative z-score provider** plug-in and age-matched clinical databases — future licensed/research adapters only.
-- **Refs #841:** Additional qEEG routes (e.g. safety cockpit GET, list analyses) may still need consent review beyond this PR’s `normative-model-card` + `ai-report` gates.
+- **Refs #841:** qEEG hardening is still partial in the current branch; the repo-wide issue also remains open until the MRI and DeepTwin router work lands.
 
 ---
 

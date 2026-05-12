@@ -2,13 +2,18 @@
 Neuro MRI Signs API routes.
 """
 
+from types import SimpleNamespace
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import cast, or_
+from sqlalchemy.types import String
 from typing import Optional, List
+from types import SimpleNamespace
 import uuid
 
-from app.database import get_db
+from app.auth import AuthenticatedActor, get_authenticated_actor
+from app.database import get_db_session
 from app.persistence.models.neuro_signs import (
     NeuroSign, CaseNeuroSign, NeuroSignAnnotation
 )
@@ -17,9 +22,18 @@ from app.schemas.neuro_signs import (
     CaseNeuroSignCreate, CaseNeuroSignUpdate, CaseNeuroSignResponse,
     NeuroSignAnnotationCreate, NeuroSignAnnotationResponse
 )
-from app.auth import get_current_user
 
 router = APIRouter(prefix="/api/neuro-signs", tags=["neuro-signs"])
+
+
+def get_current_user(actor: AuthenticatedActor = Depends(get_authenticated_actor)):
+    """Map :class:`AuthenticatedActor` to the duck-typed user object this scaffold expects."""
+    role = getattr(actor.role, "value", actor.role)
+    return SimpleNamespace(
+        id=actor.actor_id,
+        role=role,
+        is_admin=role in ("admin", "supervisor"),
+    )
 
 
 def _is_admin(current_user) -> bool:
@@ -40,7 +54,7 @@ async def list_neuro_signs(
     sequence: Optional[str] = Query(None, description="Filter by MRI sequence"),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
 ):
     """
     List neuro signs with optional search and filters.
@@ -55,9 +69,8 @@ async def list_neuro_signs(
                 NeuroSign.name.ilike(search_term),
                 NeuroSign.visual_description.ilike(search_term),
                 NeuroSign.pathophysiology_explanation.ilike(search_term),
-                # For JSON arrays, use text-based search (approximate)
-                NeuroSign.aliases.cast(str).ilike(search_term),
-                NeuroSign.primary_conditions.cast(str).ilike(search_term),
+                cast(NeuroSign.aliases, String).ilike(search_term),
+                cast(NeuroSign.primary_conditions, String).ilike(search_term),
             )
         )
     
@@ -69,15 +82,15 @@ async def list_neuro_signs(
     
     # For JSON array filters, use text-based matching
     if anatomy:
-        query = query.filter(NeuroSign.anatomy.cast(str).ilike(f"%{anatomy}%"))
+        query = query.filter(cast(NeuroSign.anatomy, String).ilike(f"%{anatomy}%"))
     if sequence:
-        query = query.filter(NeuroSign.sequences.cast(str).ilike(f"%{sequence}%"))
+        query = query.filter(cast(NeuroSign.sequences, String).ilike(f"%{sequence}%"))
     
     total = query.count()
     signs = query.order_by(NeuroSign.name).offset(skip).limit(limit).all()
     
     return NeuroSignListResponse(
-        items=[NeuroSignResponse.from_orm(s) for s in signs],
+        items=[NeuroSignResponse.model_validate(s, from_attributes=True) for s in signs],
         total=total,
         skip=skip,
         limit=limit,
@@ -91,7 +104,7 @@ async def list_neuro_signs(
 @router.get("/{sign_id}", response_model=NeuroSignResponse)
 async def get_neuro_sign(
     sign_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
 ):
     """
     Get full detail for a sign by ID or slug.
@@ -106,7 +119,7 @@ async def get_neuro_sign(
     if not sign.is_published:
         raise HTTPException(status_code=404, detail="Sign not published")
     
-    return NeuroSignResponse.from_orm(sign)
+    return NeuroSignResponse.model_validate(sign, from_attributes=True)
 
 
 # ==============================================================================
@@ -117,7 +130,7 @@ async def get_neuro_sign(
 async def create_neuro_sign(
     payload: NeuroSignCreate,
     current_user=Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
 ):
     """
     Create a new sign. Admin only.
@@ -132,7 +145,7 @@ async def create_neuro_sign(
     
     sign = NeuroSign(
         id=str(uuid.uuid4()),
-        **payload.dict(),
+        **payload.model_dump(),
         created_by=getattr(current_user, 'id', None),
         updated_by=getattr(current_user, 'id', None),
     )
@@ -140,7 +153,7 @@ async def create_neuro_sign(
     db.commit()
     db.refresh(sign)
     
-    return NeuroSignResponse.from_orm(sign)
+    return NeuroSignResponse.model_validate(sign, from_attributes=True)
 
 
 # ==============================================================================
@@ -152,7 +165,7 @@ async def update_neuro_sign(
     sign_id: str,
     payload: NeuroSignUpdate,
     current_user=Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
 ):
     """
     Update an existing sign. Admin only.
@@ -168,7 +181,7 @@ async def update_neuro_sign(
         raise HTTPException(status_code=404, detail="Sign not found")
     
     # Update only provided fields
-    update_data = payload.dict(exclude_unset=True)
+    update_data = payload.model_dump(exclude_unset=True)
     update_data['updated_by'] = getattr(current_user, 'id', None)
     
     for key, value in update_data.items():
@@ -177,7 +190,7 @@ async def update_neuro_sign(
     db.commit()
     db.refresh(sign)
     
-    return NeuroSignResponse.from_orm(sign)
+    return NeuroSignResponse.model_validate(sign, from_attributes=True)
 
 
 # ==============================================================================
@@ -189,7 +202,7 @@ async def attach_sign_to_case(
     case_id: str,
     payload: CaseNeuroSignCreate,
     current_user=Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
 ):
     """
     Attach a sign to a patient MRI case.
@@ -225,13 +238,13 @@ async def attach_sign_to_case(
     db.commit()
     db.refresh(case_sign)
     
-    return CaseNeuroSignResponse.from_orm(case_sign)
+    return CaseNeuroSignResponse.model_validate(case_sign, from_attributes=True)
 
 
 @router.get("/case/{case_id}", response_model=List[CaseNeuroSignResponse])
 async def get_case_neuro_signs(
     case_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
 ):
     """
     Get all signs attached to a case.
@@ -240,7 +253,7 @@ async def get_case_neuro_signs(
         CaseNeuroSign.case_id == case_id
     ).order_by(CaseNeuroSign.created_at.desc()).all()
     
-    return [CaseNeuroSignResponse.from_orm(cs) for cs in case_signs]
+    return [CaseNeuroSignResponse.model_validate(cs, from_attributes=True) for cs in case_signs]
 
 
 @router.put("/case/{case_sign_id}", response_model=CaseNeuroSignResponse)
@@ -248,7 +261,7 @@ async def update_case_neuro_sign(
     case_sign_id: str,
     payload: CaseNeuroSignUpdate,
     current_user=Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
 ):
     """
     Update a case sign attachment (confidence, note, etc.).
@@ -259,21 +272,21 @@ async def update_case_neuro_sign(
         raise HTTPException(status_code=404, detail="Case sign not found")
     
     # Update only provided fields
-    update_data = payload.dict(exclude_unset=True)
+    update_data = payload.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(case_sign, key, value)
     
     db.commit()
     db.refresh(case_sign)
     
-    return CaseNeuroSignResponse.from_orm(case_sign)
+    return CaseNeuroSignResponse.model_validate(case_sign, from_attributes=True)
 
 
 @router.delete("/case/{case_sign_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_sign_from_case(
     case_sign_id: str,
     current_user=Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
 ):
     """
     Remove a sign from a case.
@@ -294,7 +307,7 @@ async def insert_report_phrase(
     case_id: str,
     payload: dict,  # {case_sign_id, custom_text?}
     current_user=Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
 ):
     """
     Insert a sign's reporting phrase into the case report draft.
@@ -334,7 +347,7 @@ async def insert_report_phrase(
 async def create_annotation(
     payload: NeuroSignAnnotationCreate,
     current_user=Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
 ):
     """
     Create an SVG overlay annotation for a sign. Admin only.
@@ -349,19 +362,19 @@ async def create_annotation(
     
     annotation = NeuroSignAnnotation(
         id=str(uuid.uuid4()),
-        **payload.dict(),
+        **payload.model_dump(),
     )
     db.add(annotation)
     db.commit()
     db.refresh(annotation)
     
-    return NeuroSignAnnotationResponse.from_orm(annotation)
+    return NeuroSignAnnotationResponse.model_validate(annotation, from_attributes=True)
 
 
 @router.get("/annotations/{neuro_sign_id}", response_model=List[NeuroSignAnnotationResponse])
 async def get_sign_annotations(
     neuro_sign_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
 ):
     """
     Get all annotations for a sign.
@@ -370,4 +383,4 @@ async def get_sign_annotations(
         NeuroSignAnnotation.neuro_sign_id == neuro_sign_id
     ).all()
     
-    return [NeuroSignAnnotationResponse.from_orm(a) for a in annotations]
+    return [NeuroSignAnnotationResponse.model_validate(a, from_attributes=True) for a in annotations]

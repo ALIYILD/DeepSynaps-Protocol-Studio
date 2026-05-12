@@ -10,7 +10,18 @@ client = TestClient(app)
 AUTH_HDR = {"Authorization": "Bearer clinician-demo-token"}
 
 
-def test_chat_agent_returns_honest_not_configured_when_no_keys() -> None:
+def test_chat_agent_returns_honest_not_configured_when_no_keys(monkeypatch) -> None:
+    # Isolate from any real provider keys that may be present in the environment.
+    # We monkeypatch get_settings inside chat_service so the endpoint sees empty keys.
+    from app.services import chat_service as _chat_svc
+
+    class _FakeSettings:
+        glm_api_key: str = ""
+        anthropic_api_key: str = ""
+        openai_api_key: str = ""
+
+    monkeypatch.setattr(_chat_svc, "get_settings", lambda: _FakeSettings())
+
     # In test env we do not expect real provider keys to be configured.
     r = client.post(
         "/api/v1/chat/agent",

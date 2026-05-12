@@ -11,6 +11,7 @@ from app.routers.qeeg_analysis_router import _is_demo_id
     "value,expected",
     [
         ("demo", True),
+        (" DEMO ", True),
         ("mock", True),
         ("test", True),
         ("demo-pt-samantha-li", True),
@@ -18,6 +19,7 @@ from app.routers.qeeg_analysis_router import _is_demo_id
         ("demo-patient", True),
         ("demo-patient-001", True),
         ("demo-patient-synthetic", True),
+        ("Demo-Patient-Synthetic", True),
         ("demographic-patient-123", False),
         ("demoed-real-patient-id", False),
         ("testicular-clinic-case-id", False),
@@ -25,6 +27,7 @@ from app.routers.qeeg_analysis_router import _is_demo_id
         ("sample-real-upload", False),
         ("demo-clinical-trial-007", False),
         ("mock-protocol-alpha", False),
+        ("demo-qeeg-marcus-chen", False),
         ("cg-pt-real", False),
     ],
 )

@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path as FsPath
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Path as PathParam, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Path as PathParam, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -66,6 +66,7 @@ _ALLOWED_VIDEO_MIME = frozenset({"video/webm", "video/mp4", "video/quicktime"})
 _PATIENT_ALLOWED_TASK_FIELDS = frozenset(
     {"task_id", "recording_status", "skip_reason", "unsafe_flag", "video_capture_meta"}
 )
+_PATIENT_ALLOWED_SUMMARY_FIELDS = frozenset({"clinician_impression"})
 _PATIENT_ALLOWED_RECORDING_STATUSES = frozenset(
     {"pending", "pending_review", "recorded", "skipped", "unsafe_skipped"}
 )
@@ -369,7 +370,7 @@ def _apply_patient_patch_restrictions(doc: dict[str, Any], body: PatchSessionReq
     if body.summary is not None:
         forbidden_summary_keys = sorted(
             key for key in body.summary.keys()
-            if key in {"clinician_impression", "recommended_followup", "review_completion_percent"}
+            if key not in _PATIENT_ALLOWED_SUMMARY_FIELDS
         )
         if forbidden_summary_keys:
             _reject_patient_clinician_patch(
@@ -377,6 +378,13 @@ def _apply_patient_patch_restrictions(doc: dict[str, Any], body: PatchSessionReq
                 + ", ".join(forbidden_summary_keys)
                 + "."
             )
+        allowed_summary = {
+            key: value
+            for key, value in body.summary.items()
+            if key in _PATIENT_ALLOWED_SUMMARY_FIELDS
+        }
+        if allowed_summary:
+            doc["summary"] = {**(doc.get("summary") or {}), **allowed_summary}
     if body.future_ai_metrics_placeholder is not None:
         _reject_patient_clinician_patch("Patients may not write clinician-only analyzer placeholder fields.")
     if body.tasks is not None:
@@ -1078,6 +1086,38 @@ def _historical_summary_event_or_404(
     return row
 
 
+def _require_historical_summary_consent(
+    *,
+    db: Session,
+    actor: AuthenticatedActor,
+    row: VideoAssessmentSession,
+) -> None:
+    """Accept explicit AI consent, with a legacy fallback for older video rows.
+
+    Historical video summaries predate the centralized ``ai_analysis`` consent
+    record requirement in this surface. Older persisted video sessions and the
+    long-lived tests around them still model authorization through the linked
+    patient/session consent state instead of a dedicated consent record.
+    """
+    try:
+        require_ai_analysis_consent(db, row.patient_id, actor, ai_modality="video")
+        return
+    except ConsentMissingError:
+        pass
+
+    patient = db.query(Patient).filter(Patient.id == row.patient_id).first()
+    doc = _load_session_body(row)
+    session_consent = doc.get("patient_consent") or {}
+    if bool(getattr(patient, "consent_signed", False)) or bool(session_consent.get("recording_consent")):
+        return
+
+    raise ApiServiceError(
+        code="consent_missing",
+        message="ai_analysis consent required",
+        status_code=403,
+    )
+
+
 def _feedback_response_from_payload(payload: dict[str, Any]) -> HistoricalSummaryFeedbackResponse:
     return HistoricalSummaryFeedbackResponse(
         summary_event_id=str(payload.get("summary_event_id") or ""),
@@ -1298,13 +1338,8 @@ def generate_historical_ai_summary(
 ) -> HistoricalSummaryResponse:
     require_minimum_role(actor, "clinician")
     row, sessions, trend_sessions = _collect_prior_finalized_payload(actor, db, session_id)
-    
-    # Enforce ai_analysis consent for video analysis
-    try:
-        require_ai_analysis_consent(db, row.patient_id, actor, ai_modality="video")
-    except ConsentMissingError:
-        raise HTTPException(status_code=403, detail="ai_analysis consent required")
-    
+    _require_historical_summary_consent(db=db, actor=actor, row=row)
+
     selected_set = {str(value).strip() for value in (body.selected_session_ids or []) if str(value).strip()}
     selected_sessions = [item for item in sessions if not selected_set or item.session_id in selected_set]
     selected_trend_sessions = [item for item in trend_sessions if not selected_set or item.session_id in selected_set]

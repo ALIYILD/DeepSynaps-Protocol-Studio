@@ -6,12 +6,17 @@ local Fly volume under
 row carries the MIME type and original byte size, and downloads stream
 straight from disk via FastAPI's ``FileResponse`` (which honours Range so
 HTML5 ``<audio>`` / ``<video>`` scrubbing works).
+
+Go-live P0 additions:
+- Consent-gated upload (patient-linked recordings require recorded consent).
+- Retention policy (expires_at = uploaded_at + retention_days).
+- Auto-cleanup endpoint for expired recordings.
 """
 from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -28,7 +33,7 @@ from app.auth import (
 )
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import SessionRecording, User
+from app.persistence.models import ConsentRecord, SessionRecording, User
 from app.repositories.patients import resolve_patient_clinic_id
 from app.services import media_storage
 from app.settings import get_settings
@@ -114,24 +119,48 @@ def _scope_recordings_query_to_clinic(q, actor: AuthenticatedActor):
     )
 
 
+def _assert_recording_consent(
+    patient_id: Optional[str],
+    actor: AuthenticatedActor,
+    session: Session,
+) -> tuple[bool, Optional[ConsentRecord]]:
+    """Return (consent_ok, consent_record) for a patient-linked recording upload.
+
+    Rules:
+    - If ``patient_id`` is None, consent is not required (clinician-only
+      note / generic session recording).
+    - If a valid, non-expired ConsentRecord with ``consent_type='recording'``
+      exists and ``signed=True``, consent is granted.
+    - Otherwise consent is denied.
+    """
+    if patient_id is None:
+        return True, None
+
+    consent = (
+        session.query(ConsentRecord)
+        .filter(
+            ConsentRecord.patient_id == patient_id,
+            ConsentRecord.consent_type == "recording",
+            ConsentRecord.signed.is_(True),
+            ConsentRecord.status == "active",
+        )
+        .order_by(ConsentRecord.created_at.desc())
+        .first()
+    )
+    if consent is None:
+        return False, None
+    if consent.expires_at is not None and consent.expires_at <= datetime.now(
+        timezone.utc
+    ):
+        return False, consent
+    return True, consent
+
+
 def _recordings_root() -> Path:
     """Storage root for uploaded recordings. Created on demand."""
     base = Path(get_settings().media_storage_root) / "recordings"
     base.mkdir(parents=True, exist_ok=True)
     return base
-
-
-def _record_to_out(r: SessionRecording) -> "RecordingOut":
-    return RecordingOut(
-        id=r.id,
-        owner_clinician_id=r.owner_clinician_id,
-        patient_id=r.patient_id,
-        title=r.title,
-        mime_type=r.mime_type,
-        byte_size=r.byte_size,
-        duration_seconds=r.duration_seconds,
-        uploaded_at=r.uploaded_at.isoformat(),
-    )
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -144,7 +173,13 @@ class RecordingOut(BaseModel):
     mime_type: str
     byte_size: int
     duration_seconds: Optional[int]
-    uploaded_at: str
+    uploaded_at: Optional[datetime]
+    consent_granted: bool = False
+    consent_recorded_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+    auto_deleted: bool = False
+
+    model_config = {"from_attributes": True}
 
 
 class RecordingListResponse(BaseModel):
@@ -152,21 +187,45 @@ class RecordingListResponse(BaseModel):
     total: int
 
 
+def _record_to_out(rec: SessionRecording) -> RecordingOut:
+    return RecordingOut(
+        id=rec.id,
+        owner_clinician_id=rec.owner_clinician_id,
+        patient_id=rec.patient_id,
+        title=rec.title,
+        mime_type=rec.mime_type,
+        byte_size=rec.byte_size,
+        duration_seconds=rec.duration_seconds,
+        uploaded_at=rec.uploaded_at,
+        consent_granted=rec.consent_granted,
+        consent_recorded_at=rec.consent_recorded_at,
+        expires_at=rec.expires_at,
+        auto_deleted=rec.auto_deleted,
+    )
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.get("", response_model=RecordingListResponse)
 def list_recordings(
     patient_id: Optional[str] = None,
+    include_expired: bool = False,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> RecordingListResponse:
-    """List recordings owned by the authenticated clinician's clinic."""
+    """List recordings owned by the authenticated clinician's clinic.
+
+    By default auto-deleted (expired) recordings are hidden.
+    Pass ``include_expired=true`` to surface them for audit review.
+    """
     require_minimum_role(actor, "clinician")
     if patient_id is not None:
         _assert_recording_patient_access(patient_id, actor, session)
     base_q = session.query(SessionRecording)
     if patient_id is not None:
         base_q = base_q.filter(SessionRecording.patient_id == patient_id)
+    if not include_expired:
+        base_q = base_q.filter(SessionRecording.auto_deleted.is_(False))
     base_q = _scope_recordings_query_to_clinic(base_q, actor)
     rows = base_q.order_by(SessionRecording.uploaded_at.desc()).all()
     items = [_record_to_out(r) for r in rows]
@@ -193,6 +252,15 @@ async def create_recording(
     # Cross-clinic gate: a clinician at clinic A must not be able to
     # POST a recording with a clinic-B patient_id (covert write).
     _assert_recording_patient_access(patient_id, actor, session)
+    consent_granted, consent = _assert_recording_consent(
+        patient_id, actor, session
+    )
+    if not consent_granted:
+        raise ApiServiceError(
+            code="recording_consent_required",
+            message="A valid active recording consent is required.",
+            status_code=403,
+        )
 
     mime = (file.content_type or "").lower()
     if mime not in _ALLOWED_MIME:
@@ -246,17 +314,25 @@ async def create_recording(
 
     file_path = f"recordings/{actor.actor_id}/{recording_id}"
     resolved_title = (title or "").strip() or (file.filename or "Untitled recording")
+    uploaded_at = datetime.now(timezone.utc)
+    retention_days = get_settings().recording_default_retention_days
 
     record = SessionRecording(
         id=recording_id,
         owner_clinician_id=actor.actor_id,
+        clinic_id=getattr(actor, "clinic_id", None),
         patient_id=patient_id,
         title=resolved_title,
         file_path=file_path,
         mime_type=mime,
         byte_size=len(file_bytes),
         duration_seconds=duration_seconds,
-        uploaded_at=datetime.now(timezone.utc),
+        uploaded_at=uploaded_at,
+        consent_granted=consent_granted,
+        consent_recorded_at=consent.signed_at if consent is not None else None,
+        consent_document_id=consent.id if consent is not None else None,
+        retention_days=retention_days,
+        expires_at=uploaded_at + timedelta(days=retention_days),
     )
     session.add(record)
     session.commit()
@@ -287,6 +363,12 @@ def stream_recording(
     )
     if record is None:
         raise ApiServiceError(code="not_found", message="Recording not found.", status_code=404)
+    if record.auto_deleted:
+        raise ApiServiceError(
+            code="recording_expired",
+            message="This recording has expired and is no longer available.",
+            status_code=410,
+        )
 
     settings_root = Path(get_settings().media_storage_root).resolve()
     target = (settings_root / record.file_path).resolve()
@@ -338,3 +420,47 @@ def delete_recording(
 
     session.delete(record)
     session.commit()
+
+
+@router.post("/cleanup", status_code=200)
+def cleanup_expired_recordings(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> dict:
+    """Soft-delete recordings whose retention period has expired.
+
+    Admin or supervisor only. Finds rows where ``expires_at <= now()`` and
+    ``auto_deleted == False``, removes the on-disk blob, and sets
+    ``auto_deleted = True`` so the row remains as an audit stub.
+
+    Returns ``{"cleaned": <count>}``.
+    """
+    require_minimum_role(actor, "supervisor")
+
+    now = datetime.now(timezone.utc)
+    expired_rows = (
+        session.query(SessionRecording)
+        .filter(
+            SessionRecording.expires_at.isnot(None),
+            SessionRecording.expires_at <= now,
+            SessionRecording.auto_deleted.is_(False),
+        )
+        .all()
+    )
+
+    settings_root = Path(get_settings().media_storage_root).resolve()
+    cleaned = 0
+    for rec in expired_rows:
+        target = (settings_root / rec.file_path).resolve()
+        if str(target).startswith(str(settings_root) + os.sep) and target.is_file():
+            try:
+                target.unlink()
+            except OSError:
+                pass  # orphan blob; row still gets marked deleted
+        rec.auto_deleted = True
+        rec.deleted_at = now
+        rec.deleted_by = actor.actor_id
+        cleaned += 1
+
+    session.commit()
+    return {"cleaned": cleaned}
