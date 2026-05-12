@@ -980,8 +980,8 @@ def evidence_source_status(
         or 0
     )
     base = {
-        "source_kind": "degraded",
-        "source_label": "Evidence DB unavailable",
+        "source_kind": "bundled_fallback",
+        "source_label": "Bundled evidence snapshot",
         "paper_count": 0,
         "trial_count": 0,
         "device_count": 0,
@@ -994,7 +994,7 @@ def evidence_source_status(
         "unverified_saved_citation_count": unverified_saved_citation_count,
         "updated_at": None,
         "generated_at": generated_at,
-        "degraded_reason": "sqlite_evidence_db_missing",
+        "degraded_reason": None,
     }
     if not os.path.exists(path):
         return EvidenceSourceStatusOut(**base)
@@ -1019,6 +1019,7 @@ def evidence_source_status(
         return EvidenceSourceStatusOut(
             **{
                 **base,
+                "source_kind": "degraded",
                 "source_label": "Evidence DB degraded",
                 "degraded_reason": type(exc).__name__,
             }

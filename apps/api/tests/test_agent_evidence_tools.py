@@ -126,13 +126,32 @@ def test_evidence_patient_overview_returns_authorized_overview(
     assert payload["patient_id"] == "pat-123"
 
 
-def test_evidence_source_status_degraded_when_sqlite_missing(client, monkeypatch) -> None:
+def test_evidence_source_status_uses_bundled_fallback_when_sqlite_missing(client, monkeypatch) -> None:
     monkeypatch.setenv("EVIDENCE_DB_PATH", "/tmp/definitely-missing-evidence.db")
     resp = client.get("/api/v1/evidence/source-status")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["source_kind"] == "degraded"
-    assert body["source_label"] == "Evidence DB unavailable"
+    assert body["source_kind"] == "bundled_fallback"
+    assert body["source_label"] == "Bundled evidence snapshot"
+
+
+def test_evidence_status_tool_matches_source_status_shape(
+    clinician_actor: AuthenticatedActor,
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EVIDENCE_DB_PATH", "/tmp/definitely-missing-evidence.db")
+    handler = TOOL_REGISTRY["evidence.status"].handler
+    assert handler is not None
+
+    payload = handler(clinician_actor, db_session)
+
+    assert payload["source_kind"] == "bundled_fallback"
+    assert payload["source_label"] == "Bundled evidence snapshot"
+    assert "literature_paper_count" in payload
+    assert "pending_review_citation_count" in payload
+    assert "unverified_saved_citation_count" in payload
+    assert "library_paper_count" not in payload
 
 
 def test_evidence_source_status_counts_pending_and_unverified_saved_citations(

@@ -190,10 +190,22 @@ describe('__aiAgentV2TestApi__ patient context panel', () => {
 
   it('formats bundled evidence fallback labels honestly', () => {
     const label = mod.__aiAgentV2TestApi__.formatEvidenceSourceBadge({
-      source_kind: 'degraded',
+      source_kind: 'bundled_fallback',
     });
     assert.match(label, /Bundled fallback/i);
     assert.match(label, /184,669 papers/);
+  });
+
+  it('formats degraded evidence labels distinctly from bundled fallback', () => {
+    const label = mod.__aiAgentV2TestApi__.formatEvidenceSourceBadge({
+      source_kind: 'degraded',
+    });
+    const warning = mod.__aiAgentV2TestApi__.formatEvidenceWarning({
+      source_kind: 'degraded',
+      degraded_reason: 'OperationalError',
+    });
+    assert.match(label, /Evidence DB degraded/i);
+    assert.match(warning, /OperationalError/);
   });
 
   it('formats governance drift notes honestly for head of clinic', () => {

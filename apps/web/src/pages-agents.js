@@ -3163,6 +3163,9 @@ function _formatEvidenceSourceBadge(status) {
   if (status.source_kind === 'live_sqlite') {
     return `Live SQLite · ${Number(status.paper_count || 0).toLocaleString()} papers`;
   }
+  if (status.source_kind === 'degraded') {
+    return 'Evidence DB degraded';
+  }
   return `Bundled fallback · ${Number(EVIDENCE_TOTAL_PAPERS || 0).toLocaleString()} papers`;
 }
 
@@ -3170,6 +3173,9 @@ function _formatEvidenceWarning(status) {
   if (!status || typeof status !== 'object') return 'Evidence status unavailable';
   if (status.source_kind === 'live_sqlite') {
     return status.updated_at ? `Updated ${_formatRelativeTimestamp(status.updated_at)}` : 'Live evidence source';
+  }
+  if (status.source_kind === 'degraded') {
+    return status.degraded_reason ? `Degraded: ${status.degraded_reason}` : 'Live evidence source degraded';
   }
   return `Bundled/offline registry snapshot (${_esc(EVIDENCE_DATASET_VERSION)})`;
 }

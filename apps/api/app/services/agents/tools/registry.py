@@ -351,15 +351,31 @@ def _h_evidence_status(
     _ = actor
     from sqlalchemy import func
 
-    from app.persistence.models import DsPaper, LiteraturePaper
+    from app.persistence.models import DsPaper, EvidenceSavedCitation, LiteraturePaper
     from app.services.evidence_terminal_service import resolve_evidence_db_path
 
     ds_paper_count = int(db.query(func.count(DsPaper.id)).scalar() or 0)
     literature_paper_count = int(db.query(func.count(LiteraturePaper.id)).scalar() or 0)
+    pending_review_citation_count = int(
+        db.query(func.count(EvidenceSavedCitation.id))
+        .filter(
+            EvidenceSavedCitation.citation_payload_json.like(
+                '%"approval_status": "pending_clinician_review"%'
+            )
+        )
+        .scalar()
+        or 0
+    )
+    unverified_saved_citation_count = int(
+        db.query(func.count(EvidenceSavedCitation.id))
+        .filter(EvidenceSavedCitation.citation_payload_json.like('%"status": "unverified"%'))
+        .scalar()
+        or 0
+    )
     path = resolve_evidence_db_path()
     base = {
-        "source_kind": "degraded",
-        "source_label": "Evidence DB unavailable",
+        "source_kind": "bundled_fallback",
+        "source_label": "Bundled evidence snapshot",
         "paper_count": 0,
         "trial_count": 0,
         "device_count": 0,
@@ -367,10 +383,12 @@ def _h_evidence_status(
         "indication_count": 0,
         "meta_analysis_count": None,
         "ds_paper_count": ds_paper_count,
-        "library_paper_count": literature_paper_count,
+        "literature_paper_count": literature_paper_count,
+        "pending_review_citation_count": pending_review_citation_count,
+        "unverified_saved_citation_count": unverified_saved_citation_count,
         "updated_at": None,
         "generated_at": _utcnow().isoformat(),
-        "degraded_reason": "sqlite_evidence_db_missing",
+        "degraded_reason": None,
     }
     try:
         import os
@@ -397,6 +415,7 @@ def _h_evidence_status(
     except Exception as exc:  # pragma: no cover - defensive
         return {
             **base,
+            "source_kind": "degraded",
             "source_label": "Evidence DB degraded",
             "degraded_reason": type(exc).__name__,
         }
