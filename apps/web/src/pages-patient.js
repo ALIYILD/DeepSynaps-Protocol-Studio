@@ -14202,7 +14202,7 @@ window._ptoToggleAssessForm = function () {
   if (f) f.style.display = f.style.display === 'none' ? 'block' : 'none';
 };
 
-window._ptoSubmitAssessment = function () {
+window._ptoSubmitAssessment = async function () {
   const phq9v = parseInt(document.getElementById('pto-phq9-input') ? document.getElementById('pto-phq9-input').value : '', 10);
   const gad7v = parseInt(document.getElementById('pto-gad7-input') ? document.getElementById('pto-gad7-input').value : '', 10);
   const pcl5v = parseInt(document.getElementById('pto-pcl5-input') ? document.getElementById('pto-pcl5-input').value : '', 10);
@@ -14226,10 +14226,36 @@ window._ptoSubmitAssessment = function () {
   localStorage.setItem(_PTO_SEED_KEY, JSON.stringify(d));
   // Also persist to API for cross-device and clinician visibility
   const _apiNow = new Date().toISOString();
-  if (!isNaN(phq9v)) api.recordOutcome({ template_name: 'PHQ-9', score_numeric: phq9v, measurement_point: 'Self-report', administered_at: _apiNow }).catch(() => {});
-  if (!isNaN(gad7v)) api.recordOutcome({ template_name: 'GAD-7', score_numeric: gad7v, measurement_point: 'Self-report', administered_at: _apiNow }).catch(() => {});
-  if (!isNaN(pcl5v)) api.recordOutcome({ template_name: 'PCL-5', score_numeric: pcl5v, measurement_point: 'Self-report', administered_at: _apiNow }).catch(() => {});
-  window._showNotifToast && window._showNotifToast({ title: 'Saved', body: 'Assessment scores saved in this browser. Clinic sync depends on portal workflow.', severity: 'success' });
+  const _apiCalls = [];
+  if (!isNaN(phq9v)) _apiCalls.push(api.recordOutcome({ template_name: 'PHQ-9', score_numeric: phq9v, measurement_point: 'Self-report', administered_at: _apiNow }));
+  if (!isNaN(gad7v)) _apiCalls.push(api.recordOutcome({ template_name: 'GAD-7', score_numeric: gad7v, measurement_point: 'Self-report', administered_at: _apiNow }));
+  if (!isNaN(pcl5v)) _apiCalls.push(api.recordOutcome({ template_name: 'PCL-5', score_numeric: pcl5v, measurement_point: 'Self-report', administered_at: _apiNow }));
+  if (_apiCalls.length > 0) {
+    const _results = await Promise.allSettled(_apiCalls);
+    const _successes = _results.filter(function(r) { return r.status === 'fulfilled'; }).length;
+    const _failures = _results.length - _successes;
+    if (_failures > 0) {
+      // Persist failed payloads to localStorage so no data is lost
+      try {
+        const _pending = JSON.parse(localStorage.getItem('_ptoApiPendingScores') || '[]');
+        if (!isNaN(phq9v)) _pending.push({ template_name: 'PHQ-9', score_numeric: phq9v, measurement_point: 'Self-report', administered_at: _apiNow });
+        if (!isNaN(gad7v)) _pending.push({ template_name: 'GAD-7', score_numeric: gad7v, measurement_point: 'Self-report', administered_at: _apiNow });
+        if (!isNaN(pcl5v)) _pending.push({ template_name: 'PCL-5', score_numeric: pcl5v, measurement_point: 'Self-report', administered_at: _apiNow });
+        localStorage.setItem('_ptoApiPendingScores', JSON.stringify(_pending));
+      } catch (_e) { console.error('[ptoSubmitAssessment] localStorage fallback failed', _e); }
+    }
+    if (_failures === 0) {
+      window._showNotifToast && window._showNotifToast({ title: 'Saved', body: 'All scales submitted to your care team.', severity: 'success' });
+    } else if (_successes > 0) {
+      console.error('[ptoSubmitAssessment] Partial API failure: ' + _failures + ' of ' + _results.length + ' scales failed to submit.');
+      window._showNotifToast && window._showNotifToast({ title: 'Partially saved', body: _successes + ' of ' + _results.length + ' scales submitted; ' + _failures + ' failed. Saved locally \u2014 please retry when online.', severity: 'warning' });
+    } else {
+      console.error('[ptoSubmitAssessment] All API calls failed: scores saved locally only.');
+      window._showNotifToast && window._showNotifToast({ title: 'Save failed', body: 'Scales could not be submitted to your care team. Saved locally \u2014 please retry when online.', severity: 'error' });
+    }
+  } else {
+    window._showNotifToast && window._showNotifToast({ title: 'Saved', body: 'Assessment scores saved in this browser. Clinic sync depends on portal workflow.', severity: 'success' });
+  }
   _renderProgressPage();
 };
 
