@@ -41,6 +41,9 @@ from app.auth import (
 )
 from app.database import get_db_session
 from app.models.research_dataset import ResearchDataset
+from app.repositories.research_consent import (
+    list_patients_for_research_preflight,
+)
 from app.services.anonymization_service import (
     K_ANONYMITY_THRESHOLD,
     age_bucket,
@@ -369,11 +372,7 @@ def preflight_research_dataset(
     # every dataset is keyed on it. Real build job will fan out to
     # ``included_tables``; for preflight, this is the minimal cohort
     # whose consent state we must check.
-    from app.persistence.models import Patient
-
-    candidates: list[Patient] = (
-        session.query(Patient).limit(200).all()
-    )
+    candidates = list_patients_for_research_preflight(session, limit=200)
     candidate_ids = [p.id for p in candidates]
     allowed_ids = _get_consent_filter(candidate_ids, session)
 
