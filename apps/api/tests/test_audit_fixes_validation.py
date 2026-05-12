@@ -346,11 +346,16 @@ class TestProductionReadinessScript:
     def test_script_runs_in_dev_mode(self) -> None:
         """Script must run without crashing in development mode."""
         import subprocess
+        env = {
+            **os.environ,
+            "JWT_SECRET_KEY": "test-only-not-placeholder-secret-min-32-chars-long",
+        }
         result = subprocess.run(
             [sys.executable, self._SCRIPT, "--json"],
             capture_output=True,
             text=True,
             timeout=30,
+            env=env,
         )
         assert result.returncode == 0, f"Script failed: {result.stderr}"
         import json
