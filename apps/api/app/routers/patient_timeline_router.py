@@ -38,7 +38,12 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.persistence.models import (
     AssessmentRecord,
@@ -46,6 +51,7 @@ from app.persistence.models import (
     MriAnalysis,
     QEEGAnalysis,
 )
+from app.repositories.patients import resolve_patient_clinic_id
 
 _log = logging.getLogger(__name__)
 
@@ -334,6 +340,23 @@ def _load_outcomes(db: Session, patient_id: str) -> list[dict[str, Any]]:
 # ── Endpoint ────────────────────────────────────────────────────────────────
 
 
+def _gate_patient_access(
+    actor: AuthenticatedActor,
+    patient_id: str,
+    db: Session,
+) -> None:
+    """Enforce same-clinic ownership before loading patient timeline data.
+
+    If the patient exists in the DB, the actor must belong to the same clinic
+    (or be an admin/super-admin).  If the patient does not exist (demo UUIDs,
+    fresh CI DB), access is allowed — the synthesised demo events are not
+    patient-specific clinical data.
+    """
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
+
+
 @router.get("/{patient_id}")
 def get_patient_timeline(
     patient_id: str,
@@ -355,6 +378,7 @@ def get_patient_timeline(
         ``{"events": [...]}`` per CONTRACT_V3 §6. Events sorted newest first.
     """
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     events: list[dict[str, Any]] = []
     events.extend(_load_qeeg(db, patient_id))
