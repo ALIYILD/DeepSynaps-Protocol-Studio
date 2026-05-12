@@ -167,6 +167,10 @@ class TreatmentCourse(Base):
     status: Mapped[str] = mapped_column(String(40), default="pending_approval")
     approved_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    # P0 dual-review protocol gate — two independent clinician approvals required.
+    reviewer_1_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    reviewer_2_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    approval_signature: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     sessions_delivered: Mapped[int] = mapped_column(Integer(), default=0)

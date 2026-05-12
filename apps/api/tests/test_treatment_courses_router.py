@@ -85,3 +85,100 @@ def test_review_actions_invalid_action_rejected(client: TestClient) -> None:
     )
     # invalid action → 422; missing item → 404. Either is acceptable — never 5xx.
     assert r.status_code in (404, 422), r.text
+
+
+# ── P0 dual-review protocol gate tests ────────────────────────────────────────
+
+import uuid
+
+
+def _create_test_course() -> str:
+    """Create a patient + course directly in the test DB and return course_id."""
+    from datetime import datetime, timezone
+    from app.database import SessionLocal
+    from app.persistence.models import Patient, TreatmentCourse
+
+    db = SessionLocal()
+    patient_id = str(uuid.uuid4())
+    patient = Patient(
+        id=patient_id,
+        clinician_id="actor-clinician-demo",
+        first_name="Test",
+        last_name="Patient",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    db.add(patient)
+    db.flush()
+
+    course = TreatmentCourse(
+        id=str(uuid.uuid4()),
+        patient_id=patient.id,
+        clinician_id="actor-clinician-demo",
+        protocol_id="demo-protocol-001",
+        condition_slug="mdd",
+        modality_slug="rtms",
+    )
+    db.add(course)
+    db.commit()
+    course_id = course.id
+    db.close()
+    return course_id
+
+
+def test_activate_course_blocked_without_dual_review(client: TestClient) -> None:
+    """A course with zero approvals must be blocked from activation (P0)."""
+    course_id = _create_test_course()
+    r = client.patch(
+        f"/api/v1/treatment-courses/{course_id}/activate",
+        json={},
+        headers=AUTH_CLINICIAN,
+    )
+    assert r.status_code == 403, f"Expected 403 dual_review_required, got {r.status_code}: {r.text}"
+    data = r.json()
+    assert data.get("code") == "dual_review_required"
+    assert "two independent clinician approvals" in data.get("message", "").lower()
+
+
+def test_activate_course_blocked_with_only_one_review(client: TestClient) -> None:
+    """A course with only one approval must still be blocked from activation (P0)."""
+    from app.database import SessionLocal
+    from app.persistence.models import TreatmentCourse
+
+    course_id = _create_test_course()
+    db = SessionLocal()
+    course = db.query(TreatmentCourse).filter_by(id=course_id).first()
+    course.reviewer_1_id = "reviewer-a"
+    db.commit()
+    db.close()
+
+    r = client.patch(
+        f"/api/v1/treatment-courses/{course_id}/activate",
+        json={},
+        headers=AUTH_CLINICIAN,
+    )
+    assert r.status_code == 403, f"Expected 403 with one reviewer, got {r.status_code}: {r.text}"
+    assert r.json().get("code") == "dual_review_required"
+
+
+def test_activate_course_passes_with_dual_review(client: TestClient) -> None:
+    """A course with two distinct reviewer approvals may proceed past dual-review gate."""
+    from app.database import SessionLocal
+    from app.persistence.models import TreatmentCourse
+
+    course_id = _create_test_course()
+    db = SessionLocal()
+    course = db.query(TreatmentCourse).filter_by(id=course_id).first()
+    course.reviewer_1_id = "reviewer-a"
+    course.reviewer_2_id = "reviewer-b"
+    db.commit()
+    db.close()
+
+    r = client.patch(
+        f"/api/v1/treatment-courses/{course_id}/activate",
+        json={},
+        headers=AUTH_CLINICIAN,
+    )
+    # Should NOT be blocked by dual-review; may still be blocked by EV-D / safety / governance.
+    assert r.json().get("code") != "dual_review_required", \
+        f"Unexpected dual-review block after two approvals: {r.text}"
