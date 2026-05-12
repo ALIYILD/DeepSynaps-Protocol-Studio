@@ -481,18 +481,18 @@ describe('pages-qeeg-analysis.js — DEMO_PATIENTS seeds', () => {
 
 // ── 7. Source-pinned: clinical safety footer ─────────────────────────────────
 describe('pages-qeeg-analysis.js — clinical safety footer', () => {
-  it('includes the 5 safety bullets verbatim', () => {
-    // Bullets must remain visible per audit requirement.
+  it('renders the shared safety disclaimer bullets', () => {
+    const html = mod.renderQEEGClinicalSafetyFooterForTest();
     const bullets = [
       'EEG/qEEG analysis support and decision-support only',
-      'normative database',
-      'Protocol-fit',
-      'Red flags',
-      'AI-assisted text',
+      'Normative z-scores and comparisons apply only',
+      'Protocol-fit and protocol suggestions are draft ideas',
+      'Red flags and quality alerts are review cues',
+      'AI-assisted text summarises available numerics and documents',
     ];
+    assert.match(html, /Clinical safety disclaimers/i);
     for (const fragment of bullets) {
-      assert.ok(SRC.includes(fragment),
-        `safety footer must include the phrase "${fragment}"`);
+      assert.match(html, new RegExp(fragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
     }
   });
 });
@@ -2163,7 +2163,7 @@ describe('pgQEEGAnalysis — deep render paths via patched api', () => {
       getPatient: async () => null,
       getPatientMedicalHistory: async () => null,
       listPatientQEEGAnalyses: async () => ({ items: [analysis] }),
-      getQEEGAnalysis: async () => null,
+      getQEEGAnalysis: async () => analysis,
       listQEEGAnalysisReports: async () => ({ reports: [report] }),
       listEvidenceSavedCitations: async () => [],
       getFusionRecommendation: async () => null,
@@ -2179,6 +2179,7 @@ describe('pgQEEGAnalysis — deep render paths via patched api', () => {
     const tab = document.getElementById('qeeg-tab-content');
     const html = (tab && tab.innerHTML) || '';
     assert.match(html, /AI interpretation unavailable/);
+    assert.match(html, /Printable Report Viewer/);
     assert.match(html, /Report Side Panel/);
     assert.match(html, /Print HTML Report/);
     delete window._qeegPatientId;
@@ -2603,15 +2604,15 @@ describe('pgQEEGAnalysis — workflow + compare runtime branches', () => {
     assert.ok(followupSel.options.length >= 3, 'follow-up selector should list both analyses');
     assert.match((status && status.innerHTML) || '', /less than 7 days/i);
 
-    const baselineId = baselineSel.options[1].value;
-    const followupId = followupSel.options[2].value;
-    baselineSel.selectedIndex = 1;
-    followupSel.selectedIndex = 2;
+    const baselineId = baseline.id;
+    const followupId = followup.id;
+    baselineSel.value = baselineId;
+    followupSel.value = followupId;
     baselineSel.dispatchEvent(new window.Event('change', { bubbles: true }));
     followupSel.dispatchEvent(new window.Event('change', { bubbles: true }));
     assert.strictEqual(baselineSel.value, baselineId);
     assert.strictEqual(followupSel.value, followupId);
-    compareBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    compareBtn.click();
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     assert.deepStrictEqual(createArgs, {
