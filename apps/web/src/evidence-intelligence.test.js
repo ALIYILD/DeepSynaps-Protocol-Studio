@@ -82,6 +82,33 @@ test('PatientEvidenceTab renders filters and empty loading state', () => {
   assert.match(html, /No evidence summaries yet/);
 });
 
+test('PatientEvidenceTab renders contradictory findings explicitly', () => {
+  const html = mod.PatientEvidenceTab({
+    patient_id: 'pat-1',
+    highlights: [],
+    by_score: [],
+    by_protocol: [],
+    by_modality: {},
+    contradictory_findings: [
+      {
+        finding_id: 'f-contradict',
+        label: 'Frontal Alpha Asymmetry',
+        claim: 'Mixed literature signals in depression cohorts',
+        target_name: 'frontal_alpha_asymmetry',
+        context_type: 'biomarker',
+        paper_count: 4,
+        evidence_level: 'moderate',
+      },
+    ],
+    saved_citations: [],
+    compare_with_literature_phenotype: { summary: '', matched_tags: [] },
+    evidence_used_in_report: [],
+  });
+  assert.match(html, /Conflicting evidence/);
+  assert.match(html, /Frontal Alpha Asymmetry/);
+  assert.match(html, /Mixed literature signals in depression cohorts/);
+});
+
 test('patient evidence workspace search keeps working after rerender', async () => {
   const realSetTimeout = globalThis.setTimeout;
   const realClearTimeout = globalThis.clearTimeout;

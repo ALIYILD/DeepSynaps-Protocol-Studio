@@ -194,6 +194,7 @@ export function PatientEvidenceTab(overview, filter = {}) {
     seen.add(item.finding_id);
     return true;
   }), filter);
+  const contradictory = filterEvidenceSummaries(overview?.contradictory_findings || [], filter);
   const saved = overview?.saved_citations || [];
   return `<div class="ds-evidence-tab">
     <div class="ds-evidence-tab__hero">
@@ -205,6 +206,7 @@ export function PatientEvidenceTab(overview, filter = {}) {
     </div>
     <div class="ds-evidence-tab__grid">
       <section><h3>Highlights</h3>${unique.map(EvidenceSummaryCard).join('') || '<div class="ds-evidence-empty">No evidence summaries yet.</div>'}</section>
+      <section><h3>Conflicting evidence</h3>${contradictory.map(EvidenceSummaryCard).join('') || '<div class="ds-evidence-empty">No contradictory findings surfaced.</div>'}</section>
       <section><h3>Compare with literature phenotype</h3><p>${esc(overview?.compare_with_literature_phenotype?.summary || 'No phenotype comparison available.')}</p><div class="ds-evidence-tags">${(overview?.compare_with_literature_phenotype?.matched_tags || []).map((t) => `<span>${esc(t)}</span>`).join('')}</div></section>
       <section><h3>Evidence used in report</h3>${(overview?.evidence_used_in_report || []).map((c) => `<div class="ds-evidence-citation">${esc(c.inline_citation)} ${esc(c.title)}</div>`).join('') || '<div class="ds-evidence-empty">No report citations staged.</div>'}</section>
       <section><h3>Saved evidence</h3>${saved.map((s) => `<div class="ds-evidence-citation"><strong>${esc(s.finding_label)}</strong><br>${esc(s.paper_title)}</div>`).join('') || '<div class="ds-evidence-empty">No saved citations.</div>'}</section>
