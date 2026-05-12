@@ -197,7 +197,9 @@ test.describe('Flow 4: Media and messaging', () => {
     await page.goto('/');
     await waitForClinicianApp(page);
     await navTo(page, 'telehealth-recorder');
-    await expect(page.locator('#content')).toContainText(/(record|session|telehealth|video)/i);
+    await expect(page.locator('#rec-tab-live')).toBeVisible();
+    await expect(page.locator('#btn-start-camera')).toBeVisible();
+    await expect(page.locator('#btn-start-rec')).toBeVisible();
   });
 
   test('clinical notes loads', async ({ page }) => {

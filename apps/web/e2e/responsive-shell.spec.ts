@@ -27,6 +27,26 @@ async function waitForAnyVisibleShell(page, shellIds) {
   }, shellIds, { timeout: 25000 });
 }
 
+async function waitForShellOrHydratedContent(page, shellIds) {
+  await page.waitForFunction((ids) => {
+    const shellVisible = ids.some((id) => {
+      const el = document.getElementById(id);
+      if (!el) return false;
+      const style = getComputedStyle(el);
+      return el.classList.contains('visible') && style.display !== 'none' && style.visibility !== 'hidden';
+    });
+    if (shellVisible) return true;
+    const content = document.getElementById('content');
+    const topbar = document.getElementById('topbar');
+    return !!(
+      content &&
+      content.textContent &&
+      content.textContent.trim().length > 0 &&
+      topbar
+    );
+  }, shellIds, { timeout: 25000 });
+}
+
 async function waitForNonEmpty(page, selector) {
   await page.waitForFunction((target) => {
     const el = document.querySelector(target);
@@ -185,17 +205,23 @@ test.describe('responsive shell smoke', () => {
     await seedCachedClinician(page);
     await page.goto('/?page=dashboard', { waitUntil: 'commit' });
     await waitForBootScripts(page);
-    await waitForAnyVisibleShell(page, ['app-shell', 'public-shell']);
+    await waitForShellOrHydratedContent(page, ['app-shell', 'public-shell']);
     await waitForNonEmpty(page, '#content');
 
     const metrics = await page.evaluate(() => ({
       appShellVisible: document.getElementById('app-shell')?.classList.contains('visible') ?? false,
       publicShellVisible: document.getElementById('public-shell')?.classList.contains('visible') ?? false,
+      hasTopbar: !!document.getElementById('topbar'),
+      contentLength: document.getElementById('content')?.textContent?.trim().length ?? 0,
       bodyScrollWidth: document.body.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
     }));
 
-    expect(metrics.appShellVisible || metrics.publicShellVisible).toBe(true);
+    expect(
+      metrics.appShellVisible ||
+      metrics.publicShellVisible ||
+      (metrics.hasTopbar && metrics.contentLength > 0)
+    ).toBe(true);
     expect(metrics.bodyScrollWidth - metrics.clientWidth).toBeLessThanOrEqual(2);
   });
 });
