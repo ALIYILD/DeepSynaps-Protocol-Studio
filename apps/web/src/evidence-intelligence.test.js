@@ -286,3 +286,67 @@ test('happy path opens drawer and saves citation into tab state', async () => {
     body: JSON.stringify({ patient_id: 'pat-1', finding_id: 'f1', paper_id: 'p1' }),
   });
 });
+
+test('save button failure restores button state and toasts error', async () => {
+  let saveClick;
+  const saveNode = {
+    textContent: 'Save',
+    disabled: false,
+    getAttribute(name) { return name === 'data-evidence-save' ? 'p1' : ''; },
+    addEventListener(type, cb) {
+      if (type === 'click') saveClick = cb;
+    },
+  };
+  const host = {
+    id: 'ds-evidence-host',
+    innerHTML: '',
+    className: '',
+    dataset: {},
+    classList: { add() {}, remove() {} },
+    querySelectorAll(selector) {
+      if (selector === '[data-evidence-save]') return [saveNode];
+      return [];
+    },
+    querySelector() { return null; },
+  };
+  byId.set('ds-evidence-host', host);
+
+  const toasts = [];
+  globalThis._dsToast = (payload) => { toasts.push(payload); };
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('/api/v1/evidence/query')) {
+      return { ok: true, status: 200, json: async () => ({
+        finding_id: 'f1',
+        claim: 'Decision support only depression risk claim',
+        target_name: 'depression_risk',
+        patient_context_summary: 'PHQ-9 context',
+        confidence_score: 0.8,
+        evidence_strength: 'high',
+        literature_summary: 'Top evidence summary.',
+        recommended_caution: 'Decision support only.',
+        top_drivers: [],
+        applicability: { overall_match: 'partially_matched', score: 0.7, dimensions: [] },
+        supporting_papers: [{ paper_id: 'p1', title: 'Top paper', evidence_quality: 'high', study_type: 'review', score_breakdown: { total: 0.9 } }],
+        conflicting_papers: [],
+        export_citations: [{ finding_id: 'f1', paper_id: 'p1', title: 'Top paper', inline_citation: '(A, 2024)' }],
+        provenance: { corpus: 'test', generated_at: 'now', source_paper_ids: ['p1'] },
+      }) };
+    }
+    if (String(url).includes('/api/v1/evidence/save-citation')) {
+      throw new Error('save failed');
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+
+  try {
+    mod.initEvidenceDrawer({ patientId: 'pat-1' });
+    await mod.openEvidenceDrawer(mod.createEvidenceQueryForTarget({ patientId: 'pat-1', targetName: 'depression_risk' }));
+    assert.equal(typeof saveClick, 'function');
+    await saveClick();
+    assert.equal(saveNode.disabled, false);
+    assert.equal(saveNode.textContent, 'Save');
+    assert.equal(toasts.at(-1)?.title, 'Evidence save failed');
+  } finally {
+    delete globalThis._dsToast;
+  }
+});

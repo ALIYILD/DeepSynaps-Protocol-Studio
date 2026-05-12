@@ -405,19 +405,28 @@ function wireDrawer(host, result, patientId) {
     const paper = (result?.supporting_papers || []).find((p) => p.paper_id === node.getAttribute('data-evidence-save'));
     if (!paper || !result) return;
     const citation = (result.export_citations || []).find((c) => c.paper_id === paper.paper_id) || {};
-    await api.saveEvidenceCitation({
-      patient_id: patientId || result.patient_id || 'demo-patient',
-      finding_id: result.finding_id,
-      finding_label: result.target_name,
-      claim: result.claim,
-      paper_id: paper.paper_id,
-      paper_title: paper.title,
-      pmid: paper.pmid,
-      doi: paper.doi,
-      citation_payload: citation,
-    });
-    node.textContent = 'Saved';
+    const originalText = node.textContent || 'Save';
     node.disabled = true;
+    node.textContent = 'Saving…';
+    try {
+      await api.saveEvidenceCitation({
+        patient_id: patientId || result.patient_id || 'demo-patient',
+        finding_id: result.finding_id,
+        finding_label: result.target_name,
+        claim: result.claim,
+        paper_id: paper.paper_id,
+        paper_title: paper.title,
+        pmid: paper.pmid,
+        doi: paper.doi,
+        citation_payload: citation,
+      });
+      node.textContent = 'Saved';
+      _toastEvidence('Evidence saved', 'Citation saved for clinician review and patient evidence context.', 'success');
+    } catch (err) {
+      node.disabled = false;
+      node.textContent = originalText;
+      _toastEvidence('Evidence save failed', err?.message || String(err), 'error');
+    }
   }));
   host.querySelectorAll('[data-evidence-full-tab]').forEach((node) => node.addEventListener('click', () => {
     if (typeof window.__dsEvidenceOpenFullTab === 'function') {
