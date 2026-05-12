@@ -46,10 +46,10 @@ async def get_patient_analytics_summary(
     session: Session = Depends(get_db_session),
 ) -> PatientAnalyticsSummary:
     """Get patient analytics summary (clinic-scoped, audit-logged)."""
-    require_patient_access(session, actor.user_id, patient_id)
+    require_patient_access(session, actor.actor_id, patient_id)
     log_phi_access(
         session,
-        actor_user_id=actor.user_id,
+        actor_user_id=actor.actor_id,
         patient_id=patient_id,
         action="view_analytics_summary",
         resource_type="patient_analytics",
@@ -84,10 +84,10 @@ async def get_patient_analytics_timeline(
     session: Session = Depends(get_db_session),
 ) -> PatientTimelineResponse:
     """Get patient timeline (clinic-scoped, audit-logged)."""
-    require_patient_access(session, actor.user_id, patient_id)
+    require_patient_access(session, actor.actor_id, patient_id)
     log_phi_access(
         session,
-        actor_user_id=actor.user_id,
+        actor_user_id=actor.actor_id,
         patient_id=patient_id,
         action="view_analytics_timeline",
         resource_type="patient_analytics",
@@ -123,10 +123,10 @@ async def get_patient_analytics_audit_log(
     session: Session = Depends(get_db_session),
 ) -> PatientAuditLogResponse:
     """Get audit trail for patient PHI access (clinic-scoped, audit-logged)."""
-    require_patient_access(session, actor.user_id, patient_id)
+    require_patient_access(session, actor.actor_id, patient_id)
     log_phi_access(
         session,
-        actor_user_id=actor.user_id,
+        actor_user_id=actor.actor_id,
         patient_id=patient_id,
         action="view_analytics_audit_log",
         resource_type="patient_analytics",
@@ -163,10 +163,10 @@ async def get_patient_analytics_signals(
     session: Session = Depends(get_db_session),
 ) -> PatientSignalsResponse:
     """Get patient safety signals (clinic-scoped, audit-logged)."""
-    require_patient_access(session, actor.user_id, patient_id)
+    require_patient_access(session, actor.actor_id, patient_id)
     log_phi_access(
         session,
-        actor_user_id=actor.user_id,
+        actor_user_id=actor.actor_id,
         patient_id=patient_id,
         action="view_analytics_signals",
         resource_type="patient_analytics",

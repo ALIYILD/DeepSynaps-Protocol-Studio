@@ -1723,7 +1723,7 @@ def get_learn_progress(
 ) -> LearnProgressOut:
     from app.persistence.models import UserPreferences, User
     _require_patient(actor, db)
-    user = db.query(User).filter(User.id == actor.user_id).first()
+    user = db.query(User).filter(User.id == actor.actor_id).first()
     if not user:
         return LearnProgressOut(read_article_ids=[])
     prefs = db.query(UserPreferences).filter(UserPreferences.user_id == user.id).first()
@@ -1745,7 +1745,7 @@ def mark_learn_article_read(
 ) -> LearnProgressOut:
     from app.persistence.models import UserPreferences, User
     _require_patient(actor, db)
-    user = db.query(User).filter(User.id == actor.user_id).first()
+    user = db.query(User).filter(User.id == actor.actor_id).first()
     if not user:
         return LearnProgressOut(read_article_ids=[body.article_id])
     prefs = db.query(UserPreferences).filter(UserPreferences.user_id == user.id).first()
