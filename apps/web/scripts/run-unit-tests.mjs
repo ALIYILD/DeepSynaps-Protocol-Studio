@@ -54,6 +54,18 @@ const QUARANTINE = new Set([
   //   but the source has been refactored and no longer contains that
   //   exact pattern. Real bug or stale assertion — needs investigation.
   'src/rotation-policy-advisor-outcome-tracker-launch-audit.test.js',
+
+  // TODO(test-coverage): patient-runtime suite from PR #848 (~1437 LOC of
+  //   new/expanded tests) tipped Frontend coverage past the 30m CI ceiling
+  //   in run 25640811762. Tests pass locally in ~10s but combined with the
+  //   c8-instrumented full suite they push total runtime over the limit.
+  //   Quarantined here until the suite is split into a parallel matrix
+  //   shard or the 4 files are profiled and trimmed. Re-enable as a single
+  //   group so the coverage lift on pages-patient.js is restored.
+  'src/pages-patient.runtime.test.js',
+  'src/pages-patient-dashboard-outcomes.runtime.test.js',
+  'src/pages-patient-deepening.runtime.test.js',
+  'src/pages-patient-homework-builder.runtime.test.js',
 ]);
 
 function listTestFiles(dir) {
