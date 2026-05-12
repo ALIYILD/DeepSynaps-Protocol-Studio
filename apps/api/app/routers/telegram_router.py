@@ -29,6 +29,18 @@ router = APIRouter(prefix="/api/v1/telegram", tags=["telegram"])
 _MAX_TG_REPLY = 3900
 
 
+#: Slash-command → canonical agent_id mapping for the clinician bot.
+#: Any command not in this map falls through to the free-text fallback.
+_ASK_COMMAND_TO_AGENT_ID: dict[str, str] = {
+    "/ask_nurse": "clinic.nurse",
+    "/ask_manager": "clinic.manager",
+    "/ask_head": "clinic.head_of_clinic",
+    "/ask_dr_ai": "clinic.dr_ai",
+    "/ask_receptionist": "clinic.reception",
+    "/ask_drclaw": "clinic.drclaw_telegram",
+}
+
+
 def _truncate_reply(text: str) -> str:
     if len(text) <= _MAX_TG_REPLY:
         return text
@@ -148,9 +160,40 @@ def _help_text(bot_kind: str) -> str:
         f"🧠 *DeepSynaps — Clinic assistant*\n\n"
         f"Commands:\n"
         f"• LINK [CODE] — Link your clinician account (code from Settings)\n"
-        f"• Or ask about queue, protocols, and workflow.\n\n"
+        f"• /agents — List your hired agents\n"
+        f"• /ask_drclaw — Ask DrClaw (your personal queue agent)\n"
+        f"• /ask_receptionist — Ask the Reception agent\n"
+        f"• /ask_nurse — Ask the Nurse agent\n"
+        f"• /ask_manager — Ask the Clinic Manager agent\n"
+        f"• /ask_head — Ask the Head of Clinic agent\n"
+        f"• /ask_dr_ai — Ask the Dr. AI agent\n"
+        f"• Or ask about queue, protocols, and workflow\n"
+        f"  (free-text messages go to DrClaw by default).\n\n"
         f"_Bot: @{handle}_"
     )
+
+
+def _format_agent_list(agents: list) -> str:
+    """Turn a list of hired agents into a Telegram-friendly MarkdownV2 string."""
+    from app.services.telegram_service import escape_markdown_v2
+
+    if not agents:
+        return "You haven't hired any agents yet. Visit the DeepSynaps dashboard to hire agents."
+    lines = ["*Your hired agents:*"]
+    for a in agents:
+        price = f"£{a.monthly_price_gbp}/mo" if a.monthly_price_gbp else "Free"
+        escaped_tagline = escape_markdown_v2(a.tagline)
+        escaped_price = escape_markdown_v2(price)
+        lines.append(f"• *{a.name}* — {escaped_tagline} \\({escaped_price}\\)")
+    lines.append("\nUse /ask_<name> to talk to an agent.")
+    return "\n".join(lines)
+
+
+def _extract_text_after_command(text: str, command: str) -> str:
+    """Return the portion of ``text`` that follows ``command``, stripped."""
+    if text.lower().startswith(command.lower()):
+        return text[len(command):].strip()
+    return text.strip()
 
 
 async def _handle_telegram_update(
@@ -184,10 +227,9 @@ async def _handle_telegram_update(
 
         # ── Inline-keyboard callback (button tap) ──────────────
         # Telegram delivers button taps as ``callback_query`` updates,
-        # NOT ``message``. Only the clinician bot exposes DrClaw
-        # buttons; patient-side updates fall through to the existing
-        # message branches (and silently ignore unknown callback_query
-        # payloads — Telegram still gets ``{"ok": True}``).
+        # NOT ``message``. The clinician bot exposes approval buttons
+        # for any agent; patient-side updates fall through to the
+        # existing message branches.
         cq = payload.get("callback_query")
         if cq and bot_kind == "clinician":
             from app.services.telegram_agent_dispatch import (
@@ -255,12 +297,94 @@ async def _handle_telegram_update(
             )
             return {"ok": True}
 
+        # ── Clinician slash commands ───────────────────────────
+        # Route /ask_<agent> and /agents BEFORE the free-text fallback.
+        if bot_kind == "clinician" and text.startswith("/"):
+            lower_text = text.lower()
+
+            if lower_text == "/agents" or lower_text.startswith("/agents "):
+                from app.auth import AuthenticatedActor
+                from app.persistence.models import User
+                from app.repositories.agent_hires import list_hires_for_actor
+                from app.services.agents.registry import list_visible_agents
+
+                user = db.query(User).filter_by(id=user_id).first()
+                if user is None:
+                    tg.send_message(
+                        chat_id,
+                        "Account not found. Please link again.",
+                        bot_kind=bot_kind,
+                        parse_mode=None,
+                    )
+                    return {"ok": True}
+
+                actor = AuthenticatedActor(
+                    actor_id=user.id,
+                    display_name=user.display_name,
+                    role=user.role,  # type: ignore[arg-type]
+                    package_id=user.package_id or "explorer",
+                    clinic_id=user.clinic_id,
+                )
+                visible = list_visible_agents(actor)
+                hired_rows = list_hires_for_actor(db, actor_id=actor.actor_id, status="active")
+                hired_ids = {h.agent_id for h in hired_rows}
+                hired_agents = [a for a in visible if a.id in hired_ids]
+                reply = _format_agent_list(hired_agents)
+                tg.send_message(
+                    chat_id,
+                    _truncate_reply(reply),
+                    bot_kind=bot_kind,
+                    parse_mode="MarkdownV2",
+                )
+                return {"ok": True}
+
+            for cmd, agent_id in _ASK_COMMAND_TO_AGENT_ID.items():
+                if lower_text == cmd or lower_text.startswith(f"{cmd} "):
+                    from app.services.telegram_agent_dispatch import (
+                        dispatch_to_agent,
+                    )
+
+                    tg_user_id = (
+                        message.get("from", {}).get("id")
+                        if isinstance(message.get("from"), dict)
+                        else None
+                    ) or chat_id
+
+                    message_after_cmd = _extract_text_after_command(text, cmd)
+                    outcome = dispatch_to_agent(
+                        db=db,
+                        agent_id=agent_id,
+                        telegram_user_id=int(tg_user_id),
+                        telegram_chat_id=int(chat_id),
+                        message_text=message_after_cmd,
+                    )
+                    reply_text = _truncate_reply(outcome.get("reply_text", ""))
+                    inline_kb = outcome.get("inline_keyboard")
+                    parse_mode = outcome.get("parse_mode")
+                    if inline_kb:
+                        tg.send_message_with_keyboard(
+                            bot_kind=bot_kind,
+                            chat_id=chat_id,
+                            text=reply_text,
+                            inline_keyboard=inline_kb,
+                            parse_mode=parse_mode,
+                        )
+                    else:
+                        tg.send_message(
+                            chat_id,
+                            reply_text,
+                            bot_kind=bot_kind,
+                            parse_mode=parse_mode,
+                        )
+                    return {"ok": True}
+
         # ── Clinician free-text fallback → DrClaw agent ────────
         # Route any non-slash-command free-text from a *linked* clinician
         # through the DrClaw agent so the bot has full access to
         # the agent's tool allowlist + audit trail. Slash commands (LINK
-        # / CONFIRM / CANCEL / HELP / /start /help) have already been
-        # dispatched above; this branch only sees free-form prose.
+        # / CONFIRM / CANCEL / HELP / /start /help and the /ask_* family)
+        # have already been dispatched above; this branch only sees
+        # free-form prose.
         #
         # The patient bot keeps its existing chat_patient path — patient-
         # side agents remain gated behind the ``pending_clinical_signoff``

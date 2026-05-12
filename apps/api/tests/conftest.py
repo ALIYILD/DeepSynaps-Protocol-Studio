@@ -20,6 +20,13 @@ os.environ["DEEPSYNAPS_CLINICAL_SNAPSHOT_ROOT"] = os.getenv(
     "DEEPSYNAPS_CLINICAL_SNAPSHOT_ROOT",
     str((Path(__file__).resolve().parent / ".test_artifacts" / "clinical-snapshots").as_posix()),
 )
+# Empty Telegram webhook secrets so webhook tests don't 401 in test env.
+# Production security is unchanged — the app_env allowlist (development/test
+# only) gates the empty-secret bypass. Tests that explicitly validate secret
+# checking monkeypatch get_settings and reload the router module.
+os.environ["TELEGRAM_WEBHOOK_SECRET"] = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
+os.environ["TELEGRAM_CLINICIAN_WEBHOOK_SECRET"] = os.getenv("TELEGRAM_CLINICIAN_WEBHOOK_SECRET", "")
+os.environ["TELEGRAM_PATIENT_WEBHOOK_SECRET"] = os.getenv("TELEGRAM_PATIENT_WEBHOOK_SECRET", "")
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SOURCE_PATHS = [

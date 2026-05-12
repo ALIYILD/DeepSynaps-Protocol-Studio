@@ -46,8 +46,13 @@ def test_list_agents_for_clinician(
     assert resp.status_code == 200, resp.text
     body = resp.json()
     ids = {item["id"] for item in body["agents"]}
-    # clinician role + clinician_pro package = reception + drclaw, no reporting
-    assert ids == {"clinic.reception", "clinic.drclaw_telegram"}
+    # clinician role + clinician_pro package = reception, drclaw, nurse, dr_ai
+    assert ids == {
+        "clinic.reception",
+        "clinic.drclaw_telegram",
+        "clinic.nurse",
+        "clinic.dr_ai",
+    }
 
     # Tile shape — system_prompt must NOT leak; the marketplace fields must.
     sample = body["agents"][0]
@@ -66,7 +71,7 @@ def test_list_agents_for_clinician(
         assert required_field in sample, f"missing {required_field} in tile shape"
 
 
-def test_list_agents_for_admin_sees_all_three(
+def test_list_agents_for_admin_sees_all_clinic_agents(
     client: TestClient, auth_headers: dict[str, dict[str, str]]
 ) -> None:
     resp = client.get("/api/v1/agents/", headers=auth_headers["admin"])
@@ -76,6 +81,10 @@ def test_list_agents_for_admin_sees_all_three(
         "clinic.reception",
         "clinic.reporting",
         "clinic.drclaw_telegram",
+        "clinic.head_of_clinic",
+        "clinic.nurse",
+        "clinic.manager",
+        "clinic.dr_ai",
     }
 
 

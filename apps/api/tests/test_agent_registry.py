@@ -12,6 +12,16 @@ from app.services.agents.registry import (
 from app.services.agents.tools.registry import TOOL_REGISTRY
 
 
+CLINIC_AGENT_IDS = {
+    "clinic.reception",
+    "clinic.reporting",
+    "clinic.drclaw_telegram",
+    "clinic.head_of_clinic",
+    "clinic.nurse",
+    "clinic.manager",
+    "clinic.dr_ai",
+}
+
 PATIENT_AGENT_IDS = {
     "patient.care_companion",
     "patient.adherence",
@@ -51,14 +61,10 @@ def _actor(role: str, package_id: str = "explorer") -> AuthenticatedActor:
 # ---------------------------------------------------------------------------
 
 
-def test_registry_has_seven_entries() -> None:
-    # 3 clinic-side (v1) + 4 patient-side (v1.5, gated).
-    assert set(AGENT_REGISTRY.keys()) == {
-        "clinic.reception",
-        "clinic.reporting",
-        "clinic.drclaw_telegram",
-    } | PATIENT_AGENT_IDS
-    assert len(AGENT_REGISTRY) == 7
+def test_registry_has_eleven_entries() -> None:
+    # 7 clinic-side (v1 + Phase 1 expansion) + 4 patient-side (v1.5, gated).
+    assert set(AGENT_REGISTRY.keys()) == CLINIC_AGENT_IDS | PATIENT_AGENT_IDS
+    assert len(AGENT_REGISTRY) == 11
 
 
 def test_every_entry_is_an_agent_definition() -> None:
@@ -98,6 +104,10 @@ def test_known_prices_match_spec() -> None:
     assert AGENT_REGISTRY["clinic.reception"].monthly_price_gbp == 99
     assert AGENT_REGISTRY["clinic.reporting"].monthly_price_gbp == 49
     assert AGENT_REGISTRY["clinic.drclaw_telegram"].monthly_price_gbp == 79
+    assert AGENT_REGISTRY["clinic.head_of_clinic"].monthly_price_gbp == 199
+    assert AGENT_REGISTRY["clinic.nurse"].monthly_price_gbp == 79
+    assert AGENT_REGISTRY["clinic.manager"].monthly_price_gbp == 99
+    assert AGENT_REGISTRY["clinic.dr_ai"].monthly_price_gbp == 149
 
 
 def test_known_packages_match_spec() -> None:
@@ -105,11 +115,17 @@ def test_known_packages_match_spec() -> None:
         "clinic.reception",
         "clinic.reporting",
         "clinic.drclaw_telegram",
+        "clinic.nurse",
+        "clinic.manager",
+        "clinic.dr_ai",
     ):
         assert AGENT_REGISTRY[agent_id].package_required == [
             "clinician_pro",
             "enterprise",
         ]
+    assert AGENT_REGISTRY["clinic.head_of_clinic"].package_required == [
+        "enterprise",
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -120,19 +136,20 @@ def test_known_packages_match_spec() -> None:
 def test_clinician_pro_clinician_sees_clinician_agents_only() -> None:
     actor = _actor("clinician", "clinician_pro")
     visible_ids = {a.id for a in list_visible_agents(actor)}
-    # Reception + DrClaw require clinician role (which clinician satisfies);
-    # reporting requires admin (which clinician does not satisfy).
-    assert visible_ids == {"clinic.reception", "clinic.drclaw_telegram"}
-
-
-def test_admin_with_enterprise_sees_all_three() -> None:
-    actor = _actor("admin", "enterprise")
-    visible_ids = {a.id for a in list_visible_agents(actor)}
+    # Clinician-role agents: reception, drclaw_telegram, nurse, dr_ai.
+    # Admin-only agents (reporting, head_of_clinic, manager) are hidden.
     assert visible_ids == {
         "clinic.reception",
-        "clinic.reporting",
         "clinic.drclaw_telegram",
+        "clinic.nurse",
+        "clinic.dr_ai",
     }
+
+
+def test_admin_with_enterprise_sees_all_clinic_agents() -> None:
+    actor = _actor("admin", "enterprise")
+    visible_ids = {a.id for a in list_visible_agents(actor)}
+    assert visible_ids == CLINIC_AGENT_IDS
 
 
 def test_clinician_with_explorer_package_sees_nothing() -> None:

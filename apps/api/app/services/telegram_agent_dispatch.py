@@ -1,21 +1,22 @@
-"""Route a clinician's free-text Telegram message through the DrClaw
-Doctor agent and produce a Telegram-friendly reply.
+"""Route a clinician's free-text Telegram message through any clinic-side
+agent and produce a Telegram-friendly reply.
 
 The clinician Telegram bot is wired up in
 :mod:`app.routers.telegram_router`. Pre-existing flows (LINK / CONFIRM /
 CANCEL / HELP slash-commands and free-text → ``chat_agent``) stay
 untouched. This module adds two integration points:
 
-* :func:`dispatch_clinician_message` — route a non-slash message through
-  the ``clinic.drclaw_telegram`` agent and shape the structured envelope
+* :func:`dispatch_to_agent` — route a non-slash message through
+  any agent in :data:`AGENT_REGISTRY` and shape the structured envelope
   back into a Telegram payload. When the agent emits a
   ``pending_tool_call`` the dispatcher returns an ``inline_keyboard``
   alongside the prompt so the clinician can approve / reject in-line.
 * :func:`handle_drclaw_callback` — driven by the webhook when a
   ``callback_query`` arrives (a button tap). Validates the payload,
-  runs the runner's confirmation path for Approve, drops the pending
-  call for Reject, edits the original message in place, and answers
-  the callback_query so the user's tap registers.
+  routes to the correct agent via the namespace prefix, runs the
+  confirmation path for Approve, drops the pending call for Reject,
+  edits the original message in place, and answers the callback_query
+  so the user's tap registers.
 """
 from __future__ import annotations
 
@@ -58,7 +59,7 @@ _REPLY_NO_LINK = (
 
 #: Friendly, fixed reply when the linked user lacks an entitled package.
 _REPLY_NO_PACKAGE = (
-    "DrClaw requires a Pro or Enterprise plan. Visit your "
+    "This agent requires a Pro or Enterprise plan. Visit your "
     "DeepSynaps web dashboard to upgrade."
 )
 
@@ -68,21 +69,37 @@ _CB_NOT_LINKED = "This account is not linked."
 #: Refusal when callback_data doesn't match the documented shape.
 _CB_BAD_SHAPE = "Action not recognised."
 
-#: Stable callback_data namespace + opcode regex. Kept tight so a
-#: malformed / spoofed payload can't smuggle non-hex into the lookup.
-#: Format: ``drclaw:<apr|rej>:<32-hex call_id>``  → 41 bytes, well
-#: under Telegram's 64-byte cap on callback_data.
-_CALLBACK_DATA_RE = re.compile(r"^drclaw:(apr|rej):([0-9a-f]{32})$")
+#: Mapping from callback_data namespace prefix → canonical agent id.
+#: The prefix is the short token before the first colon in
+#: ``<prefix>:<apr|rej>:<32-hex call_id>``.
+_CALLBACK_NAMESPACE_TO_AGENT_ID: dict[str, str] = {
+    "drclaw": DRCLAW_AGENT_ID,
+    "nurse": "clinic.nurse",
+    "manager": "clinic.manager",
+    "head": "clinic.head_of_clinic",
+    "dr_ai": "clinic.dr_ai",
+    "receptionist": "clinic.reception",
+}
+
+#: Reverse lookup for composing callback_data in outbound keyboards.
+_AGENT_ID_TO_CALLBACK_NAMESPACE = {
+    v: k for k, v in _CALLBACK_NAMESPACE_TO_AGENT_ID.items()
+}
+
+#: Generic callback_data regex that accepts any namespace prefix.
+#: Format: ``<namespace>:<apr|rej>:<32-hex call_id>``.
+_CALLBACK_DATA_RE = re.compile(r"^([a-z][a-z0-9_]*):(apr|rej):([0-9a-f]{32})$")
 
 
-def dispatch_clinician_message(
+def dispatch_to_agent(
     *,
     db: "Session",
+    agent_id: str,
     telegram_user_id: int,
     telegram_chat_id: int,
     message_text: str,
 ) -> dict:
-    """Route a clinician's free-text Telegram message through DrClaw.
+    """Route a clinician's free-text Telegram message through any agent.
 
     The Telegram webhook owns:
 
@@ -116,9 +133,10 @@ def dispatch_clinician_message(
             }
 
         ``ok=False`` is reserved for *expected* refusals (no link, package
-        gate). LLM / tool failures still return ``ok=True`` with the
-        runner's error envelope flattened to a friendly string — the
-        clinician should always get a Telegram reply, never a silent drop.
+        gate, agent not registered). LLM / tool failures still return
+        ``ok=True`` with the runner's error envelope flattened to a friendly
+        string — the clinician should always get a Telegram reply, never a
+        silent drop.
     """
     user_id = get_user_id_for_chat(db, telegram_chat_id, "clinician")
     if not user_id:
@@ -127,6 +145,7 @@ def dispatch_clinician_message(
             extra={
                 "event": "telegram_agent_dispatch",
                 "outcome": "no_linked_account",
+                "agent_id": agent_id,
                 "telegram_user_id": telegram_user_id,
                 "telegram_chat_id": telegram_chat_id,
             },
@@ -145,6 +164,7 @@ def dispatch_clinician_message(
             extra={
                 "event": "telegram_agent_dispatch",
                 "outcome": "no_linked_account",
+                "agent_id": agent_id,
                 "telegram_user_id": telegram_user_id,
                 "telegram_chat_id": telegram_chat_id,
                 "user_id": user_id,
@@ -159,12 +179,21 @@ def dispatch_clinician_message(
 
     actor = _actor_from_user(user)
 
-    agent = AGENT_REGISTRY.get(DRCLAW_AGENT_ID)
-    if agent is None:  # pragma: no cover — registry is module-level
+    agent = AGENT_REGISTRY.get(agent_id)
+    if agent is None:
+        logger.info(
+            "telegram_agent_dispatch",
+            extra={
+                "event": "telegram_agent_dispatch",
+                "outcome": "agent_not_registered",
+                "agent_id": agent_id,
+                "actor_id": actor.actor_id,
+            },
+        )
         return {
             "ok": False,
             "reason": "agent_not_registered",
-            "reply_text": "DrClaw is not available in this build.",
+            "reply_text": "This agent is not available in this build.",
             "parse_mode": None,
         }
 
@@ -176,6 +205,7 @@ def dispatch_clinician_message(
             extra={
                 "event": "telegram_agent_dispatch",
                 "outcome": "package_not_allowed",
+                "agent_id": agent_id,
                 "actor_id": actor.actor_id,
                 "actor_package": actor.package_id,
                 "required": agent.package_required,
@@ -195,14 +225,15 @@ def dispatch_clinician_message(
         db=db,
     )
 
-    envelope = _compose_dispatch_envelope(response)
+    envelope = _compose_dispatch_envelope(response, agent_id=agent_id)
     logger.info(
         "telegram_agent_dispatch",
         extra={
             "event": "telegram_agent_dispatch",
             "outcome": "dispatched",
+            "agent_id": agent_id,
             "actor_id": actor.actor_id,
-            "agent_id": agent.id,
+            "message_length": len(message_text),
             "had_pending_tool_call": bool(response.get("pending_tool_call")),
             "had_tool_call_executed": bool(response.get("tool_call_executed")),
             "error_code": response.get("error"),
@@ -220,11 +251,33 @@ def dispatch_clinician_message(
     return out
 
 
+def dispatch_clinician_message(
+    *,
+    db: "Session",
+    telegram_user_id: int,
+    telegram_chat_id: int,
+    message_text: str,
+) -> dict:
+    """Thin wrapper around :func:`dispatch_to_agent` for DrClaw.
+
+    Keeps the original call signature stable so existing webhook tests
+    and router imports don't need to change.
+    """
+    return dispatch_to_agent(
+        db=db,
+        agent_id=DRCLAW_AGENT_ID,
+        telegram_user_id=telegram_user_id,
+        telegram_chat_id=telegram_chat_id,
+        message_text=message_text,
+    )
+
+
 def handle_drclaw_callback(
     *,
     db: "Session",
     bot_kind: str,
     callback_query: dict,
+    agent_id: str | None = None,
 ) -> None:
     """Handle a ``callback_query`` update from the clinician bot.
 
@@ -235,16 +288,18 @@ def handle_drclaw_callback(
     2. Resolve the linked clinician via the chat_id on
        ``callback_query.message.chat.id``. Unlinked → polite refusal.
     3. Build an :class:`AuthenticatedActor` the same way
-       :func:`dispatch_clinician_message` does.
-    4. Approve → :func:`run_agent` with ``confirmed_tool_call_id``.
+       :func:`dispatch_to_agent` does.
+    4. Derive the target ``agent_id`` from the callback namespace prefix
+       (or use the provided ``agent_id`` override).
+    5. Approve → :func:`run_agent` with ``confirmed_tool_call_id``.
        Reject → drop the pending call directly via
        :func:`pending_calls.discard` (the runner's reject path needs
        both ``confirmed_tool_call_id`` AND a ``"reject"`` message; we
        go straight to discard here so we don't burn an LLM call).
-    5. Edit the original message in place (buttons removed). If editing
+    6. Edit the original message in place (buttons removed). If editing
        fails — message too old, network blip — fall back to a fresh
        message so the clinician still sees the result.
-    6. Always answer the callback_query so the spinner clears.
+    7. Always answer the callback_query so the spinner clears.
 
     Never raises — exceptions are logged and swallowed; the webhook
     must always return ``{"ok": True}`` so Telegram doesn't keep
@@ -278,7 +333,30 @@ def handle_drclaw_callback(
             )
         return
 
-    opcode, call_id = match.group(1), match.group(2)
+    namespace, opcode, call_id = match.group(1), match.group(2), match.group(3)
+
+    # Resolve agent_id from namespace unless the caller supplied one
+    # explicitly (useful for tests or future overrides).
+    resolved_agent_id = agent_id
+    if resolved_agent_id is None:
+        resolved_agent_id = _CALLBACK_NAMESPACE_TO_AGENT_ID.get(namespace)
+    if resolved_agent_id is None:
+        logger.info(
+            "drclaw_callback_unknown_namespace",
+            extra={
+                "event": "drclaw_callback_unknown_namespace",
+                "namespace": namespace,
+                "telegram_user_id": tg_user_id,
+                "telegram_chat_id": chat_id,
+            },
+        )
+        if cq_id:
+            answer_callback_query(
+                bot_kind=bot_kind,
+                callback_query_id=cq_id,
+                text=_CB_BAD_SHAPE,
+            )
+        return
 
     if not chat_id:
         # No chat to edit — just acknowledge so the spinner clears.
@@ -320,13 +398,13 @@ def handle_drclaw_callback(
 
     actor = _actor_from_user(user)
 
-    agent = AGENT_REGISTRY.get(DRCLAW_AGENT_ID)
+    agent = AGENT_REGISTRY.get(resolved_agent_id)
     if agent is None:  # pragma: no cover — registry is module-level
         if cq_id:
             answer_callback_query(
                 bot_kind=bot_kind,
                 callback_query_id=cq_id,
-                text="DrClaw not available.",
+                text="Agent not available.",
             )
         return
 
@@ -350,6 +428,7 @@ def handle_drclaw_callback(
             "drclaw_callback_reject",
             extra={
                 "event": "drclaw_callback_reject",
+                "agent_id": resolved_agent_id,
                 "actor_id": actor.actor_id,
                 "call_id": call_id,
                 "removed": removed,
@@ -392,6 +471,7 @@ def handle_drclaw_callback(
             "drclaw_callback_approve",
             extra={
                 "event": "drclaw_callback_approve",
+                "agent_id": resolved_agent_id,
                 "actor_id": actor.actor_id,
                 "call_id": call_id,
                 "had_executed": bool(executed),
@@ -465,7 +545,7 @@ def _truncate_for_telegram(text: str, *, cap: int = 3900) -> str:
     return text[: cap - 1] + "…"
 
 
-def _compose_dispatch_envelope(response: dict) -> dict:
+def _compose_dispatch_envelope(response: dict, *, agent_id: str) -> dict:
     """Flatten the runner's structured envelope into a Telegram payload.
 
     Returns a dict carrying ``reply_text``, ``parse_mode`` (``"MarkdownV2"``
@@ -490,6 +570,8 @@ def _compose_dispatch_envelope(response: dict) -> dict:
       :mod:`telegram_service` retry-without-parse_mode fallback
       protects the user from a silent drop.
     """
+    namespace = _AGENT_ID_TO_CALLBACK_NAMESPACE.get(agent_id, "drclaw")
+
     pending = response.get("pending_tool_call")
     if pending:
         summary = (pending.get("summary") or "").strip() or pending.get(
@@ -509,11 +591,11 @@ def _compose_dispatch_envelope(response: dict) -> dict:
                 [
                     {
                         "text": "✅ Approve",
-                        "callback_data": f"drclaw:apr:{call_id}",
+                        "callback_data": f"{namespace}:apr:{call_id}",
                     },
                     {
                         "text": "❌ Reject",
-                        "callback_data": f"drclaw:rej:{call_id}",
+                        "callback_data": f"{namespace}:rej:{call_id}",
                     },
                 ]
             ],
@@ -538,7 +620,7 @@ def _compose_dispatch_envelope(response: dict) -> dict:
     if reply:
         # Trust the LLM's MarkdownV2 output — it's prompted to escape
         # user-supplied substrings on its own. Telegram-side fallback
-        # in telegram_service catches any malformed entities.
+        # in telegram_service catches any malformed payloads.
         return {"reply_text": reply, "parse_mode": "MarkdownV2"}
 
     return {
@@ -553,6 +635,7 @@ def _compose_dispatch_envelope(response: dict) -> dict:
 __all__ = [
     "DRCLAW_AGENT_ID",
     "WEB_APP_URL",
+    "dispatch_to_agent",
     "dispatch_clinician_message",
     "handle_drclaw_callback",
 ]
