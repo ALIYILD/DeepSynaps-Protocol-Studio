@@ -76,6 +76,8 @@ from app.repositories.treatment_courses import (
     list_delivered_sessions_summary,
     list_review_queue_items,
     list_treatment_courses,
+    record_protocol_approval,
+    reset_protocol_approvals,
 )
 from app.services.protocol_registry import build_course_structure_from_protocol, get_protocol_parameters
 from app.services.registries import get_protocol
@@ -148,6 +150,9 @@ def _course_out_from_record(
         status=r.status,
         approved_by=r.approved_by,
         approved_at=_dt(r.approved_at),
+        reviewer_1_id=r.reviewer_1_id,
+        reviewer_2_id=r.reviewer_2_id,
+        approval_signature=r.approval_signature,
         started_at=_dt(r.started_at),
         completed_at=_dt(r.completed_at),
         sessions_delivered=r.sessions_delivered,
@@ -594,9 +599,23 @@ def activate_course(
                 status_code=403,
             )
 
+    # ── P0 dual-review protocol gate ─────────────────────────────────────────
+    # Two independent clinician approvals are required before activation.
+    # The review queue action handler (record_review_action) populates
+    # reviewer_1_id and reviewer_2_id when clinicians approve the protocol.
+    if not course.reviewer_1_id or not course.reviewer_2_id:
+        raise ApiServiceError(
+            code="dual_review_required",
+            message=(
+                "This protocol requires two independent clinician approvals before activation. "
+                f"Current approvals: reviewer_1={course.reviewer_1_id or 'missing'}, reviewer_2={course.reviewer_2_id or 'missing'}."
+            ),
+            status_code=403,
+        )
+
     now = datetime.now(timezone.utc)
     course.status = "active"
-    course.approved_by = actor.actor_id
+    course.approved_by = f"{course.reviewer_1_id}+{course.reviewer_2_id}"
     course.approved_at = now
     if course.started_at is None:
         course.started_at = now
@@ -850,6 +869,16 @@ def post_review_action(
     if action == "approve":
         item.status = "completed"
         item.completed_at = now
+        # P0 dual-review protocol gate: record independent clinician approval on the course
+        if item.target_type == "treatment_course" and item.target_id:
+            try:
+                record_protocol_approval(db, item.target_id, actor.actor_id)
+            except ValueError as exc:
+                raise ApiServiceError(
+                    code="approval_conflict",
+                    message=str(exc),
+                    status_code=409,
+                )
     elif action == "reject":
         item.status = "rejected"
         item.completed_at = now

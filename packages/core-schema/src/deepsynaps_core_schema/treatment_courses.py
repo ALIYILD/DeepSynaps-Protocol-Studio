@@ -77,6 +77,9 @@ class CourseOut(BaseModel):
     status: str
     approved_by: Optional[str]
     approved_at: Optional[str]
+    reviewer_1_id: Optional[str] = None
+    reviewer_2_id: Optional[str] = None
+    approval_signature: Optional[str] = None
     started_at: Optional[str]
     completed_at: Optional[str]
     sessions_delivered: int

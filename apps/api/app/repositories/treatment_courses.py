@@ -121,6 +121,42 @@ def close_pending_review_items_for_course(
     ).update({"status": "completed", "completed_at": completed_at})
 
 
+def record_protocol_approval(session: Session, course_id: str, reviewer_id: str) -> bool:
+    """Record an independent clinician approval on a treatment course.
+
+    Returns ``True`` when both reviewer slots are now filled (i.e. the course
+    has received the required dual approval). Raises ``ValueError`` if the
+    same reviewer tries to approve twice or if both slots are already taken.
+    """
+    course = session.query(TreatmentCourse).filter_by(id=course_id).first()
+    if course is None:
+        raise ValueError("Course not found")
+
+    if course.reviewer_1_id == reviewer_id or course.reviewer_2_id == reviewer_id:
+        raise ValueError("Reviewer has already approved this protocol")
+
+    if course.reviewer_1_id is None:
+        course.reviewer_1_id = reviewer_id
+    elif course.reviewer_2_id is None:
+        course.reviewer_2_id = reviewer_id
+    else:
+        raise ValueError("Both reviewer slots are already filled")
+
+    session.flush()
+    return course.reviewer_1_id is not None and course.reviewer_2_id is not None
+
+
+def reset_protocol_approvals(session: Session, course_id: str) -> None:
+    """Clear dual-review approvals when a protocol is modified."""
+    session.query(TreatmentCourse).filter_by(id=course_id).update({
+        "reviewer_1_id": None,
+        "reviewer_2_id": None,
+        "approval_signature": None,
+        "approved_at": None,
+        "approved_by": None,
+    })
+
+
 # ── ReviewQueueItem ──────────────────────────────────────────────────────────
 
 
