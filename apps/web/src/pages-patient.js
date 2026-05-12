@@ -7949,7 +7949,28 @@ function _wireSettingsPageLegacy() { // eslint-disable-line no-unused-vars
 
   const saveBtn = document.getElementById('st-save');
   const discardBtn = document.getElementById('st-discard');
-  let toggleIndex = 0;
+  const toggleMap = {
+    'Session reminders': ['notification_prefs', 'sessionReminders'],
+    'New messages': ['notification_prefs', 'patientMessages'],
+    'Product analytics': ['analytics_opt_in'],
+  };
+  function buildSettingsPrefs() {
+    const prefs = {};
+    st.querySelectorAll('[data-st-toggle]').forEach(t => {
+      const row = t.closest('.st-row');
+      const label = row?.querySelector('.st-row-label')?.textContent?.trim();
+      const target = label ? toggleMap[label] : null;
+      if (!target) return;
+      const enabled = t.classList.contains('on');
+      if (target[0] === 'notification_prefs') {
+        prefs.notification_prefs = prefs.notification_prefs || {};
+        prefs.notification_prefs[target[1]] = { inapp: enabled };
+      } else {
+        prefs[target[0]] = enabled;
+      }
+    });
+    return prefs;
+  }
   function togglePrefKey(toggleEl) {
     const row = toggleEl.closest('.st-row');
     const label = row?.querySelector('.st-row-label')?.textContent?.trim();
@@ -7964,13 +7985,10 @@ function _wireSettingsPageLegacy() { // eslint-disable-line no-unused-vars
     clearDirty();
     try {
       if (api.updatePatientPreferences) {
-        const prefs = {};
-        st.querySelectorAll('[data-st-toggle]').forEach(t => {
-          prefs[t.dataset.stToggle || togglePrefKey(t)] = t.classList.contains('on');
-        });
+        const prefs = buildSettingsPrefs();
         await api.updatePatientPreferences(prefs);
       }
-      stToast('Settings saved in this browser');
+      stToast('Supported settings saved');
     } catch (err) {
       stToast('Save failed — try again');
       console.error('[settings] save failed', err);
@@ -9287,7 +9305,28 @@ function _wireSettingsPage() {
 
   const saveBtn = document.getElementById('st-save');
   const discardBtn = document.getElementById('st-discard');
-  let toggleIndex = 0;
+  const toggleMap = {
+    'Session reminders': ['notification_prefs', 'sessionReminders'],
+    'New messages': ['notification_prefs', 'patientMessages'],
+    'Product analytics': ['analytics_opt_in'],
+  };
+  function buildSettingsPrefs() {
+    const prefs = {};
+    st.querySelectorAll('[data-st-toggle]').forEach(t => {
+      const row = t.closest('.st-row');
+      const label = row?.querySelector('.st-row-label')?.textContent?.trim();
+      const target = label ? toggleMap[label] : null;
+      if (!target) return;
+      const enabled = t.classList.contains('on');
+      if (target[0] === 'notification_prefs') {
+        prefs.notification_prefs = prefs.notification_prefs || {};
+        prefs.notification_prefs[target[1]] = { inapp: enabled };
+      } else {
+        prefs[target[0]] = enabled;
+      }
+    });
+    return prefs;
+  }
   function togglePrefKey(toggleEl) {
     const row = toggleEl.closest('.st-row');
     const label = row?.querySelector('.st-row-label')?.textContent?.trim();
@@ -9305,20 +9344,17 @@ function _wireSettingsPage() {
     // unconditionally, so a failed PATCH (or a missing api method) looked
     // like a successful save to the patient. Now: API call first, toast
     // only on resolution, dirty flag clears only on success. The api
-    // method (api.updatePatientPreferences) is now defined in api.js and
-    // PATCHes /api/v1/preferences (preferences_router.py) with the toggle
-    // map parked under notification_prefs.
-    const prefs = {};
-    st.querySelectorAll('[data-st-toggle]').forEach(t => {
-      prefs[t.dataset.stToggle || togglePrefKey(t)] = t.classList.contains('on');
-    });
+    // method (api.updatePatientPreferences) is now defined in api.js and now
+    // submits only the supported settings keys instead of flattening every
+    // visual toggle into notification_prefs.
+    const prefs = buildSettingsPrefs();
     const originalLabel = saveBtn.innerHTML;
     saveBtn.disabled = true;
     saveBtn.setAttribute('aria-busy', 'true');
     try {
       await api.updatePatientPreferences(prefs);
       clearDirty();
-      stToast('Settings saved');
+      stToast('Supported settings saved');
     } catch (err) {
       stToast('Save failed \u2014 try again');
       console.error('[settings] save failed', err);

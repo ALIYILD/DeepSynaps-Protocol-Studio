@@ -1142,6 +1142,18 @@ async function apiFetchWithRetry(path, opts = {}, maxRetries = 2) {
   throw lastError;
 }
 
+function mergeNotificationPrefs(existing, patch) {
+  const merged = { ...(existing || {}) };
+  Object.entries(patch || {}).forEach(([key, value]) => {
+    if (value && typeof value === 'object' && !Array.isArray(value) && merged[key] && typeof merged[key] === 'object' && !Array.isArray(merged[key])) {
+      merged[key] = { ...merged[key], ...value };
+    } else {
+      merged[key] = value;
+    }
+  });
+  return merged;
+}
+
 async function apiFetchBlob(path, data) {
   const token = getToken();
   const res = await globalThis.fetch(`${API_BASE}${path}`, {
@@ -3434,19 +3446,23 @@ export const api = {
     apiFetch(`/api/v1/patient-portal/messages/${encodeURIComponent(messageId)}/read`, { method: 'PATCH' }),
   submitSelfAssessment: (data) =>
     apiFetch('/api/v1/patient-portal/self-assessments', { method: 'POST', body: JSON.stringify(data) }),
-  // Patient Settings save. The patient Settings page emits a flat
-  // {slug: boolean} map of toggles plus free-form keys; the server side of
-  // the contract is the shared PATCH /api/v1/preferences endpoint
-  // (preferences_router.py), whose only dict-typed slot is
-  // `notification_prefs`. We park the patient toggles there so the row is
-  // genuinely persisted in user_preferences instead of evaporating in the
-  // browser. Fix for P1 #8 — the previous `if (api.updatePatientPreferences)`
-  // guard meant no API call was ever made, but the UI still said "saved".
-  updatePatientPreferences: (prefs) =>
-    apiFetch('/api/v1/preferences', {
+  // Patient Settings save. Merge notification patches with the existing
+  // preference blob so portal toggles cannot erase unrelated state such as
+  // channel matrices or read_article_ids.
+  updatePatientPreferences: async (prefs) => {
+    const current = await apiFetch('/api/v1/preferences').catch(() => ({}));
+    const body = { ...(prefs || {}) };
+    if (body.notification_prefs) {
+      body.notification_prefs = mergeNotificationPrefs(
+        current?.notification_prefs || {},
+        body.notification_prefs
+      );
+    }
+    return apiFetch('/api/v1/preferences', {
       method: 'PATCH',
-      body: JSON.stringify({ notification_prefs: prefs || {} }),
-    }),
+      body: JSON.stringify(body),
+    });
+  },
 
   // ── Wearable monitoring ───────────────────────────────────────────────────
   patientPortalWearables: () => apiFetch('/api/v1/patient-portal/wearables'),

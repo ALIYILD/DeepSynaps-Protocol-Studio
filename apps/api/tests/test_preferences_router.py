@@ -118,6 +118,34 @@ def test_patch_preferences_requires_auth(client: TestClient) -> None:
     assert resp.status_code in (401, 403)
 
 
+def test_patch_preferences_notification_merge_preserves_nested_state(client: TestClient) -> None:
+    token = _register(client, "prefs-rt-merge@example.com")
+    client.get("/api/v1/preferences", headers={"Authorization": f"Bearer {token}"})
+    seed = client.patch(
+        "/api/v1/preferences",
+        json={
+            "notification_prefs": {
+                "sessionReminders": {"email": True, "inapp": True, "telegram": False},
+                "read_article_ids": ["journal-network-depression"],
+            }
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert seed.status_code == 200, seed.text
+
+    resp = client.patch(
+        "/api/v1/preferences",
+        json={"notification_prefs": {"sessionReminders": {"inapp": False}}},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["notification_prefs"]
+    assert data["sessionReminders"]["inapp"] is False
+    assert data["sessionReminders"]["email"] is True
+    assert data["sessionReminders"]["telegram"] is False
+    assert data["read_article_ids"] == ["journal-network-depression"]
+
+
 # ── GET /api/v1/preferences/clinical-defaults ────────────────────────────────
 
 def test_get_clinical_defaults_requires_auth(client: TestClient) -> None:
