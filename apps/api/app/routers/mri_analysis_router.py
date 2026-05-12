@@ -442,6 +442,7 @@ def _attach_saved_evidence_citations(
         db,
         context_kind="mri",
         analysis_id=row.analysis_id,
+        include_pending_review=False,
     )
     report_with_citations = dict(report)
     report_with_citations["saved_evidence_citations"] = scoped
