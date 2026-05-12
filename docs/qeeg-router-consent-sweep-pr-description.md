@@ -121,14 +121,21 @@ There are **two valid paths**. Use **Path 1** until **#874** is merged; use **Pa
 
    If **mergeStateStatus** is **BLOCKED** or any required check shows **FAILURE**, fix CI (or document an explicit maintainer override) before merge — do not merge on title alone.
 
-2. **Watch checks** (until router lints and the rest are green):
+2. **Monitor checks** (non-blocking snapshot or watch until green):
+
+   ```bash
+   gh pr checks 874
+   gh pr view 874 --json mergeStateStatus,statusCheckRollup
+   ```
+
+   Optional continuous watch:
 
    ```bash
    gh pr checks 874 --watch
    gh pr view 874 --json mergeStateStatus,statusCheckRollup
    ```
 
-   Target: **Router Schema Lint** / **Router Repo Lint** → pass; **mergeStateStatus** → **CLEAN** or **MERGEABLE**.
+   Target: **Router Schema Lint** / **Router Repo Lint** → pass; **mergeStateStatus** → **CLEAN** or **MERGEABLE**; required checks **green**.
 
    **If a check fails again:** narrow to that job only — do not broaden scope.
 
@@ -147,21 +154,24 @@ There are **two valid paths**. Use **Path 1** until **#874** is merged; use **Pa
 
 ### Stash overlap warning (`wip-unrelated-to-qeeg-consent-pr-874`)
 
-Do **not** blindly `git stash pop` — the stash may **overlap** files touched for the router lint unblock (`patients.py`, `data_console_router.py`, `research_dataset_router.py`, etc.).
+Do **not** blindly `git stash pop` — the stash may **overlap** files touched for the router lint unblock (`patients.py`, `data_console_router.py`, `research_dataset_router.py`, etc.). Use the **`git stash branch …`** step in **Path 2** after **#874** merges (skip if the stash is already gone).
 
-**Safer after #874 merges** (on **`main`**, after **`git pull --ff-only origin main`**): fork the stash onto its own branch so overlaps never land on **`main`** or **PR #874**:
+### Path 2 — after #874 is merged (stash branch, then PR 3)
+
+**1.** Sync **`main`** after the squash merge lands:
 
 ```bash
 git checkout main
 git pull --ff-only origin main
+```
+
+**2.** If stash **`wip-unrelated-to-qeeg-consent-pr-874`** still exists, fork it safely (skip this block if the stash is already gone):
+
+```bash
 git stash branch wip/data-console-research wip-unrelated-to-qeeg-consent-pr-874
 ```
 
-(`git stash branch` applies the named stash and checks out the new branch; if the stash no longer exists, skip this block.)
-
-### Path 2 — after #874 is merged (then PR 3)
-
-Return to **`main`**, sync, and **only then** create the PR 3 feature branch:
+**3.** Return to **`main`** and create the PR 3 branch:
 
 ```bash
 git checkout main
@@ -170,7 +180,7 @@ git checkout -b feat/qeeg-rag-draft-reports
 ```
 
 - **PR title:** `feat(qeeg): evidence-grounded RAG draft reports`
-- **Scope:** **AI Report tab only** — consent-first, role-checked, real citations only, **clinician-review required**, no diagnosis claims. Not Analysis tab metrics. Not source localization. Not a big qEEG Analyzer refactor.
+- **Scope:** **AI Report tab only** — consent-first, role-checked, real citations only, **clinician-review required**, no diagnosis claims. Still excluded: Analysis tab metrics, source localization, advanced visualisation, large frontend refactor.
 - **Pipeline order (backend/product):** (1) **ai_analysis** consent → (2) role → (3) findings → (4) evidence → (5) draft only → (6) real citations → (7) decision-support copy → (8) audit → (9) store as **clinician_review_required**.
 
 ### PR 3 — Cursor step 1 (inspect only; paste first)
@@ -332,7 +342,7 @@ PR **3** is review-ready only when:
 
 **PR 4 — qEEG advanced metrics and visualisation scaffolds** — e.g. phase coherence, amplitude asymmetry, alpha peak frequency, fluctuation time, percentage deviant activity, source-view scaffolds, seizure probability trend (research-only scaffold), processing history tree.
 
-**Immediate build sequence:** merge **#874** → **`main`** + **`git pull --ff-only`** → (optional) **`git stash branch wip/data-console-research …`** if stash exists → **`main`** + **`feat/qeeg-rag-draft-reports`** → **AI Report tab** evidence-grounded draft reports only.
+**Immediate build sequence:** **#874** CI green → merge **#874** → sync **`main`** → (optional) **`git stash branch wip/data-console-research …`** if stash exists → sync **`main`** again → **`feat/qeeg-rag-draft-reports`** → **AI Report tab** evidence-grounded draft reports only.
 
 ## Local verification commands
 
