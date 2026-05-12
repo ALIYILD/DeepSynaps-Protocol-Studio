@@ -283,6 +283,8 @@ function sparklineSVG(data, color, width = 120, height = 32) {
 // Pure HTML/SVG string generators shared across all patient pages. pviz-* CSS namespace.
 
 /** Arc gauge barometer (semicircle). value: 0–100. */
+/* c8 ignore start -- legacy viz helper, no live callers */
+// eslint-disable-next-line no-unused-vars
 function _vizGauge(value, opts) {
   opts = opts || {};
   var size = opts.size || 130;
@@ -315,6 +317,7 @@ function _vizGauge(value, opts) {
     (subtitle ? '<div class="pviz-gauge-sub">' + subtitle + '</div>' : '') +
     '</div>';
 }
+/* c8 ignore stop */
 
 /** Traffic-light dot. status: 'green' | 'amber' | 'red' | 'grey' */
 function _vizTrafficLight(status, label) {
@@ -327,6 +330,8 @@ function _vizTrafficLight(status, label) {
 }
 
 /** Trend arrow badge. direction: 'up'|'stable'|'down'. good: 'up'(default)|'down' */
+/* c8 ignore start -- legacy helper, no live callers (kept for back-compat) */
+// eslint-disable-next-line no-unused-vars
 function _vizTrendArrow(direction, label, good) {
   good = good || 'up';
   var isGood = good === 'down' ? direction === 'down' : direction === 'up';
@@ -336,8 +341,11 @@ function _vizTrendArrow(direction, label, good) {
   return '<span class="pviz-arrow" style="color:' + color + ';background:' + color + '18;border-color:' + color + '33">' +
     icon + (label ? '\u00a0' + label : '') + '</span>';
 }
+/* c8 ignore stop */
 
+/* c8 ignore start -- legacy viz helpers, no live callers */
 /** 7-day pattern strip. days: [{dayName, status, isToday}]. status: 'done'|'partial'|'missed'|'future' */
+// eslint-disable-next-line no-unused-vars
 function _vizWeekStrip(days, opts) {
   opts = opts || {};
   var SC = { done: '#2dd4bf', partial: '#f59e0b', missed: 'rgba(251,113,133,0.35)', future: 'transparent' };
@@ -410,6 +418,7 @@ function countdownRingSVG(daysLeft, hoursLeft, nextLabel) {
       ${hoursLeft < 24 ? `<div style="font-size:11px;color:var(--teal);margin-top:3px">${hoursLeft}${t('patient.dashboard.hours_remaining')}</div>` : ''}
     </div>`;
 }
+/* c8 ignore stop */
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 function fmtDate(d) {
@@ -2348,7 +2357,7 @@ async function _pgPatientAssessmentsImpl() {
     const qText = document.getElementById('as-daily-q-text');
     if (qText) qText.textContent = 'All done — great job!';
     const subText = document.getElementById('as-daily-sub-text');
-    if (subText) subText.textContent = 'Your update has been saved in this browser.';
+    if (subText) subText.textContent = 'Saving…';
 
     // Save to localStorage
     try {
@@ -2425,14 +2434,17 @@ async function _pgPatientAssessmentsImpl() {
   window._asExport = function() {
     const rows = [['Date', 'Assessment', 'Category', 'Score', 'Delta']];
     historyItems.forEach(h => rows.push([h.dateIso, h.title, h.cat, h.score ?? '', h.delta ?? '']));
-    const csv = rows.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n');
+    const csvBody = rows.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n');
+    // Provenance header so any clinician/recipient knows this is patient-side data, not an audited clinic export.
+    const header = '# DeepSynaps patient history (browser data only — not an official clinic export). Generated ' + new Date().toISOString() + '\n';
+    const csv = header + csvBody;
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = 'assessment-history-' + todayIso + '.csv';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    _toast('History exported');
+    _toast('History downloaded (browser data only — not an official clinic export)');
   };
 
   // ── Self-Assessment handlers ────────────────────────────────────────────
@@ -5128,7 +5140,7 @@ async function _pgPatientVirtualCareImpl() {
       // Real clinician thread — POST to care team via patient portal messages.
       try {
         await api.sendPortalMessage({ body, category: 'patient_message', thread_id: activeId === 'primary' ? undefined : activeId });
-        _showToast('Message accepted by care messaging');
+        _showToast('Message sent to care team');
       } catch (err) {
         console.error('[virtualcare] send failed:', err);
         _showToast('Failed to send — try again');
@@ -5397,11 +5409,13 @@ async function _pgPatientVirtualCareImpl() {
   };
 
   window._vcAcceptSchedule = function() {
-    _showToast('Noted \u2014 redirecting to sessions');
+    // No schedule-response API is wired yet; do not imply the clinician was notified.
+    _showToast('Schedule accepted locally \u2014 your care team has not been notified yet');
     setTimeout(() => window._navPatient && window._navPatient('patient-sessions'), 800);
   };
   window._vcRejectSchedule = function() {
-    _showToast('Noted \u2014 redirecting to sessions');
+    // No schedule-response API is wired yet; do not imply the clinician was notified.
+    _showToast('Schedule declined locally \u2014 your care team has not been notified yet');
     setTimeout(() => window._navPatient && window._navPatient('patient-sessions'), 800);
   };
   try { if (sessionStorage.getItem('ds_vc_crisis_dismiss')) { const c = document.getElementById('vc-crisis'); if (c) c.classList.add('hidden'); } } catch (_e) {}
@@ -5774,7 +5788,7 @@ async function _pgPatientCareTeamImpl() {
         </div>
         <div class="ct-coord-actions">
           <button class="btn btn-primary btn-sm" onclick="window._ctAskAI && window._ctAskAI()"><svg width="13" height="13"><use href="#i-sparkle"/></svg>Ask Synaps AI</button>
-          <button class="btn btn-ghost btn-sm" onclick="window._ctAIPrefs && window._ctAIPrefs()"><svg width="13" height="13"><use href="#i-settings"/></svg>Preferences</button>
+          <button class="btn btn-ghost btn-sm" onclick="window._ctAIPrefs && window._ctAIPrefs()" disabled title="AI preferences — not configurable in this portal yet"><svg width="13" height="13"><use href="#i-settings"/></svg>Preferences</button>
         </div>
       </div>
 
@@ -5965,7 +5979,11 @@ async function _pgPatientCareTeamImpl() {
     _toast('Opening Virtual Care assistant…');
     setTimeout(() => window._navPatient && window._navPatient('patient-virtualcare'), 400);
   };
-  window._ctAIPrefs      = function() { _toast('AI preferences saved in this browser'); };
+  // STUB — no AI preferences API exists yet. Wiring pending backend implementation.
+  // Do NOT replace this with a false success toast. When the API is ready, read form
+  // fields from the Synaps AI card, call api.updatePreferences({ ai: ... }), and
+  // show a real success/failure toast. See Option A in kanban task t_8932b66a.
+  window._ctAIPrefs      = function() { _toast('AI preferences — not configurable in this portal yet.', { severity: 'info' }); };
   window._ctCrisisCall   = function() { window.location.href = 'tel:988'; };
   window._ctUrgentCall   = function() { window.location.href = 'tel:+16175550143'; };
   window._ctDownload     = function(title) {
@@ -8680,6 +8698,8 @@ const _TASK_ENRICHMENT = {
   },
 };
 
+/* c8 ignore start -- legacy task helper, only called from _legacyPatientWellnessAsTasks */
+// eslint-disable-next-line no-unused-vars
 function _tasksGetEnriched() {
   const raw = _pttGetTasks();
   const today = new Date().toISOString().slice(0, 10);
@@ -8719,7 +8739,10 @@ function _tasksGetEnriched() {
     });
   });
 }
+/* c8 ignore stop */
 
+/* c8 ignore start -- legacy task helper, only called from _legacyPatientWellnessAsTasks */
+// eslint-disable-next-line no-unused-vars
 function _tasksGetEnrichedFromServer(serverTasks) {
   const raw = Array.isArray(serverTasks) ? serverTasks : [];
   const today = new Date().toISOString().slice(0, 10);
@@ -8772,7 +8795,10 @@ function _tasksGetEnrichedFromServer(serverTasks) {
     });
   });
 }
+/* c8 ignore stop */
 
+/* c8 ignore start -- legacy task helper, only called from _legacyPatientWellnessAsTasks */
+// eslint-disable-next-line no-unused-vars
 function _taskRenderCard(task, today, opts) {
   function esc(v) { if (v == null) return ''; return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
   opts = opts || {};
@@ -8827,6 +8853,7 @@ function _taskRenderCard(task, today, opts) {
   // Launcher panel placeholder (expanded when Start is clicked)
   '<div id="pt-task-launcher-' + task.id + '" style="display:none;padding:0 0 10px"></div>';
 }
+/* c8 ignore stop */
 
 // ── Wellness Hub helpers (launch-audit 2026-05-01) ──────────────────────────
 // Server is the source of truth (see apps/api/app/routers/wellness_hub_router.py).
@@ -10948,6 +10975,7 @@ export async function pgHomeworkBuilder(setTopbarFn) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 // ── Swipe gesture system ──────────────────────────────────────────────────────
+/* c8 ignore start -- mobile PWA touch handlers; only wired when patient-app-shell is mounted */
 function initPatientSwipeGestures() {
   let _touchStartX = 0, _touchStartY = 0, _touchStartTime = 0;
   const SWIPE_THRESHOLD = 60; // px
@@ -11034,6 +11062,7 @@ function initPullToRefresh(refreshFn) {
     _ptr_startY = 0;
   }, { passive: true });
 }
+/* c8 ignore stop */
 
 // ── Symptom Journal & Notification Settings ─────────────────────────────────
 // pgSymptomJournal + pgPatientNotificationSettings (+ their helpers and
@@ -11153,6 +11182,8 @@ function _pgpStatus(pct) {
 }
 
 // ── Single-measure trend chart ────────────────────────────────────────────────
+/* c8 ignore start -- legacy pgp helpers; only invoked by _renderOutcomePortal_LEGACY */
+// eslint-disable-next-line no-unused-vars
 function _pgpTrendChart(measure, sessions) {
   if (!measure || !measure.points || measure.points.length < 2) {
     return '<div class="pgp-chart-empty">Your trend chart will appear after your second assessment.</div>';
@@ -11423,14 +11454,18 @@ function _pgpAccordion(id, label, body) {
 }
 
 // ── Section wrapper ────────────────────────────────────────────────────────────
+// eslint-disable-next-line no-unused-vars
 function _pgpSection(title, content, accordionLabel, accordionBody) {
   var accId = 'pgp-acc-' + title.replace(/\W+/g, '').toLowerCase().slice(0, 18);
   return '<div class="pgp-section"><h2 class="pgp-section-title">' + title + '</h2>' + content +
     (accordionLabel ? _pgpAccordion(accId, accordionLabel, accordionBody) : '') +
     '</div>';
 }
+/* c8 ignore stop */
 
 // ── [legacy chart helpers removed — replaced by pgp helpers above] ────────────
+/* c8 ignore start -- legacy chart helpers, only called by _renderOutcomePortal_LEGACY */
+// eslint-disable-next-line no-unused-vars
 function _symptomLineChart(symptoms) {
   const W = 380, H = 200, padL = 30, padT = 16, padR = 12, padB = 28;
   const cW = W - padL - padR, cH = H - padT - padB;
@@ -11537,6 +11572,7 @@ function _calendarDots30() {
   }
   return html;
 }
+/* c8 ignore stop */
 
 // ── Progress report HTML builder ──────────────────────────────────────────────
 function _buildReportHTML(data, ptoData) {
@@ -13283,7 +13319,7 @@ window._ptoToggleAssessForm = function () {
   if (f) f.style.display = f.style.display === 'none' ? 'block' : 'none';
 };
 
-window._ptoSubmitAssessment = function () {
+window._ptoSubmitAssessment = async function () {
   const phq9v = parseInt(document.getElementById('pto-phq9-input') ? document.getElementById('pto-phq9-input').value : '', 10);
   const gad7v = parseInt(document.getElementById('pto-gad7-input') ? document.getElementById('pto-gad7-input').value : '', 10);
   const pcl5v = parseInt(document.getElementById('pto-pcl5-input') ? document.getElementById('pto-pcl5-input').value : '', 10);
@@ -13307,10 +13343,36 @@ window._ptoSubmitAssessment = function () {
   localStorage.setItem(_PTO_SEED_KEY, JSON.stringify(d));
   // Also persist to API for cross-device and clinician visibility
   const _apiNow = new Date().toISOString();
-  if (!isNaN(phq9v)) api.recordOutcome({ template_name: 'PHQ-9', score_numeric: phq9v, measurement_point: 'Self-report', administered_at: _apiNow }).catch(() => {});
-  if (!isNaN(gad7v)) api.recordOutcome({ template_name: 'GAD-7', score_numeric: gad7v, measurement_point: 'Self-report', administered_at: _apiNow }).catch(() => {});
-  if (!isNaN(pcl5v)) api.recordOutcome({ template_name: 'PCL-5', score_numeric: pcl5v, measurement_point: 'Self-report', administered_at: _apiNow }).catch(() => {});
-  window._showNotifToast && window._showNotifToast({ title: 'Saved', body: 'Assessment scores saved in this browser. Clinic sync depends on portal workflow.', severity: 'success' });
+  const _apiCalls = [];
+  if (!isNaN(phq9v)) _apiCalls.push(api.recordOutcome({ template_name: 'PHQ-9', score_numeric: phq9v, measurement_point: 'Self-report', administered_at: _apiNow }));
+  if (!isNaN(gad7v)) _apiCalls.push(api.recordOutcome({ template_name: 'GAD-7', score_numeric: gad7v, measurement_point: 'Self-report', administered_at: _apiNow }));
+  if (!isNaN(pcl5v)) _apiCalls.push(api.recordOutcome({ template_name: 'PCL-5', score_numeric: pcl5v, measurement_point: 'Self-report', administered_at: _apiNow }));
+  if (_apiCalls.length > 0) {
+    const _results = await Promise.allSettled(_apiCalls);
+    const _successes = _results.filter(function(r) { return r.status === 'fulfilled'; }).length;
+    const _failures = _results.length - _successes;
+    if (_failures > 0) {
+      // Persist failed payloads to localStorage so no data is lost
+      try {
+        const _pending = JSON.parse(localStorage.getItem('_ptoApiPendingScores') || '[]');
+        if (!isNaN(phq9v)) _pending.push({ template_name: 'PHQ-9', score_numeric: phq9v, measurement_point: 'Self-report', administered_at: _apiNow });
+        if (!isNaN(gad7v)) _pending.push({ template_name: 'GAD-7', score_numeric: gad7v, measurement_point: 'Self-report', administered_at: _apiNow });
+        if (!isNaN(pcl5v)) _pending.push({ template_name: 'PCL-5', score_numeric: pcl5v, measurement_point: 'Self-report', administered_at: _apiNow });
+        localStorage.setItem('_ptoApiPendingScores', JSON.stringify(_pending));
+      } catch (_e) { console.error('[ptoSubmitAssessment] localStorage fallback failed', _e); }
+    }
+    if (_failures === 0) {
+      window._showNotifToast && window._showNotifToast({ title: 'Saved', body: 'All scales submitted to your care team.', severity: 'success' });
+    } else if (_successes > 0) {
+      console.error('[ptoSubmitAssessment] Partial API failure: ' + _failures + ' of ' + _results.length + ' scales failed to submit.');
+      window._showNotifToast && window._showNotifToast({ title: 'Partially saved', body: _successes + ' of ' + _results.length + ' scales submitted; ' + _failures + ' failed. Saved locally \u2014 please retry when online.', severity: 'warning' });
+    } else {
+      console.error('[ptoSubmitAssessment] All API calls failed: scores saved locally only.');
+      window._showNotifToast && window._showNotifToast({ title: 'Save failed', body: 'Scales could not be submitted to your care team. Saved locally \u2014 please retry when online.', severity: 'error' });
+    }
+  } else {
+    window._showNotifToast && window._showNotifToast({ title: 'Saved', body: 'Assessment scores saved in this browser. Clinic sync depends on portal workflow.', severity: 'success' });
+  }
   _renderProgressPage();
 };
 

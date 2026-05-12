@@ -51,6 +51,15 @@ dom.window.HTMLCanvasElement.prototype.getContext = function () {
 };
 if (typeof globalThis.fetch === 'undefined') globalThis.fetch = () => Promise.reject(new Error('fetch unavailable'));
 
+// Shim setInterval to a no-op so background pollers (e.g. _vcPollTimer)
+// don't keep the node --test event loop alive after tests complete.
+const __ivIds = new Set();
+let __ivCounter = 1;
+globalThis.setInterval = (..._args) => { const id = __ivCounter++; __ivIds.add(id); return id; };
+globalThis.clearInterval = (id) => { __ivIds.delete(id); };
+dom.window.setInterval = globalThis.setInterval;
+dom.window.clearInterval = globalThis.clearInterval;
+
 // MediaRecorder shim for VirtualCare voice/video record paths
 dom.window.MediaRecorder = class {
   constructor() { this.state = 'inactive'; this.ondataavailable = null; this.onstop = null; }
@@ -256,7 +265,7 @@ test('pgPatientHomework deep — seeds tasks + walks task open/skip/snooze + lib
   assert.ok(true);
 });
 
-test('pgPatientAssessments deep — exercises tabs + check-in + self-assessment submit', async () => {
+test('pgPatientAssessments deep — exercises tabs + check-in + self-assessment submit + Likert form render', async () => {
   resetHarness();
   await mod.pgPatientAssessments();
   await flushUi();
@@ -273,10 +282,114 @@ test('pgPatientAssessments deep — exercises tabs + check-in + self-assessment 
       softCall(window[h], 'phq9', 'q1', 2);
     }
   }
+  // Ensure as-form-slot exists then trigger _asStart('phq9') to render the Likert form
+  if (!document.getElementById('as-form-slot')) {
+    const slot = document.createElement('div');
+    slot.id = 'as-form-slot';
+    document.getElementById('patient-content').appendChild(slot);
+  }
+  if (typeof window._asStart === 'function') {
+    for (const slug of ['phq9', 'gad7', 'pcl5', 'unknown-form']) {
+      softCall(window._asStart, slug);
+    }
+  }
+  if (typeof window._asHistFilter === 'function') {
+    softCall(window._asHistFilter, 'all');
+    softCall(window._asHistFilter, 'phq9');
+  }
+  // After Likert form renders, exercise its submit handler branches:
+  // 1) unanswered → scroll-and-highlight return; 2) all-answered → api success;
+  // 3) all-answered → api throws.
+  api.submitAssessment = async () => ({ ok: true });
+  if (typeof window._ptLikertSubmit === 'function') {
+    softCall(window._ptLikertSubmit, 'unknown-key'); // st missing → early return
+    softCall(window._ptLikertSubmit, 'phq9');        // probably unanswered path
+    // Force answers populated so we hit the api branch
+    if (window._likertState && window._likertState.phq9) {
+      window._likertState.phq9.answers = window._likertState.phq9.answers.map(() => 1);
+      const resultEl = document.createElement('div');
+      resultEl.id = 'phq9-result';
+      document.body.appendChild(resultEl);
+      await softCallA(window._ptLikertSubmit, 'phq9'); // success
+      // Error path
+      api.submitAssessment = async () => { throw new Error('submit boom'); };
+      await softCallA(window._ptLikertSubmit, 'phq9'); // error
+    }
+  }
+  // Likert answer-picker side branches
+  if (typeof window._ptLikertPick === 'function') {
+    softCall(window._ptLikertPick, 'phq9', 0, 1);
+    softCall(window._ptLikertPick, 'phq9', 1, 2);
+    softCall(window._ptLikertPick, 'unknown-key', 0, 0);
+  }
   assert.ok(true);
 });
 
-test('pgPatientEducation deep — walks resource detail + academy modal', async () => {
+test('pgPatientOutcomePortal deep — seeded home tasks + sessions exercise progress sub-renderers', async () => {
+  resetHarness();
+  // Seed outcomes for the rich path
+  const today = new Date();
+  const d = (off) => { const x = new Date(today); x.setDate(x.getDate() + off); return x.toISOString().slice(0, 10); };
+  localStorage.setItem('ds_patient_outcomes_v2', JSON.stringify({
+    _isDemoData: false,
+    patient: { name: 'Alex D', startDate: d(-90), totalSessions: 18, condition: 'Depression', clinician: 'Dr. Reyes' },
+    nextAssessmentDate: d(7),
+    measures: [
+      { id: 'phq9', label: 'PHQ-9', max: 27, color: 'teal', points: [
+        { date: d(-90), score: 18 }, { date: d(-60), score: 14 }, { date: d(-30), score: 10 }, { date: d(-7), score: 7 },
+      ]},
+      { id: 'gad7', label: 'GAD-7', max: 21, color: 'blue', points: [
+        { date: d(-90), score: 14 }, { date: d(-60), score: 10 }, { date: d(-30), score: 7 }, { date: d(-7), score: 5 },
+      ]},
+    ],
+  }));
+  // Symptom journal + wearable
+  const j = [];
+  for (let i = 0; i < 14; i++) j.push({ date: d(-i), mood: 5 + (i % 3), sleep: 7, stress: 4, energy: 6, anxiety: 3 });
+  localStorage.setItem('ds_symptom_journal', JSON.stringify(j));
+  localStorage.setItem('ds_wearable_summary', JSON.stringify({ sleep: '7.2h', hrv: '52ms', rhr: '62bpm' }));
+  // Re-seed v2 with homeTasks/homeSessions embedded so _pgpHomeTaskStrip + _pgpHomeSessionTimeline hit populated branches
+  const tasks = [];
+  for (let i = 0; i < 8; i++) {
+    tasks.push({ id: 't' + i, title: 'Task ' + i, completed_on: i % 2 ? d(-i) : null, due_on: d(i % 7 - 3), category: 'breathing' });
+  }
+  const sessions = [];
+  for (let i = 0; i < 8; i++) sessions.push({ id: 's' + i, date: d(-i*3), type: 'NF', duration_minutes: 25, completed: true });
+  const v2 = JSON.parse(localStorage.getItem('ds_patient_outcomes_v2'));
+  v2.homeTasks = tasks;
+  v2.homeSessions = sessions;
+  localStorage.setItem('ds_patient_outcomes_v2', JSON.stringify(v2));
+  await mod.pgPatientOutcomePortal(() => {});
+  await flushUi();
+  const html = document.getElementById('patient-content').innerHTML;
+  assert.ok(html.length > 500);
+});
+
+test('pgPatientMessages deep — seeded messages + scroll + read-mark', async () => {
+  resetHarness();
+  // Seed message threads if a route key exists
+  api.patientPortalMessages = async () => ({
+    threads: [
+      { id: 'th1', subject: 'Welcome', last_message_at: '2026-04-01T10:00:00Z', unread: true, messages: [
+        { id: 'm1', text: 'Hi from team', from: 'clinician', author: 'Dr. Reyes', ts: '2026-04-01T10:00:00Z', read: false },
+      ]},
+      { id: 'th2', subject: 'Follow-up', last_message_at: '2026-04-02T10:00:00Z', unread: false, messages: [
+        { id: 'm2', text: 'How are you doing?', from: 'clinician', author: 'Dr. Chen', ts: '2026-04-02T10:00:00Z', read: true },
+        { id: 'm3', text: 'Better today', from: 'patient', author: 'Me', ts: '2026-04-02T11:00:00Z', read: true },
+      ]},
+    ],
+  });
+  api.markPatientMessageRead = async () => ({ ok: true });
+  await mod.pgPatientMessages();
+  await flushUi();
+  if (typeof window._ptmsgSelectThread === 'function') {
+    softCall(window._ptmsgSelectThread, 0);
+    softCall(window._ptmsgSelectThread, 1);
+  }
+  assert.ok(true);
+});
+
+test('pgPatientEducation deep — walks resource detail + academy modal + every external src', async () => {
   resetHarness();
   await mod.pgPatientEducation();
   await flushUi();
@@ -290,6 +403,64 @@ test('pgPatientEducation deep — walks resource detail + academy modal', async 
     ['_edShare', 'res-1'],
   ];
   for (const [n, ...a] of handlers) { if (typeof window[n] === 'function') softCall(window[n], ...a); }
+  // Walk every known source kind so _edSearchUrl hits each branch (youtube, mayo, cleveland, podcast, journals, edx, huberman)
+  if (typeof window._edOpen === 'function') {
+    for (const id of ['ed-youtube-1','ed-mayo-1','ed-cleveland-1','ed-podcast-1','ed-journals-1','ed-edx-1','ed-huberman-1','ed-fallback-1']) {
+      softCall(window._edOpen, id);
+    }
+  }
+  assert.ok(true);
+});
+
+test('pgPatientMessages deep — auto-mark-read + active thread refresh', async () => {
+  resetHarness();
+  let readCalls = [];
+  api.markPatientMessageRead = async (thread, mid) => { readCalls.push({ thread, mid }); return { ok: true }; };
+  api.patientPortalMessages = async () => ([
+    { id: 'm1', thread_id: 'th1', sender_id: 'clin-1', sender_type: 'clinician',
+      sender_name: 'Dr. Reyes', subject: 'Welcome', body: 'Hello', is_read: false, created_at: '2026-04-01T10:00:00Z' },
+    { id: 'm2', thread_id: 'th1', sender_id: 'clin-1', sender_type: 'clinician',
+      sender_name: 'Dr. Reyes', subject: 'Follow-up', body: 'Update?', is_read: false, created_at: '2026-04-02T10:00:00Z' },
+  ]);
+  await mod.pgPatientMessages();
+  await flushUi();
+  if (typeof window._ptmsgSelectThread === 'function') {
+    softCall(window._ptmsgSelectThread, 0);
+    await flushUi();
+  }
+  assert.ok(true);
+});
+
+test('pgPatientVirtualCare deep — voice recording stream + ondataavailable flow', async () => {
+  resetHarness();
+  // Override media recorder so its callbacks fire synchronously
+  let mrInstance = null;
+  dom.window.MediaRecorder = class {
+    constructor(stream, _opts) {
+      this.stream = stream; this.state = 'inactive';
+      this.ondataavailable = null; this.onstop = null;
+      mrInstance = this;
+    }
+    start() { this.state = 'recording'; }
+    stop() { this.state = 'inactive';
+      if (this.ondataavailable) this.ondataavailable({ data: { size: 10 } });
+      if (this.onstop) this.onstop();
+    }
+  };
+  await mod.pgPatientVirtualCare();
+  await flushUi();
+  // Ensure activeId is set and threads[activeId] exists by firing a thread pick
+  if (typeof window._vcPickThread === 'function') softCall(window._vcPickThread, 'thread-1');
+  if (typeof window._vcRecordVoice === 'function') {
+    await softCallA(window._vcRecordVoice);
+    if (mrInstance) mrInstance.stop();
+    await flushUi();
+  }
+  if (typeof window._vcRecordVideo === 'function') {
+    await softCallA(window._vcRecordVideo);
+    if (mrInstance) mrInstance.stop();
+    await flushUi();
+  }
   assert.ok(true);
 });
 

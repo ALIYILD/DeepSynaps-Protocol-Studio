@@ -730,7 +730,7 @@ test('pgPatientAssessments covers tabs, daily check-in, history export, and self
 
     window._asExport();
     assert.equal(window._anchorClicks.some((click) => click.download.startsWith('assessment-history-')), true);
-    assert.equal(document.getElementById('as-toast-text').textContent, 'History exported');
+    assert.equal(document.getElementById('as-toast-text').textContent, 'History downloaded (browser data only — not an official clinic export)');
 
     window._asSelfStart('weekly_wellness');
     assert.match(document.getElementById('as-selfassess-form-wrap').innerHTML, /Weekly Wellness Check-in/);

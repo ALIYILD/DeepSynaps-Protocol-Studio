@@ -8,11 +8,48 @@ from __future__ import annotations
 import io
 import json
 import zipfile
+from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
-from app.persistence.models import MriAnalysis, Patient
+from app.persistence.models import ConsentRecord, MriAnalysis, Patient
+
+
+# The clinician demo token resolves to actor-clinician-demo. The /mri/analyze
+# endpoint enforces ai_analysis consent before processing — seed an active
+# ConsentRecord for ``pat-uat`` so the UAT scenarios' analyze call returns 200.
+_DEMO_CLINICIAN_ACTOR_ID = "actor-clinician-demo"
+
+
+def _seed_ai_analysis_consent(patient_id: str, clinician_id: str = _DEMO_CLINICIAN_ACTOR_ID) -> None:
+    db = SessionLocal()
+    try:
+        existing = (
+            db.query(ConsentRecord)
+            .filter_by(
+                patient_id=patient_id,
+                clinician_id=clinician_id,
+                consent_type="ai_analysis",
+                status="active",
+            )
+            .first()
+        )
+        if existing is not None:
+            return
+        db.add(
+            ConsentRecord(
+                patient_id=patient_id,
+                clinician_id=clinician_id,
+                consent_type="ai_analysis",
+                status="active",
+                signed=True,
+                signed_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
 
 
 def _seed_analysis(
@@ -68,6 +105,10 @@ def _seed_analysis(
     )
     assert resp.status_code == 201, resp.text
     upload_id = resp.json()["upload_id"]
+
+    # Seed ai_analysis consent before /analyze — the endpoint enforces it via
+    # require_ai_analysis_consent and returns 403 consent_missing otherwise.
+    _seed_ai_analysis_consent("pat-uat")
 
     resp = client.post(
         "/api/v1/mri/analyze",

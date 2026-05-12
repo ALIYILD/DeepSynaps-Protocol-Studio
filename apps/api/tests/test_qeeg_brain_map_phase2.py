@@ -163,6 +163,51 @@ def test_render_qeeg_html_no_banned_terms_outside_disclaimer() -> None:
     assert not re.search(r"\btreatment recommendation\b", stripped, re.IGNORECASE), "leak: 'treatment recommendation' outside disclaimer"
 
 
+def test_render_qeeg_html_suppresses_gated_indicator_labels() -> None:
+    """Evidence-safety: when an indicator is gated off (None — the default
+    when DEEPSYNAPS_QEEG_UNEVIDENCED_INDICATORS=False), the rendered HTML
+    must NOT contain its user-facing label string. Otherwise a clinician
+    seeing "Alpha Wave Reactivity / —" would infer the system "knows
+    about" that biomarker but has no data. See audit P1 in
+    `~/.hermes/audits/evidence-safety-2026-05-11.md`.
+    """
+    payload = _fixture_payload()
+    # Gate the three unevidenced indicators (mirrors default backend behaviour).
+    payload["indicators"]["alpha_reactivity"] = None
+    payload["indicators"]["brain_balance"] = None
+    payload["indicators"]["ai_brain_age"] = None
+    html = render_qeeg_html(payload)
+
+    # Evidenced indicators still render.
+    assert "Frontal Theta-Beta Ratio" in html
+    assert "Occipital Peak Alpha Frequency" in html
+
+    # Gated indicators are fully suppressed — their labels must not appear.
+    assert "Alpha Wave Reactivity" not in html, (
+        "Alpha Wave Reactivity label leaked despite indicator being gated off"
+    )
+    assert "Estimated Brain Age" not in html, (
+        "Estimated Brain Age label leaked despite indicator being gated off"
+    )
+    assert "Frontal Alpha Asymmetry" not in html, (
+        "Frontal Alpha Asymmetry (FAA) label leaked despite indicator being gated off"
+    )
+
+
+def test_render_qeeg_html_preserves_dash_when_value_missing_but_ind_present() -> None:
+    """Different scenario from the gating test: the indicator object exists
+    (so it WAS computed) but ``value`` is None. The em-dash fallback must
+    still render — only the gated case (ind is None) suppresses the card.
+    """
+    payload = _fixture_payload()
+    payload["indicators"]["tbr"] = {
+        "value": None, "unit": "ratio", "percentile": None, "band": None,
+    }
+    html = render_qeeg_html(payload)
+    assert "Frontal Theta-Beta Ratio" in html, "TBR card should still render when ind exists with null value"
+    assert "—" in html, "em-dash fallback should render when ind.value is None"
+
+
 def test_render_qeeg_pdf_503_when_weasyprint_missing(monkeypatch) -> None:
     """If WeasyPrint cannot be imported, the service raises a typed exception
     that the router maps to HTTP 503. Simulate the missing-dep path so the
