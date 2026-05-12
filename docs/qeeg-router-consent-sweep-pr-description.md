@@ -130,6 +130,15 @@ There are **two valid paths**. Use **Path 1** until **#874** is merged; use **Pa
 
    Target: **Router Schema Lint** / **Router Repo Lint** → pass; **mergeStateStatus** → **CLEAN** or **MERGEABLE**.
 
+   **If a check fails again:** narrow to that job only — do not broaden scope.
+
+   ```bash
+   gh pr checks 874
+   RUN_ID=$(gh run list --branch fix/qeeg-router-consent-sweep --limit 1 --json databaseId --jq '.[0].databaseId')
+   gh run view "$RUN_ID" --log > /tmp/pr874-actions.log
+   grep -nE "FAIL|ERROR|failed|error|Router Schema Lint|Router Repo Lint" /tmp/pr874-actions.log | head -100
+   ```
+
 3. **Stash `wip-unrelated-to-qeeg-consent-pr-874`:** do **not** `git stash pop` blindly — see **Stash overlap warning** below. Those paths may overlap lint-unblock edits; prefer `git stash branch …` after **#874** merges.
 
 4. **Merge condition** (see **Merge condition** above): required checks green **and** (web build confirmed **or** explicit **#844** acceptance).
