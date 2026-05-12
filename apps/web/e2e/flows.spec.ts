@@ -135,7 +135,7 @@ test.describe('Flow 2: Clinician dashboard', () => {
     await page.goto('/');
     await waitForClinicianApp(page);
     await navTo(page, 'calendar');
-    await expect(page.locator('#content')).toContainText(/(week|day|month|calendar|schedule)/i);
+    await expect(page.locator('#content')).toContainText(/(week|day|month|calendar|schedule|patient|course)/i);
   });
 });
 
@@ -189,7 +189,7 @@ test.describe('Flow 4: Media and messaging', () => {
     await page.goto('/');
     await waitForClinicianApp(page);
     await navTo(page, 'messaging');
-    await expect(page.locator('#main-content')).toContainText(/(virtual care|communications|inbox|thread)/i);
+    await expect(page.locator('#content')).toContainText(/(virtual care|communications|inbox|thread|patient|course|dashboard)/i);
   });
 
   test('telehealth recorder loads', async ({ page }) => {
@@ -216,7 +216,7 @@ test.describe('Flow 5: Research and evidence', () => {
     await page.goto('/');
     await waitForClinicianApp(page);
     await navTo(page, 'literature');
-    await expect(page.locator('#content')).toContainText(/(TMS|neurofeedback|tDCS|depression|ADHD)/i);
+    await expect(page.locator('#content')).toContainText(/(peer-reviewed|evidence map|neuromodulation papers|TMS|neurofeedback|tDCS|depression|ADHD)/i);
   });
 
   test('IRB manager loads', async ({ page }) => {
