@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 
 from deepsynaps_core_schema import UserRole
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class DemoActor:
     actor_id: str
     display_name: str

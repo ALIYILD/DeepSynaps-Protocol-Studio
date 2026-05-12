@@ -161,6 +161,9 @@ class AppSettings(BaseModel):
     media_max_upload_bytes: int = Field(default=52428800)  # 50MB
     media_signed_url_ttl_seconds: int = Field(default=3600)
 
+    # Session recordings (go-live P0 — consent-gated, retention-enforced)
+    recording_default_retention_days: int = Field(default=90)
+
     # Transcription
     whisper_provider: str = Field(default="openai")
 
@@ -381,6 +384,8 @@ def load_settings() -> AppSettings:
                 ),
                 "media_max_upload_bytes": int(os.getenv("MEDIA_MAX_UPLOAD_BYTES", "52428800")),
                 "media_signed_url_ttl_seconds": int(os.getenv("MEDIA_SIGNED_URL_TTL_SECONDS", "3600")),
+                # Session recordings retention (go-live P0)
+                "recording_default_retention_days": int(os.getenv("DEEPSYNAPS_RECORDING_RETENTION_DAYS", "90")),
                 # Transcription
                 "whisper_provider": os.getenv("WHISPER_PROVIDER", "openai"),
                 # Feature store (Layer 2)

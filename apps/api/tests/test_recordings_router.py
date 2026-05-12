@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import io
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
-from app.persistence.models import SessionRecording
+from app.persistence.models import ConsentRecord, SessionRecording
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -33,6 +34,12 @@ def _seed_recording(
     owner_clinician_id: str = "actor-clinician-demo",
     title: str = "Test Recording",
     mime_type: str = "audio/webm",
+    clinic_id: str = "clinic-demo-default",
+    patient_id: str | None = None,
+    consent_granted: bool = False,
+    retention_days: int = 90,
+    expires_at = None,
+    auto_deleted: bool = False,
     tmp_path,
 ) -> str:
     """Write a real file + DB row and return the recording id."""
@@ -51,12 +58,17 @@ def _seed_recording(
         db.add(SessionRecording(
             id=rid,
             owner_clinician_id=owner_clinician_id,
-            patient_id=None,
+            clinic_id=clinic_id,
+            patient_id=patient_id,
             title=title,
             file_path=f"recordings/{owner_clinician_id}/{rid}",
             mime_type=mime_type,
             byte_size=len(_WEBM_MAGIC),
             duration_seconds=None,
+            consent_granted=consent_granted,
+            retention_days=retention_days,
+            expires_at=expires_at,
+            auto_deleted=auto_deleted,
         ))
         db.commit()
     finally:
@@ -192,3 +204,127 @@ def test_upload_and_delete_round_trip(client: TestClient, auth_headers: dict) ->
     after = client.get("/api/v1/recordings", headers=auth_headers["clinician"])
     ids = [item["id"] for item in after.json()["items"]]
     assert rid not in ids
+
+
+# ── Consent gating ────────────────────────────────────────────────────────────
+
+
+def test_upload_patient_without_consent_is_403(client: TestClient, auth_headers: dict) -> None:
+    """Patient-linked recordings require a valid active recording consent."""
+    r = client.post(
+        "/api/v1/recordings",
+        files={"file": ("session.webm", io.BytesIO(_WEBM_MAGIC), "audio/webm")},
+        data={"title": "No consent", "patient_id": "patient-no-consent"},
+        headers=auth_headers["clinician"],
+    )
+    assert r.status_code == 403
+    assert r.json()["code"] == "recording_consent_required"
+
+
+def test_upload_patient_with_consent_is_201(client: TestClient, auth_headers: dict) -> None:
+    """When a valid recording consent exists, upload succeeds and retention fields are set."""
+    patient_id = "patient-with-consent"
+    db = SessionLocal()
+    try:
+        db.add(ConsentRecord(
+            id=str(uuid.uuid4()),
+            patient_id=patient_id,
+            clinician_id="actor-clinician-demo",
+            consent_type="recording",
+            signed=True,
+            signed_at=datetime.now(timezone.utc),
+            status="active",
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.post(
+        "/api/v1/recordings",
+        files={"file": ("session.webm", io.BytesIO(_WEBM_MAGIC), "audio/webm")},
+        data={"title": "With consent", "patient_id": patient_id},
+        headers=auth_headers["clinician"],
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert "id" in body
+
+    # List should show consent_granted + expires_at
+    lr = client.get("/api/v1/recordings", headers=auth_headers["clinician"])
+    item = next(i for i in lr.json()["items"] if i["id"] == body["id"])
+    assert item["consent_granted"] is True
+    assert item["expires_at"] is not None
+    assert item["auto_deleted"] is False
+
+
+# ── Retention / auto-deleted ──────────────────────────────────────────────────
+
+
+def test_list_hides_expired_by_default(client: TestClient, auth_headers: dict, tmp_path) -> None:
+    """Auto-deleted recordings are hidden unless include_expired=true."""
+    from datetime import datetime, timezone, timedelta
+    rid = _seed_recording(
+        auto_deleted=True,
+        expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+        tmp_path=tmp_path,
+    )
+
+    default = client.get("/api/v1/recordings", headers=auth_headers["clinician"])
+    assert rid not in [i["id"] for i in default.json()["items"]]
+
+    explicit = client.get("/api/v1/recordings?include_expired=true", headers=auth_headers["clinician"])
+    assert rid in [i["id"] for i in explicit.json()["items"]]
+
+
+def test_stream_expired_recording_is_410(client: TestClient, auth_headers: dict, tmp_path) -> None:
+    """Streaming an auto-deleted recording returns 410 Gone."""
+    from datetime import datetime, timezone, timedelta
+    rid = _seed_recording(
+        auto_deleted=True,
+        expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+        tmp_path=tmp_path,
+    )
+    r = client.get(f"/api/v1/recordings/{rid}/file", headers=auth_headers["clinician"])
+    assert r.status_code == 410
+    assert r.json()["code"] == "recording_expired"
+
+
+# ── Cleanup endpoint ──────────────────────────────────────────────────────────
+
+
+def test_cleanup_requires_supervisor(client: TestClient, auth_headers: dict) -> None:
+    r = client.post("/api/v1/recordings/cleanup", headers=auth_headers["clinician"])
+    assert r.status_code == 403
+
+
+def test_cleanup_expired_recordings(client: TestClient, auth_headers: dict, tmp_path) -> None:
+    """Supervisor cleanup soft-deletes expired rows and removes on-disk blobs."""
+    from datetime import datetime, timezone, timedelta
+    from pathlib import Path
+    from app.settings import get_settings
+
+    rid = _seed_recording(
+        auto_deleted=False,
+        expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+        tmp_path=tmp_path,
+    )
+
+    r = client.post("/api/v1/recordings/cleanup", headers=auth_headers["supervisor"])
+    assert r.status_code == 200
+    assert r.json()["cleaned"] >= 1
+
+    # Row is now auto-deleted
+    db = SessionLocal()
+    try:
+        rec = db.query(SessionRecording).filter_by(id=rid).first()
+        assert rec is not None
+        assert rec.auto_deleted is True
+        assert rec.deleted_at is not None
+        assert rec.deleted_by == "actor-supervisor-demo"
+    finally:
+        db.close()
+
+    # On-disk blob removed
+    settings = get_settings()
+    blob = Path(settings.media_storage_root) / "recordings" / "actor-clinician-demo" / rid
+    assert not blob.is_file()

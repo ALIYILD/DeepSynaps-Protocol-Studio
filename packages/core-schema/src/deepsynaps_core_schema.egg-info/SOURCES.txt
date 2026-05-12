@@ -5,6 +5,7 @@ src/deepsynaps_core_schema/agent_skills.py
 src/deepsynaps_core_schema/assessments.py
 src/deepsynaps_core_schema/assessments_v2.py
 src/deepsynaps_core_schema/auth.py
+src/deepsynaps_core_schema/clinical_data_platform.py
 src/deepsynaps_core_schema/condition_knowledge.py
 src/deepsynaps_core_schema/condition_package.py
 src/deepsynaps_core_schema/home_program_provenance.py
@@ -17,3 +18,4 @@ src/deepsynaps_core_schema.egg-info/SOURCES.txt
 src/deepsynaps_core_schema.egg-info/dependency_links.txt
 src/deepsynaps_core_schema.egg-info/requires.txt
 src/deepsynaps_core_schema.egg-info/top_level.txt
+tests/test_models.py
