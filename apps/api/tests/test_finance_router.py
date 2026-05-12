@@ -12,10 +12,14 @@ verification for the go-live of the Finance Hub surface:
 """
 from __future__ import annotations
 
+import uuid
+
 from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
+from app.persistence.models import Clinic, Invoice, Patient, User
 from app.repositories import finance as finance_repo
+from app.services.auth_service import create_access_token
 
 
 def _clinician(auth_headers: dict) -> dict:
@@ -67,6 +71,63 @@ def _seed_invoice_as_clinician(clinician_actor_id: str = "actor-clinician-demo",
     db = SessionLocal()
     try:
         finance_repo.create_invoice(db, clinician_actor_id, **body)
+    finally:
+        db.close()
+
+
+def _cross_clinic_finance_fixture() -> dict[str, str]:
+    db = SessionLocal()
+    try:
+        clinic_a = "clinic-finance-a"
+        clinic_b = "clinic-finance-b"
+        if db.query(Clinic).filter_by(id=clinic_a).first() is None:
+            db.add(Clinic(id=clinic_a, name="Finance Clinic A"))
+        if db.query(Clinic).filter_by(id=clinic_b).first() is None:
+            db.add(Clinic(id=clinic_b, name="Finance Clinic B"))
+        db.flush()
+
+        admin_a_id = "actor-finance-admin-a"
+        if db.query(User).filter_by(id=admin_a_id).first() is None:
+            db.add(User(
+                id=admin_a_id,
+                email="finance-admin-a@example.com",
+                display_name="Finance Admin A",
+                hashed_password="x",
+                role="admin",
+                package_id="explorer",
+                clinic_id=clinic_a,
+            ))
+        clinician_b_id = "actor-finance-clinician-b"
+        if db.query(User).filter_by(id=clinician_b_id).first() is None:
+            db.add(User(
+                id=clinician_b_id,
+                email="finance-clinician-b@example.com",
+                display_name="Finance Clinician B",
+                hashed_password="x",
+                role="clinician",
+                package_id="explorer",
+                clinic_id=clinic_b,
+            ))
+        db.flush()
+
+        patient_id = "patient-finance-cross-clinic"
+        if db.query(Patient).filter_by(id=patient_id).first() is None:
+            db.add(Patient(
+                id=patient_id,
+                clinician_id=clinician_b_id,
+                first_name="Cross",
+                last_name="Clinic",
+            ))
+        db.commit()
+        return {
+            "patient_id": patient_id,
+            "clinic_admin": create_access_token(
+                admin_a_id, "finance-admin-a@example.com", "admin", "explorer", clinic_a
+            ),
+            "super_admin": create_access_token(
+                "actor-finance-super-admin", "finance-super-admin@example.com", "admin", "explorer", None
+            ),
+        }
     finally:
         db.close()
 
@@ -356,3 +417,91 @@ class TestRouteAndSchemaShape:
         _seed_invoice_as_clinician(patient_name="Scoped")
         resp = client.get("/api/v1/finance/invoices")
         assert resp.status_code == 403
+
+
+class TestCrossClinicFinanceGate:
+    def test_clinic_admin_cannot_create_cross_clinic_invoice(self, client: TestClient) -> None:
+        fx = _cross_clinic_finance_fixture()
+        resp = client.post(
+            "/api/v1/finance/invoices",
+            json={
+                "patient_id": fx["patient_id"],
+                "patient_name": "Cross Clinic Patient",
+                "service": "TMS Course",
+                "amount": 100.0,
+                "vat_rate": 0.20,
+                "issue_date": "2026-05-11",
+                "due_date": "2026-06-11",
+                "status": "draft",
+                "currency": "GBP",
+            },
+            headers={"Authorization": f"Bearer {fx['clinic_admin']}"},
+        )
+        assert resp.status_code == 403, resp.text
+
+    def test_clinic_admin_cannot_create_cross_clinic_claim(self, client: TestClient) -> None:
+        fx = _cross_clinic_finance_fixture()
+        resp = client.post(
+            "/api/v1/finance/claims",
+            json={
+                "patient_id": fx["patient_id"],
+                "patient_name": "Cross Clinic Patient",
+                "insurer": "BUPA",
+                "description": "Coverage review",
+                "amount": 500.0,
+                "status": "draft",
+            },
+            headers={"Authorization": f"Bearer {fx['clinic_admin']}"},
+        )
+        assert resp.status_code == 403, resp.text
+
+    def test_clinic_admin_cannot_mark_legacy_cross_clinic_invoice_paid(self, client: TestClient) -> None:
+        fx = _cross_clinic_finance_fixture()
+        db = SessionLocal()
+        try:
+            invoice_id = str(uuid.uuid4())
+            db.add(Invoice(
+                id=invoice_id,
+                clinician_id="actor-finance-admin-a",
+                patient_id=fx["patient_id"],
+                patient_name="Cross Clinic Patient",
+                invoice_number="INV-XCLINIC-1",
+                service="Legacy invoice",
+                amount=100.0,
+                vat_rate=0.2,
+                vat=20.0,
+                total=120.0,
+                paid=0.0,
+                currency="GBP",
+                issue_date="2026-05-11",
+                due_date="2026-06-11",
+                status="sent",
+            ))
+            db.commit()
+        finally:
+            db.close()
+        resp = client.post(
+            f"/api/v1/finance/invoices/{invoice_id}/mark-paid",
+            json={"method": "manual"},
+            headers={"Authorization": f"Bearer {fx['clinic_admin']}"},
+        )
+        assert resp.status_code == 403, resp.text
+
+    def test_super_admin_can_create_cross_clinic_invoice(self, client: TestClient) -> None:
+        fx = _cross_clinic_finance_fixture()
+        resp = client.post(
+            "/api/v1/finance/invoices",
+            json={
+                "patient_id": fx["patient_id"],
+                "patient_name": "Cross Clinic Patient",
+                "service": "TMS Course",
+                "amount": 100.0,
+                "vat_rate": 0.20,
+                "issue_date": "2026-05-11",
+                "due_date": "2026-06-11",
+                "status": "draft",
+                "currency": "GBP",
+            },
+            headers={"Authorization": f"Bearer {fx['super_admin']}"},
+        )
+        assert resp.status_code == 201, resp.text

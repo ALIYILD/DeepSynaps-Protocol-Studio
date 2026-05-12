@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from ..auth import AuthenticatedActor, get_authenticated_actor, require_patient_owner
 from ..database import get_db_session
 from ..errors import ApiServiceError
+from ..persistence.models import InsuranceClaim, Invoice
 from ..repositories import finance as finance_repo
 from ..repositories.patients import resolve_patient_clinic_id
 
@@ -89,6 +90,38 @@ def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session
                 message="You are not authorised to access this patient's data.",
                 status_code=403,
             )
+
+
+def _gate_finance_patient_access(actor: AuthenticatedActor, patient_id: str | None, db: Session) -> None:
+    """Finance-specific patient ownership gate.
+
+    Finance write routes must reject clinic-bound admins trying to mutate
+    another clinic's patient billing records. Only a true platform admin
+    (``role=admin`` with ``clinic_id is None``) may bypass the patient gate.
+    """
+    if not patient_id:
+        return
+    allow_platform_admin = actor.role == "admin" and actor.clinic_id is None
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if not exists:
+        raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+    require_patient_owner(actor, clinic_id, allow_admin=allow_platform_admin)
+
+
+def _require_invoice_write_scope(actor: AuthenticatedActor, invoice: Invoice | None, db: Session) -> Invoice:
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    _gate_finance_patient_access(actor, invoice.patient_id, db)
+    return invoice
+
+
+def _require_claim_write_scope(
+    actor: AuthenticatedActor, claim: InsuranceClaim | None, db: Session
+) -> InsuranceClaim:
+    if claim is None:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    _gate_finance_patient_access(actor, claim.patient_id, db)
+    return claim
 
 
 # ── Schemas ─────────────────────────────────────────────────────────────────
@@ -323,8 +356,7 @@ def create_invoice_endpoint(
     session: Session = Depends(get_db_session),
 ) -> InvoiceOut:
     _require_finance_write(actor)
-    if body.patient_id:
-        _gate_patient_access(actor, body.patient_id, session)
+    _gate_finance_patient_access(actor, body.patient_id, session)
     invoice = finance_repo.create_invoice(
         session, actor.actor_id, **body.model_dump()
     )
@@ -352,12 +384,15 @@ def update_invoice_endpoint(
     session: Session = Depends(get_db_session),
 ) -> InvoiceOut:
     _require_finance_write(actor)
+    existing = _require_invoice_write_scope(
+        actor, finance_repo.get_invoice(session, actor.actor_id, invoice_id), session
+    )
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    target_patient_id = updates.get("patient_id", existing.patient_id)
+    _gate_finance_patient_access(actor, target_patient_id, session)
     invoice = finance_repo.update_invoice(
         session, actor.actor_id, invoice_id, **updates
     )
-    if invoice is None:
-        raise HTTPException(status_code=404, detail="Invoice not found")
     return InvoiceOut.from_record(invoice)
 
 
@@ -368,6 +403,9 @@ def delete_invoice_endpoint(
     session: Session = Depends(get_db_session),
 ) -> None:
     _require_finance_write(actor)
+    _require_invoice_write_scope(
+        actor, finance_repo.get_invoice(session, actor.actor_id, invoice_id), session
+    )
     ok = finance_repo.delete_invoice(session, actor.actor_id, invoice_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Invoice not found")
@@ -381,6 +419,9 @@ def mark_invoice_paid_endpoint(
     session: Session = Depends(get_db_session),
 ) -> InvoiceOut:
     _require_finance_write(actor)
+    _require_invoice_write_scope(
+        actor, finance_repo.get_invoice(session, actor.actor_id, invoice_id), session
+    )
     invoice = finance_repo.mark_invoice_paid(
         session,
         actor.actor_id,
@@ -415,6 +456,11 @@ def create_payment_endpoint(
     _require_finance_write(actor)
     payload = body.model_dump()
     invoice_id = payload.pop("invoice_id", None)
+    if invoice_id:
+        invoice = _require_invoice_write_scope(
+            actor, finance_repo.get_invoice(session, actor.actor_id, invoice_id), session
+        )
+        payload.setdefault("patient_name", invoice.patient_name)
     payment = finance_repo.create_payment(
         session, actor.actor_id, invoice_id=invoice_id, **payload
     )
@@ -442,8 +488,7 @@ def create_claim_endpoint(
     session: Session = Depends(get_db_session),
 ) -> ClaimOut:
     _require_finance_write(actor)
-    if body.patient_id:
-        _gate_patient_access(actor, body.patient_id, session)
+    _gate_finance_patient_access(actor, body.patient_id, session)
     claim = finance_repo.create_claim(session, actor.actor_id, **body.model_dump())
     return ClaimOut.from_record(claim)
 
@@ -469,10 +514,13 @@ def update_claim_endpoint(
     session: Session = Depends(get_db_session),
 ) -> ClaimOut:
     _require_finance_write(actor)
+    existing = _require_claim_write_scope(
+        actor, finance_repo.get_claim(session, actor.actor_id, claim_id), session
+    )
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    target_patient_id = updates.get("patient_id", existing.patient_id)
+    _gate_finance_patient_access(actor, target_patient_id, session)
     claim = finance_repo.update_claim(session, actor.actor_id, claim_id, **updates)
-    if claim is None:
-        raise HTTPException(status_code=404, detail="Claim not found")
     return ClaimOut.from_record(claim)
 
 
@@ -483,6 +531,9 @@ def delete_claim_endpoint(
     session: Session = Depends(get_db_session),
 ) -> None:
     _require_finance_write(actor)
+    _require_claim_write_scope(
+        actor, finance_repo.get_claim(session, actor.actor_id, claim_id), session
+    )
     ok = finance_repo.delete_claim(session, actor.actor_id, claim_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Claim not found")
