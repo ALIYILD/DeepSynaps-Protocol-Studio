@@ -121,19 +121,14 @@ There are **two valid paths**. Use **Path 1** until **#874** is merged; use **Pa
 
    If **mergeStateStatus** is **BLOCKED** or any required check shows **FAILURE**, fix CI (or document an explicit maintainer override) before merge — do not merge on title alone.
 
-2. **Monitor checks** (non-blocking snapshot or watch until green):
+2. **Monitor checks** (snapshot; optional live watch):
 
    ```bash
    gh pr checks 874
    gh pr view 874 --json mergeStateStatus,statusCheckRollup
    ```
 
-   Optional continuous watch:
-
-   ```bash
-   gh pr checks 874 --watch
-   gh pr view 874 --json mergeStateStatus,statusCheckRollup
-   ```
+   For a live stream until jobs finish: `gh pr checks 874 --watch` (then run `gh pr view …` again).
 
    Target: **Router Schema Lint** / **Router Repo Lint** → pass; **mergeStateStatus** → **CLEAN** or **MERGEABLE**; required checks **green**.
 
