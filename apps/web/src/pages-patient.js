@@ -2357,7 +2357,7 @@ async function _pgPatientAssessmentsImpl() {
     const qText = document.getElementById('as-daily-q-text');
     if (qText) qText.textContent = 'All done — great job!';
     const subText = document.getElementById('as-daily-sub-text');
-    if (subText) subText.textContent = 'Your update has been saved in this browser.';
+    if (subText) subText.textContent = 'Saving…';
 
     // Save to localStorage
     try {
@@ -2434,14 +2434,17 @@ async function _pgPatientAssessmentsImpl() {
   window._asExport = function() {
     const rows = [['Date', 'Assessment', 'Category', 'Score', 'Delta']];
     historyItems.forEach(h => rows.push([h.dateIso, h.title, h.cat, h.score ?? '', h.delta ?? '']));
-    const csv = rows.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n');
+    const csvBody = rows.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n');
+    // Provenance header so any clinician/recipient knows this is patient-side data, not an audited clinic export.
+    const header = '# DeepSynaps patient history (browser data only — not an official clinic export). Generated ' + new Date().toISOString() + '\n';
+    const csv = header + csvBody;
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = 'assessment-history-' + todayIso + '.csv';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    _toast('History exported');
+    _toast('History downloaded (browser data only — not an official clinic export)');
   };
 
   // ── Self-Assessment handlers ────────────────────────────────────────────
@@ -5137,7 +5140,7 @@ async function _pgPatientVirtualCareImpl() {
       // Real clinician thread — POST to care team via patient portal messages.
       try {
         await api.sendPortalMessage({ body, category: 'patient_message', thread_id: activeId === 'primary' ? undefined : activeId });
-        _showToast('Message accepted by care messaging');
+        _showToast('Message sent to care team');
       } catch (err) {
         console.error('[virtualcare] send failed:', err);
         _showToast('Failed to send — try again');
@@ -5406,11 +5409,13 @@ async function _pgPatientVirtualCareImpl() {
   };
 
   window._vcAcceptSchedule = function() {
-    _showToast('Noted \u2014 redirecting to sessions');
+    // No schedule-response API is wired yet; do not imply the clinician was notified.
+    _showToast('Schedule accepted locally \u2014 your care team has not been notified yet');
     setTimeout(() => window._navPatient && window._navPatient('patient-sessions'), 800);
   };
   window._vcRejectSchedule = function() {
-    _showToast('Noted \u2014 redirecting to sessions');
+    // No schedule-response API is wired yet; do not imply the clinician was notified.
+    _showToast('Schedule declined locally \u2014 your care team has not been notified yet');
     setTimeout(() => window._navPatient && window._navPatient('patient-sessions'), 800);
   };
   try { if (sessionStorage.getItem('ds_vc_crisis_dismiss')) { const c = document.getElementById('vc-crisis'); if (c) c.classList.add('hidden'); } } catch (_e) {}
