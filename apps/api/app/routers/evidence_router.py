@@ -761,7 +761,7 @@ class StatusOut(BaseModel):
     last_updated: Optional[str] = None
 
 
-# core-schema-exempt: source-status summary is a router-local aggregate DTO, not a shared domain schema.
+# core-schema-exempt: single-use response model for /evidence/sources status endpoint
 class EvidenceSourceStatusOut(BaseModel):
     source_kind: str
     source_label: str

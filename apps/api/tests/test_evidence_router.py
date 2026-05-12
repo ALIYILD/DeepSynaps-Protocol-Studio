@@ -602,3 +602,76 @@ def test_report_payload_route_keeps_adjunct_context_and_report_scoped_saved_cita
             )
         finally:
             os.environ.pop("DEEPSYNAPS_NEUROMODULATION_RESEARCH_BUNDLE_ROOT", None)
+
+
+def test_report_payload_route_excludes_pending_review_saved_citations(
+    client: TestClient, auth_headers
+) -> None:
+    patient_resp = client.post(
+        "/api/v1/patients",
+        json={
+            "first_name": "Pending",
+            "last_name": "Citation",
+            "dob": "1990-01-15",
+            "gender": "F",
+        },
+        headers=auth_headers["clinician"],
+    )
+    assert patient_resp.status_code == 201, patient_resp.text
+    patient_id = patient_resp.json()["id"]
+
+    approved_resp = client.post(
+        "/api/v1/evidence/save-citation",
+        json={
+            "patient_id": patient_id,
+            "finding_id": "qeeg:approved",
+            "finding_label": "Approved",
+            "claim": "Approved claim",
+            "paper_id": "paper-approved-route",
+            "paper_title": "Approved Route Paper",
+            "context_kind": "qeeg",
+            "analysis_id": "qeeg-route",
+            "report_id": "report-route",
+            "citation_payload": {"inline_citation": "(Approved, 2026)"},
+        },
+        headers=auth_headers["clinician"],
+    )
+    assert approved_resp.status_code == 201, approved_resp.text
+
+    pending_resp = client.post(
+        "/api/v1/evidence/save-citation",
+        json={
+            "patient_id": patient_id,
+            "finding_id": "qeeg:pending",
+            "finding_label": "Pending",
+            "claim": "Pending claim",
+            "paper_id": "paper-pending-route",
+            "paper_title": "Pending Route Paper",
+            "context_kind": "qeeg",
+            "analysis_id": "qeeg-route",
+            "report_id": "report-route",
+            "citation_payload": {
+                "inline_citation": "(Pending, 2026)",
+                "approval_status": "pending_clinician_review",
+                "approval_required": True,
+            },
+        },
+        headers=auth_headers["clinician"],
+    )
+    assert pending_resp.status_code == 201, pending_resp.text
+
+    payload_resp = client.post(
+        "/api/v1/evidence/report-payload",
+        json={
+            "patient_id": patient_id,
+            "finding_ids": ["protocol_ranking"],
+            "include_saved": True,
+            "context_kind": "qeeg",
+            "analysis_id": "qeeg-route",
+            "report_id": "report-route",
+        },
+        headers=auth_headers["clinician"],
+    )
+    assert payload_resp.status_code == 200, payload_resp.text
+    payload = payload_resp.json()
+    assert [row["paper_id"] for row in payload["saved_citations"]] == ["paper-approved-route"]
