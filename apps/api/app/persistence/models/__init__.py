@@ -63,6 +63,7 @@ from .audit import (
     AuditEventRecord,
     ClinicalDatasetSnapshotRecord,
     ClinicalSeedRecord,
+    FinanceAuditRecord,
     QualityFinding,
     QualityFindingRevision,
 )
@@ -352,6 +353,7 @@ __all__ = [
     "EscalationChain",
     "EscalationPolicy",
     "EvidenceSavedCitation",
+    "FinanceAuditRecord",
     "FormDefinition",
     "FormSubmission",
     "FounderDashTask",
