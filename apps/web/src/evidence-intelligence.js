@@ -84,6 +84,17 @@ function strengthHelp(key) {
   return 'Mechanistic, review, or indirect evidence.';
 }
 
+function formatEvidenceProvenance(provenance = null) {
+  const corpus = String(provenance?.corpus || provenance?.source_kind || '').trim();
+  if (!corpus) return 'Source not labelled';
+  const normalized = corpus.toLowerCase();
+  if (normalized.includes('bundled')) return 'Bundled/offline evidence snapshot';
+  if (normalized.includes('degraded')) return 'Degraded evidence source';
+  if (normalized.includes('sqlite')) return 'Live SQLite evidence corpus';
+  if (normalized.includes('pgvector') || normalized.includes('postgres')) return 'Postgres/pgvector evidence corpus';
+  return corpus.replaceAll('_', ' ');
+}
+
 export function EvidencePaperList(papers = [], result = null) {
   if (!papers.length) {
     return '<div class="ds-evidence-empty">No ranked papers returned for this claim.</div>';
@@ -146,6 +157,7 @@ export function EvidenceDrawer(result, { patientId = '' } = {}) {
   if (!result) return '';
   const papers = result.supporting_papers || [];
   const conflicting = result.conflicting_papers || [];
+  const provenanceLabel = formatEvidenceProvenance(result.provenance);
   return `<div class="ds-evidence-backdrop" data-evidence-close="1"></div>
     <aside class="ds-evidence-drawer" role="dialog" aria-modal="true" aria-label="Evidence details">
       <header class="ds-evidence-drawer__header">
@@ -153,6 +165,7 @@ export function EvidenceDrawer(result, { patientId = '' } = {}) {
           <div class="ds-evidence-eyebrow">Decision support evidence</div>
           <h2>${esc(result.target_name?.replaceAll('_', ' ') || 'Evidence')}</h2>
           <p>${esc(result.claim)}</p>
+          <div class="ds-evidence-paper__meta">Source: ${esc(provenanceLabel)}</div>
         </div>
         <button type="button" class="ds-evidence-drawer__close" data-evidence-close="1">Close</button>
       </header>
@@ -196,9 +209,10 @@ export function PatientEvidenceTab(overview, filter = {}) {
   }), filter);
   const contradictory = filterEvidenceSummaries(overview?.contradictory_findings || [], filter);
   const saved = overview?.saved_citations || [];
+  const overviewSource = formatEvidenceProvenance(overview?.provenance || overview?.source_status || null);
   return `<div class="ds-evidence-tab">
     <div class="ds-evidence-tab__hero">
-      <div><div class="ds-evidence-eyebrow">Patient 360 Evidence</div><h2>Evidence workspace</h2><p>Aggregates evidence linked to biomarkers, scores, longitudinal changes, recommendations, and saved report citations.</p></div>
+      <div><div class="ds-evidence-eyebrow">Patient 360 Evidence</div><h2>Evidence workspace</h2><p>Aggregates evidence linked to biomarkers, scores, longitudinal changes, recommendations, and saved report citations.</p><div class="ds-evidence-paper__meta">Source: ${esc(overviewSource)}</div></div>
       <input class="ds-evidence-search" data-evidence-search placeholder="Search title, abstract, entity, concept" value="${esc(filter.search || '')}" />
     </div>
     <div class="ds-evidence-tab__sections">

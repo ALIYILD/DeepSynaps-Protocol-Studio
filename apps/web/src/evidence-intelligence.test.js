@@ -231,6 +231,23 @@ test('drawer rendering includes papers and save action', () => {
   assert.match(html, /Depression biomarkers review/);
   assert.match(html, /data-evidence-save="p1"/);
   assert.match(html, /Decision support only/);
+  assert.match(html, /Source: test/);
+});
+
+test('PatientEvidenceTab renders source provenance label', () => {
+  const html = mod.PatientEvidenceTab({
+    patient_id: 'pat-1',
+    highlights: [],
+    by_score: [],
+    by_protocol: [],
+    by_modality: {},
+    contradictory_findings: [],
+    saved_citations: [],
+    provenance: { corpus: 'bundled_fallback' },
+    compare_with_literature_phenotype: { summary: '', matched_tags: [] },
+    evidence_used_in_report: [],
+  });
+  assert.match(html, /Source: Bundled\/offline evidence snapshot/);
 });
 
 test('happy path opens drawer and saves citation into tab state', async () => {
