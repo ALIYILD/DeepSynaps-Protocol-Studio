@@ -121,7 +121,22 @@ const args = ['--test', '--test-concurrency=4', ...passthroughArgs, ...files];
 console.log(`[run-unit-tests] running ${files.length} test files (${QUARANTINE.size} quarantined)`);
 
 const proc = spawn(process.execPath, args, { cwd: ROOT, stdio: 'inherit' });
+
+// Wall-clock guard. node --test on Node 20 has no --test-timeout flag, so a
+// single test with an unresolved promise or infinite loop will hang the
+// runner forever. Without this guard, the run only ends when GitHub
+// Actions' workflow-level timeout fires — which has cost the project
+// several thousand billed Actions minutes. This kills the spawned
+// process at HARD_TIMEOUT_MS, well before the 30-minute job cap.
+const HARD_TIMEOUT_MS = Number.parseInt(process.env.RUN_UNIT_TESTS_TIMEOUT_MS ?? '', 10) || 25 * 60 * 1000;
+const wallClock = setTimeout(() => {
+  console.error(`[run-unit-tests] HARD TIMEOUT after ${HARD_TIMEOUT_MS}ms — killing test runner.`);
+  console.error('[run-unit-tests] A test is hanging. Bisect by running subsets of src/ tests locally.');
+  proc.kill('SIGKILL');
+}, HARD_TIMEOUT_MS);
+
 proc.on('exit', (code, signal) => {
+  clearTimeout(wallClock);
   if (signal) {
     console.error(`[run-unit-tests] killed by signal ${signal}`);
     process.exit(1);
