@@ -791,7 +791,7 @@ export async function pgDash(setTopbar, navigate) {
   })();
   if (_coreLoadFailed && !_demoModeBuild) {
     if (_abortCtrl.signal.aborted) { window.removeEventListener('hashchange', _onLeave); return; }
-    el.innerHTML = `<div style="padding:48px 24px;text-align:center;max-width:420px;margin:0 auto">
+    el.innerHTML = `<div data-page="dashboard" style="padding:48px 24px;text-align:center;max-width:420px;margin:0 auto">
       <div style="font-size:32px;margin-bottom:12px;opacity:0.5">&#9888;</div>
       <div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:8px">We couldn't reach your clinic data right now.</div>
       <div style="font-size:12.5px;color:var(--text-tertiary);margin-bottom:18px;line-height:1.5">This usually clears in a few seconds. Try again, or contact support if it keeps happening.</div>
@@ -863,7 +863,7 @@ export async function pgDash(setTopbar, navigate) {
   } else if (_emptyClinic) {
     // Production / non-demo: honest empty clinic — no P-DEMO-* seeding
     if (_abortCtrl.signal.aborted) { window.removeEventListener('hashchange', _onLeave); return; }
-    el.innerHTML = `<div style="padding:48px 24px;max-width:560px;margin:0 auto">
+    el.innerHTML = `<div data-page="dashboard" style="padding:48px 24px;max-width:560px;margin:0 auto">
       <div class="dh2-wrap" style="padding:0">
         <div class="dh2-safety-strip" role="note" style="margin-bottom:16px">
           <strong>Clinical decision support.</strong> Not for autonomous diagnosis or prescribing.
@@ -881,7 +881,7 @@ export async function pgDash(setTopbar, navigate) {
     return;
   } else if (_apiFailCount >= 8) {
     if (_abortCtrl.signal.aborted) { window.removeEventListener('hashchange', _onLeave); return; }
-    el.innerHTML = `<div style="padding:48px 24px;text-align:center;max-width:420px;margin:0 auto">
+    el.innerHTML = `<div data-page="dashboard" style="padding:48px 24px;text-align:center;max-width:420px;margin:0 auto">
       <div style="font-size:32px;margin-bottom:12px;opacity:0.5">&#9888;</div>
       <div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Your dashboard isn't loading.</div>
       <div style="font-size:12.5px;color:var(--text-tertiary);margin-bottom:18px;line-height:1.5">Check your connection and try again. If the problem keeps happening, your clinic IT team can help.</div>
@@ -2132,7 +2132,7 @@ export async function pgDash(setTopbar, navigate) {
     </div>
   </div>`;
   if (_abortCtrl.signal.aborted) { window.removeEventListener('hashchange', _onLeave); return; }
-  el.innerHTML = `<div class="dh2-wrap">`
+  el.innerHTML = `<div data-page="dashboard" class="dh2-wrap">`
     + _demoBanner
     + _demoBuildBanner
     + _offlineBanner

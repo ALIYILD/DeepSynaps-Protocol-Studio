@@ -98,8 +98,15 @@ async function navToStrict(page: Page, route: string) {
 }
 
 async function waitForClinicianApp(page: Page) {
-  // After boot, #app-shell becomes visible and #content gets populated
-  await page.waitForSelector('#content:not(:empty)', { timeout: 12000 });
+  // Wait for the dashboard's POST-fetch render, identified by
+  // `data-page="dashboard"` on `pgDash`'s final el.innerHTML write
+  // (see pages-clinical.js lines 794, 866, 884, 2135). The looser
+  // `#content:not(:empty)` selector matched the dashboard's loading-
+  // skeleton state, which let later async fetches overwrite `#content`
+  // *after* a follow-up `_nav('telehealth-recorder')` had already
+  // written the recorder HTML — i.e. the #913 / #918 CI race. Waiting
+  // for the marker means pgDash is done writing before tests navigate.
+  await page.waitForSelector('[data-page="dashboard"]', { timeout: 12000 });
   await page.waitForTimeout(200);
 }
 
