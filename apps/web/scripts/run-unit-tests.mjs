@@ -63,6 +63,18 @@ const QUARANTINE = new Set([
   //   so quarantine this runtime-only suite until it is split or repaired.
   'src/pages-clinical-hubs.runtime.test.js',
 
+  // TODO(test-coverage): pages-data-console.test.js imports from `vitest`,
+  //   but this workspace's runner is `node --test` (Node built-in). On
+  //   local Node 25 the vitest internals throw `getWorkerState` errors in
+  //   ~330ms; on CI Node 20 the same import path *hangs forever* waiting
+  //   for a worker that never spawns. That single file is the root cause
+  //   of every recent 6-hour CI run on this job — see PR #884 (timeouts)
+  //   and PR #885 (wall-clock kill). Rewrite using `node:test` +
+  //   `node:assert` (see other *.test.js for the pattern), or convert the
+  //   workspace to vitest. Until then it stays quarantined to keep the
+  //   suite shippable.
+  'src/pages-data-console.test.js',
+
   // TODO(test-coverage): patient-runtime suite from PR #848 (~1437 LOC of
   //   new/expanded tests) tipped Frontend coverage past the 30m CI ceiling
   //   in run 25640811762. Tests pass locally in ~10s but combined with the
