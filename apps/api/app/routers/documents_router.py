@@ -26,8 +26,12 @@ from app.auth import (
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.limiter import limiter
-from app.persistence.models import DocumentTemplate, FormDefinition, User
+from app.persistence.models import DocumentTemplate, FormDefinition, Patient, User
 from app.repositories.patients import resolve_patient_clinic_id
+from app.services.consent_enforcement import (
+    ConsentMissingError,
+    require_document_generation_consent,
+)
 from app.settings import get_settings
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
@@ -306,6 +310,50 @@ def _assert_document_patient_access(
         raise
 
 
+def _enforce_document_consent(
+    session: Session,
+    patient_id: Optional[str],
+    actor: AuthenticatedActor,
+    document_type: str,
+) -> None:
+    """Gate document-generation writes on an active document_generation consent.
+
+    No-op when ``patient_id`` is empty or doesn't resolve to a real Patient
+    — matches the existing pattern in ``_assert_document_patient_access``
+    (which already raises 404 for nonexistent patients upstream of this
+    helper). Consent enforcement is the responsibility of the canonical
+    service helper, which also writes AuditEventRecord on grant + denial.
+
+    Converts ``ConsentMissingError`` into a 403 ``consent_required``
+    ApiServiceError to match the existing 403 shape used elsewhere in
+    this router for permission failures.
+
+    Filters by ``consent_type="document_generation"`` and
+    ``status="active"`` — an active consent of any other category
+    (``ai_analysis``, ``device_sync``, ``media``, …) will NOT authorise
+    document generation. See PR #896 follow-up which fixed the analogous
+    loose-filter bug in protocol_studio_router.
+    """
+    if not patient_id:
+        return
+    # Only enforce when the patient row exists — keeps demo/nonexistent
+    # patient_ids permissive, matching the clinical_text_router gating in
+    # PR #893 (#888). The cross-clinic gate above already 404'd the
+    # nonexistent case before reaching here.
+    if not session.query(Patient).filter(Patient.id == patient_id).first():
+        return
+    try:
+        require_document_generation_consent(
+            session, patient_id, actor, document_type=document_type
+        )
+    except ConsentMissingError as exc:
+        raise ApiServiceError(
+            code="consent_required",
+            message="document_generation consent required for this patient.",
+            status_code=403,
+        ) from exc
+
+
 def _scope_documents_query_to_clinic(q, actor: AuthenticatedActor):
     """Restrict a ``FormDefinition`` query to the actor's clinic.
 
@@ -512,6 +560,7 @@ def create_document(
     require_minimum_role(actor, "clinician")
     _validate_document_status(body.status)
     _assert_document_patient_access(body.patient_id, actor, session)
+    _enforce_document_consent(session, body.patient_id, actor, document_type=body.doc_type or "document")
     _validate_drill_in_pair(body.source_target_type, body.source_target_id)
 
     meta = {
@@ -1138,6 +1187,7 @@ async def upload_document(
     """
     require_minimum_role(actor, "clinician")
     _assert_document_patient_access(patient_id, actor, session)
+    _enforce_document_consent(session, patient_id, actor, document_type=doc_type or "upload")
 
     if file.content_type and file.content_type not in _DOC_UPLOAD_ALLOWED:
         raise ApiServiceError(
@@ -1315,6 +1365,16 @@ def sign_document(
     meta = _meta_from_record(record)
     if record.status in {"signed", "completed"} and meta.get("signed_by_actor_id") == actor.actor_id:
         return _record_to_out(record)
+    # Re-check consent at sign time. Documents authored against an active
+    # consent can still be invalidated by a later withdrawal — signing is
+    # the act that locks the document into the clinical record, so the
+    # gate must fire here too.
+    _enforce_document_consent(
+        session,
+        meta.get("patient_id"),
+        actor,
+        document_type=meta.get("doc_type") or "document",
+    )
     now = datetime.now(timezone.utc).isoformat()
     meta["signed_by_actor_id"] = actor.actor_id
     meta["signed_at"] = now
@@ -1375,6 +1435,15 @@ def supersede_document(
         )
 
     orig_meta = _meta_from_record(original)
+    # Superseding creates a new clinical revision — same consent surface as
+    # creation. Reject if the patient's document_generation consent is no
+    # longer active.
+    _enforce_document_consent(
+        session,
+        orig_meta.get("patient_id"),
+        actor,
+        document_type=orig_meta.get("doc_type") or "document",
+    )
     new_id = str(uuid.uuid4())
     new_meta = {
         "doc_type": orig_meta.get("doc_type", "clinical"),
