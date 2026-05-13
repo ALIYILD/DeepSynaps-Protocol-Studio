@@ -2,9 +2,34 @@
 from __future__ import annotations
 
 import io
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+
+
+def _seed_recording_consent(patient_id: str, clinician_id: str = "actor-clinician-demo") -> None:
+    # Required by the recording-consent gate added alongside the
+    # consent-enforcement cluster (PRs #890–#902). Matches the pattern in
+    # test_recordings_router.py:224-240.
+    from app.database import SessionLocal
+    from app.persistence.models import ConsentRecord
+
+    db = SessionLocal()
+    try:
+        db.add(ConsentRecord(
+            id=str(uuid.uuid4()),
+            patient_id=patient_id,
+            clinician_id=clinician_id,
+            consent_type="recording",
+            signed=True,
+            signed_at=datetime.now(timezone.utc),
+            status="active",
+        ))
+        db.commit()
+    finally:
+        db.close()
 
 
 def _upload(
@@ -17,7 +42,10 @@ def _upload(
     title: str | None = "Session 1",
     patient_id: str | None = None,
     role: str = "clinician",
+    seed_consent: bool = True,
 ) -> dict:
+    if patient_id is not None and seed_consent:
+        _seed_recording_consent(patient_id)
     files = {"file": (filename, io.BytesIO(payload), mime)}
     data = {}
     if title is not None:
