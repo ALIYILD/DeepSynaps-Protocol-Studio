@@ -62,6 +62,7 @@ from app.auth import (
     require_minimum_role,
 )
 from app.database import get_db_session
+from app.errors import ApiServiceError
 from app.persistence.models import (
     AdverseEvent,
     OutcomeSeries,
@@ -273,7 +274,29 @@ def _resolve_actor_clinic_id(actor: AuthenticatedActor, db: Session) -> Optional
     return user.clinic_id if user is not None else None
 
 
-def _scoped_patient_ids(actor: AuthenticatedActor, db: Session) -> tuple[set[str], dict[str, str]]:
+def _resolved_population_clinic_scope(
+    actor: AuthenticatedActor,
+    db: Session,
+    requested_clinic_id: Optional[str],
+) -> Optional[str]:
+    actor_clinic = _resolve_actor_clinic_id(actor, db)
+    if actor.role in ("admin", "regulator"):
+        return requested_clinic_id
+    if requested_clinic_id and requested_clinic_id != actor_clinic:
+        raise ApiServiceError(
+            code="cross_clinic_access_denied",
+            message="You can only query analytics for your own clinic.",
+            status_code=403,
+        )
+    return actor_clinic
+
+
+def _scoped_patient_ids(
+    actor: AuthenticatedActor,
+    db: Session,
+    *,
+    requested_clinic_id: Optional[str],
+) -> tuple[set[str], dict[str, str]]:
     """Return (allowed_patient_ids, patient_id → clinic_id map) for the actor.
 
     Admins / regulators see every patient; clinicians see only patients
@@ -289,10 +312,12 @@ def _scoped_patient_ids(actor: AuthenticatedActor, db: Session) -> tuple[set[str
     by_id: dict[str, str] = {}
     allowed: set[str] = set()
     actor_clinic = _resolve_actor_clinic_id(actor, db)
+    scoped_clinic = _resolved_population_clinic_scope(actor, db, requested_clinic_id)
     for pid, _clinician_id, clinic_id in rows:
         by_id[pid] = clinic_id or ""
         if actor.role in ("admin", "regulator"):
-            allowed.add(pid)
+            if scoped_clinic is None or clinic_id == scoped_clinic:
+                allowed.add(pid)
         elif actor_clinic and clinic_id == actor_clinic:
             allowed.add(pid)
     return allowed, by_id
@@ -323,15 +348,19 @@ def _filter_courses_for_actor(
 
     SQL aggregate documented in section F of the PR body.
     """
-    allowed_ids, _ = _scoped_patient_ids(actor, db)
+    allowed_ids, _ = _scoped_patient_ids(
+        actor,
+        db,
+        requested_clinic_id=filters.clinic_id,
+    )
 
     pat_q = db.query(Patient)
-    patients: dict[str, Patient] = {p.id: p for p in pat_q.all() if p.id in allowed_ids or actor.role in ("admin", "regulator")}
+    patients: dict[str, Patient] = {p.id: p for p in pat_q.all() if p.id in allowed_ids}
 
     # Apply patient-level filters first, then derive course set.
     matched_pids: set[str] = set()
     for pid, p in patients.items():
-        if actor.role not in ("admin", "regulator") and pid not in allowed_ids:
+        if pid not in allowed_ids:
             continue
         if filters.condition and (p.primary_condition or "").lower() != filters.condition.lower():
             continue

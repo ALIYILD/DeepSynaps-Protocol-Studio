@@ -1,30 +1,36 @@
-"""
-Patient Analytics API Router
+"""Patient analytics endpoints.
 
 Clinic-scoped patient analytics endpoints for cross-modality insights.
-All responses are clinic-scoped and audit-logged.
+All responses are patient/clinic-scoped and audit-logged.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_patient_owner,
+)
 from app.database import get_db_session
-from app.auth import get_authenticated_actor, AuthenticatedActor
-from app.services.access_control_service import require_patient_access, log_phi_access
+from app.errors import ApiServiceError
+from app.repositories.audit import create_audit_event
+from app.repositories.patients import resolve_patient_clinic_id
 from deepsynaps_core_schema import (
     AIAnalyticsSummary,
-    DataAssetSummary,
+    AuditEventDetail,
     ConsentSummary,
-    RiskFlagSummary,
+    DataAssetSummary,
     PatientAnalyticsSummary,
-    PatientTimelineResponse,
     PatientAuditLogResponse,
     PatientSignalsResponse,
-    TimelineEvent,
-    AuditEventDetail,
+    PatientTimelineResponse,
     RiskFlagDetail,
+    RiskFlagSummary,
     SignalCount,
+    TimelineEvent,
 )
 
 
@@ -32,6 +38,50 @@ router = APIRouter(
     prefix="/api/v1/patients",
     tags=["patient-analytics"],
 )
+
+
+def _require_patient_analytics_access(
+    session: Session,
+    actor: AuthenticatedActor,
+    patient_id: str,
+) -> str | None:
+    exists, clinic_id = resolve_patient_clinic_id(session, patient_id)
+    if not exists:
+        raise ApiServiceError(
+            code="not_found",
+            message="Patient not found.",
+            status_code=404,
+        )
+    require_patient_owner(actor, clinic_id)
+    return clinic_id
+
+
+def _audit_patient_analytics_access(
+    session: Session,
+    *,
+    actor: AuthenticatedActor,
+    patient_id: str,
+    action: str,
+) -> None:
+    try:
+        now = datetime.now(timezone.utc)
+        create_audit_event(
+            session,
+            event_id=(
+                f"patient_analytics-{action}-{actor.actor_id}-"
+                f"{int(now.timestamp())}-{uuid.uuid4().hex[:6]}"
+            ),
+            target_id=patient_id,
+            target_type="patient_analytics",
+            action=f"patient_analytics.{action}",
+            role=actor.role,
+            actor_id=actor.actor_id,
+            note=f"patient_id={patient_id}",
+            created_at=now.isoformat(),
+        )
+    except Exception:
+        # Analytics reads must not fail because audit persistence is unavailable.
+        return
 
 
 @router.get(
@@ -46,13 +96,12 @@ async def get_patient_analytics_summary(
     session: Session = Depends(get_db_session),
 ) -> PatientAnalyticsSummary:
     """Get patient analytics summary (clinic-scoped, audit-logged)."""
-    require_patient_access(session, actor.actor_id, patient_id)
-    log_phi_access(
+    _require_patient_analytics_access(session, actor, patient_id)
+    _audit_patient_analytics_access(
         session,
-        actor_user_id=actor.actor_id,
+        actor=actor,
         patient_id=patient_id,
-        action="view_analytics_summary",
-        resource_type="patient_analytics",
+        action="view_summary",
     )
 
     ai_summary = AIAnalyticsSummary(total_runs=5, last_run_date=datetime.utcnow(), pending_analysis=0)
@@ -84,13 +133,12 @@ async def get_patient_analytics_timeline(
     session: Session = Depends(get_db_session),
 ) -> PatientTimelineResponse:
     """Get patient timeline (clinic-scoped, audit-logged)."""
-    require_patient_access(session, actor.actor_id, patient_id)
-    log_phi_access(
+    _require_patient_analytics_access(session, actor, patient_id)
+    _audit_patient_analytics_access(
         session,
-        actor_user_id=actor.actor_id,
+        actor=actor,
         patient_id=patient_id,
-        action="view_analytics_timeline",
-        resource_type="patient_analytics",
+        action="view_timeline",
     )
 
     events = [
@@ -123,13 +171,12 @@ async def get_patient_analytics_audit_log(
     session: Session = Depends(get_db_session),
 ) -> PatientAuditLogResponse:
     """Get audit trail for patient PHI access (clinic-scoped, audit-logged)."""
-    require_patient_access(session, actor.actor_id, patient_id)
-    log_phi_access(
+    _require_patient_analytics_access(session, actor, patient_id)
+    _audit_patient_analytics_access(
         session,
-        actor_user_id=actor.actor_id,
+        actor=actor,
         patient_id=patient_id,
-        action="view_analytics_audit_log",
-        resource_type="patient_analytics",
+        action="view_audit_log",
     )
 
     events = [
@@ -163,13 +210,12 @@ async def get_patient_analytics_signals(
     session: Session = Depends(get_db_session),
 ) -> PatientSignalsResponse:
     """Get patient safety signals (clinic-scoped, audit-logged)."""
-    require_patient_access(session, actor.actor_id, patient_id)
-    log_phi_access(
+    _require_patient_analytics_access(session, actor, patient_id)
+    _audit_patient_analytics_access(
         session,
-        actor_user_id=actor.actor_id,
+        actor=actor,
         patient_id=patient_id,
-        action="view_analytics_signals",
-        resource_type="patient_analytics",
+        action="view_signals",
     )
 
     signals = SignalCount(critical=0, warning=1, info=2)
