@@ -8,12 +8,33 @@ from app.database import SessionLocal
 from app.persistence.models import (
     AuditEventRecord,
     Clinic,
+    ConsentRecord,
     DeepTwinAnalysisRun,
     MriAnalysis,
     Patient,
     QEEGAnalysis,
     User,
 )
+
+
+def _seed_protocol_consent(db, patient_id: str, clinician_id: str) -> ConsentRecord:
+    """Seed an active document_generation ConsentRecord.
+
+    PR #890 wired ``_assert_protocol_consent_active`` into the generate +
+    recommend endpoints; without this row those endpoints return 403, and
+    the same-clinic-clinician tests (which legitimately expect 200) fail.
+    """
+    consent = ConsentRecord(
+        id=str(uuid.uuid4()),
+        patient_id=patient_id,
+        clinician_id=clinician_id,
+        consent_type="document_generation",
+        status="active",
+        signed=True,
+    )
+    db.add(consent)
+    db.commit()
+    return consent
 
 
 def _seed_two_clinics_with_patient() -> dict[str, str]:
@@ -59,7 +80,8 @@ def _seed_two_clinics_with_patient() -> dict[str, str]:
             consent_date="2026-01-01",
         )
         db.add(patient)
-        db.commit()
+        db.flush()
+        _seed_protocol_consent(db, patient.id, clinician_a.id)
         return {"patient_id": patient.id, "clinician_a": clinician_a.id, "clinician_b": clinician_b.id}
     finally:
         db.close()
@@ -91,7 +113,8 @@ def _seed_patient_for_demo_clinician() -> dict[str, str]:
             consent_date="2026-01-01",
         )
         db.add(patient)
-        db.commit()
+        db.flush()
+        _seed_protocol_consent(db, patient.id, demo.id)
         return {"patient_id": patient.id, "clinic_id": clinic.id, "clinician_id": demo.id}
     finally:
         db.close()

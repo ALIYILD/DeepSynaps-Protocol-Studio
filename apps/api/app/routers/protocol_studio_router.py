@@ -96,7 +96,12 @@ def _audit(
 # ── Consent helpers ────────────────────────────────────────────────────────
 
 def _consent_active_protocol(db: Session, patient_id: str) -> bool:
-    """Check if patient has active consent for protocol generation."""
+    """Check if patient has active consent specifically for protocol/document generation.
+
+    Filters by both ``consent_type`` AND ``status="active"`` so that an
+    active consent for an unrelated category (e.g. ``media`` or
+    ``device_sync``) does not silently authorise protocol generation.
+    """
     if not patient_id:
         return False
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
@@ -106,6 +111,7 @@ def _consent_active_protocol(db: Session, patient_id: str) -> bool:
         db.query(ConsentRecord)
         .filter(
             ConsentRecord.patient_id == patient_id,
+            ConsentRecord.consent_type == "document_generation",
             ConsentRecord.status == "active",
         )
         .order_by(ConsentRecord.created_at.desc())
