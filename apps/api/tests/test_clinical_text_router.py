@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
 from app.main import app
-from app.persistence.models import Clinic, Patient, User
+from app.persistence.models import Clinic, ConsentRecord, Patient, User
 from app.services.auth_service import create_access_token
 
 
@@ -60,6 +60,21 @@ def _seed_text_scope_setup() -> dict[str, str]:
             last_name="Patient",
         )
         db.add(patient)
+        db.flush()
+
+        # Seed active ai_analysis consent so consent-gated text endpoints
+        # accept clinician A's requests for this patient. Without this row
+        # the router (correctly) returns 403 — see issue #888.
+        db.add(
+            ConsentRecord(
+                id=str(uuid.uuid4()),
+                patient_id=patient.id,
+                clinician_id=clin_a.id,
+                consent_type="ai_analysis",
+                status="active",
+                signed=True,
+            )
+        )
         db.commit()
 
         return {

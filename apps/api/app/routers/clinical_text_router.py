@@ -73,12 +73,34 @@ def _gate_patient_context(
     actor: AuthenticatedActor,
     patient_id: str | None,
     db: Session,
-) -> None:
+) -> bool:
+    """Apply patient-context gates and report whether a real patient was resolved.
+
+    Returns True only when ``patient_id`` is non-empty and resolves to an
+    existing patient (and the cross-clinic owner check passed). Returns
+    False for the no-patient-id case and for nonexistent patient ids — the
+    caller skips downstream consent enforcement in that case because there
+    is no real patient data to gate.
+    """
     if not patient_id:
-        return
+        return False
     exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
-    if exists:
-        require_patient_owner(actor, clinic_id)
+    if not exists:
+        return False
+    require_patient_owner(actor, clinic_id)
+    return True
+
+
+def _enforce_text_ai_consent(
+    db: Session,
+    patient_id: str,
+    actor: AuthenticatedActor,
+) -> None:
+    """Convert ConsentMissingError into a 403 for the four text endpoints."""
+    try:
+        require_ai_analysis_consent(db, patient_id, actor, ai_modality="text")
+    except ConsentMissingError:
+        raise HTTPException(status_code=403, detail="ai_analysis consent required")
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -98,15 +120,8 @@ def clinical_text_analyze(
     db: Session = Depends(get_db_session),
 ) -> AnalyzeResponse:
     require_minimum_role(actor, "clinician")
-    _gate_patient_context(actor, payload.patient_id, db)
-    
-    # Enforce ai_analysis consent if patient is specified
-    if payload.patient_id:
-        try:
-            require_ai_analysis_consent(db, payload.patient_id, actor, ai_modality="text")
-        except ConsentMissingError:
-            raise HTTPException(status_code=403, detail="ai_analysis consent required")
-    
+    if _gate_patient_context(actor, payload.patient_id, db):
+        _enforce_text_ai_consent(db, payload.patient_id, actor)
     return adapter.analyze(_validated_input(payload))
 
 
@@ -119,15 +134,8 @@ def clinical_text_extract_pii(
     db: Session = Depends(get_db_session),
 ) -> PIIExtractResponse:
     require_minimum_role(actor, "clinician")
-    _gate_patient_context(actor, payload.patient_id, db)
-    
-    # Enforce ai_analysis consent if patient is specified
-    if payload.patient_id:
-        try:
-            require_ai_analysis_consent(db, payload.patient_id, actor, ai_modality="text")
-        except ConsentMissingError:
-            raise HTTPException(status_code=403, detail="ai_analysis consent required")
-    
+    if _gate_patient_context(actor, payload.patient_id, db):
+        _enforce_text_ai_consent(db, payload.patient_id, actor)
     return adapter.extract_pii(_validated_input(payload))
 
 
@@ -140,15 +148,8 @@ def clinical_text_deidentify(
     db: Session = Depends(get_db_session),
 ) -> DeidentifyResponse:
     require_minimum_role(actor, "clinician")
-    _gate_patient_context(actor, payload.patient_id, db)
-    
-    # Enforce ai_analysis consent if patient is specified
-    if payload.patient_id:
-        try:
-            require_ai_analysis_consent(db, payload.patient_id, actor, ai_modality="text")
-        except ConsentMissingError:
-            raise HTTPException(status_code=403, detail="ai_analysis consent required")
-    
+    if _gate_patient_context(actor, payload.patient_id, db):
+        _enforce_text_ai_consent(db, payload.patient_id, actor)
     return adapter.deidentify(_validated_input(payload))
 
 
@@ -161,15 +162,8 @@ def clinical_text_analyze_neuromodulation(
     db: Session = Depends(get_db_session),
 ) -> NeuromodulationExtractResponse:
     require_minimum_role(actor, "clinician")
-    _gate_patient_context(actor, payload.patient_id, db)
-    
-    # Enforce ai_analysis consent if patient is specified
-    if payload.patient_id:
-        try:
-            require_ai_analysis_consent(db, payload.patient_id, actor, ai_modality="text")
-        except ConsentMissingError:
-            raise HTTPException(status_code=403, detail="ai_analysis consent required")
-    
+    if _gate_patient_context(actor, payload.patient_id, db):
+        _enforce_text_ai_consent(db, payload.patient_id, actor)
     return adapter.analyze_neuromodulation(_validated_input(payload))
 
 
