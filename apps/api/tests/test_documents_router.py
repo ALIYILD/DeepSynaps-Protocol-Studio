@@ -9,8 +9,10 @@ from fastapi.testclient import TestClient
 
 
 def _create_patient(client: TestClient, auth_headers: dict, patient_id: str = "doc-patient-1") -> str:
+    import uuid
+
     from app.database import SessionLocal
-    from app.persistence.models import Patient
+    from app.persistence.models import ConsentRecord, Patient
 
     with SessionLocal() as db:
         if db.query(Patient).filter_by(id=patient_id).first() is None:
@@ -22,6 +24,22 @@ def _create_patient(client: TestClient, auth_headers: dict, patient_id: str = "d
                     last_name="Patient",
                     email=f"{patient_id}@example.com",
                     status="active",
+                )
+            )
+            db.flush()
+            # Seed active document_generation consent so the documents-router
+            # write paths (create / upload / sign / supersede) accept the
+            # demo clinician's requests. PR opening this fix and PR #896
+            # both wired consent enforcement that the existing fixtures
+            # pre-date.
+            db.add(
+                ConsentRecord(
+                    id=str(uuid.uuid4()),
+                    patient_id=patient_id,
+                    clinician_id="actor-clinician-demo",
+                    consent_type="document_generation",
+                    status="active",
+                    signed=True,
                 )
             )
             db.commit()
