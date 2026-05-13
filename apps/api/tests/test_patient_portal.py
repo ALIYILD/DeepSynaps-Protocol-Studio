@@ -11,6 +11,24 @@ PATIENT_EMAIL = "portal_patient@example.com"
 PATIENT_PW = "Test1234!"
 
 
+def _seed_dual_review(course_id: str) -> None:
+    """Stamp two reviewer ids onto a course so the dual-reviewer
+    activation gate (P0 policy, commit 80dbbd24) doesn't 403 the
+    activate call. Matches the pattern PR #906 added to
+    test_course_safety_gate.py."""
+    from app.database import SessionLocal
+    from app.persistence.models import TreatmentCourse
+
+    db = SessionLocal()
+    try:
+        course = db.query(TreatmentCourse).filter_by(id=course_id).first()
+        course.reviewer_1_id = "reviewer-a"
+        course.reviewer_2_id = "reviewer-b"
+        db.commit()
+    finally:
+        db.close()
+
+
 @pytest.fixture
 def patient_token(client: TestClient, auth_headers: dict) -> str:
     """Create a patient record + invite + activate → returns bearer token."""
@@ -130,12 +148,16 @@ class TestPortalSessions:
 
     def test_returns_logged_session(self, client: TestClient, patient_headers: dict,
                                     course_id: str, auth_headers: dict) -> None:
-        # Activate course first (sessions can only be logged for active courses)
-        client.patch(
+        # Activate course first (sessions can only be logged for active courses).
+        # Dual-reviewer gate (P0) requires two reviewer ids on the course
+        # before activate succeeds — seed them like test_course_safety_gate.
+        _seed_dual_review(course_id)
+        act = client.patch(
             f"/api/v1/treatment-courses/{course_id}/activate",
             json={},
             headers=auth_headers["clinician"],
         )
+        assert act.status_code == 200, act.text
 
         # Log a session as clinician
         log = client.post(
