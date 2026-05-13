@@ -15,6 +15,7 @@ from app.auth import AuthenticatedActor, get_authenticated_actor, require_patien
 from app.crypto import encrypt_token
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.persistence.models import ConsentRecord, Patient
 from app.repositories.patients import resolve_patient_clinic_id
 from app.services.device_sync.adapter_registry import (
     get_adapter,
@@ -40,6 +41,44 @@ def _require_clinician(actor: AuthenticatedActor) -> None:
     if actor.role not in ("clinician", "admin", "supervisor", "reviewer", "technician"):
         raise ApiServiceError(
             code="forbidden", message="Clinician access required.", status_code=403
+        )
+
+
+def _consent_active_device(
+    patient_id: str, db: Session, consent_type: str = "device_sync"
+) -> bool:
+    """Return True iff the patient has an active ConsentRecord of the given
+    consent_type. Used by the consent gate on device_sync writes.
+
+    Filters by both ``consent_type`` AND ``status="active"`` so that an
+    active consent for some unrelated category (e.g. ``media``) does not
+    silently authorise a device-data sync.
+    """
+    if not patient_id:
+        return False
+    if not db.query(Patient).filter(Patient.id == patient_id).first():
+        return False
+    consent = (
+        db.query(ConsentRecord)
+        .filter(
+            ConsentRecord.patient_id == patient_id,
+            ConsentRecord.consent_type == consent_type,
+            ConsentRecord.status == "active",
+        )
+        .first()
+    )
+    return consent is not None
+
+
+def _assert_device_consent_active(
+    patient_id: str, db: Session, consent_type: str = "device_sync"
+) -> None:
+    """Raise 403 if the patient lacks an active consent of ``consent_type``."""
+    if not _consent_active_device(patient_id, db, consent_type):
+        raise ApiServiceError(
+            code="consent_required",
+            message=f"Patient consent required for {consent_type}.",
+            status_code=403,
         )
 
 
