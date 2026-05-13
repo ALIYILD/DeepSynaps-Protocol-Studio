@@ -128,7 +128,13 @@ if (files.length === 0) {
 }
 
 const passthroughArgs = process.argv.slice(2);
-const args = ['--test', '--test-concurrency=4', ...passthroughArgs, ...files];
+// --test-force-exit (Node ≥20.14) makes the runner exit as soon as tests
+// finish, regardless of leaked async handles (JSDOM windows, lingering
+// intervals, open sockets in patched API mocks, etc.). Without it, a single
+// file like pages-qeeg-analysis-coverage.test.js completes all 195 tests
+// successfully and then hangs the runner forever waiting for the event
+// loop to drain. That hang silently consumed thousands of CI minutes.
+const args = ['--test', '--test-concurrency=4', '--test-force-exit', ...passthroughArgs, ...files];
 
 console.log(`[run-unit-tests] running ${files.length} test files (${QUARANTINE.size} quarantined)`);
 
