@@ -1073,6 +1073,12 @@ def export_audit_trail_csv(
     db: Session = Depends(get_db_session),
 ) -> Response:
     _gate_role(actor)
+    _guard_cross_actor_filter(
+        actor,
+        requested_actor_id=actor_id,
+        requested_target_id=target_id,
+        db=db,
+    )
 
     base = _apply_scope(db.query(AuditEventRecord), actor)
     filtered = _apply_filters(
@@ -1145,6 +1151,12 @@ def export_audit_trail_ndjson(
     db: Session = Depends(get_db_session),
 ) -> Response:
     _gate_role(actor)
+    _guard_cross_actor_filter(
+        actor,
+        requested_actor_id=actor_id,
+        requested_target_id=target_id,
+        db=db,
+    )
 
     base = _apply_scope(db.query(AuditEventRecord), actor)
     filtered = _apply_filters(

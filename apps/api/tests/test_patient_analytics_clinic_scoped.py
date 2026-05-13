@@ -1,130 +1,105 @@
-"""Patient analytics scope tests — verify analytics queries are clinic-scoped.
-
-This test file validates that patient analytics (population trends, 
-cohort analysis, outcomes) are scoped to the clinician's clinic only.
-Cross-clinic queries must return 403 Forbidden.
-
-**Coverage:**
-- Population analytics (cohort queries)
-- Patient analytics (individual outcomes)
-- Care team analytics (coverage, adherence)
-- Reporting/export (clinic scoped)
-"""
 from __future__ import annotations
 
 import uuid
 
-import pytest
-from fastapi.testclient import TestClient
-
 from app.database import SessionLocal
-from app.main import app
 from app.persistence.models import Clinic, Patient, User
 from app.services.auth_service import create_access_token
 
 
-@pytest.fixture
-def client() -> TestClient:
-    return TestClient(app)
-
-
-def _seed_analytics_scope_setup() -> dict:
-    """Create two clinics with patients and clinical data."""
+def _seed_patient_analytics_scope_world() -> dict[str, str]:
     db = SessionLocal()
     try:
-        # Create two clinics
-        clinic_a = Clinic(id=str(uuid.uuid4()), name="Clinic A")
-        clinic_b = Clinic(id=str(uuid.uuid4()), name="Clinic B")
-        db.add_all([clinic_a, clinic_b])
+        home_clinic = db.query(Clinic).filter_by(id="clinic-demo-default").first()
+        if home_clinic is None:
+            home_clinic = Clinic(id="clinic-demo-default", name="Demo Clinic")
+            db.add(home_clinic)
+            db.flush()
+
+        other_clinic = Clinic(
+            id=f"clinic-analytics-{uuid.uuid4().hex[:8]}",
+            name="Analytics Other Clinic",
+        )
+        db.add(other_clinic)
         db.flush()
 
-        # Create clinicians for each clinic
-        clin_a = User(
-            id=str(uuid.uuid4()),
-            email=f"clin_a_{uuid.uuid4().hex[:8]}@example.com",
-            display_name="Clinician A",
+        home_clinician = db.query(User).filter_by(id="actor-clinician-demo").first()
+        assert home_clinician is not None
+
+        other_clinician = User(
+            id=f"actor-clinician-analytics-{uuid.uuid4().hex[:8]}",
+            email=f"other_{uuid.uuid4().hex[:6]}@example.com",
+            display_name="Other Analytics Clinician",
             hashed_password="x",
             role="clinician",
-            package_id="explorer",
-            clinic_id=clinic_a.id,
+            package_id="clinician_pro",
+            clinic_id=other_clinic.id,
         )
-        clin_b = User(
-            id=str(uuid.uuid4()),
-            email=f"clin_b_{uuid.uuid4().hex[:8]}@example.com",
-            display_name="Clinician B",
-            hashed_password="x",
-            role="clinician",
-            package_id="explorer",
-            clinic_id=clinic_b.id,
-        )
-        
-        # Create admin user (no clinic_id) for cross-clinic queries
-        admin = User(
-            id=str(uuid.uuid4()),
-            email=f"admin_{uuid.uuid4().hex[:8]}@example.com",
-            display_name="Admin",
+        global_admin = User(
+            id=f"actor-admin-global-{uuid.uuid4().hex[:8]}",
+            email=f"global_admin_{uuid.uuid4().hex[:6]}@example.com",
+            display_name="Global Analytics Admin",
             hashed_password="x",
             role="admin",
-            package_id="explorer",
+            package_id="enterprise",
             clinic_id=None,
         )
-        
-        db.add_all([clin_a, clin_b, admin])
+        db.add_all([other_clinician, global_admin])
         db.flush()
 
-        # Create multiple patients for clinic A
-        patients_a = []
-        for i in range(3):
-            p = Patient(
-                id=str(uuid.uuid4()),
-                clinician_id=clin_a.id,
-                first_name=f"Patient",
-                last_name=f"A{i}",
-            )
-            patients_a.append(p)
-
-        # Create multiple patients for clinic B
-        patients_b = []
-        for i in range(3):
-            p = Patient(
-                id=str(uuid.uuid4()),
-                clinician_id=clin_b.id,
-                first_name=f"Patient",
-                last_name=f"B{i}",
-            )
-            patients_b.append(p)
-
-        db.add_all(patients_a + patients_b)
-        db.flush()
+        home_patient_1 = Patient(
+            id=f"pat-home-{uuid.uuid4().hex[:8]}",
+            clinician_id=home_clinician.id,
+            first_name="Home",
+            last_name="One",
+            primary_condition="MDD",
+            primary_modality="TMS",
+        )
+        home_patient_2 = Patient(
+            id=f"pat-home-{uuid.uuid4().hex[:8]}",
+            clinician_id=home_clinician.id,
+            first_name="Home",
+            last_name="Two",
+            primary_condition="MDD",
+            primary_modality="TMS",
+        )
+        other_patient_1 = Patient(
+            id=f"pat-other-{uuid.uuid4().hex[:8]}",
+            clinician_id=other_clinician.id,
+            first_name="Other",
+            last_name="One",
+            primary_condition="GAD",
+            primary_modality="tDCS",
+        )
+        other_patient_2 = Patient(
+            id=f"pat-other-{uuid.uuid4().hex[:8]}",
+            clinician_id=other_clinician.id,
+            first_name="Other",
+            last_name="Two",
+            primary_condition="GAD",
+            primary_modality="tDCS",
+        )
+        db.add_all([home_patient_1, home_patient_2, other_patient_1, other_patient_2])
         db.commit()
 
         return {
-            "clinic_a_id": clinic_a.id,
-            "clinic_b_id": clinic_b.id,
-            "patients_a_ids": [p.id for p in patients_a],
-            "patients_b_ids": [p.id for p in patients_b],
-            "clin_a_id": clin_a.id,
-            "clin_b_id": clin_b.id,
-            "admin_id": admin.id,
-            "token_clin_a": create_access_token(
-                user_id=clin_a.id,
-                email=clin_a.email,
+            "home_clinic_id": home_clinic.id,
+            "other_clinic_id": other_clinic.id,
+            "home_patient_id": home_patient_1.id,
+            "other_patient_id": other_patient_1.id,
+            "other_clinician_id": other_clinician.id,
+            "other_clinician_token": create_access_token(
+                user_id=other_clinician.id,
+                email=other_clinician.email,
                 role="clinician",
-                package_id="explorer",
-                clinic_id=clinic_a.id,
+                package_id="clinician_pro",
+                clinic_id=other_clinic.id,
             ),
-            "token_clin_b": create_access_token(
-                user_id=clin_b.id,
-                email=clin_b.email,
-                role="clinician",
-                package_id="explorer",
-                clinic_id=clinic_b.id,
-            ),
-            "token_admin": create_access_token(
-                user_id=admin.id,
-                email=admin.email,
+            "global_admin_token": create_access_token(
+                user_id=global_admin.id,
+                email=global_admin.email,
                 role="admin",
-                package_id="explorer",
+                package_id="enterprise",
                 clinic_id=None,
             ),
         }
@@ -132,198 +107,130 @@ def _seed_analytics_scope_setup() -> dict:
         db.close()
 
 
-@pytest.mark.xfail(reason="Analytics scoping not yet implemented (P1 backend task)")
-def test_population_analytics_scoped_to_clinic(
-    client: TestClient,
-) -> None:
-    """Clinician A sees only Clinic A patients in population analytics."""
-    setup = _seed_analytics_scope_setup()
+def test_population_summary_scoped_to_actor_clinic(client, auth_headers) -> None:
+    world = _seed_patient_analytics_scope_world()
 
     resp = client.get(
-        "/api/v1/patient-analytics/population",
-        headers={"Authorization": f"Bearer {setup['token_clin_a']}"},
+        "/api/v1/population-analytics/cohorts/summary",
+        headers=auth_headers["clinician"],
     )
 
     assert resp.status_code == 200, resp.text
-    data = resp.json()
-
-    # Should see 3 patients from Clinic A, not 6 total
-    assert len(data.get("patients", [])) == 3
-    patient_ids = [p["id"] for p in data.get("patients", [])]
-
-    for patient_id in setup["patients_a_ids"]:
-        assert patient_id in patient_ids, f"Patient A {patient_id} should be visible"
-
-    for patient_id in setup["patients_b_ids"]:
-        assert patient_id not in patient_ids, f"Patient B {patient_id} should NOT be visible"
+    assert resp.json()["cohort_size"] == 2
+    assert resp.json()["by_condition"] == {"MDD": 2}
 
 
-@pytest.mark.xfail(reason="Analytics scoping not yet implemented (P1 backend task)")
-def test_patient_analytics_cross_clinic_blocked(
-    client: TestClient,
-) -> None:
-    """Clinician B cannot query analytics for Clinic A's patient."""
-    setup = _seed_analytics_scope_setup()
+def test_population_summary_rejects_foreign_clinic_filter_for_clinician(client, auth_headers) -> None:
+    world = _seed_patient_analytics_scope_world()
 
     resp = client.get(
-        f"/api/v1/patient-analytics/{setup['patients_a_ids'][0]}",
-        headers={"Authorization": f"Bearer {setup['token_clin_b']}"},
+        "/api/v1/population-analytics/cohorts/summary",
+        params={"clinic_id": world["other_clinic_id"]},
+        headers=auth_headers["clinician"],
     )
 
     assert resp.status_code == 403, resp.text
+    assert resp.json()["code"] == "cross_clinic_access_denied"
 
 
-@pytest.mark.xfail(reason="Analytics scoping not yet implemented (P1 backend task)")
-def test_cohort_query_respects_clinic_boundaries(
-    client: TestClient,
-) -> None:
-    """Cohort analysis must only include the clinician's clinic."""
-    setup = _seed_analytics_scope_setup()
+def test_population_summary_global_admin_honors_explicit_clinic_filter(client) -> None:
+    world = _seed_patient_analytics_scope_world()
 
-    resp = client.post(
-        "/api/v1/patient-analytics/cohort",
-        json={"filters": {"status": "active"}},
-        headers={"Authorization": f"Bearer {setup['token_clin_a']}"},
+    resp = client.get(
+        "/api/v1/population-analytics/cohorts/summary",
+        params={"clinic_id": world["other_clinic_id"]},
+        headers={"Authorization": f"Bearer {world['global_admin_token']}"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["cohort_size"] == 2
+    assert resp.json()["by_condition"] == {"GAD": 2}
+
+
+def test_population_export_csv_scoped_to_actor_clinic(client, auth_headers) -> None:
+    _seed_patient_analytics_scope_world()
+
+    resp = client.get(
+        "/api/v1/population-analytics/export.csv",
+        headers=auth_headers["clinician"],
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert "MDD" in resp.text
+    assert "GAD" not in resp.text
+
+
+def test_population_export_csv_global_admin_honors_explicit_clinic_filter(client) -> None:
+    world = _seed_patient_analytics_scope_world()
+
+    resp = client.get(
+        "/api/v1/population-analytics/export.csv",
+        params={"clinic_id": world["other_clinic_id"]},
+        headers={"Authorization": f"Bearer {world['global_admin_token']}"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert "GAD" in resp.text
+    assert "MDD" not in resp.text
+
+
+def test_patient_analytics_summary_same_clinic_ok(client, auth_headers) -> None:
+    world = _seed_patient_analytics_scope_world()
+
+    resp = client.get(
+        f"/api/v1/patients/{world['home_patient_id']}/analytics/summary",
+        headers=auth_headers["clinician"],
     )
 
     assert resp.status_code == 200, resp.text
     data = resp.json()
+    assert data["patient_id"] == world["home_patient_id"]
+    assert data["clinic_id"] == world["home_clinic_id"]
 
-    # Should return only Clinic A patients
-    assert len(data.get("patients", [])) <= 3
 
-
-@pytest.mark.xfail(reason="Analytics scoping not yet implemented (P1 backend task)")
-def test_care_team_analytics_clinic_scoped(
-    client: TestClient,
-) -> None:
-    """Care team analytics (coverage, adherence) scoped to clinic."""
-    setup = _seed_analytics_scope_setup()
+def test_patient_analytics_summary_cross_clinic_blocked(client) -> None:
+    world = _seed_patient_analytics_scope_world()
 
     resp = client.get(
-        "/api/v1/patient-analytics/care-team-coverage",
-        headers={"Authorization": f"Bearer {setup['token_clin_a']}"},
+        f"/api/v1/patients/{world['home_patient_id']}/analytics/summary",
+        headers={"Authorization": f"Bearer {world['other_clinician_token']}"},
     )
 
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-
-    # Should only show Clinic A data
-    clinic_id = data.get("clinic_id")
-    assert clinic_id == setup["clinic_a_id"]
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["code"] == "cross_clinic_access_denied"
 
 
-@pytest.mark.xfail(reason="Analytics scoping not yet implemented (P1 backend task)")
-def test_analytics_export_respects_clinic_scope(
-    client: TestClient,
-) -> None:
-    """Exporting analytics includes only clinic-scoped data."""
-    setup = _seed_analytics_scope_setup()
+def test_patient_analytics_timeline_cross_clinic_blocked(client) -> None:
+    world = _seed_patient_analytics_scope_world()
 
     resp = client.get(
-        "/api/v1/patient-analytics/export",
-        params={"format": "csv"},
-        headers={"Authorization": f"Bearer {setup['token_clin_a']}"},
+        f"/api/v1/patients/{world['home_patient_id']}/analytics/timeline",
+        headers={"Authorization": f"Bearer {world['other_clinician_token']}"},
     )
 
-    assert resp.status_code == 200, resp.text
-    csv_data = resp.text
-
-    # CSV should include Clinic A patient names
-    for patient_id in setup["patients_a_ids"]:
-        # At least the patient ID should be in the export
-        assert patient_id in csv_data or "Patient A" in csv_data
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["code"] == "cross_clinic_access_denied"
 
 
-@pytest.mark.xfail(reason="Analytics scoping not yet implemented (P1 backend task)")
-def test_admin_can_query_cross_clinic_analytics(
-    client: TestClient,
-) -> None:
-    """Admin (no clinic_id) can query all clinics but must explicitly specify."""
-    setup = _seed_analytics_scope_setup()
-
-    # Admin should be able to query with clinic filter
-    resp = client.get(
-        "/api/v1/patient-analytics/population",
-        params={"clinic_id": setup["clinic_a_id"]},
-        headers={"Authorization": f"Bearer {setup['token_admin']}"},
-    )
-
-    # Should succeed (or require explicit clinic filter)
-    assert resp.status_code in (200, 400)  # 400 if clinic_id is required
-
-
-@pytest.mark.xfail(reason="Analytics scoping not yet implemented (P1 backend task)")
-def test_outcomes_analytics_clinic_scoped(
-    client: TestClient,
-) -> None:
-    """Outcome metrics (adherence rate, symptom trends) scoped to clinic."""
-    setup = _seed_analytics_scope_setup()
+def test_patient_analytics_audit_log_cross_clinic_blocked(client) -> None:
+    world = _seed_patient_analytics_scope_world()
 
     resp = client.get(
-        "/api/v1/patient-analytics/outcomes",
-        headers={"Authorization": f"Bearer {setup['token_clin_a']}"},
+        f"/api/v1/patients/{world['home_patient_id']}/analytics/audit-log",
+        headers={"Authorization": f"Bearer {world['other_clinician_token']}"},
     )
 
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-
-    # Clinic ID should match
-    assert data.get("clinic_id") == setup["clinic_a_id"]
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["code"] == "cross_clinic_access_denied"
 
 
-@pytest.mark.xfail(reason="Analytics scoping not yet implemented (P1 backend task)")
-def test_report_dashboard_filtered_by_clinic(
-    client: TestClient,
-) -> None:
-    """Dashboard reports only show clinic's data."""
-    setup = _seed_analytics_scope_setup()
+def test_patient_analytics_signals_cross_clinic_blocked(client) -> None:
+    world = _seed_patient_analytics_scope_world()
 
     resp = client.get(
-        "/api/v1/patient-analytics/dashboard",
-        headers={"Authorization": f"Bearer {setup['token_clin_a']}"},
+        f"/api/v1/patients/{world['home_patient_id']}/analytics/signals",
+        headers={"Authorization": f"Bearer {world['other_clinician_token']}"},
     )
 
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-
-    # Dashboard metrics should reflect only Clinic A
-    total_patients = data.get("total_patients", 0)
-    assert total_patients == 3, f"Expected 3 patients, got {total_patients}"
-
-
-@pytest.mark.xfail(reason="Analytics scoping not yet implemented (P1 backend task)")
-def test_bulk_export_respects_clinic_scope(
-    client: TestClient,
-) -> None:
-    """Bulk export of analytics respects clinic scope."""
-    setup = _seed_analytics_scope_setup()
-
-    resp = client.post(
-        "/api/v1/patient-analytics/bulk-export",
-        json={"format": "ndjson", "include": ["demographics", "outcomes"]},
-        headers={"Authorization": f"Bearer {setup['token_clin_a']}"},
-    )
-
-    assert resp.status_code in (200, 202), resp.text
-    # If async, should return job_id
-    if resp.status_code == 202:
-        assert "job_id" in resp.json()
-
-
-@pytest.mark.xfail(reason="Analytics scoping not yet implemented (P1 backend task)")
-def test_analytics_query_with_explicit_other_clinic_blocked(
-    client: TestClient,
-) -> None:
-    """Clinician A cannot query analytics by explicitly specifying Clinic B."""
-    setup = _seed_analytics_scope_setup()
-
-    resp = client.get(
-        "/api/v1/patient-analytics/population",
-        params={"clinic_id": setup["clinic_b_id"]},
-        headers={"Authorization": f"Bearer {setup['token_clin_a']}"},
-    )
-
-    # Should be 403 or silently ignore the clinic_id parameter
-    assert resp.status_code in (403, 200)
-    # If 200, should still be filtered to Clinic A
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["code"] == "cross_clinic_access_denied"

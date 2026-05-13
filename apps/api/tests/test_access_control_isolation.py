@@ -289,3 +289,65 @@ def test_same_clinic_clinician_can_still_read_own_patient(
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["id"] == pid
+
+
+def test_same_clinic_list_includes_owned_patient(
+    client: TestClient, two_clinic_world: dict[str, Any]
+) -> None:
+    resp = client.get(
+        "/api/v1/patients",
+        headers=_auth(two_clinic_world["token_clin_a"]),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    ids = [item["id"] for item in body["items"]]
+    assert two_clinic_world["patient_id"] in ids, ids
+
+
+def test_clinician_cannot_update_other_clinic_patient(
+    client: TestClient, two_clinic_world: dict[str, Any]
+) -> None:
+    pid = two_clinic_world["patient_id"]
+    resp = client.patch(
+        f"/api/v1/patients/{pid}",
+        json={"first_name": "Intrusion"},
+        headers=_auth(two_clinic_world["token_clin_b"]),
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json().get("code") in ("cross_clinic_access_denied", "forbidden"), resp.text
+
+
+def test_clinician_cannot_delete_other_clinic_patient(
+    client: TestClient, two_clinic_world: dict[str, Any]
+) -> None:
+    pid = two_clinic_world["patient_id"]
+    resp = client.delete(
+        f"/api/v1/patients/{pid}",
+        headers=_auth(two_clinic_world["token_clin_b"]),
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json().get("code") in ("cross_clinic_access_denied", "forbidden"), resp.text
+
+
+def test_audit_csv_export_refuses_foreign_actor_filter(
+    client: TestClient, two_clinic_world: dict[str, Any]
+) -> None:
+    resp = client.get(
+        "/api/v1/audit-trail/export.csv",
+        params={"actor_id": two_clinic_world["clin_a_id"]},
+        headers=_auth(two_clinic_world["token_clin_b"]),
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json().get("code") in ("cross_clinic_access_denied", "forbidden"), resp.text
+
+
+def test_audit_ndjson_export_refuses_foreign_target_filter(
+    client: TestClient, two_clinic_world: dict[str, Any]
+) -> None:
+    resp = client.get(
+        "/api/v1/audit-trail/export.ndjson",
+        params={"target_id": two_clinic_world["patient_id"]},
+        headers=_auth(two_clinic_world["token_clin_b"]),
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json().get("code") in ("cross_clinic_access_denied", "forbidden"), resp.text
