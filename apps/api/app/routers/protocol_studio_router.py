@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role, require_patient_owner
 from app.database import get_db_session
+from app.persistence.models.clinical import ConsentRecord, Patient
 from app.repositories.audit import create_audit_event
 from app.repositories.patients import resolve_patient_clinic_id
 from app.repositories.protocol_studio import (
@@ -90,6 +91,38 @@ def _audit(
         note=("patient_id=" + patient_id + "; " if patient_id else "") + safe_note,
         created_at=_iso_now(),
     )
+
+
+# ── Consent helpers ────────────────────────────────────────────────────────
+
+def _consent_active_protocol(db: Session, patient_id: str) -> bool:
+    """Check if patient has active consent for protocol generation."""
+    if not patient_id:
+        return False
+    patient = db.query(Patient).filter(Patient.patient_id == patient_id).first()
+    if not patient:
+        return False
+    consent = (
+        db.query(ConsentRecord)
+        .filter(
+            ConsentRecord.patient_id == patient_id,
+            ConsentRecord.status == "active",
+        )
+        .order_by(ConsentRecord.created_at.desc())
+        .first()
+    )
+    return consent is not None
+
+
+def _assert_protocol_consent_active(db: Session, patient_id: str) -> None:
+    """Raise error if patient lacks active consent for protocol generation."""
+    if patient_id and not _consent_active_protocol(db, patient_id):
+        from app.errors import ApiServiceError
+        raise ApiServiceError(
+            code="consent_required",
+            message="Patient consent is required for protocol generation.",
+            status_code=403,
+        )
 
 
 # ── Evidence endpoints ────────────────────────────────────────────────────────
@@ -480,6 +513,7 @@ def protocol_studio_generate(
 
             raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
         require_patient_owner(actor, clinic_id)
+        _assert_protocol_consent_active(db, patient_id)
 
     req: GenerateRequestDict = {
         "patient_id": patient_id,
@@ -527,6 +561,7 @@ def protocol_studio_recommend(
 
             raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
         require_patient_owner(actor, clinic_id)
+        _assert_protocol_consent_active(db, patient_id)
 
     payload = {
         "patient_id": patient_id,
