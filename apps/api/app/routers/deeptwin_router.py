@@ -1085,6 +1085,10 @@ _REAL_PATIENT_SIMULATION_REASON = "no_validated_simulation_engine"
 _REAL_PATIENT_SIMULATION_SUMMARY = (
     "DeepTwin simulation output is withheld until a validated engine is connected."
 )
+_REAL_PATIENT_LATENT_REASON = "no_validated_latent_model"
+_REAL_PATIENT_LATENT_SUMMARY = (
+    "DeepTwin latent embeddings are withheld until a validated TRIBE encoder is connected."
+)
 _REAL_PATIENT_SOURCE_EXCLUDE_KEYS = frozenset({"identity", "twin_predictions"})
 _REAL_PATIENT_SEVERE_FLAGS = frozenset({"serious", "severe", "urgent", "high", "critical"})
 _REAL_PATIENT_WATCH_FLAGS = frozenset({"warning", "warn", "moderate", "medium", "mild"})
