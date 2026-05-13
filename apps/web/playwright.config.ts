@@ -13,8 +13,9 @@ export default defineConfig({
   use: {
     baseURL: remoteBaseURL || 'http://localhost:5173',
     actionTimeout: 10000,
-    trace: 'on-first-retry',
+    trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    video: 'retain-on-failure',
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
