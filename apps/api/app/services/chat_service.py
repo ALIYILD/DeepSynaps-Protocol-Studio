@@ -166,8 +166,12 @@ _CONDITION_SYNONYMS: tuple[tuple[str, str], ...] = (
 )
 
 # Triggers that flip prefer_rct on when scoring evidence results.
+# "literature" is here too — a clinician asking about "literature on X" is
+# the same intent as asking about "evidence on X", and gating on the narrower
+# set caused the chat_agent_with_evidence path to skip retrieval for messages
+# that explicitly asked for it (see issue #889).
 _RCT_CUES_RE = re.compile(
-    r"\b(evidence|rct|randomi[sz]ed|meta[- ]analysis|systematic review)\b",
+    r"\b(evidence|rct|randomi[sz]ed|meta[- ]analysis|systematic review|literature)\b",
     re.IGNORECASE,
 )
 
@@ -472,6 +476,41 @@ Always:
 - Add a note: "This is general information only — your clinician is your primary point of contact for medical advice." """
 
 
+def _latest_user_message(messages: list[dict]) -> str:
+    """Return the most recent user-role message content, or empty string."""
+    for m in reversed(messages or []):
+        if m.get("role") == "user":
+            return (m.get("content") or "").strip()
+    return ""
+
+
+def _augment_system_with_local_knowledge(base_system: str, messages: list[dict]) -> str:
+    """Append a ``<local_knowledge>`` block to ``base_system`` from the repo-native
+    courseware + research bundle, grounding the assistant in checked-in clinical
+    knowledge before the model leans on its parametric training.
+
+    Failures are swallowed — chat must never 500 because the local knowledge
+    bundle is missing or unparseable. The bundle is lru_cached at the service
+    layer so this stays cheap on the hot path.
+    """
+    try:
+        from app.services.local_knowledge_service import render_local_knowledge_prompt
+
+        rendered = render_local_knowledge_prompt(_latest_user_message(messages))
+    except Exception as exc:  # noqa: BLE001 — never break chat for grounding
+        _llm_log.warning("local_knowledge injection failed, continuing without: %s", exc)
+        return base_system
+
+    return (
+        base_system
+        + "\n\nRepo-native local knowledge bundle (from data/courseware/knowledge-kb)."
+        + " Prefer items in this block over general training knowledge when the"
+        + " topic overlaps.\n\n<local_knowledge>\n"
+        + rendered
+        + "\n</local_knowledge>"
+    )
+
+
 def chat_clinician(messages: list[dict], patient_context: str | None = None) -> str:
     """
     messages: list of {"role": "user"|"assistant", "content": "..."}
@@ -495,7 +534,7 @@ def chat_clinician(messages: list[dict], patient_context: str | None = None) -> 
         ] + messages
 
     return _llm_chat(
-        system=CLINICIAN_SYSTEM,
+        system=_augment_system_with_local_knowledge(CLINICIAN_SYSTEM, messages),
         messages=messages,
         max_tokens=1024,
         not_configured_message="AI assistant is not configured. Set GLM_API_KEY or ANTHROPIC_API_KEY.",
@@ -644,7 +683,11 @@ def chat_agent_with_evidence(
     or the search returned zero rows. Failures inside the RAG path are
     swallowed so chat keeps working.
     """
-    system = AGENT_SYSTEM
+    # Always ground the agent in the repo-native local knowledge bundle —
+    # cheap (lru_cached, in-process JSON) and orthogonal to the external
+    # evidence-DB lookup below. The evidence block, when populated, is
+    # appended on top.
+    system = _augment_system_with_local_knowledge(AGENT_SYSTEM, messages)
     cited_papers: list[dict] = []
 
     # Pull the most recent user message as the retrieval query. Falls back to
@@ -679,8 +722,11 @@ def chat_agent_with_evidence(
             )
             if papers:
                 ctx = format_evidence_context(papers)
+                # Preserve the local_knowledge augmentation when we extend with
+                # an evidence-papers block — the earlier rebuild from
+                # AGENT_SYSTEM dropped the grounding block when retrieval hit.
                 system = (
-                    AGENT_SYSTEM
+                    system
                     + "\n\nYou have access to the following real papers from our "
                     "evidence database. Cite them inline as [1], [2]... when "
                     "relevant.\n\n<papers>\n"
