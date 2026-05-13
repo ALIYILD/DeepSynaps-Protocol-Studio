@@ -19,9 +19,13 @@ from app.persistence.models import Patient
 logger = logging.getLogger(__name__)
 
 
-# ALLOWLIST: Only these tables are safe to expose in the data console
+# ALLOWLIST: Only these tables are safe to expose in the data console.
+# Column names must match the actual schema (see
+# app/persistence/models/patient.py — the patient DOB column is `dob`, not
+# `date_of_birth`); listing the wrong name silently builds invalid SQL and
+# 500s the CSV export.
 SAFE_TABLES = {
-    "patients": ["id", "first_name", "last_name", "date_of_birth", "created_at"],
+    "patients": ["id", "first_name", "last_name", "dob", "created_at"],
     "patient_data_assets": ["id", "asset_type", "filename", "mime_type", "size_bytes", "created_at", "processing_status"],
     "ai_analysis_runs": ["id", "analysis_type", "model_name", "status", "created_at", "clinician_review_status"],
     "safety_flags": ["id", "flag_type", "severity", "message", "status", "created_at"],
@@ -29,10 +33,14 @@ SAFE_TABLES = {
     "consent_records": ["id", "consent_type", "status", "created_at"],
 }
 
-# PHI masking rules: field patterns that should be masked
+# PHI masking rules: field patterns that should be masked.
+# Keep both `dob` (actual column) and `date_of_birth` (FHIR/CSV-import label
+# used in the web frontend's import templates) so masking applies regardless
+# of which name a caller surfaces.
 PHI_PATTERNS = {
     "first_name": "***",
     "last_name": "***",
+    "dob": "***-***-****",
     "date_of_birth": "***-***-****",
     "email": "***@***.***",
     "phone": "***-****",
