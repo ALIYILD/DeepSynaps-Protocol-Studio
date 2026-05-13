@@ -391,6 +391,20 @@ def trigger_sync(
     """
     _require_clinician(actor)
     _gate_connection_access(connection_id, actor, db)
+    
+    # Get connection to check patient consent before syncing
+    from app.persistence.models import DeviceConnection
+    conn = db.query(DeviceConnection).filter_by(id=connection_id).first()
+    if not conn:
+        raise ApiServiceError(
+            code="not_found",
+            message=f"Connection {connection_id} not found.",
+            status_code=404,
+        )
+    
+    # Verify patient has active consent before syncing device data
+    _assert_device_consent_active(conn.patient_id, db, "device_sync")
+    
     result = sync_connection(connection_id, db)
     return SyncResultOut(
         success=result.success,
