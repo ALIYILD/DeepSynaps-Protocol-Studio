@@ -5,9 +5,13 @@ export let currentUser = null;
 
 export function setCurrentUser(u) {
   currentUser = u;
-  // Cache user to localStorage for recovery on auth bootstrap failure
-  if (u) {
-    localStorage.setItem('ds_session_user', JSON.stringify(u));
+  // Cache the authenticated user in localStorage for recovery on network failures
+  if (u && u.id && u.role) {
+    try {
+      localStorage.setItem('ds_session_user', JSON.stringify(u));
+    } catch {
+      // localStorage quota exceeded or private mode — continue anyway
+    }
   }
 }
 
@@ -82,6 +86,7 @@ function _demoEnabled() {
 export function doLogout() {
   api.logout().catch(() => {});
   api.clearToken();
+  localStorage.removeItem('ds_session_user');
   window._sseSource?.close();
   window._clearPaletteCache?.();
   sessionStorage.removeItem('ds_pat_selected_id');
