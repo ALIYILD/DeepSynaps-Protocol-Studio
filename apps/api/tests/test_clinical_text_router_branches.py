@@ -30,7 +30,7 @@ from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
 from app.main import app
-from app.persistence.models import Clinic, Patient, User
+from app.persistence.models import Clinic, ConsentRecord, Patient, User
 from app.routers.clinical_text_router import (
     _TextRequest,
     _validated_input,
@@ -99,6 +99,24 @@ def _seed_two_clinics_and_patient() -> dict[str, str]:
             last_name="Patient",
         )
         db.add(patient)
+        db.flush()
+
+        # Seed active ai_analysis consent for clinician A (the same-clinic
+        # owner) AND for the admin demo actor used by the admin-bypass test.
+        # The router (correctly) enforces ai_analysis consent for any real
+        # patient_id; without these rows the same-clinic and admin tests
+        # would 403 — see issue #888.
+        for clinician_id in (clin_a.id, "actor-admin-demo"):
+            db.add(
+                ConsentRecord(
+                    id=str(uuid.uuid4()),
+                    patient_id=patient.id,
+                    clinician_id=clinician_id,
+                    consent_type="ai_analysis",
+                    status="active",
+                    signed=True,
+                )
+            )
         db.commit()
 
         return {
