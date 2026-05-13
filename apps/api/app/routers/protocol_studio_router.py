@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role, require_patient_owner
 from app.database import get_db_session
-from app.persistence.models.clinical import ConsentRecord, Patient
+from app.persistence.models.patient import ConsentRecord, Patient
 from app.repositories.audit import create_audit_event
 from app.repositories.patients import resolve_patient_clinic_id
 from app.repositories.protocol_studio import (
@@ -99,7 +99,7 @@ def _consent_active_protocol(db: Session, patient_id: str) -> bool:
     """Check if patient has active consent for protocol generation."""
     if not patient_id:
         return False
-    patient = db.query(Patient).filter(Patient.patient_id == patient_id).first()
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
     if not patient:
         return False
     consent = (
