@@ -777,6 +777,50 @@ def _apply_scope(q, actor: AuthenticatedActor):
     return q.filter(AuditEventRecord.actor_id == actor.actor_id)
 
 
+def _guard_cross_actor_filter(
+    actor: AuthenticatedActor,
+    *,
+    requested_actor_id: Optional[str],
+    requested_target_id: Optional[str],
+    db: Session,
+) -> None:
+    """Raise 403 when a non-admin asks for another actor's or another
+    clinic's audit rows.
+
+    Issue #900: ``_apply_scope`` already constrains a clinician to their own
+    ``actor_id``, so a foreign filter currently surfaces as ``200 {items:[]}``.
+    Returning an empty list silently is itself a leak — an attacker can
+    iterate IDs and use the "always-empty" envelope as confirmation that the
+    audit trail endpoint isn't watching. Be honest: raise 403 immediately
+    when the requested filter cannot possibly be satisfied for the caller.
+    """
+    if actor.role == "admin":
+        return
+    if requested_actor_id and requested_actor_id != actor.actor_id:
+        raise ApiServiceError(
+            code="cross_clinic_access_denied",
+            message="You can only view audit events for your own actor.",
+            warnings=["Drop the actor_id filter or query as an admin."],
+            status_code=403,
+        )
+    if requested_target_id:
+        # ``target_id`` is most commonly a ``patient_id`` for patient-linked
+        # surfaces. Resolve the patient's clinic — if it belongs to another
+        # clinic, deny. Unknown target_ids (non-patient surface) fall through
+        # to the actor-scope filter and behave as before.
+        try:
+            from app.repositories.patients import resolve_patient_clinic_id
+            exists, patient_clinic_id = resolve_patient_clinic_id(db, requested_target_id)
+        except Exception:  # pragma: no cover — repo errors must not 500 the audit list
+            exists, patient_clinic_id = False, None
+        if exists and patient_clinic_id and patient_clinic_id != actor.clinic_id:
+            raise ApiServiceError(
+                code="cross_clinic_access_denied",
+                message="This audit target belongs to another clinic.",
+                status_code=403,
+            )
+
+
 def _apply_filters(
     q,
     *,
@@ -884,6 +928,12 @@ def list_audit_trail(
     db: Session = Depends(get_db_session),
 ) -> AuditTrailListResponse:
     _gate_role(actor)
+    _guard_cross_actor_filter(
+        actor,
+        requested_actor_id=actor_id,
+        requested_target_id=target_id,
+        db=db,
+    )
 
     # Seed the canonical demo events the existing get_audit_trail used to
     # surface. Idempotent thanks to seed_audit_events' early-return.
