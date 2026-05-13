@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from ._base import (
     Base,
     DateTime,
@@ -58,19 +60,19 @@ class EegStudioRecording(Base):
     clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
 
     recorded_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False)
-    operator_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    equipment: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    sample_rate_hz: Mapped[float | None] = mapped_column(Float(), nullable=True)
-    calibration_file_ref: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    cap_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    impedance_log_json: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    operator_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    equipment: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    sample_rate_hz: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    calibration_file_ref: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    cap_model: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    impedance_log_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
 
     raw_storage_key: Mapped[str] = mapped_column(String(1024), nullable=False)
     duration_sec: Mapped[float] = mapped_column(Float(), nullable=False, default=0.0)
     metadata_json: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")
 
-    search_blob: Mapped[str | None] = mapped_column(Text(), nullable=True)
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+    search_blob: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(),
@@ -95,7 +97,7 @@ class EegStudioDerivative(Base):
     kind: Mapped[str] = mapped_column(String(40), nullable=False)
     storage_key: Mapped[str] = mapped_column(String(1024), nullable=False)
     metadata_json: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(),
         default=lambda: datetime.now(timezone.utc),
