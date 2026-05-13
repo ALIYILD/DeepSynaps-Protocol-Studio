@@ -83,12 +83,17 @@ async function navTo(page: Page, route: string) {
 // actually mounts. This is the #913 regression pattern. Add the marker to the page's
 // outermost render element (see `pgTelehealthRecorder` in pages-practice.js for the
 // reference implementation), then call this from the test instead of `navTo`.
+//
+// Timeout is intentionally generous: pages like `telehealth-recorder` are lazy-loaded
+// via `await loadPractice()` in app.js, and a cold dynamic-import on a slow GHA runner
+// can take 10–20 s before `pgTelehealthRecorder` runs. Locally this is <2 s. The 25 s
+// ceiling keeps the wait deterministic without weakening the assertion.
 async function navToStrict(page: Page, route: string) {
   await page.evaluate((r) => (window as any)._nav(r), route);
   await page.waitForFunction(
     (r) => !!document.querySelector(`[data-page="${r}"]`),
     route,
-    { timeout: 10000 },
+    { timeout: 25000 },
   );
 }
 
