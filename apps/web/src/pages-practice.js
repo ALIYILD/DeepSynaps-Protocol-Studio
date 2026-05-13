@@ -5493,7 +5493,7 @@ export async function pgTelehealthRecorder(setTopbar) {
 
   function render() {
     el.innerHTML = `
-<div style="max-width:960px;margin:0 auto;padding:0 4px">
+<div data-page="telehealth-recorder" style="max-width:960px;margin:0 auto;padding:0 4px">
   <!-- Tab bar -->
   <div style="display:flex;gap:4px;margin-bottom:20px;background:var(--bg-surface-2,#1e293b);padding:4px;border-radius:10px;width:fit-content">
     <button class="btn btn-sm${_activeTab === 'live' ? ' btn-primary' : ' btn-ghost'}" onclick="window._recSwitchTab('live')">Live Session</button>

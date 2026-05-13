@@ -91,6 +91,7 @@ export function doLogout() {
   window._clearPaletteCache?.();
   sessionStorage.removeItem('ds_pat_selected_id');
   sessionStorage.removeItem('ds_patient_roster');
+  localStorage.removeItem('ds_session_user');  // Clear cached session on logout
   currentUser = null;
   document.getElementById('sidebar').classList.remove('visible');
   document.getElementById('app-shell').classList.remove('visible');
@@ -123,7 +124,7 @@ if (typeof window !== 'undefined') {
       sessionStorage.setItem('ds_intended_destination', intended);
     }
     api.clearToken();
-    localStorage.removeItem('ds_session_user');
+    localStorage.removeItem('ds_session_user');  // Clear cached session on expiry
     currentUser = null;
     _showSessionExpiredNotice();
     setTimeout(() => {

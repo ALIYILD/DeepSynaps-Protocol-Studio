@@ -75,6 +75,12 @@ const QUARANTINE = new Set([
   //   suite shippable.
   'src/pages-data-console.test.js',
 
+  // TODO(test-coverage): consent-error-handler.test.js (added by PR #902)
+  //   imports from `vitest`, same incompatibility as pages-data-console
+  //   above. Cascades into ~35 test failures under `node --test` on CI.
+  //   Quarantine until rewritten using `node:test` + `node:assert`.
+  'src/consent-error-handler.test.js',
+
   // TODO(test-coverage): patient-runtime suite from PR #848 (~1437 LOC of
   //   new/expanded tests) tipped Frontend coverage past the 30m CI ceiling
   //   in run 25640811762. Tests pass locally in ~10s but combined with the

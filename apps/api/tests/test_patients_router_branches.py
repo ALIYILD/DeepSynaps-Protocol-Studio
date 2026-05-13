@@ -372,14 +372,21 @@ class TestAuthGates:
         assert r.status_code == 403
 
 
-# ── IDOR / cross-clinic 404 ───────────────────────────────────────────────────
+# ── IDOR / cross-clinic 403 ───────────────────────────────────────────────────
 
 
 class TestIDOR:
-    def test_get_other_clinicians_patient_returns_404(
+    def test_get_other_clinicians_patient_returns_403(
         self, client: TestClient, auth_headers: dict
     ) -> None:
-        """A clinician cannot see another clinician's patient — 404 (existence leak)."""
+        """A clinician cannot see another clinician's patient — 403 cross_clinic_access_denied.
+
+        Honest-contract update (#907): the gate previously downgraded
+        ``cross_clinic_access_denied`` to ``404 not_found`` to hide existence.
+        That pattern leaked via timing / error-message ambiguity and gave
+        attackers an enumeration oracle, so ``_gate_patient_access`` now
+        raises 403 honestly. See also ``test_access_control_isolation.py``.
+        """
         pid = _create_patient_direct(clinician_id="actor-clinician-demo")
         # use a second clinician token that is a different actor
         _, token = _seed_second_clinician()
@@ -387,9 +394,10 @@ class TestIDOR:
             f"/api/v1/patients/{pid}",
             headers={"Authorization": token},
         )
-        assert r.status_code == 404
+        assert r.status_code == 403
+        assert r.json()["code"] == "cross_clinic_access_denied"
 
-    def test_patch_other_clinicians_patient_returns_404(
+    def test_patch_other_clinicians_patient_returns_403(
         self, client: TestClient, auth_headers: dict
     ) -> None:
         pid = _create_patient_direct(clinician_id="actor-clinician-demo")
@@ -399,9 +407,10 @@ class TestIDOR:
             json={"status": "archived"},
             headers={"Authorization": token},
         )
-        assert r.status_code == 404
+        assert r.status_code == 403
+        assert r.json()["code"] == "cross_clinic_access_denied"
 
-    def test_delete_other_clinicians_patient_returns_404(
+    def test_delete_other_clinicians_patient_returns_403(
         self, client: TestClient, auth_headers: dict
     ) -> None:
         pid = _create_patient_direct(clinician_id="actor-clinician-demo")
@@ -410,9 +419,10 @@ class TestIDOR:
             f"/api/v1/patients/{pid}",
             headers={"Authorization": token},
         )
-        assert r.status_code == 404
+        assert r.status_code == 403
+        assert r.json()["code"] == "cross_clinic_access_denied"
 
-    def test_medical_history_other_clinician_returns_404(
+    def test_medical_history_other_clinician_returns_403(
         self, client: TestClient, auth_headers: dict
     ) -> None:
         pid = _create_patient_direct(clinician_id="actor-clinician-demo")
@@ -421,7 +431,8 @@ class TestIDOR:
             f"/api/v1/patients/{pid}/medical-history",
             headers={"Authorization": token},
         )
-        assert r.status_code == 404
+        assert r.status_code == 403
+        assert r.json()["code"] == "cross_clinic_access_denied"
 
     def test_admin_can_see_any_patient(
         self, client: TestClient, auth_headers: dict

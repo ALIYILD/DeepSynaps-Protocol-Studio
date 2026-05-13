@@ -58,16 +58,30 @@ def _trigger_patient_risk_recompute(patient_id: str, trigger: str, actor_id: str
 
 
 def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, session: Session) -> None:
-    """Resolve a patient clinic and enforce same-clinic access for clinicians."""
+    """Resolve a patient clinic and enforce same-clinic access for clinicians.
+
+    Issue #900: previously this helper silently downgraded
+    ``cross_clinic_access_denied`` (403) to ``not_found`` (404) to hide the
+    existence of records across clinic boundaries. That choice is now
+    rejected by the access-control isolation suite — returning 404 for a
+    cross-clinic actor leaks "the row exists, you just can't see it"
+    indirectly (timing, error message ambiguity, ID enumeration patterns)
+    AND it gives an attacker a useful oracle.
+
+    The honest contract is:
+
+    * ``404 not_found`` — the patient_id does not exist in the database.
+    * ``403 cross_clinic_access_denied`` — the patient exists but belongs
+      to a different clinic than the caller.
+
+    The structured ``security.cross_clinic`` log inside
+    :func:`require_patient_owner` already records every denial so SOC can
+    detect enumeration attempts even though the response is now honest.
+    """
     exists, clinic_id = resolve_patient_clinic_id(session, patient_id)
     if not exists:
         raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
-    try:
-        require_patient_owner(actor, clinic_id)
-    except ApiServiceError as exc:
-        if exc.code == "cross_clinic_access_denied":
-            raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404) from exc
-        raise
+    require_patient_owner(actor, clinic_id)
 
 
 def _load_patient_for_actor(session: Session, patient_id: str, actor: AuthenticatedActor):

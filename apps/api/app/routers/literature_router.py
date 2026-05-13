@@ -301,6 +301,31 @@ def add_paper(
     return PaperOut.from_record(paper)
 
 
+@router.get("/local-knowledge")
+def literature_local_knowledge(
+    q_text: Optional[str] = None,
+    limit: int = 6,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict:
+    # Routes the `/api/v1/literature/local-knowledge` surface back to the
+    # in-repo qEEG courseware bundle. The service + corpus were restored in
+    # commit 2ba6c4f8 (stash recovery a239a3e4) but the router wiring was
+    # not — requests fell through to the `/{paper_id}` catch-all below and
+    # 404'd with "Paper not found." Declared BEFORE the catch-all so
+    # FastAPI matches the literal path first.
+    require_minimum_role(actor, "clinician")
+    from app.services.local_knowledge_service import (
+        get_local_knowledge_summary,
+        search_local_knowledge,
+    )
+    items = search_local_knowledge(q_text or "", limit=limit) if q_text else []
+    return {
+        "summary": get_local_knowledge_summary(),
+        "items": items,
+        "total": len(items),
+    }
+
+
 @router.get("/{paper_id}", response_model=PaperOut)
 def get_paper(
     paper_id: str,

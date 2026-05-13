@@ -76,6 +76,27 @@ async function navTo(page: Page, route: string) {
   await page.waitForTimeout(500);
 }
 
+// Strict, page-specific wait for a `[data-page="<route>"]` marker. Use this in tests
+// where the loose `navTo` `#content:not(:empty)` heuristic gives a loading-spinner
+// false-positive on slow CI workers — the dashboard's "loading…" text matches the
+// non-empty selector and lets the test's assertion fire before the destination page
+// actually mounts. This is the #913 regression pattern. Add the marker to the page's
+// outermost render element (see `pgTelehealthRecorder` in pages-practice.js for the
+// reference implementation), then call this from the test instead of `navTo`.
+//
+// Timeout is intentionally generous: pages like `telehealth-recorder` are lazy-loaded
+// via `await loadPractice()` in app.js, and a cold dynamic-import on a slow GHA runner
+// can take 10–20 s before `pgTelehealthRecorder` runs. Locally this is <2 s. The 25 s
+// ceiling keeps the wait deterministic without weakening the assertion.
+async function navToStrict(page: Page, route: string) {
+  await page.evaluate((r) => (window as any)._nav(r), route);
+  await page.waitForFunction(
+    (r) => !!document.querySelector(`[data-page="${r}"]`),
+    route,
+    { timeout: 25000 },
+  );
+}
+
 async function waitForClinicianApp(page: Page) {
   // After boot, #app-shell becomes visible and #content gets populated
   await page.waitForSelector('#content:not(:empty)', { timeout: 12000 });
@@ -196,8 +217,13 @@ test.describe('Flow 4: Media and messaging', () => {
     await mockClinicianAuth(page);
     await page.goto('/');
     await waitForClinicianApp(page);
-    await navTo(page, 'telehealth-recorder');
-    await expect(page.locator('#content')).toContainText(/(record|session|telehealth|video)/i);
+    // #913: use the strict marker-based wait. The loose `navTo` `#content:not(:empty)`
+    // heuristic gave a loading-spinner false-positive on slow CI workers — the
+    // dashboard's "Your clinic has no patients or courses yet" text satisfied
+    // `:not(:empty)` and the assertion fired before the recorder mounted. The
+    // marker is rendered by `pgTelehealthRecorder` in pages-practice.js.
+    await navToStrict(page, 'telehealth-recorder');
+    await expect(page.locator('[data-page="telehealth-recorder"]')).toContainText(/(record|session|telehealth|video)/i);
   });
 
   test('clinical notes loads', async ({ page }) => {

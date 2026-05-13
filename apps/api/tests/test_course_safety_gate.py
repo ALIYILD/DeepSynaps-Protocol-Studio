@@ -44,6 +44,20 @@ def _set_mh(client: TestClient, auth: dict, pid: str, *, flags: dict | None = No
     assert r.status_code == 200, r.text
 
 
+def _seed_dual_review(course_id: str) -> None:
+    from app.database import SessionLocal
+    from app.persistence.models import TreatmentCourse
+
+    db = SessionLocal()
+    try:
+        course = db.query(TreatmentCourse).filter_by(id=course_id).first()
+        course.reviewer_1_id = "reviewer-a"
+        course.reviewer_2_id = "reviewer-b"
+        db.commit()
+    finally:
+        db.close()
+
+
 class TestSafetyPreflight:
     def test_preflight_flags_blocking_when_implant_set(self, client, auth_headers):
         pid = _make_patient(client, auth_headers, "pre1@example.com")
@@ -104,6 +118,7 @@ class TestActivationGate:
         pid = _make_patient(client, auth_headers, "act3@example.com")
         _set_mh(client, auth_headers, pid, flags={"implanted_device": True}, mark_reviewed=True)
         cid = _make_course(client, auth_headers, pid)
+        _seed_dual_review(cid)
         r = client.patch(
             f"/api/v1/treatment-courses/{cid}/activate",
             json={"override_safety": True,
@@ -117,6 +132,7 @@ class TestActivationGate:
         pid = _make_patient(client, auth_headers, "act4@example.com")
         _set_mh(client, auth_headers, pid, flags={"implanted_device": False}, mark_reviewed=True)
         cid = _make_course(client, auth_headers, pid)
+        _seed_dual_review(cid)
         r = client.patch(f"/api/v1/treatment-courses/{cid}/activate",
                          json={}, headers=auth_headers["clinician"])
         assert r.status_code == 200, r.text
@@ -131,6 +147,7 @@ class TestActivationAudit:
         pid = _make_patient(client, auth_headers, "aud1@example.com")
         _set_mh(client, auth_headers, pid, flags={"pregnancy": True}, mark_reviewed=True)
         cid = _make_course(client, auth_headers, pid)
+        _seed_dual_review(cid)
         client.patch(
             f"/api/v1/treatment-courses/{cid}/activate",
             json={"override_safety": True,

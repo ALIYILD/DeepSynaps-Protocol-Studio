@@ -130,12 +130,27 @@ class TestPortalSessions:
 
     def test_returns_logged_session(self, client: TestClient, patient_headers: dict,
                                     course_id: str, auth_headers: dict) -> None:
+        # Satisfy the dual-reviewer activation gate (commit 80dbbd24, P0 policy)
+        # so activate goes 200 instead of 403 dual_review_required and the
+        # course is actually 'active' by the time /sessions is POSTed.
+        from app.database import SessionLocal
+        from app.persistence.models import TreatmentCourse
+        _db = SessionLocal()
+        try:
+            _c = _db.query(TreatmentCourse).filter_by(id=course_id).first()
+            _c.reviewer_1_id = "reviewer-a"
+            _c.reviewer_2_id = "reviewer-b"
+            _db.commit()
+        finally:
+            _db.close()
+
         # Activate course first (sessions can only be logged for active courses)
-        client.patch(
+        activate = client.patch(
             f"/api/v1/treatment-courses/{course_id}/activate",
             json={},
             headers=auth_headers["clinician"],
         )
+        assert activate.status_code == 200, activate.text
 
         # Log a session as clinician
         log = client.post(

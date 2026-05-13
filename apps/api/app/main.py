@@ -930,6 +930,28 @@ def health_v1(session: Session = Depends(get_db_session)) -> dict[str, object]:
     return _health_payload(session)
 
 
+def _sanitize_error_payload(value):
+    """Recursively coerce bytes (and other non-JSON-native) values in
+    ``ApiServiceError.details`` to safe stand-ins.
+
+    Issue #900: an AI-analysis path was raising ``ApiServiceError(...,
+    details={"<key>": <bytes>})`` (typically a raw file-buffer slice). The
+    handler then tried to serialise the bytes via ``JSONResponse`` and
+    failed with ``TypeError: Object of type bytes is not JSON serializable``,
+    which masked the underlying 403 / 404 the test was asserting on.
+    Sanitising at the handler boundary is the lowest-blast-radius fix and
+    keeps every router free to attach arbitrary debugging context without
+    crashing the response.
+    """
+    if isinstance(value, (bytes, bytearray)):
+        return f"<{len(value)} bytes>"
+    if isinstance(value, dict):
+        return {k: _sanitize_error_payload(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_sanitize_error_payload(v) for v in value]
+    return value
+
+
 @app.exception_handler(ApiServiceError)
 async def api_service_error_handler(
     _request: Request,
@@ -939,7 +961,7 @@ async def api_service_error_handler(
         code=exc.code,
         message=exc.message,
         warnings=exc.warnings,
-        details=exc.details,
+        details=_sanitize_error_payload(exc.details),
     )
     return JSONResponse(status_code=exc.status_code, content=payload.model_dump(exclude_none=True))
 
