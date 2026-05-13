@@ -2952,32 +2952,6 @@ async function init() {
       await window.demoLogin(token);
       return;
     }
-    // Cached session fallback: if we have a cached user in localStorage (from a
-    // previous successful auth), attempt to boot with that instead of immediately
-    // clearing and navigating away. This handles network failures where /auth/me
-    // is temporarily unreachable but the token is still valid.
-    try {
-      const cachedUserStr = localStorage.getItem('ds_session_user');
-      if (cachedUserStr) {
-        const cachedUser = JSON.parse(cachedUserStr);
-        if (cachedUser && cachedUser.id && cachedUser.role) {
-          setCurrentUser(cachedUser);
-          if (cachedUser.role === 'patient') {
-            showPatient();
-            updatePatientBar();
-            window._bootPatient?.();
-            return;
-          } else {
-            showApp();
-            updateUserBar();
-            await bootApp();
-            return;
-          }
-        }
-      }
-    } catch {
-      // If cached session restore fails, fall through to logout
-    }
     api.clearToken();
     navigatePublic('home');
   }
