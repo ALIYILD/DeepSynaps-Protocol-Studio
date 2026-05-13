@@ -185,26 +185,35 @@ test.describe('responsive shell smoke', () => {
     await seedCachedClinician(page);
     await page.goto('/?page=dashboard', { waitUntil: 'commit' });
     await waitForBootScripts(page);
-    await waitForAnyVisibleShell(page, ['app-shell', 'public-shell']);
-    
-    // Wait for shell to be ready: either content becomes non-empty OR app-shell is visible
-    // This handles the network failure case where cached session renders but content may be empty
-    await page.waitForFunction(() => {
-      const contentEl = document.querySelector('#content');
-      const appShell = document.getElementById('app-shell');
-      const hasContent = contentEl && contentEl.textContent && contentEl.textContent.trim().length > 0;
-      const shellReady = appShell?.classList.contains('visible') ?? false;
-      return hasContent || shellReady;
-    }, { timeout: 25000 });
 
+    // Wait specifically for app-shell — NOT public-shell. The whole point of
+    // this test is that the cached clinician session survives /auth/me
+    // failing, which means the app-shell renders. Pre-fix this used
+    // waitForAnyVisibleShell(['app-shell', 'public-shell']) which passed
+    // even when the auth bootstrap silently fell back to the public
+    // landing page (no cached-session restore happened, but a shell was
+    // visible so the test was happy). That defeated the test's purpose.
+    await waitForAnyVisibleShell(page, ['app-shell']);
+
+    // Final check: app-shell visible AND public-shell not visible. If the
+    // cached-session restore in apps/web/src/app.js::init catch path
+    // didn't fire, public-shell would be visible instead — that scenario
+    // must fail this test, not pass it.
     const metrics = await page.evaluate(() => ({
       appShellVisible: document.getElementById('app-shell')?.classList.contains('visible') ?? false,
       publicShellVisible: document.getElementById('public-shell')?.classList.contains('visible') ?? false,
+      cachedSessionRead:
+        document.getElementById('user-name')?.textContent?.includes('Cached') ?? false,
       bodyScrollWidth: document.body.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
     }));
 
-    expect(metrics.appShellVisible || metrics.publicShellVisible).toBe(true);
+    expect(metrics.appShellVisible).toBe(true);
+    expect(metrics.publicShellVisible).toBe(false);
+    // updateUserBar() runs after setCurrentUser() when cached-session
+    // restore succeeds — confirms the path actually executed, not just
+    // that app-shell was visible from some other source.
+    expect(metrics.cachedSessionRead).toBe(true);
     expect(metrics.bodyScrollWidth - metrics.clientWidth).toBeLessThanOrEqual(2);
   });
 });
