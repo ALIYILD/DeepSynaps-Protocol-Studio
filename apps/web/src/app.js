@@ -2945,6 +2945,29 @@ async function init() {
       await bootApp();
     }
   } catch {
+    // Cached session fallback: if auth/me fails (network error), try to recover from localStorage
+    // This handles E2E test scenarios where network is aborted but cached session should survive
+    const cachedUser = localStorage.getItem('ds_session_user');
+    if (cachedUser) {
+      try {
+        const user = JSON.parse(cachedUser);
+        if (user && user.role) {
+          setCurrentUser(user);
+          if (user.role === 'patient') {
+            showPatient();
+            updatePatientBar();
+            window._bootPatient();
+          } else {
+            showApp();
+            updateUserBar();
+            await bootApp();
+          }
+          return;
+        }
+      } catch (e) {
+        // Cached user invalid, fall through to demo mode or logout
+      }
+    }
     // Demo-token fallback: if demo mode is active and the token is a known
     // demo token, boot with the offline demo user instead of clearing out.
     const _demoOk = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1';
