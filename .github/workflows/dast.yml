@@ -1,0 +1,367 @@
+# =============================================================================
+# DAST (Dynamic Application Security Testing)
+# DeepSynaps Protocol Studio — Clinical Neuromodulation Platform
+# =============================================================================
+# Runs OWASP ZAP baseline scan against staging after deployment.
+# Authentication-aware scanning for protected endpoints.
+# Produces SARIF output for the GitHub Security tab.
+#
+# HIPAA Security Rule mapping:
+#   - §164.308(a)(8) — Security Scanning & Penetration Testing
+#   - §164.312(e)(1) — Transmission Security (TLS/SSL validation)
+#   - §164.312(a)(1) — Access Control (auth-gated endpoint testing)
+# =============================================================================
+
+name: DAST
+
+on:
+  # Trigger after successful staging deployment
+  workflow_run:
+    workflows: ["Deploy Staging"]
+    types:
+      - completed
+  # Manual trigger with configurable target
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'Target URL to scan (defaults to staging)'
+        required: false
+        default: 'https://staging.deepsynaps-studio.example.com'
+      scan_type:
+        description: 'ZAP scan intensity'
+        required: false
+        default: 'baseline'
+        type: choice
+        options:
+          - 'baseline'
+          - 'full'
+      emergency_override:
+        description: 'Emergency override — do not fail on high findings'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+env:
+  TARGET_URL: ${{ github.event.inputs.target_url || 'https://staging.deepsynaps-studio.example.com' }}
+  SCAN_TYPE: ${{ github.event.inputs.scan_type || 'baseline' }}
+  EMERGENCY_OVERRIDE: ${{ github.event.inputs.emergency_override || 'false' }}
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 1: Authenticate and obtain test token
+  # ───────────────────────────────────────────────────────────────────────────
+  authenticate:
+    name: Obtain Test Auth Token
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      auth_token: ${{ steps.auth_step.outputs.token }}
+      auth_header: ${{ steps.auth_step.outputs.header }}
+    steps:
+      - name: Request demo auth token from staging
+        id: auth_step
+        run: |
+          # Authenticate using demo/test credentials for authenticated scanning
+          AUTH_RESPONSE=$(curl -s -X POST "${{ env.TARGET_URL }}/api/v1/auth/login" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "email": "demo_clinician@example.com",
+              "password": "demo-test-password-not-for-production"
+            }' || echo "{}")
+
+          TOKEN=$(echo "$AUTH_RESPONSE" | jq -r '.access_token // empty' 2>/dev/null)
+          if [ -n "$TOKEN" ]; then
+            echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+            echo "header=Authorization: Bearer $TOKEN" >> "$GITHUB_OUTPUT"
+            echo "Authentication successful for DAST scanning"
+          else
+            echo "::warning::Could not obtain auth token — scanning will be limited to public endpoints"
+            echo "token=" >> "$GITHUB_OUTPUT"
+            echo "header=" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 2: OWASP ZAP Baseline Scan
+  # ───────────────────────────────────────────────────────────────────────────
+  zap-baseline:
+    name: OWASP ZAP Baseline Scan
+    runs-on: ubuntu-latest
+    needs: authenticate
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create ZAP context file
+        run: |
+          mkdir -p zap-config
+          cat > zap-config/context.yaml << 'EOF'
+          # ZAP context for DeepSynaps Protocol Studio
+          # Defines authentication and authorization for the scan
+          name: DeepSynaps Staging
+
+          # Include URLs to scan
+          includePaths:
+            - "${{ env.TARGET_URL }}/api/v1/.*"
+            - "${{ env.TARGET_URL }}/health.*"
+
+          # Exclude paths that should not be scanned
+          excludePaths:
+            - ".*/logout.*"
+            - ".*/api/v1/auth/refresh.*"
+            - ".*/api/v1/notifications/stream.*"
+
+          # Authentication configuration
+          authentication:
+            method: headers
+            headers:
+              - name: Authorization
+                value: Bearer ${{ needs.authenticate.outputs.auth_token }}
+
+          # Alert filters — suppress known false positives
+          alertFilters:
+            # CSP "unsafe-inline" is required for our React SPA; we mitigate
+            # with nonce-based CSP in production
+            - ruleId: 10055
+              newRisk: "False Positive"
+              condition: "startsWith"
+              parameter: "content-security-policy"
+              url: ".*"
+            # X-XSS-Protection is deprecated but kept for legacy browser defense
+            - ruleId: 10016
+              newRisk: "Informational"
+              url: ".*"
+          EOF
+
+      - name: Pull ZAP Docker image
+        run: docker pull ghcr.io/zaproxy/zaproxy:stable
+
+      - name: Run OWASP ZAP baseline scan
+        run: |
+          # Prepare auth header if available
+          AUTH_ARGS=""
+          if [ -n "${{ needs.authenticate.outputs.auth_header }}" ]; then
+            AUTH_ARGS="-z \"-config replacer.full_list(0).description=auth\n-config replacer.full_list(0).enabled=true\n-config replacer.full_list(0).matchtype=REQ_HEADER\n-config replacer.full_list(0).matchstr=Authorization\n-config replacer.full_list(0).regex=false\n-config replacer.full_list(0).replacement=Bearer ${{ needs.authenticate.outputs.auth_token }}\""
+          fi
+
+          # Run ZAP baseline scan
+          # -t: target URL
+          # -J: SARIF output
+          # -w: MD report
+          # -z: additional ZAP options
+          # -c: context file
+          docker run --rm \
+            -v "$(pwd)/zap-reports:/zap/wrk":rw \
+            -v "$(pwd)/zap-config:/zap/config":ro \
+            ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
+            -t "${{ env.TARGET_URL }}" \
+            -r zap-report.html \
+            -w zap-report.md \
+            -J zap-results.sarif \
+            --autooff \
+            $AUTH_ARGS \
+            --context /zap/config/context.yaml \
+            || ZAP_EXIT=$?
+
+          # ZAP returns:
+          # 0 = Pass
+          # 1 = Warn ( MEDIUM findings )
+          # 2 = Fail ( HIGH findings )
+          echo "zap_exit=${ZAP_EXIT:-0}" >> "$GITHUB_ENV"
+          echo "ZAP exit code: ${ZAP_EXIT:-0}"
+
+      - name: Display ZAP markdown report
+        if: always()
+        run: |
+          if [ -f zap-reports/zap-report.md ]; then
+            cat zap-reports/zap-report.md
+          fi
+
+      - name: Upload SARIF to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: zap-reports/zap-results.sarif
+          category: zap-dast
+
+      - name: Upload ZAP report artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-scan-reports
+          path: |
+            zap-reports/zap-report.html
+            zap-reports/zap-report.md
+            zap-reports/zap-results.sarif
+          retention-days: 30
+
+      - name: Fail on HIGH-severity findings
+        if: env.EMERGENCY_OVERRIDE != 'true'
+        run: |
+          if [ "${{ env.zap_exit }}" = "2" ]; then
+            echo "::error::ZAP found HIGH-severity security vulnerabilities."
+            echo "::error::Review the SARIF report in the GitHub Security tab."
+            echo "::error::To override for emergency hotfix, re-run with emergency_override=true"
+            exit 1
+          fi
+          echo "No HIGH-severity ZAP findings (exit code: ${{ env.zap_exit }})."
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 3: OWASP ZAP Full Scan (optional, on workflow_dispatch only)
+  # ───────────────────────────────────────────────────────────────────────────
+  zap-full:
+    name: OWASP ZAP Full Scan
+    runs-on: ubuntu-latest
+    needs: authenticate
+    timeout-minutes: 60
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    if: github.event.inputs.scan_type == 'full'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run OWASP ZAP full scan
+        run: |
+          AUTH_ARGS=""
+          if [ -n "${{ needs.authenticate.outputs.auth_header }}" ]; then
+            AUTH_ARGS="-z \"-config replacer.full_list(0).description=auth\n-config replacer.full_list(0).enabled=true\n-config replacer.full_list(0).matchtype=REQ_HEADER\n-config replacer.full_list(0).matchstr=Authorization\n-config replacer.full_list(0).regex=false\n-config replacer.full_list(0).replacement=Bearer ${{ needs.authenticate.outputs.auth_token }}\""
+          fi
+
+          docker run --rm \
+            -v "$(pwd)/zap-full-reports:/zap/wrk":rw \
+            ghcr.io/zaproxy/zaproxy:stable zap-full-scan.py \
+            -t "${{ env.TARGET_URL }}" \
+            -r zap-full-report.html \
+            -w zap-full-report.md \
+            -J zap-full-results.sarif \
+            --autooff \
+            $AUTH_ARGS \
+            || ZAP_EXIT=$?
+
+          echo "zap_full_exit=${ZAP_EXIT:-0}" >> "$GITHUB_ENV"
+
+      - name: Upload SARIF to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: zap-full-reports/zap-full-results.sarif
+          category: zap-dast-full
+
+      - name: Upload ZAP full report artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-full-scan-reports
+          path: |
+            zap-full-reports/zap-full-report.html
+            zap-full-reports/zap-full-report.md
+            zap-full-reports/zap-full-results.sarif
+          retention-days: 30
+
+      - name: Fail on HIGH-severity findings
+        if: env.EMERGENCY_OVERRIDE != 'true'
+        run: |
+          if [ "${{ env.zap_full_exit }}" = "2" ]; then
+            echo "::error::ZAP full scan found HIGH-severity vulnerabilities."
+            exit 1
+          fi
+          echo "No HIGH-severity findings in full scan."
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 4: API endpoint security validation
+  # ───────────────────────────────────────────────────────────────────────────
+  api-security-checks:
+    name: API Security Validation
+    runs-on: ubuntu-latest
+    needs: authenticate
+    timeout-minutes: 10
+    steps:
+      - name: Check security headers on target
+        run: |
+          echo "Testing security headers on ${{ env.TARGET_URL }}..."
+
+          HEADERS=$(curl -sI "${{ env.TARGET_URL }}/health" || true)
+
+          # Check HSTS (production only)
+          if echo "$HEADERS" | grep -qi "strict-transport-security"; then
+            echo "✅ HSTS header present"
+          else
+            echo "⚠️ HSTS header missing (expected in staging/prod)"
+          fi
+
+          # Check X-Content-Type-Options
+          if echo "$HEADERS" | grep -qi "x-content-type-options"; then
+            echo "✅ X-Content-Type-Options header present"
+          else
+            echo "❌ X-Content-Type-Options header MISSING"
+            exit 1
+          fi
+
+          # Check X-Frame-Options
+          if echo "$HEADERS" | grep -qi "x-frame-options"; then
+            echo "✅ X-Frame-Options header present"
+          else
+            echo "❌ X-Frame-Options header MISSING"
+            exit 1
+          fi
+
+          # Check CSP
+          if echo "$HEADERS" | grep -qi "content-security-policy"; then
+            echo "✅ Content-Security-Policy header present"
+          else
+            echo "❌ Content-Security-Policy header MISSING"
+            exit 1
+          fi
+
+          # Check Permissions-Policy
+          if echo "$HEADERS" | grep -qi "permissions-policy"; then
+            echo "✅ Permissions-Policy header present"
+          else
+            echo "❌ Permissions-Policy header MISSING"
+            exit 1
+          fi
+
+      - name: Verify authentication is required for patient endpoints
+        run: |
+          # Attempt to access patient data without auth — should return 401/403
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${{ env.TARGET_URL }}/api/v1/patients" || echo "000")
+
+          if [ "$STATUS" = "401" ] || [ "$STATUS" = "403" ]; then
+            echo "✅ Patient endpoints correctly require authentication (HTTP $STATUS)"
+          elif [ "$STATUS" = "000" ]; then
+            echo "⚠️ Could not connect to target"
+          else
+            echo "❌ Patient endpoint returned HTTP $STATUS without auth — expected 401/403"
+            exit 1
+          fi
+
+      - name: Verify clinic isolation (IDOR prevention)
+        run: |
+          # Test IDOR prevention by attempting cross-clinic access
+          if [ -n "${{ needs.authenticate.outputs.auth_token }}" ]; then
+            # Attempt to access patient with a different clinic's ID
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "Authorization: Bearer ${{ needs.authenticate.outputs.auth_token }}" \
+              "${{ env.TARGET_URL }}/api/v1/patients/demo-patient-other-clinic" || echo "000")
+
+            if [ "$STATUS" = "404" ] || [ "$STATUS" = "403" ]; then
+              echo "✅ Cross-clinic patient access correctly blocked (HTTP $STATUS)"
+            elif [ "$STATUS" = "000" ]; then
+              echo "⚠️ Could not verify clinic isolation (connection failed)"
+            else
+              echo "⚠️ Cross-clinic access returned HTTP $STATUS — review IDOR controls"
+            fi
+          else
+            echo "⚠️ Skipping IDOR test — no auth token available"
+          fi

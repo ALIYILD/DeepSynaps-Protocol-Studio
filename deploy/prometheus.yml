@@ -1,0 +1,191 @@
+# DeepSynaps Protocol Studio — Prometheus Scrape Configuration
+#
+# Targets: FastAPI app metrics endpoint, Fly.io internal metrics (via
+# prometheus-fly-exporter), node-exporter (if deployed), and Celery workers.
+#
+# Relabeling rules ensure `env`, `job`, and `instance` labels are
+# consistently attached. Recording rules pre-compute SLO indicators
+# for fast dashboard queries.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+  external_labels:
+    monitor: 'deepsynaps-prometheus'
+    cluster: 'fly-lhr'
+
+# ---------------------------------------------------------------------------
+# Alertmanager integration
+# ---------------------------------------------------------------------------
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+      scheme: http
+      timeout: 10s
+      api_version: v2
+
+# ---------------------------------------------------------------------------
+# Rule files (recording + alerting)
+# ---------------------------------------------------------------------------
+rule_files:
+  - 'alerts-clinical.yml'
+  - 'alerts-system.yml'
+
+# ---------------------------------------------------------------------------
+# Scrape configurations
+# ---------------------------------------------------------------------------
+scrape_configs:
+
+  # --- Self-monitoring ----------------------------------------------------
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    metrics_path: /metrics
+
+  # --- DeepSynaps API (primary application) -------------------------------
+  # On Fly.io the app exposes /metrics on the internal_port (8080).
+  # Use the Fly.io 6PN DNS for internal scraping.
+  - job_name: 'deepsynaps-api'
+    static_configs:
+      - targets:
+          # Replace with your actual Fly.io 6PN app address:
+          # 'deepsynaps-studio.internal:8080'
+          - 'deepsynaps-studio.internal:8080'
+    metrics_path: /metrics
+    scheme: http
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+      - target_label: env
+        replacement: production
+      - target_label: job
+        replacement: deepsynaps-api
+
+  # --- Fly.io machine metrics (via fly-metrics exporter) ----------------
+  # Requires: fly.io machine with prometheus-fly-exporter running
+  # See: https://github.com/superfly/fly-metrics
+  - job_name: 'fly-machine-metrics'
+    static_configs:
+      - targets:
+          - 'fly-metrics.internal:8080'
+    metrics_path: /v1/metrics
+    scheme: http
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+      - target_label: env
+        replacement: production
+      - target_label: job
+        replacement: fly-machine
+
+  # --- Fly.io app-concurrency (connections) -------------------------------
+  - job_name: 'fly-concurrency'
+    static_configs:
+      - targets:
+          - 'deepsynaps-studio.internal:8080'
+    metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+      - target_labels: env
+        replacement: production
+
+  # --- Node exporter (if running on dedicated VMs) ------------------------
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets:
+          - 'node-exporter.internal:9100'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+      - target_label: env
+        replacement: production
+      - target_label: job
+        replacement: node
+
+  # --- Celery workers (Redis exporter for queue depth) --------------------
+  - job_name: 'celery-workers'
+    static_configs:
+      - targets:
+          - 'redis-exporter.internal:9121'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+      - target_label: env
+        replacement: production
+      - target_label: job
+        replacement: celery
+
+  # --- PostgreSQL exporter (if deployed) ----------------------------------
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets:
+          - 'postgres-exporter.internal:9187'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+      - target_label: env
+        replacement: production
+      - target_label: job
+        replacement: postgres
+
+  # --- SSL certificate expiry (via ssl-exporter) --------------------------
+  - job_name: 'ssl-certificates'
+    static_configs:
+      - targets:
+          - 'ssl-exporter.internal:9219'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+      - target_label: env
+        replacement: production
+      - target_label: job
+        replacement: ssl
+
+  # --- Backup sentinel (custom exporter) ----------------------------------
+  - job_name: 'backup-sentinel'
+    static_configs:
+      - targets:
+          - 'backup-sentinel.internal:9091'
+    metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+      - target_label: env
+        replacement: production
+      - target_label: job
+        replacement: backup
+
+# ---------------------------------------------------------------------------
+# Recording Rules — pre-compute SLO indicators for fast dashboard queries
+# ---------------------------------------------------------------------------
+# These are typically in a separate file, but included here for clarity.
+# In production, move to `recording-rules.yml` and add to rule_files above.
+# Example recording rules (for reference):
+#
+#   groups:
+#     - name: deepsynaps_slo
+#       rules:
+#         - record: slo:api_availability_ratio_5m
+#           expr: |
+#             1 - (
+#               sum(rate(http_requests_total{status=~"5xx"}[5m]))
+#               /
+#               sum(rate(http_requests_total[5m]))
+#             )
+#         - record: slo:api_latency_p95_5m
+#           expr: |
+#             histogram_quantile(
+#               0.95,
+#               sum(rate(http_request_duration_seconds_bucket[5m])) by (le)
+#             )
+#         - record: slo:api_error_budget_burn_1h
+#           expr: |
+#             (
+#               sum(rate(http_requests_total{status=~"5xx"}[1h]))
+#               /
+#               sum(rate(http_requests_total[1h]))
+#             ) / (1 - 0.999)

@@ -1,0 +1,489 @@
+{
+  "schemaVersion": 39,
+  "title": "DeepSynaps Infrastructure Health",
+  "description": "Infrastructure dashboard for DeepSynaps Protocol Studio on Fly.io. Covers compute, database, workers, backup, SSL, and error budget burn rate.",
+  "tags": ["deepsynaps", "infrastructure", "flyio", "slo"],
+  "timezone": "utc",
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "type": "custom",
+        "query": "production,staging,development",
+        "current": { "text": "production", "value": "production" },
+        "multi": false,
+        "includeAll": false
+      },
+      {
+        "name": "instance",
+        "type": "textbox",
+        "current": { "text": ".*", "value": ".*" },
+        "label": "Instance filter (regex)"
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "name": "Deployments",
+        "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+        "expr": "changes(deepsynaps_app_info{env=\"$environment\"}[1m]) > 0",
+        "tagKeys": "version",
+        "textFormat": "Deployed {{version}}",
+        "iconColor": "blue"
+      },
+      {
+        "name": "Alerts",
+        "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+        "expr": "ALERTS{env=\"$environment\",alertstate=\"firing\"}",
+        "tagKeys": "alertname",
+        "textFormat": "ALERT: {{alertname}}",
+        "iconColor": "red"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "CPU Usage (%)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+      "description": "CPU utilization per instance. Fly.io vm.cpus = 1 (shared).",
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 70 },
+              { "color": "red", "value": 85 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "100 - (avg(rate(node_cpu_seconds_total{env=\"$environment\",mode=\"idle\",instance=~\"$instance\"}[2m])) by (instance) * 100)",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Memory Usage (%)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+      "description": "Memory utilization. Fly.io vm.memory = 1gb.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 75 },
+              { "color": "red", "value": 90 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "(node_memory_MemTotal_bytes{env=\"$environment\",instance=~\"$instance\"} - node_memory_MemAvailable_bytes{env=\"$environment\",instance=~\"$instance\"}) / node_memory_MemTotal_bytes{env=\"$environment\",instance=~\"$instance\"} * 100",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Disk Usage (%)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "description": "Disk utilization on /data volume (evidence DB, media uploads).",
+      "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 80 },
+              { "color": "red", "value": 90 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "100 - ((node_filesystem_avail_bytes{env=\"$environment\",mountpoint=\"/data\"} * 100) / node_filesystem_size_bytes{env=\"$environment\",mountpoint=\"/data\"})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "DB Pool Connections",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+      "description": "Database connection pool: checked out + available.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "none",
+          "min": 0
+        }
+      },
+      "targets": [
+        {
+          "expr": "db_pool_size{env=\"$environment\",pool=\"default\"}",
+          "legendFormat": "pool size",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "DB Pool Utilization (%)",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+      "description": "Percentage of DB pool in use. Alert if > 80%.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 70 },
+              { "color": "red", "value": 80 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "(db_pool_checked_out{env=\"$environment\"} / db_pool_size{env=\"$environment\",pool=\"default\"}) * 100",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "DB Query Latency (P95)",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+      "description": "P95 database query latency.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dtdurations",
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 0.05 },
+              { "color": "red", "value": 0.1 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(db_query_duration_seconds_bucket{env=\"$environment\"}[5m])) by (le))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Worker Queue Depth",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "description": "Celery task queue depth by queue name.",
+      "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "none",
+          "min": 0
+        }
+      },
+      "targets": [
+        {
+          "expr": "worker_queue_depth{env=\"$environment\"}",
+          "legendFormat": "{{queue}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Queue High Water Mark",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+      "description": "Max queue depth in the last 5 minutes. Alert if > 1000.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 500 },
+              { "color": "red", "value": 1000 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "max_over_time(worker_queue_depth{env=\"$environment\"}[5m])",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Worker Processing Rate",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+      "description": "Tasks processed per second across all workers.",
+      "fieldConfig": {
+        "defaults": { "unit": "ops" }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(celery_task_processed_total{env=\"$environment\"}[5m]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Backup Age (hours)",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+      "description": "Hours since last successful DB backup. Alert if > 25h.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 20 },
+              { "color": "red", "value": 25 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "backup_age_seconds{env=\"$environment\"} / 3600",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "SSL Certificate Expiry (days)",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+      "description": "Days until SSL certificate expiry. Alert at 30, 14, and 7 days.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "d",
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": 0 },
+              { "color": "orange", "value": 7 },
+              { "color": "yellow", "value": 14 },
+              { "color": "green", "value": 30 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "ssl_certificate_expiry_seconds{env=\"$environment\"} / 86400",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Fly.io Machine Status",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+      "description": "Number of healthy Fly.io machines.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": 0 },
+              { "color": "yellow", "value": 1 },
+              { "color": "green", "value": 2 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(up{env=\"$environment\",job=\"deepsynaps-api\"})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Error Budget Burn Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+      "description": "Error budget burn rate for the 99.9% availability SLO. Burn rate > 1 means we're on track to exhaust the monthly budget.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "none",
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 14.4 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{env=\"$environment\",status=~\"5xx\"}[1h])) / sum(rate(http_requests_total{env=\"$environment\"}[1h])) / (1 - 0.999)",
+          "legendFormat": "1h burn rate",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(http_requests_total{env=\"$environment\",status=~\"5xx\"}[5m])) / sum(rate(http_requests_total{env=\"$environment\"}[5m])) / (1 - 0.999)",
+          "legendFormat": "5m burn rate",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Monthly Error Budget Remaining (%)",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 40 },
+      "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+      "description": "Percentage of monthly error budget remaining. Target: 99.9% uptime = 0.1% error budget.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": 0 },
+              { "color": "yellow", "value": 25 },
+              { "color": "green", "value": 50 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "clamp_min(100 - ((sum(increase(http_requests_total{env=\"$environment\",status=~\"5xx\"}[30d])) / sum(increase(http_requests_total{env=\"$environment\"}[30d]))) / (1 - 0.999) * 100), 0)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "title": "API Latency P95 Trend (1w)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 40 },
+      "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+      "description": "P95 latency trend over 1 week. SLO line at 200ms.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0 },
+          "unit": "dtdurations"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{env=\"$environment\"}[5m])) by (le))",
+          "legendFormat": "P95 latency",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "title": "Network I/O",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 48 },
+      "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+      "description": "Network traffic in/out per instance.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10 },
+          "unit": "Bps"
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(node_network_receive_bytes_total{env=\"$environment\",instance=~\"$instance\"}[2m])",
+          "legendFormat": "{{instance}} rx",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(node_network_transmit_bytes_total{env=\"$environment\",instance=~\"$instance\"}[2m])",
+          "legendFormat": "{{instance}} tx",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "title": "GC Pause Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 48 },
+      "datasource": { "type": "prometheus", "uid": "${prometheus}" },
+      "description": "Python garbage collection pause times.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10 },
+          "unit": "dtdurations"
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(python_gc_duration_seconds_sum{env=\"$environment\"}[5m]) / rate(python_gc_duration_seconds_count{env=\"$environment\"}[5m])",
+          "legendFormat": "avg GC pause",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "rows": [],
+  "version": 1
+}

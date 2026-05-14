@@ -1,0 +1,381 @@
+# =============================================================================
+# Dependency Vulnerability Scanning
+# DeepSynaps Protocol Studio — Clinical Neuromodulation Platform
+# =============================================================================
+# Scans Python (pip-audit), Node.js (npm audit), and container images (Trivy)
+# for known CVEs. Runs weekly on schedule and on PRs that modify dependencies.
+# Fails on critical/high CVEs unless emergency override is applied.
+#
+# HIPAA Security Rule mapping:
+#   - §164.308(a)(8) — Security Scanning & Patch Management
+#   - §164.306(e)(2) — Protection from Malicious Software
+# =============================================================================
+
+name: Dependency Audit
+
+on:
+  # Weekly scheduled run (Sundays at 06:00 UTC)
+  schedule:
+    - cron: '0 6 * * 0'
+  # Run when dependency files change
+  pull_request:
+    paths:
+      - '**/pyproject.toml'
+      - '**/requirements*.txt'
+      - '**/Pipfile*'
+      - '**/package.json'
+      - '**/package-lock.json'
+      - '**/yarn.lock'
+      - '**/pnpm-lock.yaml'
+      - '**/Dockerfile'
+      - '**/Dockerfile.*'
+      - '.github/workflows/dependency-audit.yml'
+  push:
+    branches: [main]
+    paths:
+      - '**/pyproject.toml'
+      - '**/requirements*.txt'
+      - '**/package.json'
+      - '**/package-lock.json'
+      - '**/Dockerfile'
+      - '**/Dockerfile.*'
+  workflow_dispatch:
+    inputs:
+      scan_scope:
+        description: 'Scan scope'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - 'all'
+          - 'python'
+          - 'nodejs'
+          - 'container'
+      emergency_override:
+        description: 'Emergency override — do not fail on critical/high CVEs'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+env:
+  EMERGENCY_OVERRIDE: ${{ github.event.inputs.emergency_override || 'false' }}
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 1: pip-audit — Python dependencies
+  # ───────────────────────────────────────────────────────────────────────────
+  pip-audit:
+    name: pip-audit Python CVE Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event.inputs.scan_scope == 'all' || github.event.inputs.scan_scope == 'python' || github.event.inputs.scan_scope == ''
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: apps/api/pyproject.toml
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Run pip-audit on API
+        run: |
+          pip-audit \
+            --requirement apps/api/pyproject.toml \
+            --format sarif \
+            --output pip-audit-results.sarif \
+            --desc \
+            --ignore-vuln GHSA-9wx4-h78v-vm56 \
+            || AUDIT_EXIT=$?
+          echo "pip_audit_exit=${AUDIT_EXIT:-0}" >> "$GITHUB_ENV"
+
+      - name: Run pip-audit on packages
+        run: |
+          for pkg_dir in packages/*/; do
+            if [ -f "$pkg_dir/pyproject.toml" ]; then
+              echo "Scanning $pkg_dir..."
+              pip-audit \
+                --requirement "$pkg_dir/pyproject.toml" \
+                --format json \
+                --output "pip-audit-$(basename "$pkg_dir").json" \
+                --ignore-vuln GHSA-9wx4-h78v-vm56 \
+                || true
+            fi
+          done
+
+      - name: Display pip-audit results
+        run: |
+          if [ -f pip-audit-results.sarif ]; then
+            echo "=== pip-audit SARIF summary ==="
+            jq '.runs[].results | length' pip-audit-results.sarif || echo "0"
+          fi
+          for f in pip-audit-*.json; do
+            if [ -f "$f" ]; then
+              echo "=== $f ==="
+              cat "$f" | jq '.[] | {vuln_id, fix_versions}' 2>/dev/null || echo "(no issues or parse error)"
+            fi
+          done
+
+      - name: Upload SARIF to GitHub Security tab
+        if: always() && hashFiles('pip-audit-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: pip-audit-results.sarif
+          category: pip-audit
+
+      - name: Upload pip-audit artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-reports
+          path: |
+            pip-audit-results.sarif
+            pip-audit-*.json
+          retention-days: 30
+
+      - name: Fail on critical/high CVEs
+        if: env.EMERGENCY_OVERRIDE != 'true'
+        run: |
+          if [ "${{ env.pip_audit_exit }}" != "0" ] && [ "${{ env.pip_audit_exit }}" != "" ]; then
+            echo "::error::pip-audit found CRITICAL/HIGH CVEs in Python dependencies."
+            echo "::error::Review SARIF output and update dependencies immediately."
+            echo "::error::Run 'pip-audit --fix' locally to auto-fix where possible."
+            exit 1
+          fi
+          echo "No critical/high Python CVEs found."
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 2: npm audit — Node.js dependencies
+  # ───────────────────────────────────────────────────────────────────────────
+  npm-audit:
+    name: npm audit Node.js CVE Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event.inputs.scan_scope == 'all' || github.event.inputs.scan_scope == 'nodejs' || github.event.inputs.scan_scope == ''
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: |
+          npm audit \
+            --audit-level=moderate \
+            --json \
+            > npm-audit-results.json \
+            || AUDIT_EXIT=$?
+          echo "npm_audit_exit=${AUDIT_EXIT:-0}" >> "$GITHUB_ENV"
+
+      - name: Display npm audit summary
+        run: |
+          if [ -f npm-audit-results.json ]; then
+            echo "=== npm audit summary ==="
+            jq '.metadata.vulnerabilities' npm-audit-results.json || echo "No vulnerabilities field"
+          fi
+
+      - name: Convert npm audit to SARIF
+        run: |
+          if [ -f npm-audit-results.json ]; then
+            node -e '
+              const fs = require("fs");
+              const audit = JSON.parse(fs.readFileSync("npm-audit-results.json", "utf8"));
+              const advisories = audit.advisories || {};
+              const results = Object.values(advisories).map(adv => ({
+                ruleId: `npm-audit-${adv.id}`,
+                level: adv.severity === "critical" ? "error" : adv.severity === "high" ? "error" : "warning",
+                message: { text: `[${adv.title}] ${adv.overview}\n\nSeverity: ${adv.severity}\nPatched versions: ${adv.patched_versions || "N/A"}\nRemediation: ${adv.recommendation || "Update dependency"}` },
+                locations: [{
+                  physicalLocation: {
+                    artifactLocation: { uri: "package-lock.json" },
+                    region: { startLine: 1 }
+                  }
+                }]
+              }));
+
+              const sarif = {
+                version: "2.1.0",
+                runs: [{
+                  tool: {
+                    driver: {
+                      name: "npm-audit",
+                      rules: Object.values(advisories).map(adv => ({
+                        id: `npm-audit-${adv.id}`,
+                        shortDescription: { text: adv.title },
+                        defaultConfiguration: { level: adv.severity === "critical" || adv.severity === "high" ? "error" : "warning" }
+                      }))
+                    }
+                  },
+                  results
+                }]
+              };
+              fs.writeFileSync("npm-audit-results.sarif", JSON.stringify(sarif, null, 2));
+              console.log(`Converted ${results.length} advisories to SARIF`);
+            '
+          fi
+
+      - name: Upload SARIF to GitHub Security tab
+        if: always() && hashFiles('npm-audit-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: npm-audit-results.sarif
+          category: npm-audit
+
+      - name: Upload npm audit artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-reports
+          path: |
+            npm-audit-results.json
+            npm-audit-results.sarif
+          retention-days: 30
+
+      - name: Fail on critical/high CVEs
+        if: env.EMERGENCY_OVERRIDE != 'true'
+        run: |
+          if [ "${{ env.npm_audit_exit }}" != "0" ] && [ "${{ env.npm_audit_exit }}" != "" ]; then
+            echo "::error::npm audit found CRITICAL/HIGH CVEs in Node.js dependencies."
+            echo "::error::Run 'npm audit fix' to attempt automatic remediation."
+            echo "::error::Review the full report in the uploaded artifacts."
+            exit 1
+          fi
+          echo "No critical/high Node.js CVEs found."
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 3: Trivy — Container image scanning
+  # ───────────────────────────────────────────────────────────────────────────
+  trivy:
+    name: Trivy Container Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event.inputs.scan_scope == 'all' || github.event.inputs.scan_scope == 'container' || github.event.inputs.scan_scope == ''
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build API Docker image
+        run: |
+          docker build -f apps/api/Dockerfile -t deepsynaps-api:scan-target .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'deepsynaps-api:scan-target'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+        continue-on-error: true
+
+      - name: Run Trivy (text output for logs)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'deepsynaps-api:scan-target'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+          ignore-unfixed: true
+
+      - name: Upload SARIF to GitHub Security tab
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-container
+
+      - name: Upload Trivy artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-reports
+          path: trivy-results.sarif
+          retention-days: 30
+
+      - name: Fail on critical/high container CVEs
+        if: env.EMERGENCY_OVERRIDE != 'true'
+        run: |
+          if [ -f trivy-results.sarif ]; then
+            CRITICAL=$(jq '[.runs[].results[] | select(.level == "error")] | length' trivy-results.sarif 2>/dev/null || echo "0")
+            if [ "$CRITICAL" -gt 0 ]; then
+              echo "::error::Trivy found $CRITICAL critical/high CVEs in container image."
+              echo "::error::Update the base image or install security patches."
+              exit 1
+            fi
+          fi
+          echo "No critical/high container CVEs found."
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 4: Dependabot status check
+  # ───────────────────────────────────────────────────────────────────────────
+  dependabot-check:
+    name: Dependabot Alert Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      security-events: read
+    steps:
+      - name: Check Dependabot alerts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: alerts } = await github.rest.dependabot.listAlertsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              severity: 'critical,high',
+            });
+
+            if (alerts.length > 0) {
+              console.log(`::warning::Found ${alerts.length} open CRITICAL/HIGH Dependabot alerts:`);
+              for (const alert of alerts) {
+                console.log(`  - [${alert.security_advisory.severity}] ${alert.dependency.package.name}: ${alert.security_advisory.summary}`);
+              }
+              // Output for follow-up steps
+              core.setOutput('critical_alerts', alerts.length);
+            } else {
+              console.log('✅ No open CRITICAL/HIGH Dependabot alerts');
+              core.setOutput('critical_alerts', 0);
+            }
+
+      - name: Fail if critical Dependabot alerts exist
+        if: env.EMERGENCY_OVERRIDE != 'true'
+        run: |
+          ALERTS="${{ steps.dependabot-check.outputs.critical_alerts }}"
+          if [ "$ALERTS" -gt 0 ] 2>/dev/null; then
+            echo "::error::$ALERTS open CRITICAL/HIGH Dependabot alerts must be resolved."
+            echo "::error::Visit https://github.com/${{ github.repository }}/security/dependabot"
+            exit 1
+          fi
