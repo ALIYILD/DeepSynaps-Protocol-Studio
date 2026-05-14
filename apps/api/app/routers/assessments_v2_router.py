@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from deepsynaps_core_schema import (
@@ -123,8 +122,6 @@ def _scoring_status(tpl_id: str, *, score_only: bool, embedded_text_allowed: boo
     return "licence_required"
 
 
-# core-schema-exempt: PATCH /assignments/{id} JSON body for a single
-# route handler; never re-exported or reused.
 class UpdateAssignmentV2(BaseModel):
     """BUG-FIX-003: JSON body schema for PATCH /assignments/{id}.
 
