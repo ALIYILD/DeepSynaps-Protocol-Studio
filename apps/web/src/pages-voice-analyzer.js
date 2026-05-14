@@ -8,6 +8,10 @@ import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { EVIDENCE_TOTAL_PAPERS } from './evidence-dataset.js';
 import {
   VOICE_DECISION_SUPPORT_FULL,
+  VOICE_CRITICAL_SAFETY_DISCLAIMER,
+  VOICE_BIOMARKER_EVIDENCE,
+  renderEvidenceGradeBadge,
+  renderConditionFeatureCard,
   voiceApiErrorToast,
   voicePipelineMetaBlock,
 } from './voice-decision-support.js';
@@ -256,8 +260,14 @@ export function renderVoiceReportHtml(res, opts = {}) {
     if (vr[key] != null) jsonSubset[key] = vr[key];
   }
 
+  // Critical safety disclaimer — red-bordered, prominently displayed at top
+  const safetyDisclaimerHtml = `<div style="margin-bottom:14px;padding:10px 12px;border-radius:10px;border:1.5px solid rgba(248,113,113,.5);background:rgba(248,113,113,.08);font-size:11px;line-height:1.5;color:var(--text-secondary)" role="alert">
+    <strong style="color:#f87171">${esc('Safety Limitations')}</strong> — ${esc(VOICE_CRITICAL_SAFETY_DISCLAIMER)}
+  </div>`;
+
   return `
     <div class="va-results-inner" style="padding:14px 16px;border-radius:12px;border:1px solid var(--border);background:var(--bg-card)">
+      ${safetyDisclaimerHtml}
       ${provNote}
       ${storedNote}
       <header style="margin-bottom:10px">
@@ -271,6 +281,7 @@ export function renderVoiceReportHtml(res, opts = {}) {
       ${acousticBlock}
       ${biomarkerBlock}
       ${interpBlock}
+      ${_renderConditionInterpretationCards(vr)}
       ${evidenceGov}
       <section style="margin-top:14px" aria-labelledby="va-evidence-packs-h">
         <h4 id="va-evidence-packs-h" style="font-size:13px;font-weight:600;margin:0 0 8px">Literature-linked evidence packs</h4>
@@ -322,6 +333,36 @@ function _renderQcSection(qc) {
   </section>`;
 }
 
+/** Map acoustic feature labels to evidence grade info from the research matrix. */
+function _evidenceInfoForAcousticFeature(label) {
+  const labelLower = String(label).toLowerCase();
+  // F0 / pitch features — Grade A but NONSIGNIFICANT (critical overclaim prevention)
+  if (labelLower.includes('f0') || labelLower.includes('pitch') || labelLower.includes('fundamental frequency')) {
+    return { grade: 'A', badge: renderEvidenceGradeBadge('A'), note: 'F0 differences are NOT statistically significant in meta-analysis (p=0.56) — interpret with caution', warn: true };
+  }
+  // Shimmer — Grade B (strong for Parkinson's)
+  if (labelLower.includes('shimmer')) {
+    return { grade: 'B', badge: renderEvidenceGradeBadge('B'), note: 'Evidence Grade B — increases in Parkinson\'s over ~33 months', warn: false };
+  }
+  // Jitter — Grade C (inconsistent)
+  if (labelLower.includes('jitter')) {
+    return { grade: 'C', badge: renderEvidenceGradeBadge('C'), note: 'Evidence Grade C — inconsistent across studies; interpret cautiously', warn: false };
+  }
+  // HNR — Grade C (inconsistent)
+  if (labelLower.includes('hnr') || labelLower.includes('harmonics-to-noise') || labelLower.includes('noise-to-harmonics') || labelLower.includes('nhr')) {
+    return { grade: 'C', badge: renderEvidenceGradeBadge('C'), note: 'Evidence Grade C — inconsistent across studies; NHR shows stronger evidence in Parkinson\'s (Grade B)', warn: false };
+  }
+  // Intensity — no direct evidence mapping
+  if (labelLower.includes('intensity') || labelLower.includes('loudness')) {
+    return { grade: null, badge: '', note: '', warn: false };
+  }
+  // Voiced fraction — no direct evidence mapping
+  if (labelLower.includes('voiced') || labelLower.includes('voice break')) {
+    return { grade: null, badge: '', note: '', warn: false };
+  }
+  return { grade: null, badge: '', note: '', warn: false };
+}
+
 function _renderAcousticSection(vr) {
   const af = vr.acoustic_features || {};
   const keys = ['f0_mean_hz', 'f0_sd_hz', 'intensity_mean_db', 'intensity_sd_db', 'voiced_fraction'];
@@ -351,15 +392,25 @@ function _renderAcousticSection(vr) {
     if (legacyPd.hnr_db != null) rows.push(['HNR', `${Number(legacyPd.hnr_db).toFixed(1)} dB`, 'Legacy PD-voice block']);
   }
 
-  const body = rows.map(([label, val, src]) => `<tr>
-    <td style="padding:6px 8px;border-bottom:1px solid var(--border)">${esc(label)}</td>
-    <td style="padding:6px 8px;border-bottom:1px solid var(--border);font-family:var(--font-mono,monospace);font-size:11px">${esc(val)}</td>
-    <td style="padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-tertiary);font-size:11px">${esc(src)}</td>
-  </tr>`).join('');
+  let f0Warning = '';
+  const body = rows.map(([label, val, src]) => {
+    const ev = _evidenceInfoForAcousticFeature(label);
+    // Collect F0 warning for display below the table
+    if (ev.warn && ev.note) {
+      f0Warning = `<div style="margin-top:8px;padding:6px 8px;border-radius:6px;border:1px solid rgba(245,158,11,.35);background:rgba(245,158,11,.08);font-size:11px;color:#d97706" role="note">
+        <strong>F0 overclaim warning:</strong> ${esc(ev.note)}
+      </div>`;
+    }
+    return `<tr>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border)">${esc(label)} ${ev.badge}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border);font-family:var(--font-mono,monospace);font-size:11px">${esc(val)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-tertiary);font-size:11px">${esc(src)}${ev.note && !ev.warn ? ` <span style="color:var(--text-tertiary)">· ${esc(ev.note)}</span>` : ''}</td>
+    </tr>`;
+  }).join('');
 
   return `<section style="margin-top:12px;padding:12px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,.02)" aria-labelledby="va-acoustic-h">
     <h4 id="va-acoustic-h" style="margin:0 0 8px;font-size:13px;font-weight:600">Acoustic features</h4>
-    <p style="font-size:11px;color:var(--text-tertiary);margin:0 0 8px">Units and sources as returned by the analyser — not standalone clinical findings.</p>
+    <p style="font-size:11px;color:var(--text-tertiary);margin:0 0 8px">Units and sources as returned by the analyser — not standalone clinical findings. Evidence grades shown where available from 2023-2025 literature.</p>
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr>
         <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-tertiary);font-size:10px">Measure</th>
@@ -368,6 +419,7 @@ function _renderAcousticSection(vr) {
       </tr></thead>
       <tbody>${body}</tbody>
     </table>
+    ${f0Warning}
   </section>`;
 }
 
@@ -498,6 +550,44 @@ function _renderEvidenceGovernance(ds) {
       ${targets ? `<li>Targets queried: <span class="font-mono">${esc(targets)}</span></li>` : ''}
       <li>All outputs remain clinician-reviewed decision support; autonomy limits apply (no autonomous diagnosis, triage, or protocol approval from voice alone).</li>
     </ul>
+  </section>`;
+}
+
+/**
+ * Render condition-specific interpretation cards with evidence grades.
+ * Shows depression, Parkinson's, and cognitive decline markers based on report content.
+ */
+function _renderConditionInterpretationCards(vr) {
+  const cards = [];
+
+  // Depression markers card — always show (most common condition studied)
+  cards.push(renderConditionFeatureCard('depression', ['cpp', 'speech_rate', 'pause_duration', 'f0', 'jitter', 'shimmer', 'hnr']));
+
+  // Parkinson's markers card — show when PD voice block present or sustained vowel task
+  const hasPd = vr.pd_voice && typeof vr.pd_voice === 'object' && (vr.pd_voice.score != null || vr.pd_voice.f0_mean_hz != null);
+  const taskProtocol = (vr.task_protocol || '').toLowerCase();
+  if (hasPd || taskProtocol.includes('vowel') || taskProtocol.includes('phonation')) {
+    cards.push(renderConditionFeatureCard('parkinsons', ['vowel_articulation', 'shimmer', 'nhr', 'speech_rate', 'pause_ratio']));
+  }
+
+  // Cognitive decline markers card — show when cognitive block present or reading task
+  const hasCog = vr.cognitive_speech && typeof vr.cognitive_speech === 'object' && (vr.cognitive_speech.score != null || vr.cognitive_speech.speech_rate_wpm != null);
+  if (hasCog || taskProtocol.includes('reading') || taskProtocol.includes('passage') || taskProtocol.includes('speech')) {
+    cards.push(renderConditionFeatureCard('alzheimers', ['speech_rate', 'articulation_rate', 'voice_breaks', 'npvi']));
+  }
+
+  // Schizophrenia markers card — always show (speech markers are well studied)
+  cards.push(renderConditionFeatureCard('schizophrenia', ['pause_duration', 'speech_rate', 'spoken_time_proportion']));
+
+  const sexSpecificNote = `<div style="margin-top:10px;padding:8px 10px;border-radius:8px;border:1px solid rgba(139,92,246,.28);background:rgba(139,92,246,.06);font-size:11px;line-height:1.45;color:var(--text-secondary)" role="note">
+    <strong style="color:#8b5cf6">Sex-specific note:</strong> ${esc('Research shows significant sex differences in voice biomarkers (e.g., anxiety markers are male-specific in current evidence). Interpretation should account for patient sex when available.')}
+  </div>`;
+
+  return `<section style="margin-top:12px" aria-labelledby="va-condition-cards-h">
+    <h4 id="va-condition-cards-h" style="margin:0 0 8px;font-size:13px;font-weight:600">Condition-specific voice biomarker evidence</h4>
+    <p style="font-size:11px;color:var(--text-tertiary);margin:0 0 10px;line-height:1.45">Evidence grades reflect the 2023-2025 literature base. All markers are decision-support signals requiring clinical correlation. Cards are shown based on protocol type and available report blocks.</p>
+    ${cards.join('')}
+    ${sexSpecificNote}
   </section>`;
 }
 

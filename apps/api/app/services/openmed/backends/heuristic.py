@@ -9,6 +9,7 @@ backend is skipped in favour of the real model.
 """
 from __future__ import annotations
 
+import dataclasses
 import re
 from typing import Iterable
 
@@ -18,17 +19,98 @@ from ..schemas import (
     DeidentifyResponse,
     EntityLabel,
     ExtractedClinicalEntity,
+    ExtractParametersResponse,
     HealthResponse,
     NeuromodulationExtractResponse,
     PIIEntity,
     PIIExtractResponse,
-    PIILabel,
+    StimulationParameter,
     TextSpan,
 )
 
 
+# ── Stimulation parameter extraction patterns (research-backed) ──────────────
+_STIM_PARAMETER_PATTERNS = {
+    "frequency": r'(\d+\.?\d*)\s*(Hz|kHz)\b',
+    "intensity_current": r'(\d+\.?\d*)\s*(mA|miliamp)\b',
+    "intensity_percent_mt": r'(\d+\.?\d*)\s*%\s*(?:of\s*)?(?:RMT|MT|motor threshold)',
+    "intensity_percent_mso": r'(\d+\.?\d*)\s*%\s*(?:of\s*)?(?:MSO|maximum stimulator output)',
+    "duration_train": r'(\d+\.?\d*)\s*(s|sec|seconds?)\s*(?:train|pulse train)',
+    "duration_session": r'(\d+\.?\d*)\s*(min|minutes?)\s*(?:session|treatment)',
+    "pulses": r'(\d+)\s*(?:pulses|trains?|stimuli)\b',
+    "sessions": r'(\d+)\s*(?:sessions?|treatments?|visits?)\b',
+    "inter_train_interval": r'ITI\s+(\d+\.?\d*)\s*(s|sec|seconds?)',
+    "montage": r'\b(F3|F4|Cz|C3|C4|P3|P4|O1|O2|Fp1|Fp2|Fz|Pz|Oz|T3|T4|T5|T6|AF3|AF4|FC1|FC2|CP1|CP2)\b',
+}
+
+# ── Outcome measure interpretation criteria (research-backed) ─────────────────
+_OUTCOME_MEASURE_CRITERIA: dict[str, dict] = {
+    "PHQ-9": {"range": "0-27", "response": ">=50% reduction", "remission": "<=4"},
+    "HAM-D": {"range": "0-52", "response": ">=50% reduction", "remission": "<=7"},
+    "MADRS": {"range": "0-60", "response": ">=50% reduction", "remission": "<=10"},
+    "BDI-II": {"range": "0-63", "response": ">=50% reduction", "remission": "<=13"},
+    "GAD-7": {"range": "0-21", "response": ">=50% reduction", "remission": "<=4"},
+    "Y-BOCS": {"range": "0-40", "response": ">=35% reduction", "remission": "<=14"},
+    "UPDRS-III": {"range": "0-108", "response": ">=30% improvement"},
+    "MoCA": {"range": "0-30", "response": ">=2-point improvement", "remission": ">=26"},
+    "MMSE": {"range": "0-30", "response": ">=2-point improvement", "remission": ">=27"},
+}
+
+# ── Adverse event severity mapping (research-backed) ──────────────────────────
+_ADVERSE_EVENT_SEVERITY: dict[str, str] = {
+    # Mild -- transient, no intervention
+    "scalp discomfort": "mild",
+    "headache": "mild",
+    "tingling": "mild",
+    "itching": "mild",
+    "lightheadedness": "mild",
+    # Moderate -- requires intervention
+    "scalp pain": "moderate",
+    "burning sensation": "moderate",
+    "erythema": "moderate",
+    "skin irritation": "moderate",
+    # Severe -- significant impairment
+    "seizure": "severe",
+    "syncope": "severe",
+    "prolonged seizure": "severe",
+    # Serious -- regulatory reporting
+    "status epilepticus": "serious",
+    "infection": "serious",
+    "lead fracture": "serious",
+    "lead migration": "serious",
+    "hardware malfunction": "serious",
+    "battery depletion": "serious",
+    "intracranial hemorrhage": "serious",
+    # Life-threatening
+    "death": "life-threatening",
+}
+
+_SEVERITY_REPORTING_NOTE = {
+    "mild": "Routine documentation",
+    "moderate": "Routine + follow-up",
+    "severe": "Expedited reporting",
+    "serious": "SAE report within 24h",
+    "life-threatening": "Immediate SAE report",
+}
+
+# ── Assertion detection cues ──────────────────────────────────────────────────
+_uncertainty_cues = [
+    r'\bpossible\b', r'\bpossibly\b', r'\bprobably\b', r'\bprobable\b',
+    r'\bsuspected\b', r'\bsuspect\b',
+    r'\bmay represent\b', r'\bmay be\b', r'\bcannot exclude\b', r'\bnot exclude',
+    r'\bconsistent with\b', r'\bsuggestive of\b', r'\bsuggests\b',
+    r'\blikely\b', r'\bunlikely\b', r'\bcannot rule out\b', r'\bversus\b',
+    r'\bvs\.?\b', r'\bdifferential includes\b', r'\bdifferential diagnosis\b',
+]
+
+_family_history_cues = [
+    r'\bfamily history\b', r'\bFHx\b', r'\bfather\b', r'\bmother\b',
+    r'\bsibling\b', r'\bbrother\b', r'\bsister\b',
+    r'\bmaternal\b', r'\bpaternal\b',
+]
+
 _MED_PATTERNS: dict[EntityLabel, list[str]] = {
-    # ── Medications (comprehensive across specialties) ────────────────────────
+    # -- Medications (comprehensive across specialties) ---------------------------
     "medication": [
         # Psychotropics
         r"\b(sertraline|fluoxetine|escitalopram|paroxetine|citalopram|venlafaxine|duloxetine|"
@@ -132,7 +214,7 @@ _MED_PATTERNS: dict[EntityLabel, list[str]] = {
         r"oxybutynin|tolterodine|solifenacin|darifenacin|mirabegron|"
         r"allopurinol|febuxostat|probenecid|colchicine)\b",
     ],
-    # ── Diagnoses (all major specialties) ─────────────────────────────────────
+    # -- Diagnoses (all major specialties) --------------------------------------
     "diagnosis": [
         # Psychiatry
         r"\b(major depressive disorder|MDD|persistent depressive disorder|dysthymia|"
@@ -262,7 +344,7 @@ _MED_PATTERNS: dict[EntityLabel, list[str]] = {
         # Rheumatology / immunology
         r"\b(rheumatoid arthritis|RA|systemic lupus erythematosus|SLE|lupus|"
         r"psoriatic arthritis|ankylosing spondylitis|"
-        r"Sjögren syndrome|scleroderma|systemic sclerosis|"
+        r"Sjoegren syndrome|scleroderma|systemic sclerosis|"
         r"dermatomyositis|polymyositis|inclusion body myositis|"
         r"mixed connective tissue disease|overlap syndrome|"
         r"vasculitis|granulomatosis with polyangiitis|GPA|"
@@ -294,7 +376,7 @@ _MED_PATTERNS: dict[EntityLabel, list[str]] = {
         r"\b(otitis media|otitis externa|mastoiditis|sinusitis|rhinitis|"
         r"pharyngitis|tonsillitis|laryngitis|epiglottitis|"
         r"hearing loss|sensorineural hearing loss|conductive hearing loss|"
-        r"Ménière disease|benign paroxysmal positional vertigo|BPPV|"
+        r"Menieere disease|benign paroxysmal positional vertigo|BPPV|"
         r"cataract|glaucoma|age[- ]?related macular degeneration|AMD|"
         r"diabetic retinopathy|hypertensive retinopathy|retinal detachment|"
         r"uveitis|scleritis|keratitis|conjunctivitis|dry eye syndrome|"
@@ -321,7 +403,7 @@ _MED_PATTERNS: dict[EntityLabel, list[str]] = {
         r"lumbar radiculopathy|sciatica|spinal stenosis|spondylolisthesis|"
         r"herniated disc|disc herniation|degenerative disc disease)\b",
     ],
-    # ── Symptoms (comprehensive, all systems) ─────────────────────────────────
+    # -- Symptoms (comprehensive, all systems) ----------------------------------
     "symptom": [
         r"\b(insomnia|fatigue|anhedonia|hopeless(?:ness)?|suicidal ideation|self[- ]harm|"
         r"panic attacks?|flashbacks?|nightmares?|hypervigilance|avoidance|"
@@ -355,7 +437,7 @@ _MED_PATTERNS: dict[EntityLabel, list[str]] = {
         r"menorrhagia|metrorrhagia|dysmenorrhea|amenorrhea|"
         r"vaginal bleeding|vaginal discharge|dyspareunia|pelvic pain)\b",
     ],
-    # ── Procedures (diagnostic & therapeutic) ─────────────────────────────────
+    # -- Procedures (diagnostic & therapeutic) ----------------------------------
     "procedure": [
         r"\b(rTMS|TMS|tDCS|tACS|tRNS|ECT|psychotherapy|CBT|DBT|EMDR|exposure therapy|"
         r"qEEG|EEG|MRI|fMRI|PET scan|CT scan|CT head|CT chest|CT abdomen|"
@@ -373,9 +455,12 @@ _MED_PATTERNS: dict[EntityLabel, list[str]] = {
         r"dialysis|hemodialysis|peritoneal dialysis|renal transplant|"
         r"biopsy|fine needle aspiration|FNA|excisional biopsy|"
         r"radiation therapy|chemotherapy|immunotherapy|targeted therapy|"
-        r"blood transfusion|plasmapheresis|IVIG)\b",
+        r"blood transfusion|plasmapheresis|IVIG|"
+        r"Single-pulse TMS|Paired-pulse TMS|"
+        r"TPS|transcranial pulse stimulation|"
+        r"tFUS|transcranial focused ultrasound)\b",
     ],
-    # ── Labs & assessments ────────────────────────────────────────────────────
+    # -- Labs & assessments -----------------------------------------------------
     "lab": [
         r"\b(TSH|T3|T4|free T3|free T4|CBC|CMP|BMP|LFT|lipid panel|"
         r"HbA1c|fasting glucose|random glucose|OGTT|"
@@ -391,7 +476,7 @@ _MED_PATTERNS: dict[EntityLabel, list[str]] = {
         r"HAM[- ]?D|HAM[- ]?A|YBOCS|MADRS|BDI|"
         r"AUDIT|CAGE|CIWA[- ]?Ar)\b",
     ],
-    # ── Anatomy ───────────────────────────────────────────────────────────────
+    # -- Anatomy ----------------------------------------------------------------
     "anatomy": [
         r"\b(brain|cerebrum|cerebellum|brainstem|frontal lobe|parietal lobe|temporal lobe|occipital lobe|"
         r"basal ganglia|thalamus|hypothalamus|hippocampus|amygdala|"
@@ -410,7 +495,7 @@ _MED_PATTERNS: dict[EntityLabel, list[str]] = {
         r"joint|shoulder|elbow|wrist|hip|knee|ankle|"
         r"muscle|tendon|ligament|cartilage|meniscus)\b",
     ],
-    # ── Vitals ────────────────────────────────────────────────────────────────
+    # -- Vitals -----------------------------------------------------------------
     "vital": [
         r"\b(?:BP|blood pressure)\s*(?:of)?\s*\d{2,3}[\/]\d{2,3}\b",
         r"\b(?:HR|heart rate|pulse)\s*(?:of)?\s*\d{2,3}\b",
@@ -421,7 +506,7 @@ _MED_PATTERNS: dict[EntityLabel, list[str]] = {
         r"\b(?:height|ht)\s*(?:of)?\s*\d{1,3}(?:\.\d)?\s*(?:cm|m|ft|in)\b",
         r"\b(?:BMI|body mass index)\s*(?:of)?\s*\d{1,2}(?:\.\d)?\b",
     ],
-    # ── Risk factors ──────────────────────────────────────────────────────────
+    # -- Risk factors -----------------------------------------------------------
     "risk_factor": [
         r"\b(smoking|former smoker|current smoker|pack[- ]?year|tobacco use|"
         r"alcohol use|heavy alcohol use|illicit drug use|IV drug use|"
@@ -433,7 +518,7 @@ _MED_PATTERNS: dict[EntityLabel, list[str]] = {
         r"malignancy|cancer history|radiation exposure|"
         r"occupational exposure|asbestos exposure|silica exposure)\b",
     ],
-    # ── Allergies ─────────────────────────────────────────────────────────────
+    # -- Allergies --------------------------------------------------------------
     "allergy": [
         r"\b(?:penicillin|amoxicillin|cephalosporin|sulfa|sulfonamide|"
         r"NSAID|aspirin|ibuprofen|codeine|morphine|"
@@ -442,7 +527,7 @@ _MED_PATTERNS: dict[EntityLabel, list[str]] = {
         r"pollen|dust|mite|mold|dander|cat|dog|"
         r"bee sting|wasp|fire ant)\b(?:\s+allergy)?",
     ],
-    # ── Devices ───────────────────────────────────────────────────────────────
+    # -- Devices ----------------------------------------------------------------
     "device": [
         r"\b(Neurosoft|Magstim|MagVenture|BrainsWay|Apollo|Neuro|CloudTMS|"
         r"Soterix|Neuroelectrics|neuroConn|Sooma|Flow|"
@@ -457,7 +542,7 @@ _MED_PATTERNS: dict[EntityLabel, list[str]] = {
     ],
 }
 
-# ── Neuromodulation-specific patterns ──────────────────────────────────────────
+# -- Neuromodulation-specific patterns -----------------------------------------
 _NEURO_PATTERNS: dict[EntityLabel, list[str]] = {
     "stimulation_protocol": [
         r"\b(?:10\s*Hz|1\s*Hz|5\s*Hz|20\s*Hz|theta[- ]?burst|TBS|cTBS|iTBS|"
@@ -468,17 +553,24 @@ _NEURO_PATTERNS: dict[EntityLabel, list[str]] = {
         r"ultra[- ]?brief\s+pulse|brief\s+pulse|seizure[- ]?threshold)\b",
         r"\b(?:DBS\s+programming|VNS\s+parameter|FUS\s+protocol|"
         r"transcranial\s+focused\s+ultrasound|tFUS|TUS)\b",
+        # Research additions: tPCS, GVS, TUS, dTMS, burst patterns
+        r"\b(?:tPCS|transcranial\s+pulsed\s+current\s+stimulation)\b",
+        r"\b(?:GVS|galvanic\s+vestibular\s+stimulation)\b",
+        r"\b(?:TUS|transcranial\s+ultrasound\s+stimulation)\b",
+        r"\b(?:dTMS|Deep\s+TMS|deep\s+TMS)\b",
+        r"\b(?:quadrople\s+burst|quadruple\s+burst|doublet\s+burst|"
+        r"burst\s+stimulation|bursts?)\b",
     ],
     "device_parameter": [
         r"\b(?:\d+\.?\d*\s*Hz|\d+\.?\d*\s*mA|\d+\.?\d*\s*V|"
-        r"\d+\.?\d*\s*ms\s*pulse|\d+\.?\d*\s*µs\s*pulse|"
+        r"\d+\.?\d*\s*ms\s*pulse|\d+\.?\d*\s*\u00b5s\s*pulse|"
         r"\d+\.?\d*\s*T|pulse\s+width|inter[- ]?train\s+interval|ITI|"
         r"train\s+duration|session\s+duration|\d+\s*pulses?\s*(?:per\s+session)?)\b",
         r"\b(?:\d+\s*trains?|\d+\s*blocks?|\d+\s*min(?:utes?)?\s*stimulation|"
         r"\d+\s*s(?:ec)?\s*ITI|\d+\s*s(?:ec)?\s*inter[- ]?stimulus)\b",
         r"\b(?:voltage\s+\d+\.?\d*\s*V|frequency\s+\d+\.?\d*\s*Hz|"
-        r"pulse\s+width\s+\d+\.?\d*\s*µs|amplitude\s+\d+\.?\d*\s*mA|"
-        r"contact\s+(?:C\+?\d+|0\+|1\+|2\+|3\+|case)|impedance\s+\d+\.?\d*\s*Ω)\b",
+        r"pulse\s+width\s+\d+\.?\d*\s*\u00b5s|amplitude\s+\d+\.?\d*\s*mA|"
+        r"contact\s+(?:C\+?\d+|0\+|1\+|2\+|3\+|case)|impedance\s+\d+\.?\d*\s*\u03a9)\b",
     ],
     "electrode_placement": [
         r"\b(?:F3|F4|Fz|C3|C4|Cz|P3|P4|Pz|O1|O2|T3|T4|T5|T6|Fp1|Fp2|"
@@ -490,7 +582,7 @@ _NEURO_PATTERNS: dict[EntityLabel, list[str]] = {
         r"orbitofrontal\s+cortex|OFC|inferior\s+frontal\s+gyrus|IFG|"
         r"left\s+prefrontal|right\s+prefrontal|bifrontal|bitemporal)\b",
         r"\b(?:figure[- ]?8\s+coil|round\s+coil|H[- ]?coil|"
-        r"5\s*x\s*7\s*cm|5x7\s*cm|35\s*cm²|25\s*cm²|saline[- ]?soaked\s+sponge)\b",
+        r"5\s*x\s*7\s*cm|5x7\s*cm|35\s*cm\u00b2|25\s*cm\u00b2|saline[- ]?soaked\s+sponge)\b",
     ],
     "outcome_measure": [
         r"\b(?:PHQ[- ]?9|GAD[- ]?7|HAM[- ]?D(?:\s*\d+)?|HAM[- ]?A(?:\s*\d+)?|"
@@ -504,6 +596,21 @@ _NEURO_PATTERNS: dict[EntityLabel, list[str]] = {
         r"UPDRS|MDS[- ]?UPDRS|Fahn[- ]?Tolosa[- ]?Marin|AIMS|"
         r"EDSS|Kurtzke|NIHSS|mRS)\b",
         r"\b(?:PSQI|ISI|ESS|FOSQ|FACIT[- ]?Fatigue|FS[- ]?14)\b",
+        # Research additions: missing outcome measures
+        r"\b(?:IDS[- ]?SR|IDS[- ]?C|OCI[- ]?R|CY[- ]?BOCS)\b",
+        r"\b(?:BDI[- ]?II|BDI[- ]?2|Beck\s+Depression\s+Inventory[- ]?II)\b",
+        r"\b(?:UPDRS[- ]?IV|UPDRS[- ]?4|Hoehn\s+and\s+Yahr|Hoehn[- ]?Yahr|"
+        r"Schwab\s+and\s+England|Schwab[- ]?England|S&E)\b",
+        r"\b(?:Engel\s+class|ILAE\s+outcome|ILAE\s+class)\b",
+        r"\b(?:Fahn[- ]?Tolosa[- ]?Marin\s+TRS|Fahn[- ]?Tolosa[- ]?Marin|"
+        r"Burke[- ]?Fahn[- ]?Marsden\s+BFMDRS|Burke[- ]?Fahn[- ]?Marsden|BFMDRS|"
+        r"Toronto\s+Western\s+TWSTRS|Toronto\s+Western\s+Spasmodic\s+Torticollis|"
+        r"TWSTRS)\b",
+        r"\b(?:TMT[- ]?A|TMT[- ]?B|Trail\s+Making\s+Test[- ]?A|Trail\s+Making\s+Test[- ]?B|"
+        r"DSST|Digit\s+Symbol\s+Substitution|"
+        r"COWA|FAS|Controlled\s+Oral\s+Word\s+Association)\b",
+        r"\b(?:SF[- ]?36|Short\s+Form[- ]?36|EQ[- ]?5D|EuroQol|"
+        r"PDQ[- ]?39|Parkinson\s+Disease\s+Questionnaire)\b",
     ],
     "adverse_event": [
         r"\b(?:scalp\s+discomfort|headache|scalp\s+pain|tingling|burning\s+sensation|"
@@ -517,6 +624,13 @@ _NEURO_PATTERNS: dict[EntityLabel, list[str]] = {
         r"battery\s+depletion|stimulation[- ]?induced\s+side\s+effects?|"
         r"dysarthria|paresthesia|muscle\s+contraction|hoarseness|cough|"
         r"dyspnea|arrhythmia|bradycardia)\b",
+        # Research additions: erythema/skin redness, paresthesia, electrode burn, etc.
+        r"\b(?:erythema|skin\s+redness)\b",
+        r"\b(?:paresthesia\s+during\s+stimulation|tingling\s+during\s+stimulation)\b",
+        r"\b(?:convulsion|status\s+epilepticus)\b",
+        r"\b(?:electrode\s+burn|skin\s+burn)\b",
+        r"\b(?:lead\s+fracture|lead\s+migration)\b",
+        r"\b(?:battery\s+depletion|hardware\s+malfunction)\b",
     ],
     "neuromodulation_device": [
         r"\b(?:Magstim|MagVenture|BrainsWay|Apollo|Neuro|CloudTMS|"
@@ -565,17 +679,25 @@ def _scan(patterns: Iterable[tuple[str, str]], text: str) -> list[tuple[str, str
     return out
 
 
-def _is_negated(text: str, start: int, end: int, window: int = 35) -> bool:
-    """Check if a span is preceded by a negation cue within a window.
+def _detect_assertion(text: str, start: int, end: int, window: int = 35) -> tuple[bool, str]:
+    """Detect negation and uncertainty around a text span.
 
-    This is a simple rule-based negation detector. It looks for negation
-    cues (no, not, denies, without, etc.) within `window` chars before
-    the entity span, stopping at sentence boundaries.
+    Returns:
+        (is_negated, assertion_status)
+        assertion_status: one of 'present', 'absent', 'possible', 'conditional',
+                                   'hypothetical', 'associated_with_other'
     """
     lookback_start = max(0, start - window)
-    context = text[lookback_start:start]
-    sentences = re.split(r'[.!?;]\s+', context)
-    local_context = sentences[-1] if sentences else context
+    context_before = text[lookback_start:start]
+    lookforward_end = min(len(text), end + window)
+    context_after = text[end:lookforward_end]
+    full_context = context_before + " " + context_after
+
+    # Split at sentence boundaries for local context
+    sentences = re.split(r'[.!?;]\s+', context_before)
+    local_context = sentences[-1] if sentences else context_before
+
+    # 1. Check negation cues (returns absent)
     negation_cues = [
         r'\bno\b', r'\bnot\b', r'\bden(?:y|ies|ied|ying)\b',
         r'\bwithout\b', r'\babsent\b', r'\bnegative\b',
@@ -586,8 +708,141 @@ def _is_negated(text: str, start: int, end: int, window: int = 35) -> bool:
     ]
     for cue in negation_cues:
         if re.search(cue, local_context, re.IGNORECASE):
-            return True
-    return False
+            return True, "absent"
+
+    # 2. Check uncertainty cues (returns possible)
+    for cue in _uncertainty_cues:
+        if re.search(cue, full_context, re.IGNORECASE):
+            return False, "possible"
+
+    # 3. Check family history cues (returns associated_with_other)
+    for cue in _family_history_cues:
+        if re.search(cue, local_context, re.IGNORECASE):
+            return False, "associated_with_other"
+
+    # Default: present
+    return False, "present"
+
+
+def _is_negated(text: str, start: int, end: int, window: int = 35) -> bool:
+    """Backward-compatible wrapper for _detect_assertion.
+
+    Returns True only for strict negation (assertion_status == 'absent').
+    """
+    is_negated, _ = _detect_assertion(text, start, end, window)
+    return is_negated
+
+
+def _get_outcome_measure_hint(scale_name: str) -> str:
+    """Return interpretation criteria hint for a known outcome measure.
+
+    Returns empty string if scale is not in the criteria dictionary.
+    """
+    # Normalize the scale name for lookup
+    normalized = scale_name.upper().strip()
+    # Handle common variants
+    variant_map = {
+        "PHQ-9": "PHQ-9",
+        "PHQ 9": "PHQ-9",
+        "HAM-D": "HAM-D",
+        "HAM D": "HAM-D",
+        "MADRS": "MADRS",
+        "BDI-II": "BDI-II",
+        "BDI II": "BDI-II",
+        "BDI-2": "BDI-II",
+        "BDI": "BDI-II",
+        "GAD-7": "GAD-7",
+        "GAD 7": "GAD-7",
+        "Y-BOCS": "Y-BOCS",
+        "Y BOCS": "Y-BOCS",
+        "UPDRS-III": "UPDRS-III",
+        "UPDRS III": "UPDRS-III",
+        "MOCA": "MoCA",
+        "MMSE": "MMSE",
+    }
+    key = variant_map.get(normalized, normalized)
+    criteria = _OUTCOME_MEASURE_CRITERIA.get(key)
+    if not criteria:
+        return ""
+    parts = [f"range={criteria['range']}"]
+    if "response" in criteria:
+        parts.append(f"response={criteria['response']}")
+    if "remission" in criteria:
+        parts.append(f"remission={criteria['remission']}")
+    return "; ".join(parts)
+
+
+def _get_adverse_event_severity(event_text: str) -> tuple[str, str]:
+    """Return (severity, reporting_note) for an adverse event text.
+
+    Defaults to 'mild' / 'Routine documentation' if not found.
+    """
+    lower = event_text.lower().strip()
+    severity = "mild"
+    # Try direct lookup first
+    if lower in _ADVERSE_EVENT_SEVERITY:
+        severity = _ADVERSE_EVENT_SEVERITY[lower]
+    else:
+        # Try partial matching
+        for key, sev in _ADVERSE_EVENT_SEVERITY.items():
+            if key in lower:
+                severity = sev
+                break
+    reporting_note = _SEVERITY_REPORTING_NOTE.get(severity, "Routine documentation")
+    return severity, reporting_note
+
+
+def _build_entity(
+    label: str,
+    match: str,
+    start: int,
+    end: int,
+    text: str,
+    base_confidence: float,
+    is_neuro: bool = False,
+) -> ExtractedClinicalEntity:
+    """Build an ExtractedClinicalEntity with assertion detection and enrichment.
+
+    Applies assertion detection, outcome measure hints, and adverse event
+    severity classification based on entity label and match content.
+    """
+    is_negated, assertion_status = _detect_assertion(text, start, end)
+
+    # Confidence based on assertion status
+    if assertion_status == "absent":
+        confidence = 0.25 if not is_neuro else 0.28
+    elif assertion_status == "possible":
+        confidence = 0.45
+    elif assertion_status == "associated_with_other":
+        confidence = 0.30
+    else:
+        confidence = base_confidence
+
+    # Build normalised field with assertion status
+    normalised = match.lower().strip()
+    if assertion_status == "absent":
+        normalised = f"negated: {normalised}"
+    normalised = f"assertion={assertion_status}: {normalised}"
+
+    # Outcome measure: append criteria hint
+    if label == "outcome_measure":
+        hint = _get_outcome_measure_hint(match)
+        if hint:
+            normalised = f"{normalised} [{hint}]"
+
+    # Adverse event: append severity and reporting note
+    if label == "adverse_event":
+        severity, reporting_note = _get_adverse_event_severity(match)
+        normalised = f"{normalised} [severity={severity}; {reporting_note}]"
+
+    return ExtractedClinicalEntity(
+        label=label,  # type: ignore[arg-type]
+        text=match,
+        span=TextSpan(start=start, end=end),
+        normalised=normalised,
+        confidence=confidence,
+        source="heuristic",
+    )
 
 
 def _extract_entities(text: str) -> list[ExtractedClinicalEntity]:
@@ -597,21 +852,16 @@ def _extract_entities(text: str) -> list[ExtractedClinicalEntity]:
             pairs.append((label, pat))
     entities = []
     for label, match, start, end in _scan(pairs, text):
-        confidence = 0.55
-        normalised = match.lower().strip()
-        if _is_negated(text, start, end):
-            confidence = 0.25
-            normalised = f"negated: {normalised}"
-        entities.append(
-            ExtractedClinicalEntity(
-                label=label,  # type: ignore[arg-type]
-                text=match,
-                span=TextSpan(start=start, end=end),
-                normalised=normalised,
-                confidence=confidence,
-                source="heuristic",
-            )
+        entity = _build_entity(
+            label=label,
+            match=match,
+            start=start,
+            end=end,
+            text=text,
+            base_confidence=0.55,
+            is_neuro=False,
         )
+        entities.append(entity)
     return entities
 
 
@@ -626,22 +876,76 @@ def _extract_neuromodulation_entities(text: str) -> list[ExtractedClinicalEntity
             pairs.append((label, pat))
     entities = []
     for label, match, start, end in _scan(pairs, text):
-        confidence = 0.62
-        normalised = match.lower().strip()
-        if _is_negated(text, start, end):
-            confidence = 0.28
-            normalised = f"negated: {normalised}"
-        entities.append(
-            ExtractedClinicalEntity(
-                label=label,  # type: ignore[arg-type]
-                text=match,
-                span=TextSpan(start=start, end=end),
-                normalised=normalised,
-                confidence=confidence,
-                source="heuristic",
-            )
+        entity = _build_entity(
+            label=label,
+            match=match,
+            start=start,
+            end=end,
+            text=text,
+            base_confidence=0.62,
+            is_neuro=True,
         )
+        entities.append(entity)
     return entities
+
+
+def _extract_stimulation_parameters(text: str) -> list[StimulationParameter]:
+    """Extract structured stimulation parameters from clinical text.
+
+    Uses research-backed regex patterns to identify frequency, intensity,
+    duration, pulse count, session count, inter-train interval, and
+    electrode montage locations.
+    """
+    parameters: list[StimulationParameter] = []
+    seen_spans: set[tuple[int, int]] = set()
+
+    for param_type, pattern in _STIM_PARAMETER_PATTERNS.items():
+        for match in re.finditer(pattern, text, re.IGNORECASE):
+            start, end = match.start(), match.end()
+            # Skip overlapping spans (keep first match)
+            if any(start < e and end > s for s, e in seen_spans):
+                continue
+            seen_spans.add((start, end))
+
+            groups = match.groups()
+            if not groups:
+                continue
+
+            # Montage is a special string-valued parameter (electrode location)
+            if param_type == "montage":
+                parameters.append(
+                    StimulationParameter(
+                        parameter_type=param_type,
+                        value=0.0,
+                        unit=groups[0].upper(),
+                        text_span=TextSpan(start=start, end=end),
+                        confidence=0.85,
+                    )
+                )
+                continue
+
+            # Extract numeric value and unit from groups
+            try:
+                value = float(groups[0])
+            except (ValueError, IndexError):
+                continue
+
+            unit = groups[1] if len(groups) > 1 else ""
+            confidence = 0.85
+
+            parameters.append(
+                StimulationParameter(
+                    parameter_type=param_type,
+                    value=value,
+                    unit=unit.lower() if unit else "",
+                    text_span=TextSpan(start=start, end=end),
+                    confidence=confidence,
+                )
+            )
+
+    # Sort by position in text for stable output
+    parameters.sort(key=lambda p: p.text_span.start)
+    return parameters
 
 
 def _extract_pii(text: str) -> list[PIIEntity]:
@@ -660,7 +964,7 @@ def _short_summary(text: str, entities: list[ExtractedClinicalEntity]) -> str:
     counts: dict[str, int] = {}
     negated_counts: dict[str, int] = {}
     for e in entities:
-        if e.normalised and e.normalised.startswith("negated:"):
+        if e.normalised and "absent" in e.normalised:
             negated_counts[e.label] = negated_counts.get(e.label, 0) + 1
         else:
             counts[e.label] = counts.get(e.label, 0) + 1
@@ -679,7 +983,7 @@ def _neuro_summary(text: str, entities: list[ExtractedClinicalEntity]) -> str:
     counts: dict[str, int] = {}
     negated_counts: dict[str, int] = {}
     for e in entities:
-        if e.normalised and e.normalised.startswith("negated:"):
+        if e.normalised and "absent" in e.normalised:
             negated_counts[e.label] = negated_counts.get(e.label, 0) + 1
         else:
             counts[e.label] = counts.get(e.label, 0) + 1
@@ -697,8 +1001,19 @@ def _neuro_summary(text: str, entities: list[ExtractedClinicalEntity]) -> str:
             parts.append(f"{n} {label.replace('_', ' ')}{'s' if n != 1 else ''}")
     for label, n in sorted(negated_counts.items()):
         if label not in priority:
-            parts.append(f"{n} negated {label.replace('_', ' ')}{'s' if n != 1 else ''}")
+            parts.append(f"{n} negated {label.replace('_', ' ')}{'s' if negated_counts[p] != 1 else ''}")
     return f"Neuromodulation extraction over {len(text)} chars: {'; '.join(parts)}."
+
+
+def _parameter_summary(text: str, params: list[StimulationParameter]) -> str:
+    """Generate a summary for extracted stimulation parameters."""
+    if not params:
+        return f"{len(text)} chars analysed; no stimulation parameters recovered."
+    type_counts: dict[str, int] = {}
+    for p in params:
+        type_counts[p.parameter_type] = type_counts.get(p.parameter_type, 0) + 1
+    parts = [f"{n} {t.replace('_', ' ')}{'s' if n != 1 else ''}" for t, n in sorted(type_counts.items())]
+    return f"Parameter extraction over {len(text)} chars: {', '.join(parts)}."
 
 
 def analyze(payload: ClinicalTextInput) -> AnalyzeResponse:
@@ -742,9 +1057,41 @@ def analyze_neuromodulation(payload: ClinicalTextInput) -> NeuromodulationExtrac
     )
 
 
+def extract_parameters(payload: ClinicalTextInput) -> ExtractParametersResponse:
+    """Extract structured stimulation parameters from clinical text."""
+    params = _extract_stimulation_parameters(payload.text)
+    return ExtractParametersResponse(
+        schema_id="deepsynaps.openmed.parameters/v1",
+        backend="heuristic",
+        parameters=params,
+        summary=_parameter_summary(payload.text, params),
+        safety_footer="decision-support, not autonomous diagnosis",
+        char_count=payload.length,
+    )
+
+
 def health() -> HealthResponse:
     return HealthResponse(
         ok=True,
         backend="heuristic",
         note="Heuristic regex backend; OPENMED_BASE_URL not configured.",
     )
+
+
+__all__ = [
+    "analyze",
+    "extract_pii",
+    "deidentify",
+    "analyze_neuromodulation",
+    "extract_parameters",
+    "health",
+    "StimulationParameter",
+    "_extract_stimulation_parameters",
+    "_detect_assertion",
+    "_is_negated",
+    "_get_outcome_measure_hint",
+    "_get_adverse_event_severity",
+    "_OUTCOME_MEASURE_CRITERIA",
+    "_ADVERSE_EVENT_SEVERITY",
+    "_SEVERITY_REPORTING_NOTE",
+]

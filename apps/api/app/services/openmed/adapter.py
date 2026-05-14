@@ -16,6 +16,7 @@ from .schemas import (
     AnalyzeResponse,
     ClinicalTextInput,
     DeidentifyResponse,
+    ExtractParametersResponse,
     HealthResponse,
     NeuromodulationExtractResponse,
     PIIExtractResponse,
@@ -42,8 +43,19 @@ def analyze_neuromodulation(payload: ClinicalTextInput) -> NeuromodulationExtrac
     return (http if _use_http() else heuristic).analyze_neuromodulation(payload)
 
 
+def extract_parameters(payload: ClinicalTextInput) -> ExtractParametersResponse:
+    return (http if _use_http() else heuristic).extract_parameters(payload)
+
+
 def health() -> HealthResponse:
     return (http if _use_http() else heuristic).health()
 
 
-__all__ = ["analyze", "extract_pii", "deidentify", "analyze_neuromodulation", "health"]
+__all__ = [
+    "analyze",
+    "extract_pii",
+    "deidentify",
+    "analyze_neuromodulation",
+    "extract_parameters",
+    "health",
+]

@@ -24,11 +24,13 @@ from ..schemas import (
     AnalyzeResponse,
     ClinicalTextInput,
     DeidentifyResponse,
+    ExtractParametersResponse,
     ExtractedClinicalEntity,
     HealthResponse,
     NeuromodulationExtractResponse,
     PIIEntity,
     PIIExtractResponse,
+    StimulationParameter,
     TextSpan,
 )
 
@@ -170,6 +172,45 @@ def analyze_neuromodulation(payload: ClinicalTextInput) -> NeuromodulationExtrac
         backend="openmed_http",
         entities=_coerce_entities(data.get("entities") or []),
         pii=_coerce_pii(data.get("pii") or []),
+        summary=str(data.get("summary") or "")[:2000],
+        char_count=payload.length,
+    )
+
+
+def _coerce_parameters(raw: list[Any]) -> list[StimulationParameter]:
+    out: list[StimulationParameter] = []
+    for r in raw or []:
+        if not isinstance(r, dict):
+            continue
+        try:
+            start = int(r.get("start", r.get("span", {}).get("start", 0)))
+            end = int(r.get("end", r.get("span", {}).get("end", 0)))
+        except (TypeError, ValueError):
+            continue
+        param_type = str(r.get("parameter_type") or r.get("type") or "unknown")
+        try:
+            value = float(r.get("value") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        out.append(
+            StimulationParameter(
+                parameter_type=param_type,
+                value=value,
+                unit=str(r.get("unit") or "").lower(),
+                text_span=TextSpan(start=start, end=end),
+                confidence=float(r.get("confidence", r.get("score", 0.85)) or 0.85),
+            )
+        )
+    return out
+
+
+def extract_parameters(payload: ClinicalTextInput) -> ExtractParametersResponse:
+    data = _post("/extract-parameters", {"text": payload.text, "source_type": payload.source_type})
+    if data is None:
+        return heuristic.extract_parameters(payload)
+    return ExtractParametersResponse(
+        backend="openmed_http",
+        parameters=_coerce_parameters(data.get("parameters") or []),
         summary=str(data.get("summary") or "")[:2000],
         char_count=payload.length,
     )
