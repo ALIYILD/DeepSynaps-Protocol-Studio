@@ -4987,12 +4987,37 @@ function _wireQEEGAnalysisCopyButtons() {
   });
 }
 
+function _clearQEEGIntervalSlot(slotName) {
+  if (typeof window === 'undefined') return;
+  var handle = window[slotName];
+  if (!handle) return;
+  try { clearInterval(handle); } catch (_e) {}
+  window[slotName] = null;
+}
+
+function _disconnectQEEGObserverSlot(slotName) {
+  if (typeof window === 'undefined') return;
+  var observer = window[slotName];
+  if (!observer || typeof observer.disconnect !== 'function') return;
+  try { observer.disconnect(); } catch (_e) {}
+  window[slotName] = null;
+}
+
+function _resetQEEGTransientWatchers() {
+  _clearQEEGIntervalSlot('__qeegAnalysisPollInterval');
+  _clearQEEGIntervalSlot('__qeegRawSummaryInterval');
+  _disconnectQEEGObserverSlot('__qeegRawSummaryObserver');
+}
+
 // ── Main page function ───────────────────────────────────────────────────────
 
 export async function pgQEEGAnalysis(setTopbar, navigate) {
   const tab = window._qeegTab || 'patient';
   window._qeegTab = tab;
   const el = document.getElementById('content');
+
+  // Rerenders should replace transient pollers, not accumulate them.
+  _resetQEEGTransientWatchers();
 
   // Global helper to open raw tab from session rail
   window._qeegOpenRawTab = function () {
@@ -5341,6 +5366,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
               showToast('Spectral analysis started', 'success');
               // Start polling for status updates
               if (st) st.innerHTML = spinner('Processing...') + '<div id="qeeg-analysis-progress"></div>';
+              _clearQEEGIntervalSlot('__qeegAnalysisPollInterval');
               var pollInterval = setInterval(async function () {
                 try {
                   var statusResp = await api.getQEEGAnalysisStatus(analysisId);
@@ -5354,10 +5380,12 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
                   }
                   if (statusResp.status === 'completed' || statusResp.status === 'failed') {
                     clearInterval(pollInterval);
+                    if (window.__qeegAnalysisPollInterval === pollInterval) window.__qeegAnalysisPollInterval = null;
                     window._nav('qeeg-analysis');
                   }
                 } catch (_e) { /* silent polling failure */ }
               }, 2000);
+              window.__qeegAnalysisPollInterval = pollInterval;
             } catch (err) {
               if (st) st.innerHTML = '<div style="color:var(--red);font-size:13px">Error: ' + esc(String(err && err.message ? err.message : err || "Unknown error")) + '</div>';
               runBtn.disabled = false;
@@ -5374,6 +5402,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
           + spinner('Analysis in progress... This usually takes a few seconds.')
           + '<div id="qeeg-analysis-progress" role="status" aria-live="polite"></div>'
           + '</div>';
+        _clearQEEGIntervalSlot('__qeegAnalysisPollInterval');
         var pollInterval = setInterval(async function () {
           try {
             var statusResp = await api.getQEEGAnalysisStatus(analysisId);
@@ -5387,10 +5416,12 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
             }
             if (statusResp.status === 'completed' || statusResp.status === 'failed') {
               clearInterval(pollInterval);
+              if (window.__qeegAnalysisPollInterval === pollInterval) window.__qeegAnalysisPollInterval = null;
               window._nav('qeeg-analysis');
             }
           } catch (_e) { /* silent polling failure */ }
         }, 2000);
+        window.__qeegAnalysisPollInterval = pollInterval;
         return;
       }
 
@@ -7873,6 +7904,9 @@ function _wireRawViewerSummary(tabEl, analysisId) {
   var bandEl = document.getElementById('qeeg-raw-summary-band');
   if (!chEl && !qualityEl && !bandEl) return;
 
+  _clearQEEGIntervalSlot('__qeegRawSummaryInterval');
+  _disconnectQEEGObserverSlot('__qeegRawSummaryObserver');
+
   function _update() {
     var st = window._qeegRawState;
     if (!st) return;
@@ -7898,9 +7932,16 @@ function _wireRawViewerSummary(tabEl, analysisId) {
 
   // Poll every 500ms while tab is visible
   var iv = setInterval(_update, 500);
+  window.__qeegRawSummaryInterval = iv;
   // Stop polling when tab changes away
   var observer = new MutationObserver(function (mutations) {
-    if (!document.body.contains(tabEl)) { clearInterval(iv); observer.disconnect(); }
+    if (!document.body.contains(tabEl)) {
+      clearInterval(iv);
+      if (window.__qeegRawSummaryInterval === iv) window.__qeegRawSummaryInterval = null;
+      observer.disconnect();
+      if (window.__qeegRawSummaryObserver === observer) window.__qeegRawSummaryObserver = null;
+    }
   });
+  window.__qeegRawSummaryObserver = observer;
   observer.observe(document.body, { childList: true, subtree: true });
 }

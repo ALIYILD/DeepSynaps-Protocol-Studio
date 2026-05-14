@@ -2094,6 +2094,51 @@ describe('pgQEEGAnalysis — deep render paths via patched api', () => {
     delete window._qeegSelectedId;
   });
 
+  it('analysis tab: clears the previous processing poller on rerender', async () => {
+    const fixture = Object.assign(_buildRichAnalysisFixture('processing-rerender-1'),
+      { analysis_status: 'processing' });
+    const origSetInterval = globalThis.setInterval;
+    const origClearInterval = globalThis.clearInterval;
+    let nextHandle = 0;
+    const active = new Set();
+
+    globalThis.setInterval = () => {
+      const handle = { id: ++nextHandle };
+      active.add(handle);
+      return handle;
+    };
+    globalThis.clearInterval = (handle) => {
+      active.delete(handle);
+    };
+
+    try {
+      _patchApi({
+        listPatients: async () => [],
+        getPatient: async () => null,
+        getPatientMedicalHistory: async () => null,
+        listPatientQEEGAnalyses: async () => ({ items: [fixture] }),
+        getQEEGAnalysis: async () => fixture,
+        getQEEGAnalysisStatus: async () => ({ status: 'processing', progress_pct: 10 }),
+        getFusionRecommendation: async () => null,
+      });
+      window._qeegPatientId = 'demo-sarah-johnson';
+      window._qeegSelectedId = 'processing-rerender-1';
+      window._qeegTab = 'analysis';
+
+      await safeAwait(mod.pgQEEGAnalysis(() => {}, () => {}));
+      assert.strictEqual(active.size, 1, 'first render should register exactly one processing poller');
+
+      await safeAwait(mod.pgQEEGAnalysis(() => {}, () => {}));
+      assert.strictEqual(active.size, 1, 'rerender should replace, not leak, the processing poller');
+    } finally {
+      globalThis.setInterval = origSetInterval;
+      globalThis.clearInterval = origClearInterval;
+      delete window._qeegPatientId;
+      delete window._qeegSelectedId;
+      delete window.__qeegAnalysisPollInterval;
+    }
+  });
+
   it('analysis tab: renders failed state', async () => {
     const fixture = Object.assign(_buildRichAnalysisFixture('failed-1'),
       { analysis_status: 'failed', failure_reason: 'Pipeline error: BrainVision header missing' });
