@@ -16,7 +16,7 @@ export function MarkerLayer({
   dragSelect,
   labelMarkers,
   photicMarkers = [],
-  artifactIntervals = [],
+  _artifactIntervals = [],
 }: {
   width: number;
   height: number;

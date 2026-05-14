@@ -76,7 +76,6 @@ export const ProtocolReviewPage: React.FC<ProtocolReviewPageProps> = ({
     },
   ]);
   const [approvalReason, setApprovalReason] = useState("");
-  const [showApproveConfirm, setShowApproveConfirm] = useState(false);
 
   /* ── Safety checklist items (dynamic based on protocol) ── */
   const checklistItems: ChecklistItem[] = useMemo(() => {
