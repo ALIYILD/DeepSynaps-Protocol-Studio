@@ -33,6 +33,7 @@ import {
   renderSimulationLab, renderSimulationDetail, mountSimulation, simulationHasRenderableOutput,
   renderReportCenter, renderHandoff, renderSafetyFooter,
   renderHistoryPanel, renderClinicianNotesPanel,
+  multimodalContextBanner,
   loadingBlock, errorBlock, emptyPatientBlock,
 } from './deeptwin/components.js';
 import { decisionSupportBanner } from './deeptwin/safety.js';
@@ -192,13 +193,14 @@ function _renderAll() {
         dataSources: STATE.dataSources,
       })}
       ${_voiceDomainHintBanner()}
+      ${multimodalContextBanner(STATE.dataSources, STATE.patientId)}
       ${renderHeader({ patientLabel, condition, summary: STATE.summary, dataSources: STATE.dataSources })}
-      ${renderDataSources({ summary: STATE.summary, dataSources: STATE.dataSources })}
+      ${renderDataSources({ summary: STATE.summary, dataSources: STATE.dataSources, patientId: STATE.patientId })}
       <div id="ds-medical-image-card-deeptwin" style="margin-top:16px"></div>
       ${renderSignalMatrix({ signals: STATE.signals, signalState: STATE.signalsPayload })}
       ${renderTimeline({ patientId: STATE.patientId, timeline: STATE.timelinePayload, selectedKinds: STATE.timelineFilters }, HOST_TIMELINE)}
       ${renderCorrelations({ correlations: STATE.correlations }, HOST_CORR)}
-      ${renderCausal({ correlations: STATE.correlations })}
+      ${renderCausal({ correlations: STATE.correlations, patientId: STATE.patientId })}
       ${renderPrediction({ prediction: STATE.prediction }, HOST_PRED)}
       ${renderSimulationLab({}, HOST_SIM)}
       ${renderTribeCompare()}
