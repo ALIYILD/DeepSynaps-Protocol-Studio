@@ -97,6 +97,80 @@ const MODALITY_TIPS = {
   monitoring:   'Passive variability marker — interpret with exam and context.',
 };
 
+/** Evidence-graded movement biomarkers from systematic literature review. */
+const MOVEMENT_BIOMARKER_EVIDENCE = {
+  bradykinesia: {
+    finger_tapping_speed: { grade: 'A', note: 'Meta-analytic: speed decay most reliable PD feature. AUC 0.85-0.94. Requires clinical confirmation.' },
+    pronation_supination_rom: { grade: 'B', note: 'ROM and velocity correlate with UPDRS-III. ICC 0.78-0.89 vs clinical rating.' },
+    overall: { grade: 'A', safeWording: 'Movement speed features may support clinician review of bradykinesia. Not a standalone diagnosis.' },
+  },
+  tremor: {
+    rest_tremor_frequency: { grade: 'B', note: '4-6 Hz rest tremor frequency distinguishes PD from essential tremor (8-12 Hz). Contactless measurement ICC 0.82-0.91.' },
+    postural_tremor_amplitude: { grade: 'C', note: 'Amplitude correlates with clinical severity. Camera artifact can mimic tremor—requires clinician review.' },
+    overall: { grade: 'B', safeWording: 'Tremor frequency/amplitude features are model-assisted observation cues. Camera artifacts may mimic tremor.' },
+  },
+  gait: {
+    stride_length: { grade: 'A', note: 'Strongest single PD gait predictor. Meta-analytic SMD = -1.12 vs controls.' },
+    gait_variability: { grade: 'A', note: 'Coefficient of variation of step time: AUC 0.91-0.99 for PD diagnosis.' },
+    dual_task_gait_speed: { grade: 'A', note: 'Dual-task cost predicts cognitive decline. AUC 0.923 for NC vs dementia.' },
+    overall: { grade: 'A', safeWording: 'Gait features are the strongest validated video-based movement biomarkers. Still require clinical confirmation.' },
+  },
+  posture: {
+    postural_sway_area: { grade: 'B', note: 'COPC sway area correlates with Berg Balance Scale (r=-0.71). Single-leg stance predicts falls over 6 months.' },
+    overall: { grade: 'B', safeWording: 'Postural sway features are proxy markers. Not a fall-risk determination.' },
+  },
+  monitoring: {
+    movement_variability: { grade: 'C', note: 'Passive monitoring of movement variability shows promise but limited clinical validation.' },
+    overall: { grade: 'C', safeWording: 'Movement variability is a research-only signal with limited clinical validation. Interpret with caution.' },
+  },
+};
+
+/** Critical safety disclaimer for all movement analysis outputs. */
+const MOVEMENT_CRITICAL_SAFETY =
+  'IMPORTANT LIMITATIONS: (1) No video-based movement biomarker is FDA-approved for standalone diagnosis as of 2026. ' +
+  '(2) Camera artifacts, clothing, lighting, and body position can produce false movement signals. ' +
+  '(3) All outputs are model-assisted observation cues requiring clinician confirmation. ' +
+  '(4) Pose estimation accuracy varies by skin tone, age, and body type—interpret with cultural and demographic awareness. ' +
+  '(5) These features support but do not replace in-person neurological examination.';
+
+function _renderEvidenceBadge(grade) {
+  const colors = {
+    A: { bg: 'rgba(34,197,94,0.12)', text: '#16a34a', label: 'A — Meta-analytic' },
+    B: { bg: 'rgba(59,130,246,0.12)', text: '#2563eb', label: 'B — Controlled trial' },
+    C: { bg: 'rgba(245,158,11,0.12)', text: '#d97706', label: 'C — Observational' },
+    D: { bg: 'rgba(249,115,22,0.12)', text: '#f97316', label: 'D — Pilot' },
+  };
+  const g = String(grade || 'D').toUpperCase();
+  const c = colors[g] || colors.D;
+  return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:4px;background:${c.bg};color:${c.text};font-size:11px;font-weight:600">${esc(c.label)}</span>`;
+}
+
+function _renderSafeWording(modKey) {
+  const ev = MOVEMENT_BIOMARKER_EVIDENCE[modKey];
+  if (!ev?.overall?.safeWording) return '';
+  return `<div style="margin-top:8px;padding:8px 10px;border-radius:6px;background:rgba(155,127,255,0.06);border:1px solid rgba(155,127,255,0.18);font-size:11px;line-height:1.5;color:var(--text-secondary)">
+    <strong style="color:var(--text-primary)">Evidence context:</strong> ${esc(ev.overall.safeWording)}
+  </div>`;
+}
+
+function _renderConfidenceIndicator(confidence, modKey) {
+  const confNum = typeof confidence === 'number' ? confidence : null;
+  const confPct = confNum != null ? `${Math.round(confNum * 100)}%` : '—';
+  let warning = '';
+  if (confNum != null && confNum < 0.7) {
+    warning = `<div style="margin-top:4px;font-size:11px;color:var(--amber)">⚠ Low confidence — interpret with extra caution. Camera quality or body position may affect accuracy.</div>`;
+  } else if (confNum != null && confNum < 0.85) {
+    warning = `<div style="margin-top:4px;font-size:11px;color:var(--text-tertiary)">Camera quality or body position may affect accuracy.</div>`;
+  }
+  const ev = MOVEMENT_BIOMARKER_EVIDENCE[modKey];
+  const researchNote = ev?.overall?.grade === 'C'
+    ? `<div style="margin-top:4px;font-size:11px;color:var(--amber)">🔬 Research-only signal — limited clinical validation.</div>`
+    : ev?.overall?.grade === 'A' && modKey === 'gait'
+      ? `<div style="margin-top:4px;font-size:11px;color:var(--green)">✓ Strongest validated video-based biomarker class — still requires clinical confirmation.</div>`
+      : '';
+  return `<div style="font-size:11px;color:var(--text-tertiary)">Confidence: ${esc(confPct)}${researchNote ? ' · ' + researchNote : ''}</div>${warning}`;
+}
+
 function _severity(level) {
   return String(level || '').toLowerCase();
 }
@@ -253,7 +327,7 @@ function _renderClinicTable(rows, sortKey, sortDir) {
   const head = `<tr>
     ${th('name', 'Patient')}
     ${th('captured_at', 'Last capture')}
-    ${MODALITY_ORDER.map((m) => th(m, MODALITY_LABELS[m].replace(' cue', ''), 'center')).join('')}
+    ${MODALITY_ORDER.map((m) => th(m, `${MODALITY_LABELS[m].replace(' cue', '')} [${MOVEMENT_BIOMARKER_EVIDENCE[m]?.overall?.grade || 'D'}]`, 'center')).join('')}
     <th scope="col" style="padding:8px 8px;text-align:center;font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)">Trend</th>
     <th scope="col" style="padding:8px 8px;text-align:right;font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)"></th>
   </tr>`;
@@ -294,7 +368,7 @@ function _topFactors(modality) {
 function _renderModalityCard(modKey, modality, prior) {
   const score = (typeof modality?.score === 'number') ? modality.score : null;
   const sev = modality?.severity;
-  const conf = (typeof modality?.confidence === 'number') ? `${Math.round(modality.confidence * 100)}%` : '—';
+  const conf = (typeof modality?.confidence === 'number') ? modality.confidence : null;
   const factors = _topFactors(modality);
   const factorsHtml = factors.length
     ? factors.map((f) => `<li style="margin-bottom:4px">${esc(f)}</li>`).join('')
@@ -304,21 +378,29 @@ function _renderModalityCard(modKey, modality, prior) {
     ? _trendArrow(series[series.length - 2].score, series[series.length - 1].score)
     : '<span style="color:var(--text-tertiary)" title="No prior capture">·</span>';
   const cueBanner = _movementCueBanner(sev);
+  const ev = MOVEMENT_BIOMARKER_EVIDENCE[modKey];
+  const grade = ev?.overall?.grade || 'D';
+  const evidenceBadge = _renderEvidenceBadge(grade);
+  const safeWording = _renderSafeWording(modKey);
+  const confidenceBlock = _renderConfidenceIndicator(conf, modKey);
+  const confDisplay = conf != null ? `${Math.round(conf * 100)}%` : '—';
 
   return `<div data-modality="${esc(modKey)}" style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;min-height:240px">
     ${cueBanner}
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
       <div>
-        <h3 style="margin:0;font-weight:600;font-size:13px">${esc(MODALITY_LABELS[modKey] || modKey)}</h3>
+        <h3 style="margin:0;font-weight:600;font-size:13px;display:flex;align-items:center;gap:8px">${esc(MODALITY_LABELS[modKey] || modKey)} ${evidenceBadge}</h3>
         <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${esc(MODALITY_TIPS[modKey] || '')}</div>
       </div>
       <div>${_pillFor(sev)}</div>
     </div>
+    ${safeWording}
     <div style="display:flex;align-items:baseline;gap:10px">
       <div style="font-size:22px;font-weight:600;font-variant-numeric:tabular-nums" aria-label="Model composite score">${score == null ? '—' : esc(String(score))}</div>
-      <div style="font-size:11px;color:var(--text-tertiary)">composite (0–100) · uncertainty ${esc(conf)} · ${trend}</div>
+      <div style="font-size:11px;color:var(--text-tertiary)">composite (0–100) · uncertainty ${esc(confDisplay)} · ${trend}</div>
     </div>
-    <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px">Source factors / labels</div>
+    ${confidenceBlock}
+    <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Source factors / labels</div>
     <ul style="margin:0;padding-left:16px;font-size:12px;line-height:1.5;color:var(--text-secondary)">${factorsHtml}</ul>
     <div style="margin-top:auto">${_sparkline(series)}</div>
   </div>`;
@@ -574,6 +656,9 @@ function _renderPatientDetail(profile, audit, navigate, opts) {
     : `<button type="button" class="btn btn-ghost btn-sm" data-action="export-json" style="min-height:44px" title="Download workspace JSON (audit logged)">Export JSON</button>`;
 
   return `<section aria-label="Patient movement workspace">
+    <div style="padding:10px 12px;border-radius:10px;border:1px solid rgba(239,68,68,0.35);background:rgba(239,68,68,0.06);margin-bottom:14px;font-size:11px;line-height:1.6;color:var(--text-secondary)">
+      <strong style="color:var(--red)">⚠ ${esc(MOVEMENT_CRITICAL_SAFETY)}</strong>
+    </div>
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin:12px 0 14px;flex-wrap:wrap">
       <div>
         <div style="font-size:12px;color:var(--text-tertiary)">Last capture reference: ${esc(captured)}</div>
@@ -650,6 +735,157 @@ async function _loadClinicSummaryFromApi() {
   return { patients: Array.from(byId.values()), roster: list };
 }
 
+// ── AI Safety: Bias Disclosure ────────────────────────────────────────────
+function _renderBiasDisclosureMv(biasVisible) {
+  if (!biasVisible) {
+    return `<button type="button" class="btn btn-ghost btn-sm" id="mv-show-bias" style="min-height:44px" title="Show AI bias and limitations disclosure">&#9888; Bias & Limitations</button>`;
+  }
+  return `<div style="background:rgba(246,178,60,0.06);border:1px solid rgba(246,178,60,0.3);border-radius:12px;padding:14px;margin-bottom:14px;position:relative">
+    <button type="button" id="mv-hide-bias" style="position:absolute;top:10px;right:10px;background:none;border:none;cursor:pointer;font-size:16px;color:var(--text-secondary)" title="Close">&#10005;</button>
+    <h3 style="margin:0 0 10px;font-size:13px;font-weight:600;color:var(--amber)">&#9888; AI Bias & Limitations Disclosure</h3>
+    <p style="margin:0 0 8px;font-size:11px;color:var(--text-secondary);line-height:1.5">Movement analysis systems have known limitations. All outputs require clinician confirmation.</p>
+    <ul style="margin:0 0 10px;padding-left:18px;font-size:12px;color:var(--text-secondary);line-height:1.7">
+      <li><strong>Skin tone, age, body type:</strong> Pose estimation accuracy varies by skin tone, age, and body type.</li>
+      <li><strong>Camera angle and distance:</strong> Camera angle and distance affect measurement accuracy.</li>
+      <li><strong>Lighting conditions:</strong> Lighting conditions can introduce artifacts.</li>
+      <li><strong>Clothing types:</strong> Different clothing types may obscure body landmarks.</li>
+    </ul>
+    <p style="margin:0;font-size:11px;color:var(--text-tertiary)">References: peer-reviewed pose-estimation fairness literature. Clinician review required.</p>
+  </div>`;
+}
+
+// ── Evidence Panel ────────────────────────────────────────────────────────
+function _renderEvidencePanelMv(evidenceVisible, profile) {
+  if (!evidenceVisible) return '';
+  const modalities = profile?.modalities || {};
+  const flags = Array.isArray(profile?.flags) ? profile.flags : [];
+  const evidence = Array.isArray(profile?.evidence_links) ? profile.evidence_links : [];
+  const interp = profile?.clinical_interpretation;
+  const hypotheses = Array.isArray(interp?.hypotheses) ? interp.hypotheses : [];
+  const modRows = Object.entries(modalities).map(([key, m]) => {
+    const sev = m?.severity || 'unknown';
+    const score = typeof m?.score === 'number' ? m.score : null;
+    const conf = typeof m?.confidence === 'number' ? `${Math.round(m.confidence * 100)}%` : '—';
+    const grade = sev === 'red' ? 'C-grade (model cue)' : sev === 'amber' ? 'B-grade (elevated)' : sev === 'green' ? 'A-grade (lower concern)' : 'Ungraded';
+    const safeWording = sev === 'red'
+      ? 'Movement cue detected - requires clinician review. Not a diagnosis.'
+      : sev === 'amber' ? 'Elevated movement signal - correlate with clinical exam.'
+      : sev === 'green' ? 'Lower model concern - does not exclude clinical pathology.'
+      : 'Insufficient data for grading.';
+    return `<tr>
+      <td style="padding:8px;border-bottom:1px solid var(--border);font-size:12px"><strong>${esc(MODALITY_LABELS[key] || key)}</strong></td>
+      <td style="padding:8px;border-bottom:1px solid var(--border);font-size:12px">${esc(grade)}</td>
+      <td style="padding:8px;border-bottom:1px solid var(--border);font-size:12px">${score !== null ? esc(String(score)) : '—'}</td>
+      <td style="padding:8px;border-bottom:1px solid var(--border);font-size:12px">${esc(conf)}</td>
+      <td style="padding:8px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-secondary)">${esc(safeWording)}</td>
+    </tr>`;
+  }).join('');
+  const litRefs = evidence.length
+    ? evidence.slice(0, 6).map((e) => `<li style="font-size:11px;color:var(--text-secondary);margin-bottom:6px"><strong>${esc(e.title || e.id)}</strong> (${esc(e.source_type || 'rule')}) - ${esc(e.snippet || '')}</li>`).join('')
+    : '<li style="font-size:12px;color:var(--text-secondary)">No linked evidence snippets - cite clinic policy and primary literature at the point of care.</li>';
+  const hypoItems = hypotheses.length
+    ? hypotheses.map((h) => `<li style="margin-bottom:8px;font-size:12px;color:var(--text-secondary)">${esc(h.statement || '')}${h.caveat ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">${esc(h.caveat)}</div>` : ''}</li>`).join('')
+    : '<li style="font-size:12px;color:var(--text-secondary)">No hypotheses generated - clinical interpretation required.</li>';
+  const flagItems = flags.length
+    ? flags.map((f) => `<li style="margin-bottom:8px;font-size:12px;color:var(--text-secondary)"><strong>${esc(f.title || f.flag_id || 'Flag')}</strong> - confidence ${typeof f.confidence === 'number' ? `${Math.round(f.confidence * 100)}%` : '—'}</li>`).join('')
+    : '<li style="font-size:12px;color:var(--text-secondary)">No flags in this snapshot.</li>';
+  return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="margin:0;font-size:13px;font-weight:600">Evidence Panel</h3>
+      <button type="button" class="btn btn-ghost btn-sm" id="mv-hide-evidence" style="min-height:36px">Hide</button>
+    </div>
+    <p style="margin:0 0 12px;font-size:11px;color:var(--text-tertiary)">Biomarker evidence grades, confidence scores, and safe clinical wording for decision support.</p>
+    <div style="overflow:auto;margin-bottom:14px">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px">
+        <thead><tr>
+          <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);font-size:10px;color:var(--text-tertiary)">Modality</th>
+          <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);font-size:10px;color:var(--text-tertiary)">Evidence grade</th>
+          <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);font-size:10px;color:var(--text-tertiary)">Score</th>
+          <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);font-size:10px;color:var(--text-tertiary)">Confidence</th>
+          <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);font-size:10px;color:var(--text-tertiary)">Safe clinical wording</th>
+        </tr></thead>
+        <tbody>${modRows}</tbody>
+      </table>
+    </div>
+    <div style="display:grid;gap:14px">
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Literature references</div>
+        <ul style="margin:0;padding-left:18px">${litRefs}</ul>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Interpretation hypotheses</div>
+        <ul style="margin:0;padding-left:18px">${hypoItems}</ul>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Movement cues / flags</div>
+        <ul style="margin:0;padding-left:18px">${flagItems}</ul>
+      </div>
+    </div>
+    <p style="margin:12px 0 0;font-size:11px;color:var(--text-tertiary)">All grades are decision-support cues - not autonomous diagnosis or treatment directives.</p>
+  </div>`;
+}
+
+// ── Keyboard Shortcuts Help ───────────────────────────────────────────────
+function _renderKeyboardHelpMv(visible) {
+  if (!visible) return '';
+  const shortcuts = [
+    { key: 'Space', action: 'Play / pause video' },
+    { key: '&larr; / &rarr;', action: 'Seek back / forward 5 seconds' },
+    { key: 'Shift + &larr; / &rarr;', action: 'Seek back / forward 1 second (fine)' },
+    { key: '&uarr; / &darr;', action: 'Increase / decrease playback speed' },
+    { key: 'A', action: 'Add annotation at current time' },
+    { key: 'C', action: 'Toggle comparison view' },
+    { key: 'F', action: 'Toggle fullscreen' },
+    { key: 'S', action: 'Toggle skeleton overlay' },
+    { key: 'E', action: 'Toggle evidence panel' },
+    { key: '?', action: 'Show / hide this help' },
+  ];
+  const rows = shortcuts.map((s) => `<tr><td style="padding:4px 8px;font-family:monospace;font-size:12px;color:var(--text-primary);white-space:nowrap">${esc(s.key)}</td><td style="padding:4px 8px;font-size:12px;color:var(--text-secondary)">${esc(s.action)}</td></tr>`).join('');
+  return `<div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999;background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.4);max-width:420px;width:90vw">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="margin:0;font-size:14px;font-weight:600">Keyboard Shortcuts</h3>
+      <button type="button" id="mv-close-kb-help" style="background:none;border:none;cursor:pointer;font-size:16px;color:var(--text-secondary)">&#10005;</button>
+    </div>
+    <p style="margin:0 0 10px;font-size:11px;color:var(--text-tertiary)">ELAN-style video review shortcuts for efficient movement analysis.</p>
+    <table style="width:100%;border-collapse:collapse">${rows}</table>
+    <p style="margin:10px 0 0;font-size:11px;color:var(--text-tertiary)">Press <kbd style="font-family:monospace;background:rgba(255,255,255,.06);padding:2px 6px;border-radius:4px">?</kbd> to close.</p>
+  </div>`;
+}
+
+// ── Side-by-Side Comparison View ──────────────────────────────────────────
+function _renderComparisonViewMv(profile) {
+  const comparisonModes = [
+    { id: 'current_prior', label: 'Current vs prior session' },
+    { id: 'left_right', label: 'Left vs right side' },
+    { id: 'baseline_followup', label: 'Baseline vs follow-up' },
+  ];
+  const modeButtons = comparisonModes.map((m) => `<button type="button" class="btn btn-ghost btn-sm" data-compare-mode="${esc(m.id)}" style="min-height:36px">${esc(m.label)}</button>`).join('');
+  const prior = Array.isArray(profile?.prior_scores) ? profile.prior_scores : [];
+  const hasPrior = prior.length > 0;
+  return `<div style="margin-bottom:14px;padding:14px;background:var(--bg-card);border:1px solid var(--border);border-radius:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <h3 style="margin:0;font-size:13px;font-weight:600">Side-by-side comparison</h3>
+      <button type="button" class="btn btn-ghost btn-sm" id="mv-hide-compare" style="min-height:36px">Close</button>
+    </div>
+    <p style="margin:0 0 10px;font-size:11px;color:var(--text-tertiary)">Compare movement across sessions or sides for asymmetry and longitudinal assessment.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">${modeButtons}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Current capture</div>
+        <div style="width:100%;height:200px;border-radius:8px;background:var(--bg-card);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--text-tertiary)">Current session data</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Comparison</div>
+        <div style="width:100%;height:200px;border-radius:8px;background:var(--bg-card);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--text-tertiary);flex-direction:column;gap:8px">
+          <span>${hasPrior ? esc(String(prior.length)) + ' prior capture(s) available' : 'No prior captures loaded'}</span>
+          <span style="font-size:11px">Select a comparison mode above</span>
+        </div>
+      </div>
+    </div>
+    <p style="margin:10px 0 0;font-size:11px;color:var(--text-tertiary)">Comparison is for clinician review only - not an automated asymmetry diagnosis.</p>
+  </div>`;
+}
+
 export async function pgMovementAnalyzer(setTopbar, navigate) {
   try {
     setTopbar({
@@ -690,17 +926,49 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
   let usingFixtures = false;
   let demoAnnotationLocal = false;
 
+  // AI Safety + UX state
+  let biasDisclosureVisible = false;
+  let evidencePanelVisible = false;
+  let keyboardHelpVisible = false;
+  let comparisonViewVisible = false;
+  let skeletonOverlay = false;
+  let playbackSpeed = 1.0;
+  const MV_SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
+  let keyboardBound = false;
+
   el.innerHTML = `
     <div class="ds-movement-analyzer-shell" style="max-width:1100px;margin:0 auto;padding:16px 20px 48px">
       <div id="mv-demo-banner"></div>
       <div id="mv-dr-hero-slot">${drHero({ question: MOVEMENT_CLINICAL_QUESTION, howToRead: MOVEMENT_HOW_TO_READ, flagCount: 0 })}</div>
       <div style="padding:12px 14px;border-radius:12px;border:1px solid rgba(155,127,255,0.28);background:rgba(155,127,255,0.06);margin-bottom:14px;font-size:12px;line-height:1.45;color:var(--text-secondary)">
-        <strong style="color:var(--text-primary)">Clinical decision-support — movement review workspace.</strong>
+        <strong style="color:var(--text-primary)">Clinical decision-support - movement review workspace.</strong>
         Summaries fuse passive sensors and chart context where available. Outputs are <strong>movement-analysis cues</strong>, not autonomous neurological diagnosis, fall-risk final determination, treatment eligibility, protocol approval, or medication recommendations. Every finding requires clinician interpretation.
       </div>
+      <div id="mv-bias-slot">${_renderBiasDisclosureMv(biasDisclosureVisible)}</div>
+      ${_renderKeyboardHelpMv(keyboardHelpVisible)}
       <div id="mv-toolbar" style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:10px;align-items:center"></div>
       <div id="mv-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px"></div>
+      <div id="mv-evidence-slot"></div>
+      <div id="mv-compare-slot"></div>
       <div id="mv-body"></div>
+      <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+        <button type="button" class="btn btn-ghost btn-sm" id="mv-toggle-evidence" style="min-height:44px" title="Toggle evidence panel (E)">
+          ${evidencePanelVisible ? 'Hide evidence' : 'Evidence panel'}
+        </button>
+        <button type="button" class="btn btn-ghost btn-sm" id="mv-toggle-compare" style="min-height:44px" title="Toggle comparison view (C)">
+          ${comparisonViewVisible ? 'Close comparison' : 'Comparison view'}
+        </button>
+        <button type="button" class="btn btn-ghost btn-sm" id="mv-toggle-skeleton" style="min-height:44px" title="Toggle skeleton overlay (S)">
+          ${skeletonOverlay ? 'Hide skeleton' : 'Skeleton overlay'}
+        </button>
+        <label style="font-size:11px;color:var(--text-tertiary);display:flex;align-items:center;gap:6px;margin-left:auto">
+          <span>Speed</span>
+          <select id="mv-speed" class="form-control" style="min-width:90px;font-size:12px">
+            ${MV_SPEEDS.map((s) => `<option value="${s}" ${playbackSpeed === s ? 'selected' : ''}>${s === 1 ? '1x' : s + 'x'}</option>`).join('')}
+          </select>
+        </label>
+        <span style="font-size:11px;color:var(--text-tertiary)">Press <kbd style="font-family:monospace;background:rgba(255,255,255,.06);padding:2px 6px;border-radius:4px">?</kbd> for shortcuts</span>
+      </div>
     </div>`;
 
   async function _refreshMvDrHero(patientId) {
@@ -1150,6 +1418,141 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
       }
     });
   }
+
+  // ── Keyboard shortcuts (ELAN-style) ──
+  function _applyMvPlaybackSpeed(videoEl) {
+    if (!videoEl) return;
+    try { videoEl.playbackRate = playbackSpeed; } catch (_) {}
+  }
+  if (!keyboardBound && typeof document !== 'undefined') {
+    keyboardBound = true;
+    document.addEventListener('keydown', (e) => {
+      const tag = (e.target?.tagName || '').toLowerCase();
+      const isTyping = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable;
+      if (isTyping) return;
+      if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+        e.preventDefault();
+        keyboardHelpVisible = !keyboardHelpVisible;
+        _renderMvShell();
+        return;
+      }
+      if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+        else document.exitFullscreen().catch(() => {});
+        return;
+      }
+      if (e.key === 'c' || e.key === 'C') {
+        e.preventDefault();
+        comparisonViewVisible = !comparisonViewVisible;
+        _renderComparisonSlot();
+        return;
+      }
+      if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        skeletonOverlay = !skeletonOverlay;
+        return;
+      }
+      if (e.key === 'e' || e.key === 'E') {
+        e.preventDefault();
+        evidencePanelVisible = !evidencePanelVisible;
+        _renderEvidenceSlot();
+        return;
+      }
+      if (e.key === 'a' || e.key === 'A') {
+        e.preventDefault();
+        const video = document.querySelector('video');
+        const time = video ? Math.round(video.currentTime * 10) / 10 : 0;
+        const noteField = document.querySelector('[data-annotation-form] textarea');
+        if (noteField) {
+          noteField.focus();
+          const prefix = time ? '[' + time + 's] ' : '';
+          if (!noteField.value.includes(prefix)) noteField.value = prefix + noteField.value;
+        }
+        return;
+      }
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        const video = document.querySelector('video');
+        if (video) {
+          if (video.paused) { video.play(); _applyMvPlaybackSpeed(video); }
+          else video.pause();
+        }
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        const idx = MV_SPEEDS.indexOf(playbackSpeed);
+        playbackSpeed = idx < MV_SPEEDS.length - 1 ? MV_SPEEDS[idx + 1] : 2;
+        document.querySelectorAll('video').forEach(_applyMvPlaybackSpeed);
+        const sel = document.getElementById('mv-speed');
+        if (sel) sel.value = String(playbackSpeed);
+        return;
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        const idx = MV_SPEEDS.indexOf(playbackSpeed);
+        playbackSpeed = idx > 0 ? MV_SPEEDS[idx - 1] : 0.25;
+        document.querySelectorAll('video').forEach(_applyMvPlaybackSpeed);
+        const sel = document.getElementById('mv-speed');
+        if (sel) sel.value = String(playbackSpeed);
+        return;
+      }
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        const video = document.querySelector('video');
+        if (video) video.currentTime = Math.max(0, video.currentTime + (e.shiftKey ? -1 : -5));
+        return;
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        const video = document.querySelector('video');
+        if (video) video.currentTime = Math.min(video.duration || Infinity, video.currentTime + (e.shiftKey ? 1 : 5));
+        return;
+      }
+    });
+  }
+
+  // ── Render helpers for dynamic slots ──
+  function _renderMvShell() {
+    const biasSlot = document.getElementById('mv-bias-slot');
+    if (biasSlot) biasSlot.innerHTML = _renderBiasDisclosureMv(biasDisclosureVisible);
+    _rebindBiasButtons();
+  }
+  function _rebindBiasButtons() {
+    document.getElementById('mv-show-bias')?.addEventListener('click', () => { biasDisclosureVisible = true; _renderMvShell(); });
+    document.getElementById('mv-hide-bias')?.addEventListener('click', () => { biasDisclosureVisible = false; _renderMvShell(); });
+  }
+  function _renderEvidenceSlot() {
+    const slot = document.getElementById('mv-evidence-slot');
+    if (!slot) return;
+    slot.innerHTML = evidencePanelVisible ? _renderEvidencePanelMv(evidencePanelVisible, profileCache) : '';
+    document.getElementById('mv-hide-evidence')?.addEventListener('click', () => { evidencePanelVisible = false; _renderEvidenceSlot(); });
+  }
+  function _renderComparisonSlot() {
+    const slot = document.getElementById('mv-compare-slot');
+    if (!slot) return;
+    slot.innerHTML = comparisonViewVisible ? _renderComparisonViewMv(profileCache) : '';
+    document.getElementById('mv-hide-compare')?.addEventListener('click', () => { comparisonViewVisible = false; _renderComparisonSlot(); });
+  }
+
+  // ── Wire new interactive controls ──
+  function _wireMvControls() {
+    document.getElementById('mv-show-bias')?.addEventListener('click', () => { biasDisclosureVisible = true; _renderMvShell(); });
+    document.getElementById('mv-hide-bias')?.addEventListener('click', () => { biasDisclosureVisible = false; _renderMvShell(); });
+    document.getElementById('mv-toggle-evidence')?.addEventListener('click', () => { evidencePanelVisible = !evidencePanelVisible; _renderEvidenceSlot(); });
+    document.getElementById('mv-hide-evidence')?.addEventListener('click', () => { evidencePanelVisible = false; _renderEvidenceSlot(); });
+    document.getElementById('mv-toggle-compare')?.addEventListener('click', () => { comparisonViewVisible = !comparisonViewVisible; _renderComparisonSlot(); });
+    document.getElementById('mv-hide-compare')?.addEventListener('click', () => { comparisonViewVisible = false; _renderComparisonSlot(); });
+    document.getElementById('mv-toggle-skeleton')?.addEventListener('click', () => { skeletonOverlay = !skeletonOverlay; });
+    document.getElementById('mv-speed')?.addEventListener('change', (ev) => {
+      const v = parseFloat(ev.target.value);
+      if (!Number.isNaN(v)) { playbackSpeed = v; document.querySelectorAll('video').forEach(_applyMvPlaybackSpeed); }
+    });
+    document.getElementById('mv-close-kb-help')?.addEventListener('click', () => { keyboardHelpVisible = false; _renderMvShell(); });
+  }
+
+  _wireMvControls();
 
   function render() {
     setBreadcrumb();

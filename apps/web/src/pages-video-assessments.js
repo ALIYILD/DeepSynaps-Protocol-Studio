@@ -25,6 +25,144 @@ const DISCLAIMER =
   'It does not diagnose, prescribe, triage emergencies, approve treatment, or act autonomously. ' +
   'All outputs require clinician review.';
 
+/** Video-specific safety warnings for camera-based movement analysis. */
+const VIDEO_SAFETY_WARNINGS = {
+  cameraQuality: 'Camera resolution and frame rate affect movement detection accuracy. HD (720p+) at 30fps recommended. Low-quality cameras may miss subtle movements.',
+  lighting: 'Even, front-facing lighting is required. Backlight, shadows, or low light can obscure body landmarks and produce false signals.',
+  bodyPositionClothing: 'Body position and clothing may affect analysis. Loose clothing can obscure limb boundaries. Face-down or off-center positioning may reduce landmark accuracy.',
+  biasDisclosure: 'Analysis accuracy varies across demographics. Pose estimation performance differs by skin tone, age, and body type. Interpret with cultural and demographic awareness.',
+};
+
+/** Evidence grades for guided video assessment tasks. */
+const VIDEO_TASK_EVIDENCE = {
+  rest_tremor: {
+    grade: 'B',
+    biomarker: 'rest_tremor_frequency',
+    note: '4-6 Hz rest tremor distinguishes PD from essential tremor (8-12 Hz). Contactless measurement ICC 0.82-0.91.',
+    safeWording: 'Tremor frequency features are model-assisted observation cues. Camera artifacts may mimic tremor — requires clinician review.',
+  },
+  postural_tremor: {
+    grade: 'C',
+    biomarker: 'postural_tremor_amplitude',
+    note: 'Amplitude correlates with clinical severity. Camera artifact can mimic tremor — requires clinician review.',
+    safeWording: 'Postural tremor amplitude is a model-assisted cue. Not a tremor diagnosis.',
+  },
+  finger_tap_left: {
+    grade: 'A',
+    biomarker: 'finger_tapping_speed',
+    note: 'Meta-analytic: speed decay most reliable PD feature. AUC 0.85-0.94. Requires clinical confirmation.',
+    safeWording: 'Finger tapping speed features may support clinician review of bradykinesia. Not a standalone diagnosis.',
+  },
+  finger_tap_right: {
+    grade: 'A',
+    biomarker: 'finger_tapping_speed',
+    note: 'Meta-analytic: speed decay most reliable PD feature. AUC 0.85-0.94. Requires clinical confirmation.',
+    safeWording: 'Finger tapping speed features may support clinician review of bradykinesia. Not a standalone diagnosis.',
+  },
+  hand_open_close_left: {
+    grade: 'B',
+    biomarker: 'pronation_supination_rom',
+    note: 'Hand movement ROM and velocity correlate with UPDRS-III. ICC 0.78-0.89 vs clinical rating.',
+    safeWording: 'Hand movement features are model-assisted cues for bradykinesia review. Requires clinician confirmation.',
+  },
+  hand_open_close_right: {
+    grade: 'B',
+    biomarker: 'pronation_supination_rom',
+    note: 'Hand movement ROM and velocity correlate with UPDRS-III. ICC 0.78-0.89 vs clinical rating.',
+    safeWording: 'Hand movement features are model-assisted cues for bradykinesia review. Requires clinician confirmation.',
+  },
+  pronation_supination_left: {
+    grade: 'B',
+    biomarker: 'pronation_supination_rom',
+    note: 'Forearm rotation ROM and velocity correlate with UPDRS-III. ICC 0.78-0.89 vs clinical rating.',
+    safeWording: 'Pronation-supination features support clinician bradykinesia review. Not a standalone diagnosis.',
+  },
+  pronation_supination_right: {
+    grade: 'B',
+    biomarker: 'pronation_supination_rom',
+    note: 'Forearm rotation ROM and velocity correlate with UPDRS-III. ICC 0.78-0.89 vs clinical rating.',
+    safeWording: 'Pronation-supination features support clinician bradykinesia review. Not a standalone diagnosis.',
+  },
+  foot_tap_left: {
+    grade: 'B',
+    biomarker: 'lower_limb_speed',
+    note: 'Lower limb repetitive movement shows correlation with bradykinesia. Less validated than upper limb.',
+    safeWording: 'Foot tapping features are model-assisted cues with moderate evidence. Requires clinician review.',
+  },
+  foot_tap_right: {
+    grade: 'B',
+    biomarker: 'lower_limb_speed',
+    note: 'Lower limb repetitive movement shows correlation with bradykinesia. Less validated than upper limb.',
+    safeWording: 'Foot tapping features are model-assisted cues with moderate evidence. Requires clinician review.',
+  },
+  gait_tandem_walk: {
+    grade: 'A',
+    biomarker: 'stride_length',
+    note: 'Strongest single PD gait predictor. Meta-analytic SMD = -1.12 vs controls. AUC 0.91-0.99 for PD diagnosis.',
+    safeWording: 'Gait features are the strongest validated video-based movement biomarkers. Still require clinical confirmation.',
+  },
+  stand_up_from_chair: {
+    grade: 'B',
+    biomarker: 'postural_sway_area',
+    note: 'Sit-to-stand timing correlates with bradykinesia and postural instability.',
+    safeWording: 'Postural transition features are proxy markers. Not a fall-risk determination.',
+  },
+  balance_eyes_open: {
+    grade: 'B',
+    biomarker: 'postural_sway_area',
+    note: 'COPC sway area correlates with Berg Balance Scale (r=-0.71). Single-leg stance predicts falls over 6 months.',
+    safeWording: 'Balance features are proxy markers. Not a fall-risk determination.',
+  },
+  balance_eyes_closed: {
+    grade: 'B',
+    biomarker: 'postural_sway_area',
+    note: 'COPC sway area correlates with Berg Balance Scale (r=-0.71). Eyes-closed condition more sensitive to proprioceptive loss.',
+    safeWording: 'Balance features are proxy markers. Not a fall-risk determination.',
+  },
+};
+
+function _renderTaskEvidenceBadge(taskId) {
+  const ev = VIDEO_TASK_EVIDENCE[taskId];
+  if (!ev) return '';
+  const colors = {
+    A: { bg: 'rgba(34,197,94,0.12)', text: '#16a34a', label: 'A — Meta-analytic' },
+    B: { bg: 'rgba(59,130,246,0.12)', text: '#2563eb', label: 'B — Controlled trial' },
+    C: { bg: 'rgba(245,158,11,0.12)', text: '#d97706', label: 'C — Observational' },
+    D: { bg: 'rgba(249,115,22,0.12)', text: '#f97316', label: 'D — Pilot' },
+  };
+  const g = String(ev.grade || 'D').toUpperCase();
+  const c = colors[g] || colors.D;
+  return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:4px;background:${c.bg};color:${c.text};font-size:11px;font-weight:600">${esc(c.label)}</span>`;
+}
+
+function _renderTaskEvidenceBlock(taskId) {
+  const ev = VIDEO_TASK_EVIDENCE[taskId];
+  if (!ev) return '';
+  return `<div style="margin-top:10px;padding:8px 10px;border-radius:6px;background:rgba(155,127,255,0.06);border:1px solid rgba(155,127,255,0.18);font-size:11px;line-height:1.5;color:var(--text-secondary)">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+      <strong style="color:var(--text-primary)">Evidence grade:</strong> ${_renderTaskEvidenceBadge(taskId)}
+    </div>
+    <div><strong>Biomarker:</strong> ${esc(ev.biomarker)}</div>
+    <div>${esc(ev.note)}</div>
+    <div style="margin-top:4px;color:var(--text-tertiary)"><strong>Safe wording:</strong> ${esc(ev.safeWording)}</div>
+  </div>`;
+}
+
+function _renderVideoSafetyPanel() {
+  return `<div style="margin-top:12px;padding:10px 12px;border-radius:8px;border:1px solid rgba(239,68,68,0.25);background:rgba(239,68,68,0.05);font-size:11px;line-height:1.6;color:var(--text-secondary)">
+    <strong style="color:var(--red)">Video analysis limitations</strong>
+    <ul style="margin:6px 0 0 16px;padding:0">
+      <li>${esc(VIDEO_SAFETY_WARNINGS.cameraQuality)}</li>
+      <li>${esc(VIDEO_SAFETY_WARNINGS.lighting)}</li>
+      <li>${esc(VIDEO_SAFETY_WARNINGS.bodyPositionClothing)}</li>
+      <li>${esc(VIDEO_SAFETY_WARNINGS.biasDisclosure)}</li>
+    </ul>
+    <div style="margin-top:8px;padding:6px 8px;border-radius:4px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);color:var(--amber);font-size:11px">
+      <strong>IMPORTANT:</strong> No video-based movement biomarker is FDA-approved for standalone diagnosis as of 2026. All outputs are model-assisted observation cues requiring clinician confirmation.
+    </div>
+  </div>`;
+}
+
 /**
  * FUTURE MOTOR FEATURE PANEL (Post-MVP)
  * When MediaPipe / pose-detection backend becomes available:
@@ -1472,7 +1610,8 @@ function _renderSetupChecklist() {
       <li>Wear comfortable clothes that show your arms and legs if possible.</li>
       <li>If you live alone and cannot stand safely, skip standing and walking tasks.</li>
     </ul>
-    <label class="va-checkbox"><input type="checkbox" id="va-setup-safe" ${_vaSetupConfirmed ? 'checked' : ''}/> I confirm I am in a safe space for movement tasks today.</label>
+    ${_renderVideoSafetyPanel()}
+    <label class="va-checkbox" style="margin-top:12px;display:block"><input type="checkbox" id="va-setup-safe" ${_vaSetupConfirmed ? 'checked' : ''}/> I confirm I am in a safe space for movement tasks today.</label>
     ${locked ? '<p class="va-muted" style="font-size:11px;margin-top:10px">The attached persisted session is finalized. Start a new persisted session to capture additional clips.</p>' : ''}
     <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
       <button type="button" class="btn btn-primary" id="va-setup-continue" ${locked ? 'disabled aria-disabled="true"' : ''}>Continue</button>
@@ -1485,12 +1624,13 @@ function _renderTaskIntro(task, def) {
   const sc = def.script.success_checklist.map((x) => `<li>${esc(x)}</li>`).join('');
   return `<div class="va-task-intro">
     ${_renderProgress()}
-    <div class="ds-card"><div class="ds-card__header"><h3>${esc(def.script.title)}</h3></div><div class="ds-card__body">
+    <div class="ds-card"><div class="ds-card__header"><h3 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">${esc(def.script.title)} ${_renderTaskEvidenceBadge(task.task_id)}</h3></div><div class="ds-card__body">
       <p class="va-muted"><strong>What this checks:</strong> ${esc(def.script.what_this_checks)}</p>
       <p><strong>How to do it:</strong> ${esc(def.script.how_to_do)}</p>
       <p><strong>Camera:</strong> ${esc(def.script.camera_position)}</p>
       <p><strong>Safety:</strong> ${esc(def.script.safety)}</p>
-      <div class="va-demo-placeholder" role="note">
+      ${_renderTaskEvidenceBlock(task.task_id)}
+      <div class="va-demo-placeholder" role="note" style="margin-top:10px">
         <span>Reference illustration not included</span>
         <small>Task scripts are text-only in this build. On-screen demonstration clips are not shown—follow the written steps and voice prompt.</small>
       </div>
@@ -1548,6 +1688,11 @@ function _renderPostRecord(task, def) {
     <h4 style="margin:0 0 8px">Review clip</h4>
     ${vid}
     ${metaBlock}
+    ${_renderTaskEvidenceBlock(task.task_id)}
+    <div style="margin-top:10px;padding:8px 10px;border-radius:6px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);font-size:11px;color:var(--text-secondary);line-height:1.5">
+      <strong style="color:var(--amber)">⚠ Camera quality may affect accuracy:</strong> ${esc(VIDEO_SAFETY_WARNINGS.cameraQuality)}
+      <div style="margin-top:4px">${esc(VIDEO_SAFETY_WARNINGS.biasDisclosure)}</div>
+    </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
       <button type="button" class="btn btn-primary" id="va-use-clip" ${locked ? 'disabled aria-disabled="true"' : ''}>${saveToBackend ? 'Use this recording and upload to session' : 'Use this recording'}</button>
       <button type="button" class="btn btn-secondary" id="va-rerecord" ${locked ? 'disabled aria-disabled="true"' : ''}>Record again</button>
@@ -1661,6 +1806,15 @@ function _renderGovernanceCard() {
         <li>Any future automated markers must show method, uncertainty, and require clinician review (not shipped here yet).</li>
         <li>Exports are JSON drafts for workflow handoff; they are not signed clinical documents.</li>
       </ul>
+      <div style="margin-top:12px;padding:8px 10px;border-radius:6px;background:rgba(155,127,255,0.06);border:1px solid rgba(155,127,255,0.18)">
+        <strong style="color:var(--text-primary)">Movement biomarker evidence grades (per task):</strong>
+        <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px">
+          <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(34,197,94,0.12);color:#16a34a;font-weight:600">A — Meta-analytic support</span>
+          <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(59,130,246,0.12);color:#2563eb;font-weight:600">B — Controlled trial</span>
+          <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(245,158,11,0.12);color:#d97706;font-weight:600">C — Observational</span>
+        </div>
+        <p style="margin:8px 0 0;font-size:11px;color:var(--text-tertiary)">No video-based movement biomarker is FDA-approved for standalone diagnosis as of 2026. All outputs require clinician confirmation.</p>
+      </div>
     </div>
   </div>`;
 }
@@ -1737,6 +1891,12 @@ function _renderPatientColumn() {
           <div class="ds-card__body">
             <div class="va-video-wrap"><video id="va-camera-preview" autoplay playsinline muted></video></div>
             <p class="va-muted" style="font-size:11px;margin-top:8px">${esc(DISCLAIMER)}</p>
+            <div style="margin-top:10px;padding:8px;border-radius:6px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);font-size:11px;color:var(--text-secondary);line-height:1.5">
+              <strong style="color:var(--amber)">📹 Camera quality check:</strong> ${esc(VIDEO_SAFETY_WARNINGS.cameraQuality)}
+              <div style="margin-top:4px"><strong>💡 Lighting:</strong> ${esc(VIDEO_SAFETY_WARNINGS.lighting)}</div>
+              <div style="margin-top:4px"><strong>👤 Position & clothing:</strong> ${esc(VIDEO_SAFETY_WARNINGS.bodyPositionClothing)}</div>
+              <div style="margin-top:4px"><strong>⚖️ Bias note:</strong> ${esc(VIDEO_SAFETY_WARNINGS.biasDisclosure)}</div>
+            </div>
           </div>
         </div>`
       : '';
@@ -1838,6 +1998,7 @@ function _renderClinicianForm(task) {
     ${conflictBanner}
     ${unsafeBadge}${skipBadge}
     <div style="margin-bottom:12px">${videoBlock}</div>
+    ${_renderTaskEvidenceBlock(task.task_id)}
     ${readOnly ? '<p class="va-muted" style="font-size:12px;margin:0 0 12px;color:var(--amber)">This persisted session is finalized. Structured review fields are read-only.</p>' : ''}
     <fieldset style="border:0;padding:0;margin:0" ${readOnly ? 'disabled' : ''}>
       ${baseFields}
@@ -2190,7 +2351,11 @@ function _renderClinicianColumn() {
         t.unsafe_flag || t.recording_status === 'unsafe_skipped'
           ? ' ⚠'
           : '';
-      return `<button type="button" class="va-side-item ${active}" data-va-task-idx="${i}">${esc(t.task_name)}${review}${flag}</button>`;
+      const ev = VIDEO_TASK_EVIDENCE[t.task_id];
+      const gradeBadge = ev
+        ? `<span style="margin-left:auto;font-size:10px;padding:1px 6px;border-radius:4px;background:${ev.grade === 'A' ? 'rgba(34,197,94,0.12);color:#16a34a' : ev.grade === 'B' ? 'rgba(59,130,246,0.12);color:#2563eb' : 'rgba(245,158,11,0.12);color:#d97706'}">${esc(ev.grade)}</span>`
+        : '';
+      return `<button type="button" class="va-side-item ${active}" data-va-task-idx="${i}">${esc(t.task_name)}${review}${flag}${gradeBadge}</button>`;
     })
     .join('');
 
@@ -2199,7 +2364,7 @@ function _renderClinicianColumn() {
     <div class="va-clin-layout">
       <aside class="va-sidebar" aria-label="Tasks">${sidebar}</aside>
       <div class="va-clin-main">
-        <h4 style="margin:0 0 8px">${task ? esc(task.task_name) : ''}</h4>
+        <h4 style="margin:0 0 8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">${task ? esc(task.task_name) : ''} ${_renderTaskEvidenceBadge(task?.task_id || '')}</h4>
         <p class="va-muted" style="font-size:12px">${def ? esc(def.clinical_purpose) : ''}</p>
         ${_renderClinicianForm(task)}
         ${_renderPriorSessionsComparison()}
@@ -3044,3 +3209,98 @@ export async function pgVideoAssessments(setTopbar, navigate) {
     }
   });
 }
+  _clearRemoteVideoState();
+  _stopMedia();
+  _cleanupPreviewUrl();
+
+  if (!_vaKeysBound && typeof document !== 'undefined') {
+    _vaKeysBound = true;
+    document.addEventListener('keydown', (e) => {
+      const tag = (e.target?.tagName || '').toLowerCase();
+      const isTyping = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable;
+
+      // Global shortcuts (not when typing in a field)
+      if (!isTyping) {
+        if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+          e.preventDefault();
+          _vaKeyboardHelpVisible = !_vaKeyboardHelpVisible;
+          _render();
+          return;
+        }
+        if (e.key === 'f' || e.key === 'F') {
+          e.preventDefault();
+          if (!document.fullscreenElement) { document.documentElement.requestFullscreen().catch(() => {}); }
+          else { document.exitFullscreen().catch(() => {}); }
+          return;
+        }
+        if (e.key === 'c' || e.key === 'C') {
+          e.preventDefault();
+          _vaComparisonView = !_vaComparisonView;
+          _render();
+          return;
+        }
+        if (e.key === 's' || e.key === 'S') {
+          e.preventDefault();
+          _vaSkeletonOverlay = !_vaSkeletonOverlay;
+          _render();
+          return;
+        }
+        if (e.key === 'e' || e.key === 'E') {
+          e.preventDefault();
+          _vaEvidencePanel = !_vaEvidencePanel;
+          _render();
+          return;
+        }
+        if (e.key === 'a' || e.key === 'A') {
+          e.preventDefault();
+          const video = document.querySelector('video');
+          const time = video ? Math.round(video.currentTime * 10) / 10 : 0;
+          const noteField = document.querySelector('[data-va-field="free_text_comment"]');
+          if (noteField) {
+            noteField.focus();
+            const prefix = time ? '[' + time + 's] ' : '';
+            if (!noteField.value.includes(prefix)) noteField.value = prefix + noteField.value;
+          }
+          return;
+        }
+        if (e.key === ' ' || e.code === 'Space') {
+          e.preventDefault();
+          const video = document.querySelector('video');
+          if (video) {
+            if (video.paused) { video.play(); _applyPlaybackSpeed(video); }
+            else video.pause();
+          }
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          const idx = VA_SPEEDS.indexOf(_vaPlaybackSpeed);
+          _vaPlaybackSpeed = idx < VA_SPEEDS.length - 1 ? VA_SPEEDS[idx + 1] : 2;
+          document.querySelectorAll('video').forEach(_applyPlaybackSpeed);
+          _render();
+          return;
+        }
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          const idx = VA_SPEEDS.indexOf(_vaPlaybackSpeed);
+          _vaPlaybackSpeed = idx > 0 ? VA_SPEEDS[idx - 1] : 0.25;
+          document.querySelectorAll('video').forEach(_applyPlaybackSpeed);
+          _render();
+          return;
+        }
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          const video = document.querySelector('video');
+          if (video) video.currentTime = Math.max(0, video.currentTime + (e.shiftKey ? -1 : -5));
+          return;
+        }
+        if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          const video = document.querySelector('video');
+          if (video) video.currentTime = Math.min(video.duration || Infinity, video.currentTime + (e.shiftKey ? 1 : 5));
+          return;
+        }
+      }
+
+    });
+  }

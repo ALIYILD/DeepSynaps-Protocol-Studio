@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path as FsPath
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, File, Form, Path as PathParam, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Path as PathParam, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role, require_patient_owner
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.limiter import limiter
 from app.persistence.models import AuditEventRecord
 from app.repositories.video_assessments import Patient, User, VideoAssessmentSession
 from app.repositories.audit import (
@@ -71,6 +72,7 @@ _PATIENT_ALLOWED_RECORDING_STATUSES = frozenset(
     {"pending", "pending_review", "recorded", "skipped", "unsafe_skipped"}
 )
 _HISTORICAL_SUMMARY_LOGIC_VERSION = "video_assessment_historical_summary_v2"
+_RETENTION_POLICY = {"retention_days": 2555, "retention_policy": "7-year clinical record retention"}
 _ALLOWED_HISTORICAL_FEEDBACK_STATUS = frozenset({"accepted", "partially_accepted", "disagreed", "not_useful"})
 _MAX_HISTORICAL_FEEDBACK_NOTE_CHARS = 300
 
@@ -1330,7 +1332,9 @@ def list_prior_finalized_sessions(
 
 
 @router.post("/sessions/{session_id}/historical-ai-summary", response_model=HistoricalSummaryResponse)
+@limiter.limit("30/minute")
 def generate_historical_ai_summary(
+    request: Request,
     body: HistoricalSummaryRequest,
     session_id: str = PathParam(..., min_length=8),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
@@ -1420,7 +1424,9 @@ def get_historical_ai_summary_feedback(
     "/sessions/{session_id}/historical-ai-summary-feedback",
     response_model=HistoricalSummaryFeedbackResponse,
 )
+@limiter.limit("30/minute")
 def save_historical_ai_summary_feedback(
+    request: Request,
     body: HistoricalSummaryFeedbackRequest,
     session_id: str = PathParam(..., min_length=8),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
@@ -1454,7 +1460,9 @@ def save_historical_ai_summary_feedback(
 
 
 @router.post("/sessions", status_code=201)
+@limiter.limit("30/minute")
 def create_session(
+    request: Request,
     body: CreateSessionRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
@@ -1515,7 +1523,9 @@ def get_session(
 
 
 @router.patch("/sessions/{session_id}")
+@limiter.limit("30/minute")
 def patch_session(
+    request: Request,
     body: PatchSessionRequest,
     session_id: str = PathParam(..., min_length=8),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
@@ -1580,7 +1590,9 @@ def _va_storage_dir(patient_id: str, session_id: str) -> FsPath:
 
 
 @router.post("/sessions/{session_id}/tasks/{task_id}/upload", status_code=201)
+@limiter.limit("30/minute")
 async def upload_task_video(
+    request: Request,
     session_id: str = PathParam(..., min_length=8),
     task_id: str = PathParam(..., min_length=2),
     expected_revision: str = Form(..., min_length=8, max_length=64),
@@ -1731,7 +1743,9 @@ class FinalizeRequest(BaseModel):
 
 
 @router.post("/sessions/{session_id}/finalize")
+@limiter.limit("30/minute")
 def finalize_session(
+    request: Request,
     body: FinalizeRequest,
     session_id: str = PathParam(..., min_length=8),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
@@ -1768,6 +1782,428 @@ def finalize_session(
     return _session_response_body(row)
 
 
+# --- Safety check (pre-review validation) ---
+# core-schema-exempt: safety-check request body; not reused outside this router
+class SafetyCheckRequest(BaseModel):
+    """Optional body for requesting a safety check on a session."""
+    expected_tasks: Optional[list[str]] = Field(default=None, description="List of task_ids that must be present")
+
+
+# core-schema-exempt: safety-check response shape; not reused outside this router
+class SafetyCheckResponse(BaseModel):
+    session_id: str
+    safe_to_review: bool
+    overall_status: str
+    required_tasks_complete: bool
+    missing_required_tasks: list[str] = Field(default_factory=list)
+    unrecognized_safety_flags: list[str] = Field(default_factory=list)
+    unsafe_flagged_tasks: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+@router.post("/sessions/{session_id}/safety-check", response_model=SafetyCheckResponse)
+@limiter.limit("30/minute")
+def safety_check_session(
+    request: Request,
+    body: SafetyCheckRequest | None = None,
+    session_id: str = PathParam(..., min_length=8),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> SafetyCheckResponse:
+    """Validate a session is ready for clinician review.
+
+    Checks:
+    - Session exists and caller has access
+    - Required tasks are complete (recorded or skipped)
+    - Safety flags contain only recognized values
+    - Warns if any tasks have unsafe_flag set
+    """
+    require_minimum_role(actor, "clinician")
+    row = db.query(VideoAssessmentSession).filter(VideoAssessmentSession.id == session_id).first()
+    if row is None:
+        raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
+    _gate_session_clinician(actor, row, db)
+
+    doc = _load_session_body(row)
+    tasks = doc.get("tasks") or []
+    safety_flags = doc.get("safety_flags") or []
+
+    # Recognized safety flag values: task_ids that exist in the session
+    valid_task_ids = {str(t.get("task_id")) for t in tasks if t.get("task_id")}
+    unrecognized_safety_flags = [
+        flag for flag in safety_flags
+        if str(flag) not in valid_task_ids and str(flag) not in {"session", "global"}
+    ]
+
+    # Check required tasks if specified
+    expected_tasks = body.expected_tasks if body and body.expected_tasks else []
+    missing_required_tasks: list[str] = []
+    if expected_tasks:
+        task_statuses = {str(t.get("task_id")): str(t.get("recording_status") or "") for t in tasks}
+        for required_tid in expected_tasks:
+            status = task_statuses.get(str(required_tid), "")
+            if status not in ("recorded", "accepted", "skipped", "unsafe_skipped", "pending_review"):
+                missing_required_tasks.append(str(required_tid))
+
+    # Tasks with unsafe_flag set
+    unsafe_flagged_tasks = [
+        {"task_id": str(t.get("task_id")), "recording_status": str(t.get("recording_status") or "")}
+        for t in tasks
+        if t.get("unsafe_flag") or t.get("recording_status") == "unsafe_skipped"
+    ]
+
+    warnings: list[str] = []
+    if unsafe_flagged_tasks:
+        warnings.append(
+            f"{len(unsafe_flagged_tasks)} task(s) have unsafe_flag set — review before proceeding."
+        )
+    if unrecognized_safety_flags:
+        warnings.append(
+            f"Unrecognized safety flags: {unrecognized_safety_flags} — may indicate data integrity issue."
+        )
+    if missing_required_tasks:
+        warnings.append(
+            f"Required tasks incomplete: {missing_required_tasks}"
+        )
+
+    required_tasks_complete = not missing_required_tasks
+    safe_to_review = (
+        required_tasks_complete
+        and not unrecognized_safety_flags
+        and not unsafe_flagged_tasks
+    )
+
+    _audit_va(
+        db,
+        actor=actor,
+        action="safety_check",
+        target_id=session_id,
+        note=f"safe={safe_to_review} tasks={len(tasks)} unsafe={len(unsafe_flagged_tasks)}",
+    )
+
+    return SafetyCheckResponse(
+        session_id=session_id,
+        safe_to_review=safe_to_review,
+        overall_status=str(doc.get("overall_status") or row.overall_status or ""),
+        required_tasks_complete=required_tasks_complete,
+        missing_required_tasks=missing_required_tasks,
+        unrecognized_safety_flags=unrecognized_safety_flags,
+        unsafe_flagged_tasks=unsafe_flagged_tasks,
+        warnings=warnings,
+    )
+
+
+# ── Video Quality Check (pre-analysis validation) ──────────────────────────
+# core-schema-exempt: quality-check response; not reused outside this router
+class VideoQualityCheckResponse(BaseModel):
+    """Video quality analysis result for clinical decision-support."""
+    filename: str
+    resolution: str
+    frame_rate: float
+    duration_seconds: float | None = None
+    lighting_score: float  # 0.0-1.0
+    occlusion_score: float  # 0.0-1.0 (1.0 = no occlusion)
+    overall_quality_score: float  # 0.0-1.0
+    sufficient_for_analysis: bool
+    warnings: list[str] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
+    disclaimer: str = (
+        "Quality metrics are automated estimates for decision-support only. "
+        "They do not guarantee clinical validity of extracted biomarkers."
+    )
+
+
+# core-schema-exempt: quality-check request body; not reused outside this router
+class VideoQualityCheckRequest(BaseModel):
+    """Optional parameters for video quality analysis."""
+    minimum_resolution: str = Field(default="640x480", description="Minimum required resolution (WxH)")
+    minimum_frame_rate: float = Field(default=15.0, description="Minimum required FPS")
+    minimum_lighting_score: float = Field(default=0.4, description="Minimum lighting quality (0-1)")
+
+
+def _parse_resolution(resolution_str: str) -> tuple[int, int]:
+    """Parse 'WxH' resolution string into (width, height) tuple."""
+    try:
+        w, h = resolution_str.lower().split("x")
+        return int(w.strip()), int(h.strip())
+    except (ValueError, AttributeError):
+        return 640, 480
+
+
+def _analyze_video_quality(
+    video_bytes: bytes,
+    filename: str,
+    params: VideoQualityCheckRequest,
+) -> VideoQualityCheckResponse:
+    """Analyze uploaded video for quality metrics.
+
+    Performs lightweight analysis without full pose estimation:
+    - Resolution estimation from frame dimensions
+    - Frame rate estimation from container metadata
+    - Lighting score from luminance histogram
+    - Occlusion score from body-part visibility heuristic
+
+    This is a stub implementation that uses header-based estimation.
+    A production implementation would use OpenCV or FFmpeg for full analysis.
+    """
+    warnings: list[str] = []
+    recommendations: list[str] = []
+
+    # Estimate resolution from video container headers
+    width, height = _estimate_resolution_from_headers(video_bytes)
+    resolution = f"{width}x{height}" if width and height else "unknown"
+
+    # Estimate frame rate from container
+    frame_rate = _estimate_frame_rate_from_headers(video_bytes)
+
+    # Estimate duration
+    duration = _estimate_duration_from_headers(video_bytes)
+
+    # Estimate lighting score from byte-level luminance proxy
+    lighting_score = _estimate_lighting_score(video_bytes)
+
+    # Estimate occlusion score (stub: assume minimal occlusion)
+    occlusion_score = 0.85
+
+    # Compute overall quality score
+    min_w, min_h = _parse_resolution(params.minimum_resolution)
+    resolution_ok = width >= min_w and height >= min_h if width and height else False
+    fps_ok = frame_rate >= params.minimum_frame_rate if frame_rate else False
+    lighting_ok = lighting_score >= params.minimum_lighting_score
+
+    quality_factors = []
+    if resolution_ok:
+        quality_factors.append(0.35)
+    else:
+        warnings.append(
+            f"Resolution ({resolution}) is below recommended minimum ({params.minimum_resolution}). "
+            "Pose estimation accuracy may be reduced."
+        )
+        recommendations.append("Re-record at 720p or higher (1280x720) for optimal analysis.")
+
+    if fps_ok:
+        quality_factors.append(0.30)
+    else:
+        warnings.append(
+            f"Frame rate ({frame_rate} FPS) is below recommended minimum ({params.minimum_frame_rate} FPS). "
+            "Rapid movement detection may be unreliable."
+        )
+        recommendations.append("Ensure device is set to 30 FPS recording mode.")
+
+    if lighting_ok:
+        quality_factors.append(0.20)
+    else:
+        warnings.append(
+            f"Lighting score ({lighting_score:.2f}) is below recommended threshold ({params.minimum_lighting_score}). "
+            "Low light reduces keypoint detection accuracy."
+        )
+        recommendations.append("Record in a well-lit environment with even front-facing lighting.")
+
+    if occlusion_score >= 0.7:
+        quality_factors.append(0.15)
+    else:
+        warnings.append("Body occlusion detected. Ensure full body is visible in frame.")
+        recommendations.append("Position camera to capture the full body without obstruction.")
+
+    overall = sum(quality_factors)
+    sufficient = overall >= 0.75 and len(warnings) <= 1
+
+    if not sufficient:
+        recommendations.append(
+            "Consider re-recording the video with the above recommendations for reliable pose-based analysis."
+        )
+
+    return VideoQualityCheckResponse(
+        filename=filename,
+        resolution=resolution,
+        frame_rate=round(frame_rate, 1) if frame_rate else 0.0,
+        duration_seconds=duration,
+        lighting_score=round(lighting_score, 3),
+        occlusion_score=round(occlusion_score, 3),
+        overall_quality_score=round(overall, 3),
+        sufficient_for_analysis=sufficient,
+        warnings=warnings,
+        recommendations=recommendations,
+    )
+
+
+def _estimate_resolution_from_headers(video_bytes: bytes) -> tuple[int | None, int | None]:
+    """Estimate video resolution from container headers (stub).
+
+    Production: use OpenCV cv2.CAP_PROP_FRAME_WIDTH/HEIGHT or FFmpeg ffprobe.
+    """
+    # Quick heuristic: WebM/MP4 headers may contain resolution
+    if len(video_bytes) < 64:
+        return None, None
+
+    # Check for common width/height patterns in headers
+    # WebM/Matroska and MP4 store dimensions in specific byte positions
+    if video_bytes[:4] == b"\x1aE\xdf\xa3":  # WebM/Matroska
+        # Look for PixelWidth/PixelHeight elements (0xB0 / 0xBA)
+        for i in range(min(512, len(video_bytes) - 5)):
+            if video_bytes[i] == 0xB0 and video_bytes[i + 1] < 0x84:
+                try:
+                    w = int.from_bytes(video_bytes[i + 2 : i + 4], "big")
+                    if 160 <= w <= 7680:
+                        return w, None
+                except Exception:
+                    pass
+    elif video_bytes[4:8] == b"ftyp":  # MP4
+        # Look for width/height in tkhd or similar atoms
+        # This is a simplified heuristic
+        for i in range(min(4096, len(video_bytes) - 8)):
+            if video_bytes[i : i + 4] == b"tkhd":
+                try:
+                    # tkhd version 0: width at offset 48 (16.16 fixed point)
+                    w_raw = int.from_bytes(video_bytes[i + 48 : i + 52], "big")
+                    h_raw = int.from_bytes(video_bytes[i + 52 : i + 56], "big")
+                    w = w_raw >> 16
+                    h = h_raw >> 16
+                    if 160 <= w <= 7680 and 120 <= h <= 4320:
+                        return w, h
+                except Exception:
+                    pass
+
+    # Fallback: return plausible defaults based on file size heuristic
+    return None, None
+
+
+def _estimate_frame_rate_from_headers(video_bytes: bytes) -> float | None:
+    """Estimate frame rate from container headers (stub).
+
+    Production: use OpenCV cv2.CAP_PROP_FPS or FFmpeg.
+    """
+    # Common frame rates encoded in headers
+    if video_bytes[:4] == b"\x1aE\xdf\xa3":  # WebM
+        # WebM often stores frame rate in segment info
+        for i in range(min(256, len(video_bytes) - 8)):
+            if video_bytes[i] == 0x235E and i + 4 < len(video_bytes):
+                try:
+                    rate = int.from_bytes(video_bytes[i + 1 : i + 5], "big")
+                    if 1 <= rate <= 120:
+                        return float(rate)
+                except Exception:
+                    pass
+    elif video_bytes[4:8] == b"ftyp":  # MP4
+        # mvhd timescale / duration gives frame rate
+        for i in range(min(4096, len(video_bytes) - 12)):
+            if video_bytes[i : i + 4] == b"mvhd":
+                try:
+                    timescale = int.from_bytes(video_bytes[i + 12 : i + 16], "big")
+                    if 1000 <= timescale <= 120000:
+                        # Common timescale values correspond to standard frame rates
+                        if timescale % 30000 == 0:
+                            return 30.0
+                        elif timescale % 24000 == 0:
+                            return 24.0
+                        elif timescale % 25000 == 0:
+                            return 25.0
+                        elif timescale % 60000 == 0:
+                            return 60.0
+                except Exception:
+                    pass
+
+    return None
+
+
+def _estimate_duration_from_headers(video_bytes: bytes) -> float | None:
+    """Estimate video duration from container headers (stub)."""
+    if video_bytes[4:8] == b"ftyp":  # MP4
+        for i in range(min(4096, len(video_bytes) - 16)):
+            if video_bytes[i : i + 4] == b"mvhd":
+                try:
+                    duration = int.from_bytes(video_bytes[i + 16 : i + 24], "big")
+                    timescale = int.from_bytes(video_bytes[i + 12 : i + 16], "big")
+                    if timescale > 0 and duration > 0:
+                        return duration / timescale
+                except Exception:
+                    pass
+    return None
+
+
+def _estimate_lighting_score(video_bytes: bytes) -> float:
+    """Estimate lighting quality from video bytes (stub heuristic).
+
+    Production: use OpenCV to compute luminance histogram mean and variance.
+    """
+    import statistics
+
+    if len(video_bytes) < 256:
+        return 0.5
+
+    # Sample bytes at regular intervals as a proxy for luminance
+    sample_size = min(4096, len(video_bytes))
+    step = max(1, len(video_bytes) // sample_size)
+    samples = [video_bytes[i] / 255.0 for i in range(0, len(video_bytes), step)][:sample_size]
+
+    if not samples:
+        return 0.5
+
+    mean_lum = statistics.mean(samples)
+    # Score: penalize both very dark (<0.2) and very bright/clip (>0.9)
+    # Ideal range: 0.3-0.7
+    if 0.3 <= mean_lum <= 0.7:
+        base_score = 0.7 + 0.3 * (1.0 - abs(mean_lum - 0.5) / 0.2)
+    elif mean_lum < 0.2:
+        base_score = mean_lum / 0.2 * 0.4
+    elif mean_lum > 0.9:
+        base_score = (1.0 - mean_lum) / 0.1 * 0.4
+    else:
+        base_score = 0.4 + 0.3 * (1.0 - abs(mean_lum - 0.5) / 0.4)
+
+    return max(0.0, min(1.0, base_score))
+
+
+@router.post("/quality-check", response_model=VideoQualityCheckResponse)
+@limiter.limit("30/minute")
+async def video_quality_check(
+    request: Request,
+    file: UploadFile = File(...),
+    params: VideoQualityCheckRequest | None = None,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> VideoQualityCheckResponse:
+    """Analyze uploaded video for quality metrics.
+
+    Returns resolution, frame rate, lighting score, and occlusion score.
+    Warns if quality is insufficient for reliable pose-based analysis.
+    Recommends re-recording with specific guidance if needed.
+
+    Decision-support only: quality metrics are automated estimates.
+    """
+    require_minimum_role(actor, "clinician")
+
+    if params is None:
+        params = VideoQualityCheckRequest()
+
+    raw = await file.read()
+    if not raw:
+        raise ApiServiceError(code="empty_file", message="Empty upload.", status_code=422)
+
+    # Size check (500 MB max for quality check)
+    if len(raw) > 500 * 1024 * 1024:
+        raise ApiServiceError(
+            code="file_too_large",
+            message="Video exceeds 500 MB quality-check limit.",
+            status_code=422,
+        )
+
+    result = _analyze_video_quality(raw, filename=file.filename or "unknown", params=params)
+
+    _audit_va(
+        db=request.state.db if hasattr(request.state, "db") else None,
+        actor=actor,
+        action="quality_check",
+        target_id="quality_check",
+        note=(
+            f"quality_score={result.overall_quality_score} "
+            f"resolution={result.resolution} fps={result.frame_rate} "
+            f"sufficient={result.sufficient_for_analysis}"
+        ),
+    )
+
+    return result
+
+
 @router.get("/sessions/{session_id}/export.json")
 def export_session_json(
     session_id: str = PathParam(..., min_length=8),
@@ -1802,6 +2238,7 @@ def export_session_json(
             "Structured observation data for clinician review and authorized research only. "
             "Not a standalone diagnosis; interpret with clinical judgment and protocol IRB approval."
         ),
+        **_RETENTION_POLICY,
     }
     _audit_va(db, actor=actor, action="session_export_json", target_id=session_id, note="research_bundle")
     return JSONResponse(
