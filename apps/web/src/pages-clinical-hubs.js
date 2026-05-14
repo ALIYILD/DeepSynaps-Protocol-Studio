@@ -34,7 +34,7 @@ import { documentsWorkspaceRouteFromSearch } from './documents-v2-route.js';
 import { SCALE_REGISTRY } from './registries/scale-assessment-registry.js';
 import { ASSESS_REGISTRY } from './registries/assess-instruments-registry.js';
 import { EVIDENCE_SUMMARY, EVIDENCE_TOTAL_PAPERS, CONDITION_EVIDENCE, getConditionEvidence } from './evidence-dataset.js';
-import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES, getProtocolsByCondition } from './protocols-data.js';
+import { PROTOCOL_LIBRARY, CONDITIONS as PROTO_CONDITIONS, DEVICES as PROTO_DEVICES, getProtocolsByCondition, PROTOCOL_EVIDENCE_PARAMS, SAFETY_LIMITS, CONTRAINDICATIONS_MATRIX, EVIDENCE_GRADES } from './protocols-data.js';
 import { buildDemoPatientRosterPreview } from './patient-dashboard-helpers.js';
 import { canAccessPatientRegistry } from './patient-registry-access.js';
 import { VOICE_DECISION_SUPPORT_SHORT, voiceApiErrorToast } from './voice-decision-support.js';
@@ -3670,7 +3670,16 @@ export async function pgProtocolHub(setTopbar, navigate) {
       '.ps-role-banner{padding:10px 14px;border-radius:10px;margin-bottom:14px;font-size:12px;line-height:1.5;border:1px solid var(--border);background:rgba(74,158,255,0.06)}' +
       '.ps-section-label{font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-tertiary);margin:14px 0 8px}' +
       '.ps-checklist{font-size:11.5px;color:var(--text-secondary);line-height:1.65;margin:8px 0 0;padding-left:18px}' +
-      '.ps-checklist li{margin-bottom:4px}';
+      '.ps-checklist li{margin-bottom:4px}' +
+      '.ps-fda-badge-approved{background:rgba(22,163,106,0.14);color:#16a34a}' +
+      '.ps-fda-badge-cleared{background:rgba(37,99,235,0.14);color:#2563eb}' +
+      '.ps-fda-badge-offlabel{background:rgba(107,114,128,0.14);color:#6b7280}' +
+      '.ps-fda-badge-negative{background:rgba(220,38,38,0.14);color:#dc2626}' +
+      '.ps-evidence-params-panel{background:rgba(0,212,188,0.04);border:1px solid rgba(0,212,188,0.15);border-radius:8px;padding:10px 12px;margin-top:10px;font-size:11px}' +
+      '.ps-safety-panel{background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.18);border-radius:8px;padding:10px 12px;margin-top:10px;font-size:11px}' +
+      '.ps-nf-warning{background:rgba(220,38,38,0.08);border:1px solid rgba(220,38,38,0.22);border-radius:10px;padding:12px 14px;margin-top:10px;font-size:11.5px}' +
+      '.ps-contra-absolute{background:rgba(220,38,38,0.08);border-left:3px solid #dc2626;color:#dc2626}' +
+      '.ps-contra-relative{background:rgba(245,158,11,0.08);border-left:3px solid #f59e0b;color:#f59e0b}';
     document.head.appendChild(_st);
   }
 
@@ -4100,6 +4109,45 @@ export async function pgProtocolHub(setTopbar, navigate) {
     let _catFilt = 'All';
     let _q = '';
 
+    // ── Evidence-grade helpers (research-derived, 2024-2025) ─────────────
+    const _fdaBadge = function(deviceId, conditionId) {
+      var dev = PROTO_DEVICES.find(function(d) { return d.id === deviceId; });
+      if (!dev || !dev.fdaStatus) return '';
+      var match = dev.fdaStatus[conditionId];
+      if (!match) {
+        var keys = Object.keys(dev.fdaStatus);
+        var partial = keys.find(function(k) { return conditionId.indexOf(k) >= 0 || k.indexOf(conditionId) >= 0; });
+        if (partial) match = dev.fdaStatus[partial];
+      }
+      if (!match) return '';
+      var statusColor = match.status === 'approved' ? '#16a34a' : match.status === 'cleared' ? '#2563eb' : match.status === 'not-recommended' ? '#dc2626' : '#6b7280';
+      var statusBg = match.status === 'approved' ? 'rgba(22,163,106,0.12)' : match.status === 'cleared' ? 'rgba(37,99,235,0.12)' : match.status === 'not-recommended' ? 'rgba(220,38,38,0.12)' : 'rgba(107,114,128,0.12)';
+      var label = match.status === 'approved' ? 'FDA Approved' : match.status === 'cleared' ? 'FDA Cleared' : match.status === 'not-recommended' ? 'NOT RECOMMENDED' : match.status;
+      return '<span class="ps-result-badge" style="background:' + statusBg + ';color:' + statusColor + '">' + esc(label) + (match.year ? ' (' + match.year + ')' : '') + '</span>';
+    };
+    const _evidenceGradeFromParams = function(conditionId, deviceId) {
+      var ep = PROTOCOL_EVIDENCE_PARAMS[conditionId];
+      if (!ep) return null;
+      if (ep[deviceId]) return ep[deviceId].evidence_grade || null;
+      var subtypeMap = { rtms: 'tms', tdcs: 'tdcs', itbs: 'itbs', saint: 'saint', hdtdcs: 'hdtdcs', nf: 'nf', tacs: 'tacs', tavns: 'tavns', ces: 'ces' };
+      var mapped = subtypeMap[deviceId];
+      if (mapped && ep[mapped]) return ep[mapped].evidence_grade || null;
+      return null;
+    };
+    const _evidenceParamBadge = function(grade) {
+      if (!grade) return '';
+      var g = String(grade).toUpperCase();
+      if (g === 'N') return '<span class="ps-result-badge" style="background:rgba(220,38,38,0.14);color:#dc2626;font-weight:700">GRADE N — NEGATIVE</span>';
+      var cls = g === 'A' ? 'ps-badge-a' : g === 'B' ? 'ps-badge-b' : 'ps-badge-c';
+      return '<span class="ps-result-badge ' + cls + '">Grade ' + esc(g) + '</span>';
+    };
+    const _nfWarning = function(conditionId) {
+      if (!PROTOCOL_EVIDENCE_PARAMS[conditionId]) return '';
+      var nf = PROTOCOL_EVIDENCE_PARAMS[conditionId].nf;
+      if (!nf || nf.evidence_grade !== 'N') return '';
+      return '<div class="ps-nf-warning"><strong>NEUROFEEDBACK — GRADE N (NEGATIVE):</strong> ' + esc(nf.warning || 'No clinically meaningful benefit in probably-blinded trials.') + '<br><small>Ref: ' + esc(nf.key_reference || 'JAMA Psychiatry 2024') + '</small></div>';
+    };
+
     function _renderGrid() {
       const rows = conditions.filter(c => {
         if (_catFilt !== 'All' && c.category !== _catFilt) return false;
@@ -4137,6 +4185,11 @@ export async function pgProtocolHub(setTopbar, navigate) {
               (c.curated_evidence_paper_count ? '&#9679; ' + c.curated_evidence_paper_count.toLocaleString() + ' research paper' + (c.curated_evidence_paper_count !== 1 ? 's' : '') + '<br>' : '') +
               (c.compatible_device_count ? '&#9679; ' + c.compatible_device_count + ' device' + (c.compatible_device_count !== 1 ? 's' : '') + '<br>' : '') +
             '</div>' +
+            '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px">' +
+              _evidenceParamBadge(c.highest_evidence_level) +
+              (PROTO_DEVICES.filter(function(d) { return d.fdaStatus && Object.keys(d.fdaStatus).length > 0 && (c.commonDevices || []).indexOf(d.id) >= 0; }).map(function(d) { return _fdaBadge(d.id, c.id); }).join('')) +
+            '</div>' +
+            '<div style="margin-top:6px">' + _nfWarning(c.id) + '</div>' +
             '<div class="ps-cond-actions">' +
               '<button type="button" class="ps-save-btn" onclick="window._psCondToGenerate(\'' + esc(c.id) + '\',\'' + esc(c.name).replace(/'/g,'\\'+'\'') + '\')">' + (_psCanAuthor() ? 'Open AI draft wizard →' : 'Open generator (view) →') + '</button>' +
               ((c.reviewed_protocol_count || 0) > 0 ? '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._psCondToBrowse(\'' + esc(c.id) + '\')">Browse protocols →</button>' : '') +

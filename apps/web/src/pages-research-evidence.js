@@ -11,6 +11,7 @@ import { currentUser } from './auth.js';
 import {
   EVIDENCE_TOTAL_PAPERS, EVIDENCE_TOTAL_TRIALS, EVIDENCE_TOTAL_META,
   EVIDENCE_SOURCES, CONDITION_EVIDENCE, EVIDENCE_SUMMARY,
+  EVIDENCE_GRADES, MODALITY_CONDITION_EVIDENCE_MATRIX, KEY_REFERENCES_2024_2025,
   getTopConditionsByPaperCount, searchEvidenceByKeyword,
 } from './evidence-dataset.js';
 import { getEvidenceUiStats } from './evidence-ui-live.js';
@@ -59,7 +60,104 @@ function hBar(label, value, maxVal, color) {
 }
 
 /* ── grade color ───────────────────────────────────────────────────────────── */
-const GRADE_CLR = { A: '#2dd4bf', B: '#60a5fa', C: '#fbbf24', D: '#f97316', E: '#ef4444' };
+const GRADE_CLR = { A: '#2dd4bf', B: '#60a5fa', C: '#fbbf24', D: '#f97316', E: '#ef4444', N: '#ef4444' };
+
+/* ── full GRADE evidence legend (A/B/C/D/N) ───────────────────────────────── */
+const GRADE_LEGEND = {
+  A: { label: 'Strong', color: '#2dd4bf', desc: 'Multiple RCTs, consistent, low heterogeneity (I\u00b2<50%), low risk of bias' },
+  B: { label: 'Moderate', color: '#60a5fa', desc: 'Some RCTs, mostly consistent, minor methodological concerns' },
+  C: { label: 'Limited', color: '#fbbf24', desc: 'Few RCTs, small samples, high heterogeneity, methodological limitations' },
+  D: { label: 'Emerging', color: '#f97316', desc: 'Preliminary/pilot studies, case series, mechanistic rationale only' },
+  N: { label: 'Negative', color: '#ef4444', desc: 'Probably-blinded outcomes show no clinically meaningful benefit' },
+};
+
+function _gradeLegendHtml() {
+  const items = Object.entries(GRADE_LEGEND).map(([k, v]) =>
+    `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;margin-bottom:4px">` +
+    `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${v.color}"></span>` +
+    `<span style="font-size:10px;font-weight:600;color:var(--text-secondary)">${esc(k)}</span>` +
+    `<span style="font-size:10px;color:var(--text-tertiary)">${esc(v.label)}</span></span>`
+  );
+  return `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px">${items.join('')}</div>`;
+}
+
+/* ── FDA status indicator helpers ──────────────────────────────────────────── */
+function _fdaIndicator(fda, fdaYear) {
+  if (fda === 'approved') return `<span title="FDA Approved${fdaYear ? ' ' + fdaYear : ''}" style="font-size:11px;color:#fbbf24;font-weight:700">\u2605</span>`;
+  if (fda === 'cleared') return `<span title="FDA Cleared${fdaYear ? ' ' + fdaYear : ''}" style="font-size:11px;color:#60a5fa;font-weight:700">\u25cf</span>`;
+  return '';
+}
+
+/* ── SMD tooltip helper ────────────────────────────────────────────────────── */
+function _smdTooltip(grade, smd, ci, nStudies) {
+  const parts = [];
+  if (grade) parts.push(`Grade ${grade}`);
+  if (smd) parts.push(`SMD ${smd}`);
+  if (ci) parts.push(ci);
+  if (nStudies) parts.push(`${nStudies} studies`);
+  return parts.join(' \u00b7 ') || 'Evidence grade only';
+}
+
+/* ── honest neurofeedback disclosure banner ────────────────────────────────── */
+function _neurofeedbackDisclosureHtml() {
+  return (
+    '<div class="ch-card" style="margin-bottom:14px;padding:12px 16px;border-left:3px solid var(--rose);background:rgba(244,63,94,0.06)">' +
+    '<div style="font-size:12.5px;color:var(--text-secondary);line-height:1.55">' +
+    '<strong style="color:var(--rose)">Evidence Disclosure \u2014 Neurofeedback for ADHD</strong><br>' +
+    'The largest meta-analysis to date (JAMA Psychiatry 2024, Janvier ME et al.; 38 RCTs, n=2,472) ' +
+    'found <strong>probably-blinded SMD = 0.04</strong> \u2014 no clinically meaningful benefit. ' +
+    'Standard (non-blinded) SMD was 0.21, suggesting performance/confounding bias. ' +
+    'This is a NEGATIVE (Grade N) finding in the GRADE framework.' +
+    '</div></div>'
+  );
+}
+
+/* ── Key 2024-2025 landmark references panel ───────────────────────────────── */
+function _renderKeyReferences2024_2025() {
+  const rows = KEY_REFERENCES_2024_2025.map((ref) => {
+    const gradeColor = EVIDENCE_GRADES[ref.gradeImpact]?.color || 'var(--text-tertiary)';
+    const nLabel = ref.nStudies && ref.nPatients ? `${ref.nStudies} studies, n=${ref.nPatients.toLocaleString()}`
+      : ref.nStudies ? `${ref.nStudies} studies`
+      : ref.nPatients ? `n=${ref.nPatients.toLocaleString()}`
+      : '';
+    return (
+      '<tr style="border-bottom:1px solid var(--border)">' +
+      `<td style="padding:8px 10px;font-size:12px;font-weight:600;color:var(--text-primary);white-space:nowrap">${esc(ref.citation)}</td>` +
+      `<td style="padding:8px 10px;font-size:12px;color:var(--text-secondary)">${esc(ref.title)}</td>` +
+      `<td style="padding:8px 10px;font-size:11px;color:var(--text-tertiary)">${esc(ref.journal)}</td>` +
+      `<td style="padding:8px 10px;font-size:11px;color:var(--text-tertiary)">${esc(ref.modality)} \u2192 ${esc(ref.condition)}</td>` +
+      `<td style="padding:8px 10px;font-size:11px;white-space:nowrap">${nLabel ? `<span style="font-size:10px;color:var(--text-tertiary)">${esc(nLabel)}</span>` : ''}</td>` +
+      `<td style="padding:8px 10px;font-size:11px;color:var(--text-secondary);max-width:240px">${esc(ref.keyFinding)}</td>` +
+      `<td style="padding:8px 10px"><span style="display:inline-block;padding:2px 6px;font-size:10px;font-weight:700;border-radius:3px;background:${gradeColor};color:#0b1220">${esc(ref.gradeImpact)}</span></td>` +
+      '</tr>'
+    );
+  }).join('');
+
+  return (
+    '<div class="ch-card" style="margin-top:16px;padding:16px">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">' +
+    '<div style="font-size:14px;font-weight:700;color:var(--text-primary)">Key 2024\u20132025 Findings</div>' +
+    '<span style="font-size:11px;color:var(--text-tertiary)">Landmark studies from the evidence research roadmap</span>' +
+    '</div>' +
+    '<div style="overflow-x:auto">' +
+    '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+    '<thead><tr style="border-bottom:2px solid var(--border)">' +
+    '<th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--text-secondary);text-align:left">Citation</th>' +
+    '<th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--text-secondary);text-align:left">Title</th>' +
+    '<th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--text-secondary);text-align:left">Journal</th>' +
+    '<th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--text-secondary);text-align:left">Modality \u2192 Condition</th>' +
+    '<th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--text-secondary);text-align:left">Scale</th>' +
+    '<th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--text-secondary);text-align:left">Key Finding</th>' +
+    '<th style="padding:8px 10px;font-size:11px;font-weight:700;color:var(--text-secondary);text-align:left">Grade</th>' +
+    '</tr></thead>' +
+    '<tbody>' + rows + '</tbody>' +
+    '</table></div>' +
+    '<p style="font-size:11px;color:var(--text-tertiary);margin-top:10px">' +
+    'GRADE impact: how this study affects the evidence grade for the modality-condition pair. ' +
+    '<em>Not a diagnosis or treatment recommendation. Clinician review required.</em>' +
+    '</p></div>'
+  );
+}
 let _liveEvidenceUiStats = null;
 
 function _resDemoBuild() {
@@ -674,6 +772,12 @@ async function renderOverview(body, liveEvidence = null) {
     ? _reRenderTerminalMetricCards(terminalSnapshot) + _reRenderTerminalExplorer(terminalSnapshot)
     : '<div class="ch-card" style="padding:14px;margin-bottom:16px;border-left:3px solid var(--rose)"><div style="font-size:13px;font-weight:600;color:var(--rose);margin-bottom:6px">Neuromodulation Evidence Terminal unavailable</div><div style="font-size:12px;color:var(--text-secondary);line-height:1.55">The live terminal snapshot could not be loaded. Bundled orientation panels remain available below, but they are not authoritative search output.</div></div>';
 
+  /* Neurofeedback disclosure banner */
+  const nfDisclosureHtml = _neurofeedbackDisclosureHtml();
+
+  /* Key 2024-2025 Findings panel */
+  const keyRefsHtml = _renderKeyReferences2024_2025();
+
   /* Condition × Modality Heatmap */
   const heatmapHtml = _renderConditionModalityHeatmap(conditions, S);
 
@@ -686,11 +790,13 @@ async function renderOverview(body, liveEvidence = null) {
     evidenceDbCardHtml +
     terminalDeck +
     kpiHtml + srcHtml + wearBridge +
+    nfDisclosureHtml +
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px">' +
     // merged from main: 90f0484e/bf505698 intent: live evidence-link, template, and safety panels
     yearHtml + gradeHtml + modHtml + tcHtml + liveLinksHtml + liveTemplateHtml + liveSafetyHtml +
     '</div>' +
     heatmapHtml +
+    keyRefsHtml +
     timelineHtml +
     '<p style="font-size:11px;color:var(--text-tertiary);margin-top:12px">Grade and year distributions use bundled registry approximations when the live API is unavailable — use <strong>Live Indexed Evidence Search</strong> for verified primary literature retrieval.</p>';
 }
@@ -705,77 +811,82 @@ async function renderOverview(body, liveEvidence = null) {
 function _renderConditionModalityHeatmap(conditions, S) {
   if (!conditions || conditions.length === 0) return '';
 
-  // Top modalities from PROTOCOL_REGISTRY
-  const modalities = ['tDCS', 'tACS', 'tRNS', 'rTMS', 'tVNS', 'PBM', 'Pulsed_Electro', 'Neurofeedback'];
-  const topConditions = conditions
-    .filter(c => c.paper_count > 0 || c.condition_category)
-    .slice(0, 16)
-    .map(c => ({
-      name: c.condition_label || c.condition_slug || 'Unknown',
-      category: c.condition_category || 'Other',
-      papers: c.paper_count || 0,
-      rcts: c.rct_count || 0,
-      meta: c.meta_analysis_count || 0,
-      modalities: c.priority_modalities || [],
-    }));
+  // Modality column order (must align with MODALITY_CONDITION_EVIDENCE_MATRIX keys)
+  const modalities = ['rTMS', 'tDCS', 'tACS', 'tRNS', 'NF'];
+  const modalityLabels = { rTMS: 'rTMS', tDCS: 'tDCS', tACS: 'tACS', tRNS: 'tRNS', NF: 'Neurofeedback' };
+  const modalityMatrixKeys = { rTMS: 'rTMS', tDCS: 'tDCS', tACS: 'tACS', tRNS: 'tRNS', NF: 'NF' };
 
-  if (topConditions.length === 0) return '';
+  // Build a lookup from condition slug → matrix row
+  const matrixMap = new Map();
+  for (const row of MODALITY_CONDITION_EVIDENCE_MATRIX) {
+    matrixMap.set(row.condition, row);
+  }
 
-  // Heatmap color scale: 0 papers → transparent, 1-5 → low, 6-20 → med, 21+ → high
-  const _heatColor = (count) => {
-    if (!count || count <= 0) return 'transparent';
-    if (count <= 5) return 'rgba(45,212,191,0.25)';   // teal low
-    if (count <= 20) return 'rgba(45,212,191,0.5)';   // teal med
-    if (count <= 50) return 'rgba(45,212,191,0.75)';  // teal high
-    return 'rgba(45,212,191,0.95)';                    // teal max
+  // Top conditions — try to use matrix-mapped conditions first, then fall back to registry
+  const topConditions = MODALITY_CONDITION_EVIDENCE_MATRIX.slice(0, 12);
+
+  // GRADE color from EVIDENCE_GRADES
+  const _gradeBg = (grade) => {
+    const g = String(grade || '').toUpperCase();
+    return EVIDENCE_GRADES[g]?.color || 'transparent';
   };
-  const _heatText = (count) => {
-    if (!count || count <= 0) return '<span style="color:var(--text-tertiary)">—</span>';
-    return `<span style="font-weight:700;color:${count > 20 ? '#fff' : 'var(--text-primary)'}">${count}</span>`;
+  const _gradeLabel = (grade) => {
+    const g = String(grade || '').toUpperCase();
+    return EVIDENCE_GRADES[g]?.label || '\u2014';
   };
 
   let rows = '';
   for (const cond of topConditions) {
     let cells = '';
     for (const mod of modalities) {
-      const hasMod = Array.isArray(cond.modalities) && cond.modalities.some(m =>
-        String(m).toLowerCase().includes(mod.toLowerCase()) ||
-        (mod === 'rTMS' && String(m).toLowerCase().includes('tms')) ||
-        (mod === 'Pulsed_Electro' && String(m).toLowerCase().includes('pulse'))
-      );
-      const count = hasMod ? Math.max(1, Math.floor(cond.papers / Math.max(1, cond.modalities.length))) : 0;
-      const bg = _heatColor(count);
-      const txt = _heatText(count);
-      cells += `<td style="padding:6px 10px;text-align:center;border:1px solid var(--border-subtle);background:${bg};cursor:default" title="${esc(cond.name)} × ${mod}: ${count} papers">${txt}</td>`;
+      const mk = modalityMatrixKeys[mod] || mod;
+      const cellData = cond[mk] || {};
+      const grade = cellData.grade || 'D';
+      const bg = _gradeBg(grade);
+      const isNeg = grade === 'N';
+      const fdaInd = _fdaIndicator(cellData.fda, cellData.fdaYear);
+      const tooltip = _smdTooltip(grade, cellData.smd, cellData.ci, cellData.nStudies);
+      const gradeLabel = _gradeLabel(grade);
+      const textColor = isNeg ? '#fff' : (grade === 'A' || grade === 'B') ? '#0b1220' : '#0b1220';
+      cells += `<td style="padding:6px 8px;text-align:center;border:1px solid var(--border-subtle);background:${bg};cursor:default;position:relative" title="${esc(tooltip)}">` +
+        `<span style="font-weight:700;font-size:11px;color:${textColor}">${esc(grade)}</span>` +
+        (fdaInd ? `<span style="margin-left:3px">${fdaInd}</span>` : '') +
+        `<div style="font-size:9px;color:${textColor};opacity:0.85;margin-top:1px">${esc(gradeLabel)}</div>` +
+        `</td>`;
     }
-    rows += `<tr><td style="padding:6px 10px;font-size:12px;font-weight:600;color:var(--text-primary);border:1px solid var(--border-subtle);white-space:nowrap">${esc(cond.name)}</td>${cells}</tr>`;
+    rows += `<tr><td style="padding:6px 10px;font-size:12px;font-weight:600;color:var(--text-primary);border:1px solid var(--border-subtle);white-space:nowrap">${esc(cond.conditionLabel)}</td>${cells}</tr>`;
   }
 
   const headerCells = modalities.map(m =>
-    `<th style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-secondary);border:1px solid var(--border-subtle);text-align:center;min-width:60px">${esc(m)}</th>`
+    `<th style="padding:6px 8px;font-size:11px;font-weight:700;color:var(--text-secondary);border:1px solid var(--border-subtle);text-align:center;min-width:72px">${esc(modalityLabels[m] || m)}</th>`
   ).join('');
 
   return (
     '<div class="ch-card" style="margin-top:16px;padding:16px">' +
-    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">' +
     '<div style="font-size:14px;font-weight:700;color:var(--text-primary)">Condition × Modality Evidence Heatmap</div>' +
-    '<span style="font-size:11px;color:var(--text-tertiary)">Paper count per condition-modality pair</span>' +
+    '<span style="font-size:11px;color:var(--text-tertiary)">GRADE evidence level (A=Strong, N=Negative)</span>' +
     '</div>' +
     '<div style="overflow-x:auto">' +
     '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
     '<thead><tr><th style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-secondary);border:1px solid var(--border-subtle);text-align:left">Condition</th>' + headerCells + '</tr></thead>' +
     '<tbody>' + rows + '</tbody>' +
     '</table></div>' +
-    '<div style="display:flex;align-items:center;gap:12px;margin-top:10px;font-size:11px;color:var(--text-tertiary)">' +
-    '<span>Intensity:</span>' +
-    '<span style="display:inline-block;width:12px;height:12px;background:transparent;border:1px solid var(--border-subtle)"></span> None' +
-    '<span style="display:inline-block;width:12px;height:12px;background:rgba(45,212,191,0.25)"></span> Low' +
-    '<span style="display:inline-block;width:12px;height:12px;background:rgba(45,212,191,0.5)"></span> Medium' +
-    '<span style="display:inline-block;width:12px;height:12px;background:rgba(45,212,191,0.75)"></span> High' +
-    '<span style="display:inline-block;width:12px;height:12px;background:rgba(45,212,191,0.95)"></span> Very High' +
+    '<div style="display:flex;align-items:center;gap:12px;margin-top:10px;font-size:11px;color:var(--text-tertiary);flex-wrap:wrap">' +
+    '<span><strong>GRADE:</strong></span>' +
+    '<span style="display:inline-block;width:12px;height:12px;background:#16a34a;border-radius:2px"></span> A Strong' +
+    '<span style="display:inline-block;width:12px;height:12px;background:#3b82f6;border-radius:2px"></span> B Moderate' +
+    '<span style="display:inline-block;width:12px;height:12px;background:#f59e0b;border-radius:2px"></span> C Limited' +
+    '<span style="display:inline-block;width:12px;height:12px;background:#f97316;border-radius:2px"></span> D Emerging' +
+    '<span style="display:inline-block;width:12px;height:12px;background:#ef4444;border-radius:2px"></span> N Negative' +
+    '<span style="margin-left:8px">|</span>' +
+    '<span style="font-size:11px;color:#fbbf16;font-weight:700">\u2605</span> FDA Approved' +
+    '<span style="font-size:11px;color:#60a5fa;font-weight:700">\u25cf</span> FDA Cleared' +
     '</div>' +
     '<p style="font-size:11px;color:var(--text-tertiary);margin-top:8px">' +
-    'Counts are approximate based on bundled registry data. Use <strong>Live Indexed Evidence Search</strong> for precise paper counts per condition-modality pair. <em>Not a diagnosis or treatment recommendation.</em>' +
+    'Hover cells for pooled SMD / confidence intervals. \u2605=approved \u25cf=cleared. ' +
+    'Evidence grades from 2024\u20132025 meta-analytic consensus. ' +
+    '<em>Not a diagnosis or treatment recommendation.</em>' +
     '</p></div>'
   );
 }
