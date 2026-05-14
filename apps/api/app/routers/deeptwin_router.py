@@ -67,6 +67,11 @@ from app.services.deeptwin_engine import (
 )
 from app.services.fusion_service import build_fusion_recommendation
 from app.services.neuromodulation_research import bundle_root_or_none, search_ranked_papers
+from app.services.deeptwin_evidence import (
+    grade_evidence,
+    patient_to_pico_query,
+    rag_pipeline,
+)
 from app.settings import get_settings
 
 router = APIRouter(prefix="/api/v1/deeptwin", tags=["deeptwin"])
@@ -3422,3 +3427,78 @@ def deeptwin_list_clinician_notes(
             detail="Patient consent required for DeepTwin simulation.",
         )
 
+
+
+# ---------------------------------------------------------------------------
+# DeepTwin Evidence Synthesis -- RAG pipeline with GRADE scoring
+# ---------------------------------------------------------------------------
+
+
+class EvidenceSynthesisIn(BaseModel):
+    patient_id: str = Field(..., min_length=1)
+    diagnosis: str = ""
+    age: int | None = None
+    sex: str = ""
+    intervention_type: str = ""
+    affected_domain: str = ""
+
+
+class EvidenceSynthesisOut(BaseModel):
+    pico: dict[str, str] = Field(default_factory=dict)
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    rejected: list[dict[str, Any]] = Field(default_factory=list)
+    pass_rate: float = 0.0
+    safety_note: str = ""
+    citation_policy: str = ""
+    provenance: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post("/evidence-synthesis", response_model=EvidenceSynthesisOut)
+def evidence_synthesis(
+    body: EvidenceSynthesisIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> EvidenceSynthesisOut:
+    """Run RAG evidence synthesis for a patient hypothesis.
+
+    Decision-support only. Never fabricates citations.
+    """
+    require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, body.patient_id, db)
+
+    patient: dict[str, Any] = {
+        "diagnosis": body.diagnosis,
+        "age": body.age,
+        "sex": body.sex,
+    }
+    hypothesis: dict[str, Any] = {
+        "intervention_type": body.intervention_type,
+        "affected_domain": body.affected_domain,
+    }
+
+    result = rag_pipeline(patient, hypothesis)
+
+    create_audit_event(
+        db,
+        event_id=f"dt-evsynth-{actor.actor_id}-{uuid.uuid4().hex[:12]}",
+        target_id=body.patient_id,
+        target_type="patient",
+        action="deeptwin_evidence_synthesis",
+        role=actor.role,
+        actor_id=actor.actor_id,
+        note=(
+            f"pass_rate={result['pass_rate']:.2f};"
+            f"evidence_count={len(result['evidence'])}"
+        ),
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+    return EvidenceSynthesisOut(
+        pico=result["pico"],
+        evidence=result["evidence"],
+        rejected=result["rejected"],
+        pass_rate=result["pass_rate"],
+        safety_note=result["safety_note"],
+        citation_policy=result["citation_policy"],
+        provenance=result["provenance"],
+    )
