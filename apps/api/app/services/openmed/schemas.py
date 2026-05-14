@@ -19,6 +19,12 @@ SourceType = Literal[
     "transcript",
     "document_text",
     "free_text",
+    # Neuromodulation-specific types
+    "stimulation_log",
+    "device_interrogation",
+    "programming_note",
+    "session_note",
+    "neuromodulation_text",
 ]
 
 EntityLabel = Literal[

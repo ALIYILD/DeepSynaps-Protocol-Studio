@@ -390,7 +390,7 @@ def patch_annotation(
     return AnnotationOut.from_record(row)
 
 
-@router.delete("/{annotation_id}", status_code=204)
+@router.delete("/{annotation_id}")
 def delete_annotation(
     annotation_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

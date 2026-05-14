@@ -919,7 +919,7 @@ def update_patient_endpoint(
     return PatientOut.from_record(patient, enrichment.get(patient.id))
 
 
-@router.delete("/{patient_id}", status_code=204)
+@router.delete("/{patient_id}")
 def delete_patient_endpoint(
     patient_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

@@ -78,15 +78,15 @@ def _gate_patient_context(
 
     Returns True only when ``patient_id`` is non-empty and resolves to an
     existing patient (and the cross-clinic owner check passed). Returns
-    False for the no-patient-id case and for nonexistent patient ids — the
-    caller skips downstream consent enforcement in that case because there
-    is no real patient data to gate.
+    False for the no-patient-id case. Raises HTTPException(404) for
+    nonexistent patient ids so the caller gets a clear error instead of
+    silently skipping consent enforcement.
     """
     if not patient_id:
         return False
     exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
     if not exists:
-        return False
+        raise HTTPException(status_code=404, detail="Patient not found")
     require_patient_owner(actor, clinic_id)
     return True
 

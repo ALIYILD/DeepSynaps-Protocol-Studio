@@ -465,7 +465,7 @@ def update_invoice_endpoint(
     return InvoiceOut.from_record(invoice)
 
 
-@router.delete("/invoices/{invoice_id}", status_code=204)
+@router.delete("/invoices/{invoice_id}")
 def delete_invoice_endpoint(
     invoice_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
@@ -712,7 +712,7 @@ def update_claim_endpoint(
     return ClaimOut.from_record(claim)
 
 
-@router.delete("/claims/{claim_id}", status_code=204)
+@router.delete("/claims/{claim_id}")
 def delete_claim_endpoint(
     claim_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

@@ -637,6 +637,16 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
         </div>
       </section>
 
+      <!-- BUG-FIX-003: Analyze existing clinic recording -->
+      <section id="va-clinic-recordings" style="display:none;margin-bottom:18px;padding:16px;border-radius:14px;border:1px solid var(--border);background:var(--bg-card)">
+        <h3 style="margin:0 0 8px;font-size:14px;font-weight:600">Analyze existing clinic recording</h3>
+        <p style="font-size:11px;color:var(--text-tertiary);margin:0 0 10px">Stored session recordings for this patient. Selecting one runs the voice pipeline on the stored audio.</p>
+        <div id="va-clinic-recordings-list" style="font-size:12px;color:var(--text-secondary)">
+          Select a patient to see clinic recordings.
+        </div>
+        <div id="va-clinic-recording-status" style="display:none;margin-top:10px;font-size:12px;color:var(--text-tertiary)" role="status"></div>
+      </section>
+
       <section id="va-patient-analyses" style="display:none;margin-bottom:18px;padding:16px;border-radius:14px;border:1px solid var(--border);background:var(--bg-card)" aria-live="polite">
         <h3 style="margin:0 0 8px;font-size:14px;font-weight:600">Recent voice analyses (selected patient)</h3>
         <p style="font-size:11px;color:var(--text-tertiary);margin:0 0 10px">Stored server-side when analysis completes successfully. Click to load.</p>
@@ -646,6 +656,7 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
       <section id="va-result-wrap" style="display:none;font-size:12px;line-height:1.5" aria-labelledby="va-results-h">
         <h2 id="va-results-h" class="sr-only" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0">Analysis results</h2>
         <div id="va-result"></div>
+        <div id="va-result-placeholder"></div>
       </section>
 
       <section style="margin-top:20px;padding:14px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.02);font-size:11px;line-height:1.5;color:var(--text-tertiary)" aria-labelledby="va-audit-h">
@@ -898,16 +909,110 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
     });
   }
 
+  // BUG-FIX-003: Load and display clinic recordings for a patient
+  async function _loadClinicRecordings(patientId) {
+    const container = document.getElementById('va-clinic-recordings-list');
+    const section = document.getElementById('va-clinic-recordings');
+    if (section) section.style.display = 'none';
+    if (!container || !patientId) {
+      if (container) container.innerHTML = '<span style="color:var(--text-tertiary)">Select a patient to see clinic recordings</span>';
+      return;
+    }
+    try {
+      const recordings = await api.listRecordings(patientId);
+      const items = recordings?.items || (Array.isArray(recordings) ? recordings : []);
+      if (!items.length) {
+        container.innerHTML = '<span style="color:var(--text-tertiary)">No clinic recordings for this patient</span>';
+        if (section) section.style.display = '';
+        return;
+      }
+      let html = '<div style="display:flex;flex-direction:column;gap:8px">';
+      for (const rec of items) {
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border:1px solid var(--border-subtle);border-radius:8px">' +
+          '<div>' +
+          '<div style="font-weight:600">' + esc(rec.title || 'Untitled Recording') + '</div>' +
+          '<div style="font-size:11px;color:var(--text-tertiary)">' + (rec.created_at ? new Date(rec.created_at).toLocaleString() : '') + ' \u00b7 ' + (rec.duration_seconds ? _fmtDur(rec.duration_seconds) : '') + '</div>' +
+          '</div>' +
+          '<button type="button" class="btn btn-sm btn-primary" data-clinic-recording-id="' + esc(rec.id) + '">Analyze</button>' +
+          '</div>';
+      }
+      html += '</div>';
+      container.innerHTML = html;
+      container.querySelectorAll('[data-clinic-recording-id]').forEach((b) => {
+        b.addEventListener('click', async () => {
+          const rid = b.getAttribute('data-clinic-recording-id');
+          if (rid) await window._analyzeClinicRecording(rid);
+        });
+      });
+      if (section) section.style.display = '';
+    } catch (err) {
+      container.innerHTML = '<span style="color:var(--rose)">Failed to load recordings: ' + esc(err?.message || 'Unknown error') + '</span>';
+      if (section) section.style.display = '';
+    }
+  }
+
+  window._analyzeClinicRecording = async function(recordingId) {
+    const statusEl = document.getElementById('va-clinic-recording-status');
+    const patientCtx = effectivePatientId();
+    if (patientCtx.error) {
+      if (statusEl) {
+        statusEl.style.display = '';
+        statusEl.textContent = patientCtx.error;
+      }
+      return;
+    }
+    const pid = patientCtx.patientId;
+    const taskProtocol = document.getElementById('va-protocol')?.value || 'sustained_vowel_a';
+    const transcript = document.getElementById('va-transcript')?.value?.trim() || null;
+    if (statusEl) {
+      statusEl.style.display = '';
+      statusEl.textContent = 'Analyzing clinic recording...';
+    }
+    try {
+      const sessionId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+      const res = await api.audioAnalyzeRecording(recordingId, { sessionId, patientId: pid, taskProtocol, transcript });
+      resultWrap().style.display = '';
+      resultEl().innerHTML = renderVoiceReportHtml(res);
+      statusEl.textContent = 'Analysis complete (review outputs below).';
+      _persistLastAnalysisId(res?.analysis_id || null, pid);
+      if (pid) refreshAnalysisList(pid);
+    } catch (err) {
+      const t = voiceApiErrorToast(err);
+      statusEl.textContent = t.title + ' \u2014 ' + t.body.slice(0, 140);
+      resultWrap().style.display = '';
+      resultEl().innerHTML = '<div style="color:#f87171;padding:12px;border-radius:10px;background:rgba(248,113,113,.08)"><strong>' + esc(t.title) + '</strong><br/>' + esc(t.body) + '</div>';
+      window._showToast?.(t.title, t.severity || 'error');
+    }
+  };
+
   document.getElementById('va-patient-select')?.addEventListener('change', (e) => {
     const v = e.target?.value?.trim() || '';
     _persistPatientSelection(v);
     refreshAnalysisList(v);
     _refreshVoiceDrHero(v);
+
+    // BUG-FIX-002: Clear prior patient's report on switch
+    const wrap = document.getElementById('va-result-wrap');
+    const result = document.getElementById('va-result');
+    if (wrap) wrap.style.display = 'none';
+    if (result) result.innerHTML = '';
+    window._lastVoiceAnalysisId = null;
+    clearPendingAudio();
+    const placeholder = document.getElementById('va-result-placeholder');
+    if (placeholder) {
+      placeholder.style.display = '';
+      placeholder.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-tertiary)">Select or run an analysis for this patient</div>';
+    }
+
+    // BUG-FIX-003: Refresh clinic recordings list for newly selected patient
+    _loadClinicRecordings(v);
   });
 
   await refreshPatientList();
   await refreshAnalysisList(effectivePatientId().patientId);
   _refreshVoiceDrHero(effectivePatientId().patientId);
+  // BUG-FIX-003: Load clinic recordings for initially selected patient
+  await _loadClinicRecordings(effectivePatientId().patientId);
 
   // Recording
   document.getElementById('va-rec-start')?.addEventListener('click', async () => {

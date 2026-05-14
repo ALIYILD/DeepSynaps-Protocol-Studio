@@ -143,6 +143,7 @@ def _run_and_persist(
         file_hash_sha256=(ctx.get("recording") or {}).get("file_hash"),
         pipeline_version=pv.get("pipeline_version"),
         norm_db_version=pv.get("norm_db_version"),
+        status=run.status,  # BUG-FIX-001: Pass real pipeline status instead of hardcoded "completed"
     )
 
     return {

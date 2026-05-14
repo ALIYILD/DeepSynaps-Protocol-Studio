@@ -283,7 +283,7 @@ def update_listing(
     return {"item": _item_to_dict(item)}
 
 
-@router.delete("/items/{item_id}", status_code=204)
+@router.delete("/items/{item_id}")
 def delete_listing(
     item_id: str = Path(..., min_length=1, max_length=36),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

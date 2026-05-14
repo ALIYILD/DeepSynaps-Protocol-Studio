@@ -733,7 +733,7 @@ def update_document_template(
     return _template_to_out(record)
 
 
-@router.delete("/templates/{template_id}", status_code=204)
+@router.delete("/templates/{template_id}")
 def delete_document_template(
     template_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
@@ -1146,7 +1146,7 @@ def update_document(
     return _record_to_out(record)
 
 
-@router.delete("/{doc_id}", status_code=204)
+@router.delete("/{doc_id}")
 def delete_document(
     doc_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

@@ -324,7 +324,7 @@ def hire_agent_endpoint(
     )
 
 
-@router.delete("/{agent_id}/hire", status_code=204)
+@router.delete("/{agent_id}/hire")
 def unhire_agent_endpoint(
     agent_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

@@ -361,7 +361,7 @@ def add_medication(
     return MedicationOut.from_record(med)
 
 
-@router.delete("/patient/{patient_id}/{med_id}", status_code=204)
+@router.delete("/patient/{patient_id}/{med_id}")
 def remove_medication(
     patient_id: str,
     med_id: str,

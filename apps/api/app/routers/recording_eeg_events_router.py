@@ -116,7 +116,7 @@ def patch_event(
     return Response(status_code=404)
 
 
-@router.delete("/{analysis_id}/events/{event_id}", status_code=204)
+@router.delete("/{analysis_id}/events/{event_id}")
 def delete_event(
     analysis_id: str,
     event_id: str,
