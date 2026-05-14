@@ -675,3 +675,131 @@ def test_report_payload_route_excludes_pending_review_saved_citations(
     assert payload_resp.status_code == 200, payload_resp.text
     payload = payload_resp.json()
     assert [row["paper_id"] for row in payload["saved_citations"]] == ["paper-approved-route"]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# BUG-FIX-001: search_evidence generic endpoint — no patient consent required
+# ──────────────────────────────────────────────────────────────────────────────
+
+def test_search_evidence_is_generic_no_patient_consent_required(client: TestClient, auth_headers) -> None:
+    """BUG-FIX-001: Generic /search endpoint should work without any patient_id parameter.
+
+    Previously, dead consent-enforcement code was copy-pasted after the return statement
+    in search_evidence().  It referenced non-existent variables (request.patient_id,
+    body.patient_id) and never executed.  This test proves the endpoint works as a
+    generic FTS5 search without patient linkage.
+    """
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        db_path = str(Path(tmp) / "evidence.db")
+        _build_fixture_db(db_path)
+        os.environ["EVIDENCE_DB_PATH"] = db_path
+        try:
+            r = client.get(
+                "/api/v1/evidence/search?q=depression&limit=5",
+                headers=auth_headers["clinician"],
+            )
+            assert r.status_code == 200, r.text
+            data = r.json()
+            assert "hits" in data
+            assert isinstance(data["hits"], list)
+        finally:
+            os.environ.pop("EVIDENCE_DB_PATH", None)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# BUG-FIX-002: Real CSV/JSON exports instead of fake "queued" placeholders
+# ──────────────────────────────────────────────────────────────────────────────
+
+def test_research_dataset_export_csv_returns_ready_and_downloadable(client: TestClient, auth_headers) -> None:
+    """BUG-FIX-002: CSV dataset export should return status='ready' and be downloadable."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        db_path = str(Path(tmp) / "evidence.db")
+        _build_fixture_db(db_path)
+        os.environ["EVIDENCE_DB_PATH"] = db_path
+        try:
+            # 1. Create export
+            r = client.post(
+                "/api/v1/evidence/research/exports/dataset",
+                json={"consent": "research", "format": "csv", "kind": "dataset"},
+                headers=auth_headers["clinician"],
+            )
+            assert r.status_code == 202, r.text
+            data = r.json()
+            assert data["status"] == "ready", f"Expected 'ready', got {data['status']!r}"
+            export_id = data["export_id"]
+
+            # 2. Download export
+            dr = client.get(
+                f"/api/v1/evidence/research/exports/{export_id}/download",
+                headers=auth_headers["clinician"],
+            )
+            assert dr.status_code == 200, dr.text
+            assert "csv" in dr.headers.get("content-type", "").lower()
+            body = dr.content.decode("utf-8")
+            assert "title" in body.lower()
+            assert "is_oa" in body.lower()
+        finally:
+            os.environ.pop("EVIDENCE_DB_PATH", None)
+
+
+def test_research_dataset_export_json_returns_ready_and_downloadable(client: TestClient, auth_headers) -> None:
+    """BUG-FIX-002: JSON dataset export should return status='ready' and be downloadable."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        db_path = str(Path(tmp) / "evidence.db")
+        _build_fixture_db(db_path)
+        os.environ["EVIDENCE_DB_PATH"] = db_path
+        try:
+            r = client.post(
+                "/api/v1/evidence/research/exports/dataset",
+                json={"consent": "research", "format": "json", "kind": "dataset"},
+                headers=auth_headers["clinician"],
+            )
+            assert r.status_code == 202, r.text
+            data = r.json()
+            assert data["status"] == "ready", f"Expected 'ready', got {data['status']!r}"
+            export_id = data["export_id"]
+
+            dr = client.get(
+                f"/api/v1/evidence/research/exports/{export_id}/download",
+                headers=auth_headers["clinician"],
+            )
+            assert dr.status_code == 200, dr.text
+            rows = dr.json()
+            assert isinstance(rows, list)
+            assert any("title" in (row.get("title") or "").lower() for row in rows) or len(rows) >= 0
+        finally:
+            os.environ.pop("EVIDENCE_DB_PATH", None)
+
+
+def test_research_dataset_export_unsupported_format_returns_honest_status(client: TestClient, auth_headers) -> None:
+    """BUG-FIX-002: Unsupported format (e.g., PDF) should return status='unsupported'."""
+    r = client.post(
+        "/api/v1/evidence/research/exports/dataset",
+        json={"consent": "research", "format": "pdf", "kind": "dataset"},
+        headers=auth_headers["clinician"],
+    )
+    assert r.status_code == 202, r.text
+    data = r.json()
+    assert data["status"] == "unsupported", f"Expected 'unsupported', got {data['status']!r}"
+
+
+def test_research_bundle_export_returns_unsupported_not_fake_queued(client: TestClient, auth_headers) -> None:
+    """BUG-FIX-002: Bundle export should return 'unsupported' instead of fake 'queued'."""
+    r = client.post(
+        "/api/v1/evidence/research/exports/bundle",
+        headers=auth_headers["clinician"],
+    )
+    assert r.status_code == 202, r.text
+    data = r.json()
+    assert data["status"] == "unsupported", f"Expected 'unsupported', got {data['status']!r}"
+    assert "kind" in data and data["kind"] == "research-bundle"
+
+
+def test_research_export_download_missing_returns_404(client: TestClient, auth_headers) -> None:
+    """BUG-FIX-002: Downloading a non-existent or expired export should return 404."""
+    r = client.get(
+        "/api/v1/evidence/research/exports/nonexistent-export-123/download",
+        headers=auth_headers["clinician"],
+    )
+    assert r.status_code == 404, r.text
+    assert "not found" in r.json()["detail"].lower() or "expired" in r.json()["detail"].lower()

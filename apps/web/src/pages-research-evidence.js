@@ -1563,6 +1563,16 @@ function _reSafetyLabel(label) {
   return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;background:${tone.bg};border:1px solid ${tone.bd};color:${tone.fg};font-size:10px;font-weight:600">${esc(label)}</span>`;
 }
 
+// BUG-FIX-003: Render 3-state access status from explicit backend field.
+// Never infer OA status from URL patterns.
+function renderAccessStatus(paper) {
+  if (paper.access_status === 'open_access')
+    return '<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;background:rgba(20,184,166,0.14);border:1px solid rgba(20,184,166,0.35);color:var(--teal);font-size:10px;font-weight:600">Open Access</span>';
+  if (paper.access_status === 'restricted')
+    return '<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;background:rgba(244,63,94,0.12);border:1px solid rgba(244,63,94,0.28);color:var(--rose);font-size:10px;font-weight:600">Restricted</span>';
+  return '<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-secondary);font-size:10px;font-weight:600">Access Unknown</span>';
+}
+
 function _reReadEvidenceBasket() {
   try {
     const raw = localStorage.getItem(_RE_EVIDENCE_BASKET_KEY);
@@ -1638,7 +1648,7 @@ function _reRenderTerminalResultsTable(rows) {
         '<td style="padding:9px 10px">' + esc(row.__sourceLabel || row.__sourceType || 'indexed') + '</td>' +
         '<td style="padding:9px 10px">' + esc(row.year || '—') + '</td>' +
         '<td style="padding:9px 10px">' + esc(row.study_design || row.study_type_normalized || row.study_type || '—') + '</td>' +
-        '<td style="padding:9px 10px">' + (row.is_oa || row.open_access_flag ? '<span style="color:var(--teal);font-weight:600">OA</span>' : '<span style="color:var(--text-tertiary)">Closed / unknown</span>') + '</td>' +
+        '<td style="padding:9px 10px">' + renderAccessStatus(row) + '</td>' +
         '<td style="padding:9px 10px"><button type="button" class="btn btn-ghost btn-xs" onclick="window._reToggleEvidenceBasket(\'' + esc(basketKey) + '\')">' + (inBasket ? 'Remove' : 'Basket') + '</button></td>' +
       '</tr>';
     }).join('') +
@@ -1660,7 +1670,9 @@ function _reRenderTerminalMetricCards(snapshot) {
   return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px">' +
     `<div class="ch-card" style="padding:16px"><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.08em">Indexed papers</div><div style="font-size:28px;font-weight:700;color:var(--teal);margin-top:4px">${fmt(Number(status.total_papers || 0))}</div><div style="font-size:11px;color:var(--text-secondary);margin-top:6px">Live count from <code style="font-size:10px">/api/v1/evidence/status</code></div>${_reSparklineSvg(countsSeries, { stroke: '#3ee0c5' })}</div>` +
     `<div class="ch-card" style="padding:16px"><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.08em">Curated indications</div><div style="font-size:28px;font-weight:700;color:var(--blue);margin-top:4px">${fmt(indications.length)}</div><div style="font-size:11px;color:var(--text-secondary);margin-top:6px">Live indication explorer scope</div></div>` +
-    `<div class="ch-card" style="padding:16px"><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.08em">Trials / devices</div><div style="font-size:28px;font-weight:700;color:var(--violet);margin-top:4px">${fmt(Number(status.total_trials || 0))} / ${fmt(Number(status.total_fda || 0))}</div><div style="font-size:11px;color:var(--text-secondary);margin-top:6px">Regulatory and trial footprint</div></div>` +
+    // BUG-FIX-004: Show honest trial count + separate link-count detail.
+    // trial_indication_links is a junction-table count, NOT the trial count.
+    `<div class="ch-card" style="padding:16px"><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.08em">Trials / devices</div><div style="font-size:28px;font-weight:700;color:var(--violet);margin-top:4px">${fmt(Number(status.total_trials || 0))} / ${fmt(Number(status.total_fda || 0))}</div><div style="font-size:11px;color:var(--text-secondary);margin-top:6px">Trials: ${fmt(Number(status.total_trials || 0))} <span style="color:var(--text-tertiary)">(linked to ${fmt(Number(status.trial_indication_links || 0))} indications)</span></div></div>` +
     `<div class="ch-card" style="padding:16px"><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.08em">Safety watch</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${topSignalTags.length ? topSignalTags.map(_reSafetyLabel).join('') : '<span style="font-size:11px;color:var(--text-tertiary)">No live safety tags returned.</span>'}</div></div>` +
   '</div>';
 }

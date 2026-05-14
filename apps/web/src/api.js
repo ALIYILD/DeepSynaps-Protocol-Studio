@@ -2272,10 +2272,15 @@ export const api = {
     const legacyStatus = legacyStatusRes.status === 'fulfilled' ? (legacyStatusRes.value || {}) : null;
     const adaptedStatus = terminalStatus
       ? {
-          total_papers: terminalStatus.counts?.papers || 0,
-          total_trials: legacyStatus?.total_trials || terminalStatus.counts?.trial_indications || 0,
+          // BUG-FIX-004: Use only total_trials from backend. Never fall back to
+          // trial_indication_links which is a junction table count, not trial count.
+          total_papers: terminalStatus.total_papers || terminalStatus.counts?.papers || 0,
+          total_trials: terminalStatus.total_trials ?? legacyStatus?.total_trials ?? 0,
           total_fda: legacyStatus?.total_fda || 0,
           last_updated: terminalStatus.last_updated || legacyStatus?.last_updated || null,
+          // Explicit link counts kept separate for honest UI detail display
+          trial_indication_links: terminalStatus.counts?.trial_indications || 0,
+          paper_indication_links: terminalStatus.counts?.paper_indications || 0,
         }
       : null;
     const adaptedIndications = indicationsRes.status === 'fulfilled'
@@ -2402,8 +2407,13 @@ export const api = {
           abstract: row.abstract_snippet,
           pmid: row.pmid,
           doi: row.doi,
-          oa_url: row.source_url,
-          is_oa: /doi\.org|pubmed|example/.test(String(row.source_url || '')),
+          // BUG-FIX-003: Use explicit is_oa from backend, never infer from URL.
+          // A DOI URL (doi.org, pubmed) does NOT mean open access.
+          oa_url: row.oa_url || row.source_url || '',
+          source_url: row.source_url || '',
+          is_oa: row.is_oa === true,
+          access_status: row.is_oa === true ? 'open_access' :
+                         row.is_oa === false ? 'restricted' : 'unknown',
           evidence_grade: row.computed_evidence_grade,
           linked_indications: (row.indications || []).map((i) => i.indication_id),
           source_metadata: row.source_metadata || {},

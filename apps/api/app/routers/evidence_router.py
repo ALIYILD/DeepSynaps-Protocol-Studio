@@ -32,12 +32,15 @@ import sqlite3
 import sys
 import tempfile
 import uuid
+import csv
+import io
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
@@ -49,10 +52,6 @@ from app.auth import (
     require_patient_owner,
 )
 from app.database import get_db_session
-from app.services.consent_enforcement import (
-    require_ai_analysis_consent,
-    ConsentMissingError,
-)
 from app.errors import ApiServiceError
 from app.logging_setup import get_logger
 from app.persistence.models import AssessmentRecord, ClinicalSession, DsPaper, EvidenceSavedCitation, LiteraturePaper, OutcomeSeries, Patient, TreatmentCourse, User
@@ -147,6 +146,21 @@ _RESEARCH_EXPORT_SCHEDULES = [
         "status": "paused",
     },
 ]
+
+# ── Export cache (BUG-FIX-002: in-memory staging for generated exports) ───────
+_EXPORT_TTL_SECONDS = 3600  # 1 hour
+_export_cache: dict[str, dict] = {}
+
+
+def _cleanup_expired_exports() -> None:
+    """Remove export cache entries older than _EXPORT_TTL_SECONDS."""
+    now = time.time()
+    expired = [
+        k for k, v in _export_cache.items()
+        if now - v.get("created_at_ts", 0) > _EXPORT_TTL_SECONDS
+    ]
+    for k in expired:
+        del _export_cache[k]
 
 
 def _actor_id(actor: AuthenticatedActor) -> str:
@@ -1878,10 +1892,54 @@ def create_research_dataset_export(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> ResearchExportRequestOut:
+    """BUG-FIX-002: Generate a real CSV/JSON dataset export instead of a fake 'queued' stub."""
     require_minimum_role(actor, "clinician")
     summary = _research_export_summary(db, actor, body.consent, body.format)
     export_id = str(uuid.uuid4())
     requested_at = datetime.now(timezone.utc).isoformat()
+    fmt = (body.format or "csv").strip().lower()
+
+    # For CSV/JSON, generate immediately; for PDF/complex formats, be honest.
+    if fmt in ("csv", "json"):
+        conn = _evidence_conn()
+        try:
+            rows = conn.execute(
+                "SELECT p.title, p.authors_json, p.year, p.oa_url, p.is_oa, "
+                " GROUP_CONCAT(i.label) as indications "
+                "FROM papers p LEFT JOIN paper_indications pi ON pi.paper_id = p.id "
+                "LEFT JOIN indications i ON i.id = pi.indication_id "
+                "GROUP BY p.id LIMIT 1000"
+            ).fetchall()
+        finally:
+            conn.close()
+
+        _cleanup_expired_exports()
+        _export_cache[export_id] = {
+            "rows": [dict(r) for r in rows],
+            "format": fmt,
+            "created_at": requested_at,
+            "created_at_ts": time.time(),
+        }
+
+        _audit(
+            "research.export.dataset",
+            actor,
+            export_id=export_id,
+            consent=body.consent,
+            format=body.format,
+            kind=body.kind,
+            patients=summary["patients_eligible"],
+            status="ready",
+        )
+        return ResearchExportRequestOut(
+            export_id=export_id,
+            kind=body.kind,
+            status="ready",
+            requested_at=requested_at,
+            summary=summary,
+        )
+
+    # PDF or other complex formats — honest status
     _audit(
         "research.export.dataset",
         actor,
@@ -1890,11 +1948,12 @@ def create_research_dataset_export(
         format=body.format,
         kind=body.kind,
         patients=summary["patients_eligible"],
+        status="unsupported",
     )
     return ResearchExportRequestOut(
         export_id=export_id,
         kind=body.kind,
-        status="queued",
+        status="unsupported",
         requested_at=requested_at,
         summary=summary,
     )
@@ -1904,6 +1963,8 @@ def create_research_dataset_export(
 def create_research_bundle_export(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> ResearchExportRequestOut:
+    """BUG-FIX-002: Return 'unsupported' status instead of fake 'queued'. Bundle exports
+    require a background job that is not yet implemented."""
     require_minimum_role(actor, "clinician")
     export_id = str(uuid.uuid4())
     requested_at = datetime.now(timezone.utc).isoformat()
@@ -1911,14 +1972,54 @@ def create_research_bundle_export(
         "datasets": len(list_research_datasets()),
         "bundle_root": str(dataset_path("master")),
     }
-    _audit("research.export.bundle", actor, export_id=export_id, datasets=summary["datasets"])
+    _audit("research.export.bundle", actor, export_id=export_id, datasets=summary["datasets"], status="unsupported")
     return ResearchExportRequestOut(
         export_id=export_id,
         kind="research-bundle",
-        status="queued",
+        status="unsupported",
         requested_at=requested_at,
         summary=summary,
     )
+
+
+@router.get("/research/exports/{export_id}/download")
+def download_research_export(
+    export_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+):
+    """BUG-FIX-002: Download a previously generated CSV/JSON export by its ID."""
+    require_minimum_role(actor, "clinician")
+    _cleanup_expired_exports()
+    export = _export_cache.get(export_id)
+    if not export:
+        raise HTTPException(status_code=404, detail="Export not found or expired")
+
+    rows = export["rows"]
+    fmt = export["format"]
+
+    if fmt == "csv":
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["title", "authors_json", "year", "oa_url", "is_oa", "indications"])
+        for row in rows:
+            writer.writerow([
+                row.get("title", ""),
+                row.get("authors_json", ""),
+                row.get("year", ""),
+                row.get("oa_url", ""),
+                row.get("is_oa", ""),
+                row.get("indications", ""),
+            ])
+        output.seek(0)
+        return StreamingResponse(
+            io.BytesIO(output.getvalue().encode("utf-8")),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=evidence_export_{export_id}.csv"},
+        )
+    elif fmt == "json":
+        return rows
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported export format: {fmt}")
 
 
 @router.post("/research/exports/individual", response_model=ResearchExportRequestOut, status_code=status.HTTP_202_ACCEPTED)
@@ -3157,32 +3258,6 @@ def search_evidence(
     hits = [_paper_row_to_out(r, include_abstract=include_abstract) for r in ranked]
     _audit("search", actor, q=q, result_count=len(hits))
     return EvidenceSearchOut(query=q, total=len(hits), hits=hits)
-    # CONSENT ENFORCEMENT: ai_analysis (evidence)
-    try:
-        require_ai_analysis_consent(
-            session=db,
-            patient_id=request.patient_id,
-            clinic_id=actor.clinic_id,
-            actor_user_id=actor.actor_id,
-            ai_modality="evidence",
-        )
-    except ConsentMissingError:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Patient consent required for evidence search.",
-        )
-
-    # CONSENT ENFORCEMENT: ai_analysis (evidence)
-    try:
-        require_ai_analysis_consent(
-            session=db,
-            patient_id=body.patient_id,
-            clinic_id=actor.clinic_id,
-            actor_user_id=actor.actor_id,
-            ai_modality="evidence",
-        )
-    except ConsentMissingError:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Patient consent required for evidence search.",
-        )
+    # BUG-FIX-001: Removed dead consent code. This is a generic search endpoint
+    # with no patient_id parameter. Consent is enforced in patient-linked
+    # evidence endpoints (e.g., /research/individual, /evidence/patient-match).
