@@ -204,9 +204,8 @@ test.describe('Flow 3: Patient portal', () => {
     await mockClinicianAuth(page);
     await page.goto('/');
     await waitForClinicianApp(page);
-    await navTo(page, 'guardian-portal');
-    // The guardian portal page heading renders even if content has a runtime error
-    await expect(page.locator('h1')).toContainText(/(guardian|caregiver|family)/i);
+    await navToStrict(page, 'guardian-portal');
+    await expect(page.locator('[data-page="guardian-portal"]')).toContainText(/(guardian|caregiver|family)/i);
   });
 });
 
