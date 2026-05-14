@@ -972,7 +972,7 @@ function _extractTransport(res, extractor) {
   }
 }
 
-async function apiFetch(path, opts = {}) {
+export async function apiFetch(path, opts = {}) {
   let res;
   const { _fetch: fetchOverride, _transportExtractor: transportExtractor, ...requestOpts } = opts;
   const fetchFn = fetchOverride || globalThis.fetch;
