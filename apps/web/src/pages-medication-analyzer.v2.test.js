@@ -19,7 +19,14 @@ import path from 'node:path';
 import url from 'node:url';
 import { MED_NEUROMOD_RULES } from './medication-neuromod-rules.js';
 import { ANALYZER_DEMO_FIXTURES } from './demo-fixtures-analyzers.js';
-import { medicationAnalyzerAllowsRole } from './pages-medication-analyzer.js';
+import {
+  medicationAnalyzerAllowsRole,
+  normalize_medication_list_for_render,
+  TIMELINE_COLORS,
+  _renderWashoutPanel,
+  _renderMedicationTimeline,
+  _renderNutritionLabPanel,
+} from './pages-medication-analyzer.js';
 
 const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -489,5 +496,381 @@ describe('Demo fixture safety labeling', () => {
         `log entry must be labeled as demo: ${entry.patient_name || entry.patient_id}`
       );
     }
+  });
+});
+
+
+// ── 8. Washout panel rendering ───────────────────────────────────────────────
+
+describe('Washout panel rendering', () => {
+  test('_renderWashoutPanel returns HTML string', () => {
+    const meds = [
+      { id: 'm1', drug_name: 'Sertraline', medication_class: 'SSRI', status: 'active', dose: '50mg' },
+      { id: 'm2', drug_name: 'Lorazepam', medication_class: 'benzodiazepine', status: 'active', dose: '1mg' },
+    ];
+    const html = _renderWashoutPanel(meds);
+    assert.ok(typeof html === 'string');
+    assert.ok(html.length > 0);
+  });
+
+  test('_renderWashoutPanel contains washout period data', () => {
+    const meds = [
+      { id: 'm1', drug_name: 'Sertraline', medication_class: 'SSRI', status: 'active', dose: '50mg' },
+    ];
+    const html = _renderWashoutPanel(meds);
+    assert.ok(html.includes('Standard:'), 'must show standard washout');
+    assert.ok(html.includes('14 days') || html.includes('days'), 'must show washout duration');
+  });
+
+  test('_renderWashoutPanel contains Why expandable', () => {
+    const meds = [
+      { id: 'm1', drug_name: 'Olanzapine', medication_class: 'atypical antipsychotic', status: 'active', dose: '10mg' },
+    ];
+    const html = _renderWashoutPanel(meds);
+    assert.ok(html.includes('<details'), 'must have expandable Why section');
+    assert.ok(html.includes('Why?'), 'must have Why? label');
+  });
+
+  test('_renderWashoutPanel color-codes by urgency', () => {
+    const shortWashoutMeds = [
+      { id: 'm1', drug_name: 'Lorazepam', medication_class: 'benzodiazepine', status: 'active' },
+    ];
+    const htmlShort = _renderWashoutPanel(shortWashoutMeds);
+    assert.ok(htmlShort.includes('Standard:'), 'short washout med shows standard label');
+
+    const longWashoutMeds = [
+      { id: 'm1', drug_name: 'Olanzapine', medication_class: 'atypical antipsychotic', status: 'active' },
+    ];
+    const htmlLong = _renderWashoutPanel(longWashoutMeds);
+    assert.ok(htmlLong.includes('Standard:'), 'long washout med shows standard label');
+    assert.ok(htmlLong.includes('Extended:'), 'long washout med shows extended label');
+  });
+
+  test('_renderWashoutPanel handles empty med list', () => {
+    const html = _renderWashoutPanel([]);
+    assert.ok(html.includes('No active medications'), 'empty list shows appropriate message');
+  });
+
+  test('_renderWashoutPanel handles meds without washout data', () => {
+    const meds = [
+      { id: 'm1', drug_name: 'UnknownDrug', medication_class: 'unknown_class', status: 'active' },
+    ];
+    const html = _renderWashoutPanel(meds);
+    assert.ok(html.includes('no washout data') || html.includes('No data'), 'unknown class shows no-data indicator');
+  });
+
+  test('_renderWashoutPanel references MEDICATION_BIOMARKER_CONFOUNDER_MATRIX', () => {
+    const meds = [
+      { id: 'm1', drug_name: 'Sertraline', medication_class: 'SSRI', status: 'active' },
+    ];
+    const html = _renderWashoutPanel(meds);
+    assert.ok(
+      html.includes('CONFOUNDER_MATRIX') || html.includes('confounder') || html.includes('biomarker'),
+      'must reference confounder matrix'
+    );
+  });
+
+  test('_renderWashoutPanel includes clinical disclaimer', () => {
+    const meds = [
+      { id: 'm1', drug_name: 'Sertraline', medication_class: 'SSRI', status: 'active' },
+    ];
+    const html = _renderWashoutPanel(meds);
+    assert.ok(html.includes('Clinical decision-support only'), 'must include clinical disclaimer');
+    assert.ok(html.includes('not patient-specific'), 'must note it is not patient-specific');
+  });
+});
+
+// ── 9. Medication timeline rendering ─────────────────────────────────────────
+
+describe('Medication timeline rendering', () => {
+  test('_renderMedicationTimeline returns HTML string', () => {
+    const meds = [
+      { id: 'm1', drug_name: 'Sertraline', medication_class: 'SSRI', status: 'active', start_date: '2024-01-01T00:00:00Z', dose: '50mg' },
+    ];
+    const html = _renderMedicationTimeline(meds, []);
+    assert.ok(typeof html === 'string');
+    assert.ok(html.length > 0);
+  });
+
+  test('_renderMedicationTimeline contains timeline bar', () => {
+    const meds = [
+      { id: 'm1', drug_name: 'Sertraline', medication_class: 'SSRI', status: 'active', start_date: '2024-01-01T00:00:00Z', dose: '50mg' },
+    ];
+    const html = _renderMedicationTimeline(meds, []);
+    assert.ok(html.includes('data-timeline-bar='), 'must contain timeline bar');
+    assert.ok(html.includes('Sertraline'), 'must show medication name');
+  });
+
+  test('_renderMedicationTimeline renders event dots', () => {
+    const meds = [
+      { id: 'm1', drug_name: 'Sertraline', medication_class: 'SSRI', status: 'active', start_date: '2024-01-01T00:00:00Z' },
+    ];
+    const events = [
+      { event_type: 'dose_change', occurred_at: '2024-03-01T00:00:00Z', payload: {} },
+      { event_type: 'missed_dose', occurred_at: '2024-04-01T00:00:00Z', payload: {} },
+    ];
+    const html = _renderMedicationTimeline(meds, events);
+    const dotMatches = html.match(/border-radius:50%/g);
+    assert.ok(dotMatches && dotMatches.length >= 2, 'must render at least 2 event dots');
+  });
+
+  test('_renderMedicationTimeline shows drug class colors', () => {
+    const meds = [
+      { id: 'm1', drug_name: 'Sertraline', medication_class: 'SSRI', status: 'active', start_date: '2024-01-01T00:00:00Z' },
+      { id: 'm2', drug_name: 'Olanzapine', medication_class: 'atypical antipsychotic', status: 'active', start_date: '2024-02-01T00:00:00Z' },
+    ];
+    const html = _renderMedicationTimeline(meds, []);
+    assert.ok(html.includes(TIMELINE_COLORS.ssri), 'SSRI bar must use SSRI color');
+  });
+
+  test('_renderMedicationTimeline shows X-axis date labels', () => {
+    const meds = [
+      { id: 'm1', drug_name: 'Sertraline', medication_class: 'SSRI', status: 'active', start_date: '2024-01-01T00:00:00Z' },
+    ];
+    const html = _renderMedicationTimeline(meds, []);
+    assert.ok(html.includes('Medication timeline'), 'must show timeline title');
+  });
+
+  test('_renderMedicationTimeline handles empty med list', () => {
+    const html = _renderMedicationTimeline([], []);
+    assert.ok(html.includes('No medication records'), 'empty list shows appropriate message');
+  });
+
+  test('_renderMedicationTimeline handles meds without dates', () => {
+    const meds = [
+      { id: 'm1', drug_name: 'Sertraline', medication_class: 'SSRI', status: 'active' },
+    ];
+    const html = _renderMedicationTimeline(meds, []);
+    assert.ok(html.includes('No medications with start dates'), 'meds without dates show appropriate message');
+  });
+
+  test('_renderMedicationTimeline includes legend', () => {
+    const meds = [
+      { id: 'm1', drug_name: 'Sertraline', medication_class: 'SSRI', status: 'active', start_date: '2024-01-01T00:00:00Z' },
+    ];
+    const html = _renderMedicationTimeline(meds, []);
+    assert.ok(html.includes('SSRI') && html.includes('Antipsychotic'), 'must include drug class legend');
+  });
+
+  test('_renderMedicationTimeline includes clinical disclaimer', () => {
+    const meds = [
+      { id: 'm1', drug_name: 'Sertraline', medication_class: 'SSRI', status: 'active', start_date: '2024-01-01T00:00:00Z' },
+    ];
+    const html = _renderMedicationTimeline(meds, []);
+    assert.ok(html.includes('Interpretation aid only'), 'must include disclaimer');
+    assert.ok(html.includes('adherence'), 'must mention adherence caveat');
+  });
+
+  test('_renderMedicationTimeline filters events outside time range', () => {
+    const meds = [
+      { id: 'm1', drug_name: 'Sertraline', medication_class: 'SSRI', status: 'active', start_date: '2024-01-01T00:00:00Z' },
+    ];
+    const events = [
+      { event_type: 'side_effect_report', occurred_at: '2020-01-01T00:00:00Z', payload: {} },
+    ];
+    const html = _renderMedicationTimeline(meds, events);
+    assert.ok(html.includes('data-timeline-bar='), 'must render timeline bar');
+  });
+});
+
+// ── 10. Nutrition lab panel rendering ────────────────────────────────────────
+
+describe('Nutrition lab panel rendering', () => {
+  test('_renderNutritionLabPanel returns HTML string with panel data', () => {
+    const payload = {
+      nutrition_lab_panel: {
+        nutrition_interactions_found: 2,
+        schedules_matched: 1,
+        critical_nutrition_count: 1,
+        severe_nutrition_count: 0,
+        nutrition_interactions: [
+          {
+            id: 'ni-lithium-sodium',
+            severity: 'critical',
+            nutrient: 'sodium',
+            mechanism: 'Lithium and sodium compete for renal reabsorption.',
+            clinical_action: 'Monitor sodium intake consistency.',
+            evidence_grade: 'A',
+          },
+        ],
+        lab_monitoring_schedules: [
+          {
+            schedule_key: 'lithium',
+            baseline_labs: [
+              { test: 'TSH', rationale: 'Baseline thyroid function' },
+              { test: 'CBC', rationale: 'Baseline blood counts' },
+            ],
+            ongoing_labs: [
+              { test: 'TSH', frequency: 'every 6 months', rationale: 'Hypothyroidism risk' },
+            ],
+            special: [
+              { scenario: 'Pre-ECT', test: 'Lithium level', timing: 'within 48h', rationale: 'Seizure threshold' },
+            ],
+            evidence_grade: 'A',
+          },
+        ],
+        disclaimer: 'Test disclaimer text.',
+      },
+    };
+    const html = _renderNutritionLabPanel(payload);
+    assert.ok(typeof html === 'string');
+    assert.ok(html.length > 0);
+    assert.ok(html.includes('sodium'), 'must show nutrient name');
+  });
+
+  test('_renderNutritionLabPanel shows critical alert banner', () => {
+    const payload = {
+      nutrition_lab_panel: {
+        nutrition_interactions_found: 1,
+        schedules_matched: 0,
+        critical_nutrition_count: 1,
+        severe_nutrition_count: 0,
+        nutrition_interactions: [
+          {
+            id: 'ni-lithium-sodium',
+            severity: 'critical',
+            nutrient: 'sodium',
+            mechanism: 'Test mechanism.',
+            clinical_action: 'Test action.',
+            evidence_grade: 'A',
+          },
+        ],
+        lab_monitoring_schedules: [],
+        disclaimer: 'Test disclaimer.',
+      },
+    };
+    const html = _renderNutritionLabPanel(payload);
+    assert.ok(html.includes('critical') || html.includes('Critical'), 'must show critical alert');
+  });
+
+  test('_renderNutritionLabPanel handles empty panel', () => {
+    const html = _renderNutritionLabPanel(null);
+    assert.ok(html.includes('not available'), 'null payload shows not available message');
+  });
+
+  test('_renderNutritionLabPanel handles zero interactions', () => {
+    const payload = {
+      nutrition_lab_panel: {
+        nutrition_interactions_found: 0,
+        schedules_matched: 0,
+        critical_nutrition_count: 0,
+        severe_nutrition_count: 0,
+        nutrition_interactions: [],
+        lab_monitoring_schedules: [],
+        disclaimer: 'Test disclaimer.',
+      },
+    };
+    const html = _renderNutritionLabPanel(payload);
+    assert.ok(html.includes('No drug-nutrient interactions'), 'zero interactions shows appropriate message');
+  });
+
+  test('_renderNutritionLabPanel renders baseline and ongoing labs', () => {
+    const payload = {
+      nutrition_lab_panel: {
+        nutrition_interactions_found: 0,
+        schedules_matched: 1,
+        critical_nutrition_count: 0,
+        severe_nutrition_count: 0,
+        nutrition_interactions: [],
+        lab_monitoring_schedules: [
+          {
+            schedule_key: 'lithium',
+            baseline_labs: [
+              { test: 'TSH', rationale: 'Thyroid baseline' },
+              { test: 'CBC', rationale: 'Blood count baseline' },
+            ],
+            ongoing_labs: [
+              { test: 'TSH', frequency: 'q6mo', rationale: 'Monitor hypothyroidism' },
+            ],
+            special: [],
+            evidence_grade: 'A',
+          },
+        ],
+        disclaimer: 'Test disclaimer.',
+      },
+    };
+    const html = _renderNutritionLabPanel(payload);
+    assert.ok(html.includes('Baseline'), 'must show baseline labs section');
+    assert.ok(html.includes('TSH'), 'must show TSH test');
+    assert.ok(html.includes('Ongoing'), 'must show ongoing labs section');
+  });
+
+  test('_renderNutritionLabPanel shows evidence grade', () => {
+    const payload = {
+      nutrition_lab_panel: {
+        nutrition_interactions_found: 1,
+        schedules_matched: 0,
+        critical_nutrition_count: 0,
+        severe_nutrition_count: 0,
+        nutrition_interactions: [
+          {
+            id: 'ni-statin-coenzymeq10',
+            severity: 'mild',
+            nutrient: 'coenzyme Q10',
+            mechanism: 'HMG-CoA reductase inhibition.',
+            clinical_action: 'Consider supplementation.',
+            evidence_grade: 'C',
+          },
+        ],
+        lab_monitoring_schedules: [],
+        disclaimer: 'Test disclaimer.',
+      },
+    };
+    const html = _renderNutritionLabPanel(payload);
+    assert.ok(html.includes('Evidence grade:'), 'must show evidence grade label');
+    assert.ok(html.includes('C'), 'must show grade C');
+  });
+
+  test('_renderNutritionLabPanel includes disclaimer', () => {
+    const payload = {
+      nutrition_lab_panel: {
+        nutrition_interactions_found: 0,
+        schedules_matched: 0,
+        critical_nutrition_count: 0,
+        severe_nutrition_count: 0,
+        nutrition_interactions: [],
+        lab_monitoring_schedules: [],
+        disclaimer: 'This is a test disclaimer about clinical decision-support.',
+      },
+    };
+    const html = _renderNutritionLabPanel(payload);
+    assert.ok(html.includes('This is a test disclaimer'), 'must show disclaimer text');
+  });
+});
+
+// ── 11. Normalize medication list helper ─────────────────────────────────────
+
+describe('normalize_medication_list_for_render', () => {
+  test('normalizes API medication records', () => {
+    const raw = [
+      { id: 'm1', name: 'Sertraline', drug_class: 'SSRI', active: true, started_at: '2024-01-01' },
+      { id: 'm2', name: 'Lorazepam', drug_class: 'benzodiazepine', active: false, started_at: '2024-02-01', stopped_at: '2024-06-01' },
+    ];
+    const normalized = normalize_medication_list_for_render(raw);
+    assert.equal(normalized.length, 2);
+    assert.equal(normalized[0].drug_name, 'Sertraline');
+    assert.equal(normalized[0].status, 'active');
+    assert.equal(normalized[0].medication_class, 'SSRI');
+    assert.equal(normalized[1].status, 'inactive');
+    assert.ok(normalized[0].start_date);
+  });
+
+  test('handles empty array', () => {
+    const normalized = normalize_medication_list_for_render([]);
+    assert.equal(normalized.length, 0);
+  });
+
+  test('handles null/undefined input', () => {
+    const normalized = normalize_medication_list_for_render(null);
+    assert.equal(normalized.length, 0);
+    const normalized2 = normalize_medication_list_for_render(undefined);
+    assert.equal(normalized2.length, 0);
+  });
+
+  test('generates IDs for records without them', () => {
+    const raw = [{ name: 'TestMed', drug_class: 'SSRI', active: true }];
+    const normalized = normalize_medication_list_for_render(raw);
+    assert.ok(normalized[0].id);
+    assert.ok(typeof normalized[0].id === 'string');
   });
 });
