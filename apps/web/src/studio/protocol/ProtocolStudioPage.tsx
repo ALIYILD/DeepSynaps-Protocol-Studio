@@ -323,7 +323,7 @@ const ProtocolStudioPage: React.FC<ProtocolStudioPageProps> = ({
     try {
       const res = await fetchPatientContext(patientId);
       setPatientContext(res.context);
-    } catch (err) {
+    } catch {
       // Don't expose patient ID in error messages
       setContextError(
         "Failed to load patient context. Please check network connection and try again."

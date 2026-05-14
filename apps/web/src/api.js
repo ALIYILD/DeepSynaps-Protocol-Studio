@@ -4903,14 +4903,6 @@ export const api = {
   getPhenotypingAudit: (patientId) =>
     apiFetch(`/api/v1/digital-phenotyping/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
 
-  // ── Behaviour workspace (preview — full backend integration pending) ───────
-  getBehaviourClinicSummary: () =>
-    apiFetch('/api/v1/digital-phenotyping/behaviour/clinic-summary'),
-  getBehaviourPatientProfile: (patientId) =>
-    apiFetch(`/api/v1/digital-phenotyping/behaviour/patient/${encodeURIComponent(patientId)}/profile`),
-  getBehaviourPatientAudit: (patientId) =>
-    apiFetch(`/api/v1/digital-phenotyping/behaviour/patient/${encodeURIComponent(patientId)}/audit`),
-
   // ── Movement Analyzer (motor side-effects of psychiatric treatment) ───────
   getMovementProfile: (patientId) =>
     apiFetch(`/api/v1/movement/analyzer/patient/${encodeURIComponent(patientId)}`),

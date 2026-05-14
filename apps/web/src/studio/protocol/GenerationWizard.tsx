@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback } from "react";
-import type { ProtocolMode, WizardStep, PatientContext, ConditionItem, ModalityItem } from "./types";
+import type { ProtocolMode, WizardStep, ConditionItem, ModalityItem } from "./types";
 
 interface GenerationWizardProps {
   steps?: WizardStep[];
@@ -62,8 +62,6 @@ export const GenerationWizard: React.FC<GenerationWizardProps> = ({
   const [completedSteps, setCompletedSteps] = useState<Set<string>>(new Set());
 
   const steps = propSteps ?? defaultSteps;
-
-  const currentStep = steps[currentStepIndex];
 
   const validateStep = useCallback((): boolean => {
     const newErrors: Partial<Record<keyof WizardFormData, string>> = {};

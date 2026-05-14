@@ -10,7 +10,7 @@
 import { api } from './api.js';
 import { currentUser } from './auth.js';
 import { isDemoSession } from './demo-session.js';
-import { ANALYZER_DEMO_FIXTURES as PREVIEW_FIXTURES, DEMO_FIXTURE_BANNER_HTML as PREVIEW_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
+import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 
 const CLINICAL_BEHAVIOUR_ROLES = new Set(['clinician', 'admin', 'clinic-admin', 'supervisor']);
 
@@ -92,12 +92,6 @@ function _safetyFlagPill(level) {
     return '<span class="pill pill-inactive">Low</span>';
   }
   return '<span class="pill pill-inactive">—</span>';
-}
-
-function _renderPreviewBanner() {
-  return `<div role="status" style="padding:10px 14px;border-radius:10px;border:1px solid rgba(251,191,36,0.35);background:rgba(251,191,36,0.08);margin-bottom:14px;font-size:12px;color:var(--text-secondary);line-height:1.45">
-    <strong style="color:var(--amber)">Preview workspace:</strong> Full behavioural backend integration is pending. Data shown is minimal or synthetic — not for clinical decision-making.
-  </div>`;
 }
 
 function _miniTrendDots(values) {
@@ -471,7 +465,7 @@ export async function pgBehaviour(setTopbar, navigate) {
   function _syncDemoBanner() {
     const slot = $('bh-demo-banner');
     if (!slot) return;
-    slot.innerHTML = usingFixtures && isDemoSession() ? PREVIEW_FIXTURE_BANNER_HTML : '';
+    slot.innerHTML = usingFixtures && isDemoSession() ? DEMO_FIXTURE_BANNER_HTML : '';
   }
 
   function setBreadcrumb() {
@@ -504,37 +498,36 @@ export async function pgBehaviour(setTopbar, navigate) {
     try {
       let summary = null;
       try {
-        summary = await api.getBehaviourClinicSummary();
-      } catch (apiErr) {
+        summary = await api.getBehaviourClinicSummary?.();
+      } catch {
         summary = null;
       }
 
-      const normalized = _normalizeClinicSummary(summary);
-      if (!normalized.patients.length || summary?.preview_note) {
-        const fixtures = PREVIEW_FIXTURES?.behaviour;
+      if (!summary || !_normalizeClinicSummary(summary).patients.length) {
+        const fixtures = ANALYZER_DEMO_FIXTURES?.behaviour;
         if (demoMode && fixtures?.clinic_summary) {
           summary = fixtures.clinic_summary();
           usingFixtures = true;
         } else {
-          summary = normalized;
+          summary = _normalizeClinicSummary(summary);
           usingFixtures = false;
         }
       } else {
-        summary = normalized;
+        summary = _normalizeClinicSummary(summary);
         usingFixtures = false;
       }
 
       summaryCache = summary;
       _syncDemoBanner();
-      body.innerHTML = _renderPreviewBanner() + _renderClinicSummary(summary, navigate, demoMode);
+      body.innerHTML = _renderClinicSummary(summary, navigate, demoMode);
       wireClinic();
     } catch (e) {
-      const fixtures = PREVIEW_FIXTURES?.behaviour;
+      const fixtures = ANALYZER_DEMO_FIXTURES?.behaviour;
       if (demoMode && fixtures?.clinic_summary) {
         summaryCache = fixtures.clinic_summary();
         usingFixtures = true;
         _syncDemoBanner();
-        body.innerHTML = _renderPreviewBanner() + _renderClinicSummary(summaryCache, navigate, demoMode);
+        body.innerHTML = _renderClinicSummary(summaryCache, navigate, demoMode);
         wireClinic();
       } else {
         body.innerHTML = _errorCard((e && e.message) || String(e));
@@ -566,22 +559,20 @@ export async function pgBehaviour(setTopbar, navigate) {
     try {
       let profile = null;
       try {
-        profile = await api.getBehaviourPatientProfile(activePatientId);
-      } catch (apiErr) {
+        profile = await api.getBehaviourPatientProfile?.(activePatientId);
+      } catch {
         profile = null;
       }
 
       let audit = { items: [] };
       try {
-        const auditResp = await api.getBehaviourPatientAudit(activePatientId);
-        audit = auditResp?.items ? auditResp : { items: [] };
-      } catch (apiErr) {
+        audit = await api.getBehaviourPatientAudit?.(activePatientId);
+      } catch {
         audit = { items: [] };
       }
 
-      const isPreviewData = !profile || profile?.protocols?.length === 0 && profile?.observations?.length === 0;
-      if (isPreviewData) {
-        const fixtures = PREVIEW_FIXTURES?.behaviour;
+      if (!profile) {
+        const fixtures = ANALYZER_DEMO_FIXTURES?.behaviour;
         if (demoMode && fixtures?.patient_profile) {
           profile = fixtures.patient_profile(activePatientId);
           audit = fixtures.patient_audit?.(activePatientId) || { items: [] };
@@ -595,10 +586,10 @@ export async function pgBehaviour(setTopbar, navigate) {
       activePatientName = profile?.patient_name || profile?.patientName || activePatientName || 'Patient';
       applyBehaviourPatientContext('behaviour', activePatientId);
       _syncDemoBanner();
-      body.innerHTML = _renderPreviewBanner() + _renderPatientDetail(profile, audit, demoMode);
+      body.innerHTML = _renderPatientDetail(profile, audit, demoMode);
       wirePatient();
     } catch (e) {
-      const fixtures = PREVIEW_FIXTURES?.behaviour;
+      const fixtures = ANALYZER_DEMO_FIXTURES?.behaviour;
       if (demoMode && fixtures?.patient_profile) {
         profileCache = fixtures.patient_profile(activePatientId);
         const audit = fixtures.patient_audit?.(activePatientId) || { items: [] };
@@ -606,7 +597,7 @@ export async function pgBehaviour(setTopbar, navigate) {
         activePatientName = profileCache?.patient_name || profileCache?.patientName || activePatientName || 'Patient';
         applyBehaviourPatientContext('behaviour', activePatientId);
         _syncDemoBanner();
-        body.innerHTML = _renderPreviewBanner() + _renderPatientDetail(profileCache, audit, demoMode);
+        body.innerHTML = _renderPatientDetail(profileCache, audit, demoMode);
         wirePatient();
       } else {
         body.innerHTML = _errorCard((e && e.message) || String(e));

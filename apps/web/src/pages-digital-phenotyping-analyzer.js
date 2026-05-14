@@ -2,10 +2,10 @@ import { api } from './api.js';
 import { currentUser } from './auth.js';
 import { isDemoSession } from './demo-session.js';
 import {
-  ANALYZER_DEMO_VIEWS as PREVIEW_FIXTURE_VIEWS,
-  ANALYZER_DEMO_FIXTURES as PREVIEW_FIXTURES,
-  DEMO_MODE_BANNER_HTML as PREVIEW_MODE_BANNER_HTML,
-  DEMO_FIXTURE_BANNER_HTML as PREVIEW_FIXTURE_BANNER_HTML,
+  ANALYZER_DEMO_VIEWS,
+  ANALYZER_DEMO_FIXTURES,
+  DEMO_MODE_BANNER_HTML,
+  DEMO_FIXTURE_BANNER_HTML,
 } from './demo-fixtures-analyzers.js';
 import { drHero } from './helpers.js';
 import { loadPatientFlagSummary } from './dr-friendly-flags.js';
@@ -24,18 +24,14 @@ function esc(s) {
 
 const SIGNAL_ORDER = ['sleep', 'mobility', 'social', 'typing_cadence', 'screen_time', 'voice_diary'];
 
-const SIGNAL_PROVENANCE = {
-  sleep: { source: 'direct', label: 'Sleep timing', note: 'From connected sleep data when available' },
-  mobility: { source: 'direct', label: 'Activity / Mobility', note: 'From step/motion summaries when available' },
-  social: { source: 'direct', label: 'Social engagement', note: 'From communication metadata when consented' },
-  typing_cadence: { source: 'inferred_proxy', label: 'Psychomotor proxy', note: 'Inferred from activity patterns — not direct keyboard telemetry' },
-  screen_time: { source: 'direct', label: 'Screen use', note: 'From device screen time when available' },
-  voice_diary: { source: 'inferred_proxy', label: 'Voice session proxy', note: 'Inferred from routine patterns — not direct voice analysis' },
+const SIGNAL_LABELS = {
+  sleep:          'Sleep',
+  mobility:       'Activity / Mobility',
+  social:         'Social engagement',
+  typing_cadence: 'Typing cadence',
+  screen_time:    'Screen time',
+  voice_diary:    'Voice diary cadence',
 };
-
-const SIGNAL_LABELS = Object.fromEntries(
-  Object.entries(SIGNAL_PROVENANCE).map(([k, v]) => [k, v.label])
-);
 
 const SIGNAL_TIPS = {
   sleep:
@@ -45,38 +41,15 @@ const SIGNAL_TIPS = {
   social:
     'Communication-pattern cue vs personal baseline when consented and sourced — metadata minimization applies.',
   typing_cadence:
-    'Psychomotor proxy inferred from activity patterns — not direct keyboard telemetry; label reflects true provenance.',
+    'Typing-pattern cue (psychomotor proxy) when keyboard telemetry is authorized — exploratory.',
   screen_time:
     'Screen-use pattern cue vs personal baseline when sourced — not surveillance.',
   voice_diary:
-    'Voice session proxy inferred from routine patterns — not direct voice analysis; label reflects true provenance.',
+    'Voice-diary cadence cue when sessions exist — does not infer emotion or diagnosis.',
 };
 
 function _sevKey(s) {
   return String(s || '').toLowerCase();
-}
-
-function _scopedNavigate(pageId, patientId, navigateFn) {
-  applyDigitalPhenotypingPatientContext(pageId, patientId);
-  if (navigateFn) navigateFn(pageId, patientId ? { id: patientId } : {});
-}
-
-function _provenanceBadge(key) {
-  const prov = SIGNAL_PROVENANCE[key];
-  if (!prov) return '';
-  const src = prov.source;
-  const isProxy = src === 'inferred_proxy' || src === 'simulated';
-  const color = isProxy ? 'var(--amber)' : src === 'inferred' ? 'var(--amber)' : 'var(--green)';
-  const bg = isProxy ? 'rgba(255,176,87,0.10)' : src === 'inferred' ? 'rgba(255,176,87,0.10)' : 'rgba(96,200,140,0.08)';
-  const border = isProxy ? 'rgba(255,176,87,0.25)' : src === 'inferred' ? 'rgba(255,176,87,0.25)' : 'rgba(96,200,140,0.20)';
-  const label = src === 'direct' ? 'measured' : src === 'inferred_proxy' ? 'proxy' : src;
-  return `<span class="pill" style="background:${bg};color:${color};border:1px solid ${border};font-size:9px;padding:1px 6px;margin-left:6px;text-transform:uppercase;letter-spacing:0.3px">${esc(label)}</span>`;
-}
-
-function _renderRecomputePreviewBanner() {
-  return `<div role="status" style="max-width:560px;margin:0 auto 12px;padding:10px 12px;border:1px solid rgba(251,191,36,0.35);border-radius:10px;background:rgba(251,191,36,0.08);font-size:12px;color:var(--text-secondary);line-height:1.45">
-    <strong style="color:var(--amber)">Preview mode:</strong> Passive signal ingest pipeline is not yet connected. Recompute returns a preview status only — no live recomputation is performed.
-  </div>`;
 }
 
 function _pillFor(level) {
@@ -304,13 +277,11 @@ function _renderSignalCard(key, signal, navigate) {
   const uncert = [conf && `Model/data confidence (exploratory): ${conf}`, comp && `Window completeness: ${comp}`]
     .filter(Boolean)
     .join(' · ') || 'Confidence / completeness: unavailable or not computed for this cue.';
-  const provNote = SIGNAL_PROVENANCE[key]?.note || '';
   return `<div data-signal="${esc(key)}" style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;min-height:220px">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
       <div>
-        <div style="font-weight:600;font-size:13px;display:flex;align-items:center;flex-wrap:wrap">${esc(SIGNAL_LABELS[key] || key)}${_provenanceBadge(key)}</div>
+        <div style="font-weight:600;font-size:13px">${esc(SIGNAL_LABELS[key] || key)}</div>
         <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${esc(SIGNAL_TIPS[key] || '')}</div>
-        ${provNote ? `<div style="font-size:10px;color:var(--amber);margin-top:2px;line-height:1.35;font-style:italic">${esc(provNote)}</div>` : ''}
       </div>
       <div>${_pillFor(signal?.severity)}</div>
     </div>
@@ -591,7 +562,7 @@ function _renderPatientDetail(profile, audit, navigate, rawPayload, auditUnavail
 }
 
 function _enrichPatientName(p) {
-  const personas = PREVIEW_FIXTURE_VIEWS?.patients || [];
+  const personas = ANALYZER_DEMO_VIEWS?.patients || [];
   if (p.patient_name) return p;
   const match = personas.find((x) => x.id === p.patient_id);
   return { ...p, patient_name: match ? match.name : p.patient_id };
@@ -652,10 +623,10 @@ function _projectFromBackendPayload(raw) {
 }
 
 export async function loadDigitalPhenotypingClinicSummary(opts = {}) {
-  if (opts.usePreviewFixtures && PREVIEW_FIXTURE_VIEWS?.digitalPhenotyping?.clinic_summary) {
+  if (opts.useDemoFixtures && ANALYZER_DEMO_VIEWS?.digitalPhenotyping?.clinic_summary) {
     return {
-      ...(PREVIEW_FIXTURE_VIEWS.digitalPhenotyping.clinic_summary() || { patients: [] }),
-      fromPreviewOnly: true,
+      ...(ANALYZER_DEMO_VIEWS.digitalPhenotyping.clinic_summary() || { patients: [] }),
+      fromDemoOnly: true,
     };
   }
   if (opts.api?.getDigitalPhenotypingClinicSummary) {
@@ -728,7 +699,7 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
           <div style="font-size:13px;font-weight:600;margin-bottom:2px">Phenotype labels</div>
           <div style="font-size:11px;color:var(--text-tertiary);line-height:1.4">Clinician hypothesis labels with confidence levels — useful when interpreting whether digital cues align with assigned subtype.</div>
         </div>
-        <button type="button" class="btn btn-outline btn-sm" id="dp-open-phenotype" style="white-space:nowrap">Open Phenotype Analyzer →</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="window._nav && window._nav('phenotype-analyzer')" style="white-space:nowrap">Open Phenotype Analyzer →</button>
       </div>
       <div id="dp-breadcrumb" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:12px"></div>
       <div id="dp-body"></div>
@@ -764,14 +735,14 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
     const slot = $('dp-demo-banner');
     if (!slot) return;
     if (usingFixtures && isDemoSession()) {
-      let previewBannerHtml = PREVIEW_FIXTURE_BANNER_HTML;
-      let patientLabel = activePatientName || 'Preview Patient (synthetic)';
-      previewBannerHtml += `<div data-preview="true" role="note" style="padding:10px 14px;border-radius:10px;background:rgba(251,191,36,0.10);border:1px solid rgba(251,191,36,0.40);display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:13px;color:var(--text-primary)">
+      let demoBannerHtml = DEMO_FIXTURE_BANNER_HTML;
+      let patientLabel = activePatientName || 'Demo Patient (synthetic)';
+      demoBannerHtml += `<div data-demo="true" role="note" style="padding:10px 14px;border-radius:10px;background:rgba(251,191,36,0.10);border:1px solid rgba(251,191,36,0.40);display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:13px;color:var(--text-primary)">
         <span style="font-size:14px">⚠️</span>
-        <strong>[PREVIEW] ${esc(patientLabel)} — digital phenotyping signals</strong>
+        <strong>[DEMO] ${esc(patientLabel)} — digital phenotyping signals</strong>
         <span style="color:var(--text-secondary)">— Synthetic data for review. Not for clinical use.</span>
       </div>`;
-      slot.innerHTML = previewBannerHtml;
+      slot.innerHTML = demoBannerHtml;
     } else {
       slot.innerHTML = '';
     }
@@ -803,17 +774,17 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
     body.innerHTML = `<div style="padding:18px;background:var(--bg-card);border:1px solid var(--border);border-radius:14px">${_skeletonChips(5)}</div>`;
     try {
       summaryCache = await loadDigitalPhenotypingClinicSummary({ api });
-      if ((!summaryCache || !summaryCache.patients?.length) && demoMode && PREVIEW_FIXTURE_VIEWS?.digitalPhenotyping?.clinic_summary) {
-        summaryCache = await loadDigitalPhenotypingClinicSummary({ usePreviewFixtures: true });
+      if ((!summaryCache || !summaryCache.patients?.length) && demoMode && ANALYZER_DEMO_VIEWS?.digitalPhenotyping?.clinic_summary) {
+        summaryCache = await loadDigitalPhenotypingClinicSummary({ useDemoFixtures: true });
         usingFixtures = true;
-      } else if (summaryCache?.fromPreviewOnly) {
+      } else if (summaryCache?.fromDemoOnly) {
         usingFixtures = true;
       } else if (summaryCache && summaryCache.patients?.length) {
         usingFixtures = false;
       }
     } catch (e) {
-      if (demoMode && PREVIEW_FIXTURE_VIEWS?.digitalPhenotyping?.clinic_summary) {
-        summaryCache = await loadDigitalPhenotypingClinicSummary({ usePreviewFixtures: true });
+      if (demoMode && ANALYZER_DEMO_VIEWS?.digitalPhenotyping?.clinic_summary) {
+        summaryCache = await loadDigitalPhenotypingClinicSummary({ useDemoFixtures: true });
         usingFixtures = true;
       } else {
         const msg = (e && e.message) || String(e);
@@ -899,12 +870,12 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
           ? { items: audit.events.map((e) => ({ id: e.event_id, kind: e.action, actor: e.actor_role, message: e.summary, created_at: e.timestamp })) }
           : { items: [] };
       const thin = !projected || !projected.signals || !Object.values(projected.signals).some(Boolean);
-      if (thin && isDemoSession() && PREVIEW_FIXTURE_VIEWS?.digitalPhenotyping?.patient_profile) {
-        profileCache = PREVIEW_FIXTURE_VIEWS.digitalPhenotyping.patient_profile(activePatientId);
-        auditCache = PREVIEW_FIXTURE_VIEWS.digitalPhenotyping.patient_audit(activePatientId);
+      if (thin && isDemoSession() && ANALYZER_DEMO_VIEWS?.digitalPhenotyping?.patient_profile) {
+        profileCache = ANALYZER_DEMO_VIEWS.digitalPhenotyping.patient_profile(activePatientId);
+        auditCache = ANALYZER_DEMO_VIEWS.digitalPhenotyping.patient_audit(activePatientId);
         auditUnavailableNote = '';
-        if (typeof PREVIEW_FIXTURE_VIEWS.digitalPhenotyping.payload === 'function') {
-          rawProfileCache = PREVIEW_FIXTURE_VIEWS.digitalPhenotyping.payload(activePatientId);
+        if (typeof ANALYZER_DEMO_VIEWS.digitalPhenotyping.payload === 'function') {
+          rawProfileCache = ANALYZER_DEMO_VIEWS.digitalPhenotyping.payload(activePatientId);
         }
         usingFixtures = true;
       } else if (profileCache) {
@@ -912,12 +883,12 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
       }
       activePatientName = profileCache?.patient_name || rawProfileCache?.patient_display_name || activePatientId;
     } catch (e) {
-      if (isDemoSession() && PREVIEW_FIXTURE_VIEWS?.digitalPhenotyping?.patient_profile) {
-        profileCache = PREVIEW_FIXTURE_VIEWS.digitalPhenotyping.patient_profile(activePatientId);
-        auditCache = PREVIEW_FIXTURE_VIEWS.digitalPhenotyping.patient_audit(activePatientId);
+      if (isDemoSession() && ANALYZER_DEMO_VIEWS?.digitalPhenotyping?.patient_profile) {
+        profileCache = ANALYZER_DEMO_VIEWS.digitalPhenotyping.patient_profile(activePatientId);
+        auditCache = ANALYZER_DEMO_VIEWS.digitalPhenotyping.patient_audit(activePatientId);
         auditUnavailableNote = '';
-        if (typeof PREVIEW_FIXTURE_VIEWS.digitalPhenotyping.payload === 'function') {
-          rawProfileCache = PREVIEW_FIXTURE_VIEWS.digitalPhenotyping.payload(activePatientId);
+        if (typeof ANALYZER_DEMO_VIEWS.digitalPhenotyping.payload === 'function') {
+          rawProfileCache = ANALYZER_DEMO_VIEWS.digitalPhenotyping.payload(activePatientId);
         }
         usingFixtures = true;
       } else {
@@ -946,26 +917,25 @@ export async function pgDigitalPhenotypingAnalyzer(setTopbar, navigate) {
     applyDigitalPhenotypingPatientContext('patient-profile', activePatientId);
     wireDigitalPhenotypingLinkedNav(body, navigate, activePatientId);
 
-    // Wire phenotype-analyzer navigation with scoped patient context
-    body.querySelector('#dp-open-phenotype')?.addEventListener('click', () => {
-      _scopedNavigate('phenotype-analyzer', activePatientId, navigate);
-    });
-
     body.querySelector('[data-action="recompute"]')?.addEventListener('click', async (ev) => {
       const btn = ev.currentTarget;
       const old = btn.textContent;
       btn.disabled = true;
-      btn.textContent = 'Requesting…';
+      btn.textContent = 'Recomputing…';
       try {
-        const resp = await api.recomputeDigitalPhenotyping(activePatientId);
-        if (resp && resp.status === 'preview') {
-          body.insertAdjacentHTML('afterbegin', _renderRecomputePreviewBanner());
+        if (!usingFixtures) {
+          await api.recomputeDigitalPhenotyping(activePatientId);
+        } else {
+          body.insertAdjacentHTML(
+            'afterbegin',
+            `<div role="status" style="max-width:560px;margin:0 auto 12px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.04);font-size:11px;color:var(--text-tertiary)">Demo/sample mode: recompute is simulated locally — production recomputation requires the API pipeline when passive ingest is enabled.</div>`,
+          );
         }
         await loadPatient();
       } catch (e) {
         btn.disabled = false;
         btn.textContent = old;
-        body.insertAdjacentHTML('afterbegin', _renderRecomputePreviewBanner());
+        body.insertAdjacentHTML('afterbegin', _errorCard((e && e.message) || String(e)));
       }
     });
 

@@ -81,7 +81,7 @@ const DraftManager: React.FC<DraftManagerProps> = ({ onEditDraft, onRefresh }) =
 
   /** Sort and filter drafts. */
   const sortedDrafts = useMemo(() => {
-    let filtered =
+    const filtered =
       statusFilter === "all"
         ? [...drafts]
         : drafts.filter((d) => d.status === statusFilter);

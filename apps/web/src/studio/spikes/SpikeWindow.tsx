@@ -215,7 +215,7 @@ export function SpikeWindow({
               setSelected(sp);
               jumpToSec?.(sp.peakSec);
             }}
-            onContextMenu={(e, sp) => {
+            onContextMenu={(_e, sp) => {
               const action = window.prompt(
                 "add | delete | persist | copy",
                 "persist",
