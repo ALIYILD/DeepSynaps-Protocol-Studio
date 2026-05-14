@@ -435,6 +435,42 @@ def build_scenario_comparison(scenarios: list[dict[str, Any]]) -> dict[str, Any]
     }
 
 
+def build_evidence_links(
+    hypothesis: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Build evidence DB search links for a hypothesis.
+
+    Returns structured evidence queries the frontend can use to
+    open the evidence page. Never fabricates citations.
+    """
+    queries: list[dict[str, Any]] = []
+
+    # Build search queries from hypothesis
+    if hypothesis.get("intervention_type"):
+        queries.append({
+            "query": f"{hypothesis['intervention_type']} outcome",
+            "domain": "intervention",
+            "evidence_grade": "pending",
+        })
+
+    if hypothesis.get("affected_domain"):
+        queries.append({
+            "query": f"{hypothesis['affected_domain']} biomarker",
+            "domain": "biomarker",
+            "evidence_grade": "pending",
+        })
+
+    if hypothesis.get("confounders"):
+        for conf in hypothesis["confounders"]:
+            queries.append({
+                "query": f"{conf} confound",
+                "domain": "causality",
+                "evidence_grade": "pending",
+            })
+
+    return queries
+
+
 def evidence_status_for(item: dict[str, Any]) -> EvidenceStatus:
     """Map a recommendation dict to an explicit evidence status.
 
