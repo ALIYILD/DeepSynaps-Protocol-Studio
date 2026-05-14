@@ -1,0 +1,47 @@
+# DeepSynaps Protocol Studio — Staging Monitoring Stack
+# Fly.io configuration for Prometheus + Grafana monitoring
+#
+# Deploy with:
+#   flyctl deploy --config deploy/fly.staging.monitoring.toml --app deepsynaps-monitoring-stg
+#
+# This runs a lightweight monitoring stack alongside the main app.
+# For production, consider using Fly's managed Prometheus or an external service.
+
+app = "deepsynaps-monitoring-stg"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "Dockerfile.monitoring"
+
+[env]
+  GF_SECURITY_ADMIN_PASSWORD = "change-me-in-secrets"  # Override via fly secrets
+  GF_SERVER_ROOT_URL = "https://deepsynaps-monitoring-stg.fly.dev"
+  GF_AUTH_ANONYMOUS_ENABLED = "false"
+  PROMETHEUS_RETENTION_TIME = "15d"
+  # Scrape target: the staging API app
+  DEEPSYNAPS_API_TARGET = "deepsynaps-studio.internal:8080"
+
+[http_service]
+  internal_port = 3000  # Grafana UI
+  force_https = true
+  auto_stop_machines = false  # Monitoring should always be on
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "60s"
+    method = "GET"
+    timeout = "10s"
+    path = "/api/health"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+# Optional: small persistent volume for Grafana dashboards and Prometheus data
+# [[mounts]]
+#   source = "monitoring_data"
+#   destination = "data"
+#   initial_size = "5gb"

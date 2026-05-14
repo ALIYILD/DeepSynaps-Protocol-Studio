@@ -1,0 +1,86 @@
+# DeepSynaps Protocol Studio — Monitoring Stack
+# Combined Prometheus + Grafana + AlertManager in a single container
+# For staging only. Production should use separate containers or managed services.
+
+FROM prom/prometheus:v3.2.1 AS prometheus
+
+FROM grafana/grafana-oss:11.6.0 AS grafana
+
+FROM alpine:3.21
+
+# Install all components
+RUN apk add --no-cache \
+    curl \
+    jq \
+    supervisor \
+    gettext-envsubst
+
+# Copy Prometheus
+COPY --from=prometheus /bin/prometheus /bin/prometheus
+COPY --from=prometheus /usr/share/prometheus/console_libraries /usr/share/prometheus/console_libraries
+COPY --from=prometheus /usr/share/prometheus/consoles /usr/share/prometheus/consoles
+COPY --from=prometheus /etc/prometheus /etc/prometheus
+COPY --from=prometheus /prometheus /prometheus
+
+# Copy Grafana
+COPY --from=grafana /usr/share/grafana /usr/share/grafana
+COPY --from=grafana /etc/grafana /etc/grafana
+
+# Create directories
+RUN mkdir -p /data/prometheus /data/grafana /data/alertmanager /etc/supervisor.d
+
+# Copy configurations
+COPY deploy/prometheus.yml /etc/prometheus/prometheus.yml
+COPY deploy/alertmanager/alertmanager.yml /etc/alertmanager/alertmanager.yml
+COPY deploy/alertmanager/alerts-clinical.yml /etc/prometheus/alerts-clinical.yml
+COPY deploy/alertmanager/alerts-system.yml /etc/prometheus/alerts-system.yml
+COPY deploy/grafana/dashboard-api.json /usr/share/grafana/public/dashboards/
+COPY deploy/grafana/dashboard-clinical.json /usr/share/grafana/public/dashboards/
+COPY deploy/grafana/dashboard-infrastructure.json /usr/share/grafana/public/dashboards/
+
+# Supervisor configuration to run all services
+RUN cat > /etc/supervisor.d/monitoring.ini << 'EOF'
+[supervisord]
+nodaemon=true
+user=root
+
+[program:prometheus]
+command=/bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/data/prometheus --storage.tsdb.retention.time=%(ENV_PROMETHEUS_RETENTION_TIME)s --web.enable-lifecycle
+autostart=true
+autorestart=true
+priority=10
+stdout_logfile=/dev/stdout
+stderr_logfile=/dev/stderr
+
+[program:alertmanager]
+command=/bin/alertmanager --config.file=/etc/alertmanager/alertmanager.yml --storage.path=/data/alertmanager
+autostart=true
+autorestart=true
+priority=20
+stdout_logfile=/dev/stdout
+stderr_logfile=/dev/stderr
+
+[program:grafana]
+command=/usr/share/grafana/bin/grafana-server --homepath=/usr/share/grafana --config=/etc/grafana/grafana.ini
+autostart=true
+autorestart=true
+priority=30
+stdout_logfile=/dev/stdout
+stderr_logfile=/dev/stderr
+EOF
+
+# Health check endpoint
+RUN cat > /usr/local/bin/healthcheck.sh << 'EOF'
+#!/bin/sh
+# Check Prometheus
+curl -sf http://localhost:9090/-/healthy > /dev/null 2>&1 || exit 1
+# Check Grafana
+curl -sf http://localhost:3000/api/health > /dev/null 2>&1 || exit 1
+# Check AlertManager
+curl -sf http://localhost:9093/-/healthy > /dev/null 2>&1 || exit 1
+exit 0
+EOF
+RUN chmod +x /usr/local/bin/healthcheck.sh
+
+# Entrypoint to substitute env vars and start services
+ENTRYPOINT ["/usr/bin/supervisord", "-c", "/etc/supervisor.d/monitoring.ini"]
