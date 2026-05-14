@@ -200,11 +200,20 @@ test.describe('Flow 3: Patient portal', () => {
   });
 
   test('guardian portal loads in clinician app', async ({ page }) => {
-    // guardian-portal is a clinician-side page
+    // guardian-portal is a clinician-side page. Use navToStrict + the
+    // `[data-page="guardian-portal"]` marker (same #913/#926 pattern) so the
+    // assertion can't fire against the dashboard's still-mounted h1 during
+    // the post-fetch render race.
     await mockClinicianAuth(page);
     await page.goto('/');
     await waitForClinicianApp(page);
     await navToStrict(page, 'guardian-portal');
+    // Anchor the heading assertion onto the guardian-portal marker container
+    // — the page's eyebrow text "Family & Guardian Portal" and the h1
+    // "Welcome, <name>" both live inside it, so the marker scope is the
+    // stable target. The previous `h1`-only selector matched the dashboard's
+    // h1 during the post-render race (#913 pattern) and the h1's "Welcome,"
+    // text never contains "guardian/caregiver/family" anyway.
     await expect(page.locator('[data-page="guardian-portal"]')).toContainText(/(guardian|caregiver|family)/i);
   });
 });
