@@ -4438,7 +4438,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
       host.innerHTML = _renderReadOnlyShell();
       return;
     }
-    host.innerHTML = _renderClinicalShell('<div class="ps-empty"><span class="ps-spin"></span>Loading drafts…</div>');
+    host.innerHTML = _renderClinicalShell('<div class="ps-empty"><span class="ps-spin"></span>Loading workspace…</div>');
     let items = [];
     let err = null;
     try {
@@ -4448,32 +4448,56 @@ export async function pgProtocolHub(setTopbar, navigate) {
 
     if (err) {
       host.innerHTML = _renderClinicalShell(
-        '<div class="ps-empty" data-testid="protocol-drafts-unavailable">Saved drafts unavailable in this environment. ' + esc(err) +
+        '<div class="ps-empty" data-testid="protocol-drafts-unavailable">Workspace unavailable in this environment. ' + esc(err) +
         '<br><button type="button" class="ps-save-btn" style="margin-top:10px" onclick="window._psRenderCurrentTab()">Retry</button></div>'
       );
       return;
     }
     if (!items.length) {
       host.innerHTML = _renderClinicalShell(
-        '<div class="ps-empty">No saved protocol drafts yet.<br>Generate an AI-assisted draft, save it while a patient is in context, or open the builder.</div>'
+        '<div class="ps-empty">No saved protocols yet.<br>Generate an AI-assisted draft, save it while a patient is in context, or open the builder.</div>'
       );
       return;
     }
 
+    // BUG-FIX-003: governance workspace — filters, counts, actions
+    const _govFilters = ['all', 'draft', 'needs_review', 'submitted', 'approved', 'rejected', 'archived'];
+    const _govFilterLabels = { all:'All', draft:'Drafts', needs_review:'Needs Review', submitted:'Submitted', approved:'Approved', rejected:'Rejected', archived:'Archived' };
     const _govLabel = (s) => {
       const x = String(s || 'draft').toLowerCase();
-      if (x === 'approved') return 'Signed / final (workspace)';
-      if (x === 'submitted') return 'Submitted for review';
+      if (x === 'approved') return 'Approved / Signed';
+      if (x === 'submitted') return 'Submitted for Review';
       if (x === 'rejected') return 'Rejected';
+      if (x === 'needs_review') return 'Needs Review';
+      if (x === 'archived') return 'Archived';
       return 'Draft';
     };
+    const _govBadgeClass = (s) => {
+      const x = String(s || 'draft').toLowerCase();
+      if (x === 'approved') return 'ps-state-approved';
+      if (x === 'submitted') return 'ps-state-submitted';
+      if (x === 'rejected') return 'ps-state-rejected';
+      if (x === 'needs_review') return 'ps-state-needs-review';
+      if (x === 'archived') return 'ps-state-archived';
+      return 'ps-state-draft';
+    };
+    const counts = {};
+    items.forEach(d => { const s = String(d.governance_state || 'draft').toLowerCase(); counts[s] = (counts[s] || 0) + 1; });
+    const currentFilter = window._psDraftsFilter || 'all';
+    const filteredItems = currentFilter === 'all' ? items : items.filter(d => String(d.governance_state || 'draft').toLowerCase() === currentFilter);
+
+    const filterHtml = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">' +
+      _govFilters.map(f => '<button type="button" class="ps-save-btn' + (currentFilter === f ? ' ps-filter-active' : '') + '" style="font-size:11px;padding:4px 10px;background:' + (currentFilter === f ? 'var(--accent)' : 'var(--bg-surface)') + ';color:' + (currentFilter === f ? '#fff' : 'var(--text-primary)') + ';border:1px solid var(--border)" onclick="window._psSetDraftsFilter(\'' + f + '\')">' + esc(_govFilterLabels[f]) + ' (' + (counts[f] || 0) + ')</button>').join('') +
+      '</div>';
+
     const listHtml =
       '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">' +
-        '<span style="font-size:13px;font-weight:600">' + items.length + ' saved draft' + (items.length !== 1 ? 's' : '') + '</span>' +
+        '<span style="font-size:13px;font-weight:600">' + filteredItems.length + ' protocol' + (filteredItems.length !== 1 ? 's' : '') + (currentFilter !== 'all' ? ' \u00B7 ' + esc(_govFilterLabels[currentFilter]) : '') + '</span>' +
         '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:4px 10px" onclick="window._psRenderCurrentTab()">Refresh</button>' +
       '</div>' +
-      '<p class="ps-hero-sub" style="margin:0 0 12px;font-size:11.5px">Governance states mirror saved protocol metadata — formal sign-off follows your clinic policy.</p>' +
-      '<div class="ps-drafts-list">' + items.map(d => {
+      filterHtml +
+      '<p class="ps-hero-sub" style="margin:0 0 12px;font-size:11.5px">Governance states mirror saved protocol metadata \u2014 formal sign-off follows your clinic policy.</p>' +
+      '<div class="ps-drafts-list">' + filteredItems.map(d => {
         const proto = d.parameters_json || {};
         const date = d.created_at ? new Date(d.created_at).toLocaleDateString() : '';
         const aiTag = proto.ai_assisted ? '<span class="ps-result-badge ps-badge-draft">AI-assisted</span>' : '';
@@ -4483,12 +4507,43 @@ export async function pgProtocolHub(setTopbar, navigate) {
             '<div class="ps-draft-meta">' + esc(d.condition || '') + (d.device_slug ? ' \u00B7 ' + esc(d.device_slug) : '') + (date ? ' \u00B7 ' + date : '') + '</div>' +
           '</div>' +
           aiTag +
-          '<span class="ps-state-badge ' + (d.governance_state === 'approved' ? 'ps-state-approved' : d.governance_state === 'submitted' ? 'ps-state-submitted' : 'ps-state-draft') + '">' + esc(_govLabel(d.governance_state)) + '</span>' +
+          '<span class="ps-state-badge ' + _govBadgeClass(d.governance_state) + '">' + esc(_govLabel(d.governance_state)) + '</span>' +
           '<button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:4px 10px;flex-shrink:0" onclick="window._psOpenInBuilder(\'' + esc(d.id) + '\')">Open in builder</button>' +
+          '<div class="ps-draft-actions">' +
+            (d.governance_state === 'draft' ? '<button type="button" class="ps-save-btn" style="font-size:10px;padding:3px 8px" onclick="window._psGovSubmit(\'' + esc(d.id) + '\')">Submit</button>' : '') +
+            (d.governance_state === 'submitted' ? '<button type="button" class="ps-save-btn" style="font-size:10px;padding:3px 8px" onclick="window._psGovApprove(\'' + esc(d.id) + '\')">Approve</button><button type="button" class="ps-save-btn" style="font-size:10px;padding:3px 8px;background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border)" onclick="window._psGovReject(\'' + esc(d.id) + '\')">Reject</button>' : '') +
+          '</div>' +
         '</div>';
       }).join('') + '</div>';
     host.innerHTML = _renderClinicalShell(listHtml);
   }
+
+  // BUG-FIX-003: governance action handlers for workspace
+  window._psSetDraftsFilter = (f) => { window._psDraftsFilter = f; window._psRenderCurrentTab(); };
+  window._psGovSubmit = async (id) => {
+    if (!_psCanAuthor()) return;
+    try {
+      await api.updateSavedProtocol(id, { governance_state: 'submitted' });
+      window._showNotifToast?.({ title: 'Submitted', body: 'Protocol submitted for review.', severity: 'success' });
+      window._psRenderCurrentTab();
+    } catch (e) { window._showNotifToast?.({ title: 'Submit failed', body: e?.message || 'endpoint error', severity: 'error' }); }
+  };
+  window._psGovApprove = async (id) => {
+    if (!_psCanAuthor()) return;
+    try {
+      await api.updateSavedProtocol(id, { governance_state: 'approved' });
+      window._showNotifToast?.({ title: 'Approved', body: 'Protocol approved and signed.', severity: 'success' });
+      window._psRenderCurrentTab();
+    } catch (e) { window._showNotifToast?.({ title: 'Approve failed', body: e?.message || 'endpoint error', severity: 'error' }); }
+  };
+  window._psGovReject = async (id) => {
+    if (!_psCanAuthor()) return;
+    try {
+      await api.updateSavedProtocol(id, { governance_state: 'rejected' });
+      window._showNotifToast?.({ title: 'Rejected', body: 'Protocol rejected — revise and resubmit.', severity: 'warn' });
+      window._psRenderCurrentTab();
+    } catch (e) { window._showNotifToast?.({ title: 'Reject failed', body: e?.message || 'endpoint error', severity: 'error' }); }
+  };
 
   // ── Tab switcher ───────────────────────────────────────────────────────────
   function _renderTabBar() {
@@ -4499,7 +4554,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
       { id: 'generate', label: 'Generate', tid: 'protocol-studio-tab-generate' },
       { id: 'compare', label: 'Compare', tid: 'protocol-studio-tab-compare' },
       { id: 'simulation', label: 'Simulation', tid: 'protocol-studio-tab-simulation' },
-      { id: 'drafts', label: 'My Drafts', tid: 'protocol-studio-tab-drafts' },
+      { id: 'drafts', label: 'Workspace', tid: 'protocol-studio-tab-drafts' },
     ];
     return tabs.map(t =>
       '<button type="button" class="ps-tab' + (_tab === t.id ? ' active' : '') + '" data-ps-tab="' + t.id + '" onclick="window._psTab(\'' + t.id + '\')"' + _tid(t.tid) + '>' + esc(t.label) + '</button>'
@@ -4587,7 +4642,14 @@ export async function pgProtocolHub(setTopbar, navigate) {
         target: null,
         protocol_id: null,
         include_off_label: !!(olEl && olEl.checked),
-        constraints: {},
+        // BUG-FIX-001: device and evidence_threshold now preserved in payload
+        constraints: {
+          device: (devEl && devEl.value.trim()) || null,
+          evidence_threshold: (thrEl && thrEl.value) || null,
+          session_frequency: null,
+          session_duration: null,
+          safety_flags: [],
+        },
       };
       W.result = await api.protocolStudioGenerate(payload);
       W.error = null;
@@ -4724,12 +4786,13 @@ export async function pgProtocolHub(setTopbar, navigate) {
       return;
     }
     try {
+      // BUG-FIX-002: ensure constraints are preserved in save/export
       const blob = await api.exportProtocolDocx({
         condition_name: p.condition,
         modality_name: p.modality || 'tDCS',
-        device_name: p.device || '',
+        device_name: p.constraints?.device || p.device || '',
         setting: 'Clinic',
-        evidence_threshold: p.evidence_threshold || 'Systematic Review',
+        evidence_threshold: p.constraints?.evidence_threshold || p.evidence_threshold || 'Systematic Review',
         off_label: !!p.off_label,
         symptom_cluster: 'General',
       });
@@ -4815,7 +4878,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
         name: 'AI-assisted draft: ' + condition.slice(0, 80),
         condition,
         modality: modalitySlug,
-        device_slug: (payload.device || '').slice(0, 120) || null,
+        device_slug: ((payload.constraints && payload.constraints.device) || payload.device || '').slice(0, 120) || null,
         governance_state: 'draft',
         parameters_json: {
           generator: payload.kind || 'evidence',
@@ -4825,7 +4888,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
           duration: W.result.duration || rp.session_duration || rp.total_course,
           evidence_grade: W.result.evidence_grade,
           ai_assisted: true,
-          registry_threshold: payload.evidence_threshold || null,
+          registry_threshold: (payload.constraints && payload.constraints.evidence_threshold) || payload.evidence_threshold || null,
           off_label: !!(payload.off_label ?? W.result.off_label),
           protocol_studio_status: W.result.status || null,
         },
@@ -12821,8 +12884,17 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       window._ahForm = null;
     };
 
+    // BUG-FIX-002: Offline draft fallback — payload must be declared BEFORE the
+    // if/else so the catch block can access it. Also verify localStorage writes.
     window._ahSaveDraft = async () => {
       const s = window._ahForm; if (!s) return;
+      // Build payload BEFORE the if/else so catch can access it
+      const payload = {
+        patient_id: s.patientId || null,
+        scale_id: s.instrumentId,
+        status: 'draft',
+        data: { items: s.values, scale_id: s.instrumentId, source: 'assessments-hub-v2' },
+      };
       try {
         // If we have an existing backend assignment id, persist via v2 assignment responses.
         if (s.backendId && api.assessmentsV2SubmitResponses) {
@@ -12831,16 +12903,24 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
             items: s.values,
           });
         } else {
-          const payload = {
-            patient_id: s.patientId || null,
-            scale_id: s.instrumentId,
-            status: 'draft',
-            data: { items: s.values, scale_id: s.instrumentId, source: 'assessments-hub-v2' },
-          };
           if (s.backendId) {
-            await api.updateAssessment(s.backendId, payload);
+            // BUG-FIX-005: Try v2 first, fall back to v1
+            try {
+              await api.updateAssessmentV2(s.backendId, payload);
+            } catch (e) {
+              if (e && e.status === 404) {
+                await api.updateAssessment(s.backendId, payload);
+              } else { throw e; }
+            }
           } else {
-            const res = await api.createAssessment(payload);
+            let res;
+            try {
+              res = await api.createAssessment(payload);
+            } catch (e) {
+              if (e && e.status === 404) {
+                res = await api.createAssessment(payload);
+              } else { throw e; }
+            }
             if (res && res.id) s.backendId = res.id;
           }
         }
@@ -12848,11 +12928,15 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       } catch {
         // Local fallback — stash in localStorage so it's not lost.
         try {
-          const key = 'ds_assessment_drafts';
-          const arr = JSON.parse(localStorage.getItem(key) || '[]');
+          const key = 'ds_assessment_drafts_' + Date.now();
+          const arr = JSON.parse(localStorage.getItem('ds_assessment_drafts') || '[]');
           arr.push({ ...payload, saved_at: new Date().toISOString() });
-          localStorage.setItem(key, JSON.stringify(arr));
-        } catch {}
+          localStorage.setItem('ds_assessment_drafts', JSON.stringify(arr));
+        } catch (storageErr) {
+          window._dsToast?.({ title:'Save failed', body:'Failed to save draft offline. Storage may be full.', severity:'error' });
+          console.error('localStorage write failed:', storageErr);
+          return;
+        }
         window._dsToast?.({ title:'Draft saved (offline)', body:'Saved locally; will sync.', severity:'info' });
       }
     };

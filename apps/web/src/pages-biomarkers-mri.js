@@ -12,7 +12,7 @@
  * pulsing SVG overlay highlighting the affected anatomy region.
  */
 
-import { api } from './api.js';
+import { api, apiFetch } from './api.js';
 import { isDemoSession } from './demo-session.js';
 
 // ─── Anatomy → approximate overlay coordinates (% of container) ──────────────
@@ -522,12 +522,19 @@ export async function bindMRINeuromarkersTab() {
       const seq = seqSel?.value; const mod = modSel?.value;
       if (q) params.set('q', q); if (cat) params.set('category', cat);
       if (seq) params.set('sequence', seq); if (mod) params.set('modality', mod);
-      const res = await api.get(`/api/neuro-signs/?${params}`);
-      allSigns = res.data?.items || [];
+      // BUG-FIX-001: use apiFetch (not api.get), read .items directly (not res.data.items)
+      const data = await apiFetch(`/api/v1/neuro-signs/?${params}`);
+      allSigns = data?.items || [];
       renderList(allSigns);
-    } catch {
-      allSigns = DEMO_SIGNS;
-      renderList(allSigns);
+    } catch (err) {
+      // BUG-FIX-003: honest error handling — no silent demo fallback in production
+      if (isDemoSession()) {
+        allSigns = DEMO_SIGNS;
+        listEl.innerHTML = '<div class="mri-demo-banner"><span class="mri-demo-label">Demo mode</span> — showing sample neuromarkers for demonstration</div>';
+        renderList(allSigns);
+      } else {
+        listEl.innerHTML = '<div class="mri-error-state"><div class="mri-error-title">Neuromarker library unavailable</div><div class="mri-error-detail">' + (err?.message || 'Service temporarily unavailable') + '</div><button onclick="window.location.reload()">Retry</button></div>';
+      }
     }
   }
 
@@ -595,8 +602,9 @@ export async function bindMRINeuromarkersTab() {
     const query = sign.evidence_query || [sign.name, ...(sign.primary_conditions||[]).slice(0,1)].join(' ');
     try {
       const params = new URLSearchParams({ q: query, limit: 10, include_abstract: 'true', has_abstract: 'true' });
-      const res = await api.get(`/api/v1/evidence/papers?${params}`);
-      const papers = res.data || [];
+      // BUG-FIX-001: use apiFetch (not api.get), read data directly (not res.data)
+      const data = await apiFetch(`/api/v1/evidence/papers?${params}`);
+      const papers = data || [];
       evidenceCache[sign.id] = papers;
       if (selectedSign?.id === sign.id) pane.innerHTML = renderEvidencePapers(papers, query);
     } catch {
@@ -904,4 +912,13 @@ export const MRI_NEUROMARKERS_STYLES = `
   animation: mrinm-spin .7s linear infinite; flex-shrink: 0;
 }
 @keyframes mrinm-spin { to { transform: rotate(360deg); } }
+
+/* BUG-FIX-003: Error and demo states */
+.mri-error-state { padding: 24px; text-align: center; color: rgba(148,163,184,.6); }
+.mri-error-title { font-weight: 700; color: #f43f5e; margin-bottom: 8px; font-size: .95rem; }
+.mri-error-detail { font-size: 13px; margin-bottom: 16px; color: rgba(148,163,184,.45); }
+.mri-error-state button { padding: .45rem 1.1rem; background: rgba(100,200,255,.1); border: 1px solid rgba(100,200,255,.25); border-radius: .375rem; color: #64c8ff; font-size: .8rem; cursor: pointer; transition: background .15s; }
+.mri-error-state button:hover { background: rgba(100,200,255,.18); }
+.mri-demo-banner { padding: 8px 12px; background: rgba(255,176,87,0.14); color: #fbbf24; font-size: 12px; border-radius: 6px; margin: .6rem .6rem .2rem; }
+.mri-demo-label { font-weight: 700; }
 `;

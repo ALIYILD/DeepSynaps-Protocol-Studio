@@ -20,7 +20,7 @@
 //   var(--teal)   mild / subthreshold
 //   var(--blue)   moderate
 //   var(--amber)  moderately severe / high-risk screen
-//   #ff6b6b       severe / extremely severe / probable PTSD
+//   #ff6b6b       severe / extremely severe / above-threshold screen
 
 // ── Shared option banks ────────────────────────────────────────────────────
 
@@ -310,7 +310,9 @@ function sevQuickScreen(label) {
 
 function sevPCL5(score) {
   if (score < 33) return { label: 'Below threshold', color: 'var(--green)' };
-  return              { label: 'Probable PTSD',    color: '#ff6b6b'        };
+  // SAFETY-FIX C-007: Changed from diagnostic language to screening language
+  // Software does not diagnose — all outputs require clinician review
+  return              { label: 'Above PTSD threshold — clinician evaluation required', color: '#ff6b6b' };
 }
 
 function sevISI(score) {

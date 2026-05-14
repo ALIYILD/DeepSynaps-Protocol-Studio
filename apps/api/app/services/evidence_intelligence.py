@@ -214,9 +214,10 @@ class ReportPayloadRequest(BaseModel):
     report_id: Optional[str] = None
 
 
+# SAFETY-FIX C-001: diagnosis renamed to clinical_context — software does not diagnose
 class EvidenceFilterState(BaseModel):
     modality: Optional[str] = None
-    diagnosis: Optional[str] = None
+    clinical_context: Optional[str] = None
     intervention: Optional[str] = None
     evidence_type: Optional[str] = None
     year_min: Optional[int] = None

@@ -211,6 +211,8 @@ def detect_red_flags(template_id: str, items: Optional[dict[str, Any]], score: O
     Used both by the escalate endpoint (auto-suggest reason) and the AI summary
     endpoint (seed the prompt with concrete concerns).
     """
+    # SAFETY-FIX C-002/C-003: All red flags are framed as draft observations
+    # requiring clinician review. Software does not diagnose or prescribe.
     flags: list[str] = []
     key = _template_key(template_id)
     if not items:
@@ -218,9 +220,11 @@ def detect_red_flags(template_id: str, items: Optional[dict[str, Any]], score: O
     if key == "phq9":
         item9 = _coerce_item_value(items.get("phq9_9"))
         if item9 is not None and item9 > 0:
-            flags.append(f"PHQ-9 Item 9 (suicidality) = {item9} — non-zero response requires safety screen.")
+            flags.append(f"[Draft — requires clinician review] PHQ-9 Item 9 (suicidality) = {item9} — non-zero response requires safety screen.")
     if key == "c_ssrs" and score is not None and score >= 2:
-        flags.append(f"C-SSRS level {score} — active ideation; follow crisis protocol.")
+        # SAFETY-FIX C-003: crisis protocol flag framed as draft suggestion
+        flags.append(f"[Draft — requires clinician review] C-SSRS level {score} — findings suggestive of active ideation; consider evaluating against crisis protocol.")
     if key == "pcl5" and score is not None and score >= 33:
-        flags.append("PCL-5 >= 33 — probable PTSD threshold reached.")
+        # SAFETY-FIX C-002: changed from diagnostic "probable PTSD" to observational language
+        flags.append("[Draft — requires clinician review] PCL-5 >= 33 — criteria threshold reached for clinician evaluation.")
     return flags

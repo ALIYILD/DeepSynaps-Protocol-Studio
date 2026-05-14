@@ -33,7 +33,8 @@ class NeuroSignBase(BaseModel):
     
     visual_description: Optional[str] = None
     pathophysiology_explanation: Optional[str] = None
-    differential_diagnosis: Optional[str] = None
+    # SAFETY-FIX C-006: differential_diagnosis renamed to clinical_observations — clinical observation only
+    clinical_observations: Optional[str] = None
     reporting_phrase: Optional[str] = None
     clinical_caveat: Optional[str] = None
     evidence_notes: Optional[str] = None
@@ -67,7 +68,8 @@ class NeuroSignUpdate(BaseModel):
     
     visual_description: Optional[str] = None
     pathophysiology_explanation: Optional[str] = None
-    differential_diagnosis: Optional[str] = None
+    # SAFETY-FIX C-006: differential_diagnosis renamed to clinical_observations — clinical observation only
+    clinical_observations: Optional[str] = None
     reporting_phrase: Optional[str] = None
     clinical_caveat: Optional[str] = None
     evidence_notes: Optional[str] = None

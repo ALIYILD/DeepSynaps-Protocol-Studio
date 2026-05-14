@@ -10,6 +10,9 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from app.database import SessionLocal
+from app.persistence.models import AuditEventRecord
+
 
 def _create_patient(client: TestClient, auth_headers: dict, *, email: str = "v2_patient@example.com") -> str:
     r = client.post(
@@ -95,4 +98,25 @@ def test_evidence_health_is_honest_when_db_missing(client: TestClient, auth_head
     body = r.json()
     assert body["ok"] is True
     assert body["local_corpus_available"] is False
+
+
+# ── BUG-FIX-004: audit persistence ───────────────────────────────────────────
+
+
+def test_library_view_writes_audit(client: TestClient, auth_headers: dict) -> None:
+    """BUG-FIX-004: library view must write an audit event with an injected Session."""
+    response = client.get("/api/v1/assessments-v2/library", headers=auth_headers["clinician"])
+    assert response.status_code == 200, response.text
+
+    # Verify audit event was written to the database
+    db = SessionLocal()
+    try:
+        audit_events = db.query(AuditEventRecord).filter(
+            AuditEventRecord.target_type == "assessments_v2",
+            AuditEventRecord.action == "view",
+        ).all()
+        assert len(audit_events) >= 1
+        assert any(a.note == "library_view" for a in audit_events)
+    finally:
+        db.close()
 
