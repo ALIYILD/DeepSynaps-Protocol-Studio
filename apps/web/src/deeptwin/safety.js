@@ -144,3 +144,58 @@ export function reviewStatusChip(status) {
   const label = map[status] || status || 'Awaiting clinician review';
   return `<span class="dt-chip dt-chip-muted">${escHtml(label)}</span>`;
 }
+
+// ---------------------------------------------------------------------------
+// Forbidden-terms audit list  (Task 6 safety audit)
+// Terms that must be softened or rejected in any clinical output text.
+// ---------------------------------------------------------------------------
+export const _FORBIDDEN_TERMS = new Set([
+  'diagnoses',
+  'diagnosing',
+  'caused',
+  'proves',
+  'recommends treatment',
+  'autonomous',
+  'prescribes',
+  'guarantees',
+  'cures',
+  'will respond',
+  'definitely responds',
+]);
+
+// Hard phrase rewrites: [dangerous_phrase, safe_replacement]
+export const _HARD_PHRASE_REWRITES = [
+  ['caused improvement', 'temporally associated with improvement'],
+  ['proves efficacy', 'provides evidence supporting efficacy'],
+  ['predicts response', 'estimates association context'],
+  ['diagnoses depression', 'flags patterns consistent with screening criteria'],
+  ['recommends treatment', 'presents options for clinician consideration'],
+  ['autonomous adjustment', 'clinician-approved parameter modification'],
+];
+
+/**
+ * Check whether a text contains any forbidden clinical term.
+ * Returns { clean: true } if safe, or { clean: false, term, position } on first hit.
+ */
+export function auditForbiddenTerms(text) {
+  const t = String(text || '').toLowerCase();
+  for (const term of _FORBIDDEN_TERMS) {
+    const pos = t.indexOf(term.toLowerCase());
+    if (pos !== -1) {
+      return { clean: false, term, position: pos };
+    }
+  }
+  return { clean: true };
+}
+
+/**
+ * Apply hard-phrase rewrites to soften dangerous clinical language.
+ * Returns the rewritten text with all dangerous phrases replaced.
+ */
+export function softenLanguage(text) {
+  let out = String(text || '');
+  for (const [dangerous, safe] of _HARD_PHRASE_REWRITES) {
+    out = out.split(dangerous).join(safe);
+  }
+  return out;
+}
