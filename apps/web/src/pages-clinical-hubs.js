@@ -869,6 +869,7 @@ export async function pgPatientHub(setTopbar, navigate) {
         mk('qeeg-launcher', 'qEEG', 'registry_open_qeeg') +
         mk('mri-analysis', 'MRI', 'registry_open_mri') +
         mk('video-assessments', 'Video', 'registry_open_video') +
+        mk('movement-analyzer', 'Movement', 'registry_open_movement') +
         mk('wearables', 'Bio', 'registry_open_wearables') +
         mk('text-analyzer', 'Text', 'registry_open_text') +
         mk('deeptwin', 'Twin', 'registry_open_deeptwin') +
@@ -3453,6 +3454,38 @@ export async function pgProtocolHub(setTopbar, navigate) {
     }
   };
 
+  window._psOpenMovementForPatient = () => {
+    const pid = _psContextPatientId();
+    if (!pid) {
+      window._showNotifToast?.({ title: 'No patient', body: 'Select a patient first.', severity: 'warn' });
+      return;
+    }
+    try {
+      window._selectedPatientId = pid;
+      window._profilePatientId = pid;
+      try { sessionStorage.setItem('nav_movement-analyzer', JSON.stringify({ patientId: pid, source: 'protocol-studio' })); } catch {}
+      navigate('movement-analyzer');
+    } catch (e) {
+      window._showNotifToast?.({ title: 'Navigation failed', body: e?.message || 'error', severity: 'error' });
+    }
+  };
+
+  window._psOpenVideoForPatient = () => {
+    const pid = _psContextPatientId();
+    if (!pid) {
+      window._showNotifToast?.({ title: 'No patient', body: 'Select a patient first.', severity: 'warn' });
+      return;
+    }
+    try {
+      window._selectedPatientId = pid;
+      window._profilePatientId = pid;
+      try { sessionStorage.setItem('nav_video-assessments', JSON.stringify({ patientId: pid, source: 'protocol-studio' })); } catch {}
+      navigate('video-assessments');
+    } catch (e) {
+      window._showNotifToast?.({ title: 'Navigation failed', body: e?.message || 'error', severity: 'error' });
+    }
+  };
+
   function _renderEvidenceHealthCard() {
     const h = F.evidenceHealth;
     const err = F.errors.evidenceHealth;
@@ -3592,6 +3625,14 @@ export async function pgProtocolHub(setTopbar, navigate) {
       <div style="margin-top:10px">${rows}</div>
       ${safetyHtml}
       ${missing.length ? `<div style="margin-top:10px;color:var(--text-tertiary);font-size:11px">Missing: ${missing.map(esc).join(', ')}</div>` : ''}
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+        <div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Cross-module assessment</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          <button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._psOpenMovementForPatient()">View movement assessment</button>
+          <button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:5px 10px" onclick="window._psOpenVideoForPatient()">Video assessments</button>
+        </div>
+        <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px">Movement analysis available for Parkinson's, stroke, MS, and movement disorder protocols.</div>
+      </div>
     </section>`;
   }
 

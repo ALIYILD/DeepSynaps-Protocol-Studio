@@ -125,6 +125,76 @@ const MOVEMENT_BIOMARKER_EVIDENCE = {
   },
 };
 
+// ── MediaPipe BlazePose 33 Keypoint Skeleton ────────────────────────────
+const SKELETON_CONNECTIONS = [
+  // Face
+  ['nose', 'left_eye_inner'], ['nose', 'right_eye_inner'],
+  ['left_eye_inner', 'left_eye'], ['left_eye', 'left_eye_outer'],
+  ['right_eye_inner', 'right_eye'], ['right_eye', 'right_eye_outer'],
+  ['left_eye_outer', 'left_ear'], ['right_eye_outer', 'right_ear'],
+  ['nose', 'mouth_left'], ['nose', 'mouth_right'],
+  // Torso
+  ['mouth_left', 'mouth_right'],
+  ['left_shoulder', 'right_shoulder'], ['left_shoulder', 'left_hip'],
+  ['right_shoulder', 'right_hip'], ['left_hip', 'right_hip'],
+  // Left arm
+  ['left_shoulder', 'left_elbow'], ['left_elbow', 'left_wrist'],
+  ['left_wrist', 'left_pinky'], ['left_wrist', 'left_index'],
+  ['left_wrist', 'left_thumb'], ['left_pinky', 'left_index'],
+  // Right arm
+  ['right_shoulder', 'right_elbow'], ['right_elbow', 'right_wrist'],
+  ['right_wrist', 'right_pinky'], ['right_wrist', 'right_index'],
+  ['right_wrist', 'right_thumb'], ['right_pinky', 'right_index'],
+  // Left leg
+  ['left_hip', 'left_knee'], ['left_knee', 'left_ankle'],
+  ['left_ankle', 'left_heel'], ['left_heel', 'left_foot_index'],
+  ['left_ankle', 'left_foot_index'],
+  // Right leg
+  ['right_hip', 'right_knee'], ['right_knee', 'right_ankle'],
+  ['right_ankle', 'right_heel'], ['right_heel', 'right_foot_index'],
+  ['right_ankle', 'right_foot_index'],
+];
+
+/** Human-readable keypoint names for tooltips */
+const KEYPOINT_LABELS = {
+  nose: 'Nose',
+  left_eye_inner: 'Left Eye (Inner)',
+  left_eye: 'Left Eye',
+  left_eye_outer: 'Left Eye (Outer)',
+  right_eye_inner: 'Right Eye (Inner)',
+  right_eye: 'Right Eye',
+  right_eye_outer: 'Right Eye (Outer)',
+  left_ear: 'Left Ear',
+  right_ear: 'Right Ear',
+  mouth_left: 'Mouth (Left)',
+  mouth_right: 'Mouth (Right)',
+  left_shoulder: 'Left Shoulder',
+  right_shoulder: 'Right Shoulder',
+  left_elbow: 'Left Elbow',
+  right_elbow: 'Right Elbow',
+  left_wrist: 'Left Wrist',
+  right_wrist: 'Right Wrist',
+  left_pinky: 'Left Pinky',
+  right_pinky: 'Right Pinky',
+  left_index: 'Left Index',
+  right_index: 'Right Index',
+  left_thumb: 'Left Thumb',
+  right_thumb: 'Right Thumb',
+  left_hip: 'Left Hip',
+  right_hip: 'Right Hip',
+  left_knee: 'Left Knee',
+  right_knee: 'Right Knee',
+  left_ankle: 'Left Ankle',
+  right_ankle: 'Right Ankle',
+  left_heel: 'Left Heel',
+  right_heel: 'Right Heel',
+  left_foot_index: 'Left Foot Index',
+  right_foot_index: 'Right Foot Index',
+};
+
+/** Ordered keypoint IDs for heatmap Y axis */
+const KEYPOINT_ORDER = Object.keys(KEYPOINT_LABELS);
+
 /** Critical safety disclaimer for all movement analysis outputs. */
 const MOVEMENT_CRITICAL_SAFETY =
   'IMPORTANT LIMITATIONS: (1) No video-based movement biomarker is FDA-approved for standalone diagnosis as of 2026. ' +
@@ -150,6 +220,291 @@ function _renderSafeWording(modKey) {
   if (!ev?.overall?.safeWording) return '';
   return `<div style="margin-top:8px;padding:8px 10px;border-radius:6px;background:rgba(155,127,255,0.06);border:1px solid rgba(155,127,255,0.18);font-size:11px;line-height:1.5;color:var(--text-secondary)">
     <strong style="color:var(--text-primary)">Evidence context:</strong> ${esc(ev.overall.safeWording)}
+  </div>`;
+}
+
+// ── Skeleton Rendering ──────────────────────────────────────────────────
+function _confidenceColor(conf) {
+  if (conf > 0.9) return 'rgba(34,197,94,0.8)';
+  if (conf > 0.7) return 'rgba(59,130,246,0.8)';
+  if (conf > 0.5) return 'rgba(245,158,11,0.8)';
+  return 'rgba(239,68,68,0.8)';
+}
+
+function _renderSkeletonOverlay(canvas, poseSequence, frameIdx) {
+  const ctx = canvas.getContext('2d');
+  const frame = poseSequence?.frames?.[frameIdx];
+  if (!frame) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    return;
+  }
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  SKELETON_CONNECTIONS.forEach(([a, b]) => {
+    const kpA = frame.keypoints.find(k => k.id === a);
+    const kpB = frame.keypoints.find(k => k.id === b);
+    if (kpA && kpB && kpA.confidence > 0.3 && kpB.confidence > 0.3) {
+      ctx.beginPath();
+      ctx.moveTo(kpA.x * canvas.width, kpA.y * canvas.height);
+      ctx.lineTo(kpB.x * canvas.width, kpB.y * canvas.height);
+      ctx.strokeStyle = _confidenceColor(Math.min(kpA.confidence, kpB.confidence));
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  });
+  frame.keypoints.forEach(kp => {
+    if (kp.confidence > 0.3) {
+      ctx.beginPath();
+      ctx.arc(kp.x * canvas.width, kp.y * canvas.height, 3, 0, 2 * Math.PI);
+      ctx.fillStyle = _confidenceColor(kp.confidence);
+      ctx.fill();
+    }
+  });
+}
+
+function _renderInterpolatedSkeleton(canvas, poseSequence, timeSeconds) {
+  const ctx = canvas.getContext('2d');
+  if (!poseSequence?.frames?.length) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    return;
+  }
+  const fps = poseSequence.fps || 30;
+  const frameFloat = timeSeconds * fps;
+  const frameIdx0 = Math.max(0, Math.min(Math.floor(frameFloat), poseSequence.frames.length - 1));
+  const frameIdx1 = Math.min(frameIdx0 + 1, poseSequence.frames.length - 1);
+  const t = frameFloat - frameIdx0;
+  const f0 = poseSequence.frames[frameIdx0];
+  const f1 = poseSequence.frames[frameIdx1];
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  SKELETON_CONNECTIONS.forEach(([a, b]) => {
+    const kpA0 = f0.keypoints.find(k => k.id === a);
+    const kpB0 = f0.keypoints.find(k => k.id === b);
+    const kpA1 = f1.keypoints.find(k => k.id === a);
+    const kpB1 = f1.keypoints.find(k => k.id === b);
+    if (!kpA0 || !kpB0 || !kpA1 || !kpB1) return;
+    const confA = Math.min(kpA0.confidence, kpA1.confidence);
+    const confB = Math.min(kpB0.confidence, kpB1.confidence);
+    if (confA <= 0.3 || confB <= 0.3) return;
+    const ax = (kpA0.x + (kpA1.x - kpA0.x) * t) * canvas.width;
+    const ay = (kpA0.y + (kpA1.y - kpA0.y) * t) * canvas.height;
+    const bx = (kpB0.x + (kpB1.x - kpB0.x) * t) * canvas.width;
+    const by = (kpB0.y + (kpB1.y - kpB0.y) * t) * canvas.height;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(bx, by);
+    ctx.strokeStyle = _confidenceColor(Math.min(confA, confB));
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  });
+  f0.keypoints.forEach((kp0) => {
+    const kp1 = f1.keypoints.find(k => k.id === kp0.id);
+    if (!kp1) return;
+    const conf = Math.min(kp0.confidence, kp1.confidence);
+    if (conf <= 0.3) return;
+    const x = (kp0.x + (kp1.x - kp0.x) * t) * canvas.width;
+    const y = (kp0.y + (kp1.y - kp0.y) * t) * canvas.height;
+    ctx.beginPath();
+    ctx.arc(x, y, 3, 0, 2 * Math.PI);
+    ctx.fillStyle = _confidenceColor(conf);
+    ctx.fill();
+  });
+}
+
+/** Render a confidence heatmap: X=time(frames), Y=keypoint, color=confidence */
+function _renderConfidenceHeatmap(canvas, poseSequence) {
+  const ctx = canvas.getContext('2d');
+  if (!poseSequence?.frames?.length) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    return;
+  }
+  const frames = poseSequence.frames;
+  const cellW = canvas.width / frames.length;
+  const cellH = canvas.height / KEYPOINT_ORDER.length;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  frames.forEach((frame, fi) => {
+    KEYPOINT_ORDER.forEach((kpId, ki) => {
+      const kp = frame.keypoints.find(k => k.id === kpId);
+      const conf = kp?.confidence ?? 0;
+      ctx.fillStyle = _confidenceColor(conf);
+      ctx.fillRect(fi * cellW, ki * cellH, Math.max(cellW, 1), Math.max(cellH, 1));
+    });
+  });
+  ctx.fillStyle = 'var(--text-secondary)';
+  ctx.font = '9px sans-serif';
+  ctx.textAlign = 'right';
+  KEYPOINT_ORDER.forEach((kpId, ki) => {
+    const label = KEYPOINT_LABELS[kpId] || kpId;
+    ctx.fillText(label, canvas.width - 4, ki * cellH + cellH / 2 + 3);
+  });
+}
+
+/** Create or get the skeleton canvas overlay for a given video element */
+function _ensureSkeletonCanvas(videoEl) {
+  if (!videoEl) return null;
+  const container = videoEl.parentElement;
+  if (!container) return null;
+  let canvas = container.querySelector('canvas[data-skeleton-overlay]');
+  if (!canvas) {
+    canvas = document.createElement('canvas');
+    canvas.dataset.skeletonOverlay = 'true';
+    canvas.style.position = 'absolute';
+    canvas.style.top = '0';
+    canvas.style.left = '0';
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.pointerEvents = 'none';
+    canvas.style.zIndex = '2';
+    container.style.position = 'relative';
+    container.appendChild(canvas);
+  }
+  return canvas;
+}
+
+function _removeSkeletonCanvas(videoEl) {
+  if (!videoEl) return;
+  const container = videoEl.parentElement;
+  if (!container) return;
+  const canvas = container.querySelector('canvas[data-skeleton-overlay]');
+  if (canvas) canvas.remove();
+}
+
+let _mvSkeletonOverlayEnabled = false;
+let _mvPoseCache = {};
+
+async function _fetchPoseSequence(recordingId) {
+  if (!recordingId) return null;
+  if (_mvPoseCache[recordingId]) return _mvPoseCache[recordingId];
+  try {
+    const res = await api.getPoseSequence?.(recordingId);
+    if (res) { _mvPoseCache[recordingId] = res; return res; }
+  } catch (_) {}
+  return null;
+}
+
+let _mvSkeletonRaf = null;
+
+function _startSkeletonAnimation(videoEl, poseSequence) {
+  _stopSkeletonAnimation();
+  const canvas = _ensureSkeletonCanvas(videoEl);
+  if (!canvas) return;
+  function tick() {
+    if (!videoEl || videoEl.paused || videoEl.ended) {
+      _mvSkeletonRaf = requestAnimationFrame(tick);
+      return;
+    }
+    const w = videoEl.videoWidth || videoEl.clientWidth;
+    const h = videoEl.videoHeight || videoEl.clientHeight;
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
+    _renderInterpolatedSkeleton(canvas, poseSequence, videoEl.currentTime);
+    _mvSkeletonRaf = requestAnimationFrame(tick);
+  }
+  tick();
+}
+
+function _stopSkeletonAnimation() {
+  if (_mvSkeletonRaf) { cancelAnimationFrame(_mvSkeletonRaf); _mvSkeletonRaf = null; }
+}
+
+let _mvKpTooltip = null;
+
+function _ensureKpTooltip() {
+  if (_mvKpTooltip) return _mvKpTooltip;
+  _mvKpTooltip = document.createElement('div');
+  _mvKpTooltip.dataset.skeletonTooltip = 'true';
+  _mvKpTooltip.style.cssText = 'position:absolute;z-index:9999;padding:6px 10px;border-radius:6px;background:rgba(0,0,0,0.85);color:#fff;font-size:11px;line-height:1.45;pointer-events:none;display:none;white-space:nowrap;border:1px solid rgba(255,255,255,0.1)';
+  document.body.appendChild(_mvKpTooltip);
+  return _mvKpTooltip;
+}
+
+function _removeKpTooltip() {
+  if (_mvKpTooltip) { _mvKpTooltip.remove(); _mvKpTooltip = null; }
+}
+
+function _handleSkeletonMouseMove(e, canvas, poseSequence, videoEl) {
+  const tooltip = _ensureKpTooltip();
+  if (!poseSequence?.frames?.length || !videoEl) { tooltip.style.display = 'none'; return; }
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const fps = poseSequence.fps || 30;
+  const frameFloat = videoEl.currentTime * fps;
+  const frameIdx = Math.max(0, Math.min(Math.round(frameFloat), poseSequence.frames.length - 1));
+  const frame = poseSequence.frames[frameIdx];
+  if (!frame) { tooltip.style.display = 'none'; return; }
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  let closest = null;
+  let closestDist = Infinity;
+  frame.keypoints.forEach(kp => {
+    if (kp.confidence <= 0.3) return;
+    const kx = (kp.x * canvas.width) / scaleX;
+    const ky = (kp.y * canvas.height) / scaleY;
+    const d = Math.hypot(mx - kx, my - ky);
+    if (d < 12 && d < closestDist) { closestDist = d; closest = kp; }
+  });
+  if (closest) {
+    tooltip.innerHTML = '<strong>' + (KEYPOINT_LABELS[closest.id] || closest.id) + '</strong><br/>' +
+      'Confidence: ' + Math.round((closest.confidence ?? 0) * 100) + '%<br/>' +
+      'X: ' + (closest.x ?? 0).toFixed(3) + ' Y: ' + (closest.y ?? 0).toFixed(3) +
+      (closest.z != null ? ' Z: ' + closest.z.toFixed(3) : '');
+    tooltip.style.display = 'block';
+    tooltip.style.left = (e.clientX + 14) + 'px';
+    tooltip.style.top = (e.clientY + 14) + 'px';
+  } else {
+    tooltip.style.display = 'none';
+  }
+}
+
+function _wireSkeletonOverlay(videoEl, recordingId) {
+  if (!videoEl) return;
+  let poseSequence = null;
+  let wired = false;
+  const enableOverlay = async () => {
+    if (_mvSkeletonOverlayEnabled && recordingId) {
+      poseSequence = await _fetchPoseSequence(recordingId);
+      if (poseSequence && _mvSkeletonOverlayEnabled) {
+        _startSkeletonAnimation(videoEl, poseSequence);
+        const canvas = _ensureSkeletonCanvas(videoEl);
+        if (canvas && !wired) {
+          wired = true;
+          canvas.addEventListener('mousemove', (e) => _handleSkeletonMouseMove(e, canvas, poseSequence, videoEl));
+          canvas.addEventListener('mouseleave', () => { if (_mvKpTooltip) _mvKpTooltip.style.display = 'none'; });
+        }
+      }
+    } else {
+      _stopSkeletonAnimation();
+      _removeSkeletonCanvas(videoEl);
+      _removeKpTooltip();
+      wired = false;
+    }
+  };
+  enableOverlay();
+  return { enableOverlay };
+}
+
+/** Inline video player with skeleton overlay canvas */
+function _renderSkeletonVideoPlayer(profile) {
+  const sv = profile?.source_video || {};
+  const rid = sv.recording_id || '';
+  if (!rid) return '';
+  const videoUrl = sv.video_url || '';
+  if (!videoUrl) {
+    return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:14px">
+      <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Pose visualization</div>
+      <div style="font-size:12px;color:var(--text-secondary)">Video URL not available inline — use <strong>Open in Video</strong> to view with skeleton overlay.</div>
+    </div>`;
+  }
+  return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:14px" data-skeleton-player-wrap>
+    <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Video playback with pose overlay</div>
+    <div class="mv-video-canvas-wrap" style="position:relative;width:100%;max-width:640px;border-radius:8px;overflow:hidden;background:#000">
+      <video id="mv-skeleton-video" controls playsinline data-recording-id="${esc(rid)}" style="width:100%;display:block" src="${esc(videoUrl)}"></video>
+    </div>
+    <div style="display:flex;gap:12px;align-items:center;margin-top:8px;font-size:11px;color:var(--text-tertiary)">
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(34,197,94,0.8);margin-right:4px"></span>>90%</span>
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(59,130,246,0.8);margin-right:4px"></span>>70%</span>
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(245,158,11,0.8);margin-right:4px"></span>>50%</span>
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(239,68,68,0.8);margin-right:4px"></span><50%</span>
+    </div>
   </div>`;
 }
 
@@ -417,12 +772,26 @@ function _renderSourceVideoPanel(profile, navigate) {
   const linkHtml = rid
     ? `<button type="button" class="btn btn-ghost btn-sm" data-action="open-recording" data-recording-id="${esc(rid)}" style="min-height:44px;display:inline-flex;align-items:center;gap:6px" title="Open in Video Assessments">Open in Video</button>`
     : `<span class="btn btn-ghost btn-sm" title="No recording id on file — use Video Analyzer to locate captures" aria-disabled="true" style="min-height:44px;opacity:.6;cursor:not-allowed">Open in Video</span>`;
+  const hasPose = rid && profile?.pose_sequence;
+  const heatmapHtml = hasPose
+    ? `<div style="margin-top:10px">
+        <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Confidence heatmap (keypoint × time)</div>
+        <canvas id="mv-pose-heatmap" width="600" height="240" style="width:100%;max-width:600px;height:240px;border-radius:8px;background:#0b0b0b;border:1px solid var(--border)"></canvas>
+        <div style="display:flex;gap:12px;align-items:center;margin-top:6px;font-size:10px;color:var(--text-tertiary)">
+          <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(34,197,94,0.8);margin-right:4px"></span>>90%</span>
+          <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(59,130,246,0.8);margin-right:4px"></span>>70%</span>
+          <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(245,158,11,0.8);margin-right:4px"></span>>50%</span>
+          <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(239,68,68,0.8);margin-right:4px"></span><50%</span>
+        </div>
+      </div>`
+    : '';
   return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
-    <div>
+    <div style="flex:1;min-width:260px">
       <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Video / posture source</div>
       <div style="font-size:13px;font-weight:600">${rid ? esc(rid) : '— (metadata only)'}</div>
       <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${esc(when)} · duration ${esc(dur)}</div>
       ${metaNote}
+      ${heatmapHtml}
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">${linkHtml}
       <button type="button" class="btn btn-ghost btn-sm" data-action="go-video-assessments" style="min-height:44px" title="Upload or record tasks in Video Assessments">Video Assessments</button>
@@ -676,6 +1045,7 @@ function _renderPatientDetail(profile, audit, navigate, opts) {
       ${_renderAiSummary(profile)}
       ${_renderDataAvailability(profile)}
       ${_renderFlags(profile)}
+      ${_renderSkeletonVideoPlayer(profile)}
       ${_renderSourceVideoPanel(profile, navigate)}
       ${_renderRecommendations(profile)}
       ${_renderGovernance(profile)}
@@ -1203,6 +1573,27 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
     const body = $('mv-body');
     if (!body) return;
 
+    // Render confidence heatmap if pose data available
+    const heatmapCanvas = document.getElementById('mv-pose-heatmap');
+    if (heatmapCanvas && profileCache?.pose_sequence) {
+      try { _renderConfidenceHeatmap(heatmapCanvas, profileCache.pose_sequence); } catch (_) {}
+    }
+
+    // Wire skeleton overlay for the inline skeleton video player
+    const skeletonVideo = document.getElementById('mv-skeleton-video');
+    if (skeletonVideo) {
+      const rid = skeletonVideo.getAttribute('data-recording-id');
+      if (rid && skeletonOverlay) {
+        _mvSkeletonOverlayEnabled = true;
+        _wireSkeletonOverlay(skeletonVideo, rid);
+      }
+      skeletonVideo.addEventListener('play', () => {
+        if (skeletonOverlay && rid) { _mvSkeletonOverlayEnabled = true; _wireSkeletonOverlay(skeletonVideo, rid); }
+      });
+      skeletonVideo.addEventListener('pause', () => _stopSkeletonAnimation());
+      skeletonVideo.addEventListener('ended', () => _stopSkeletonAnimation());
+    }
+
     function goWithPatient(pageId) {
       if (!activePatientId) return;
       applyMovementAnalyzerPatientContext(pageId, activePatientId);
@@ -1451,6 +1842,20 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
       if (e.key === 's' || e.key === 'S') {
         e.preventDefault();
         skeletonOverlay = !skeletonOverlay;
+        _mvSkeletonOverlayEnabled = skeletonOverlay;
+        const video = document.querySelector('video');
+        if (video) {
+          if (skeletonOverlay) {
+            const rid = document.querySelector('[data-recording-id]')?.getAttribute('data-recording-id');
+            _wireSkeletonOverlay(video, rid);
+          } else {
+            _stopSkeletonAnimation();
+            _removeSkeletonCanvas(video);
+            _removeKpTooltip();
+          }
+        }
+        const btn = document.getElementById('mv-toggle-skeleton');
+        if (btn) btn.textContent = skeletonOverlay ? 'Hide skeleton' : 'Skeleton overlay';
         return;
       }
       if (e.key === 'e' || e.key === 'E') {
@@ -1544,7 +1949,23 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
     document.getElementById('mv-hide-evidence')?.addEventListener('click', () => { evidencePanelVisible = false; _renderEvidenceSlot(); });
     document.getElementById('mv-toggle-compare')?.addEventListener('click', () => { comparisonViewVisible = !comparisonViewVisible; _renderComparisonSlot(); });
     document.getElementById('mv-hide-compare')?.addEventListener('click', () => { comparisonViewVisible = false; _renderComparisonSlot(); });
-    document.getElementById('mv-toggle-skeleton')?.addEventListener('click', () => { skeletonOverlay = !skeletonOverlay; });
+    document.getElementById('mv-toggle-skeleton')?.addEventListener('click', () => {
+      skeletonOverlay = !skeletonOverlay;
+      _mvSkeletonOverlayEnabled = skeletonOverlay;
+      const btn = document.getElementById('mv-toggle-skeleton');
+      if (btn) btn.textContent = skeletonOverlay ? 'Hide skeleton' : 'Skeleton overlay';
+      const video = document.querySelector('video');
+      if (video) {
+        if (skeletonOverlay) {
+          const rid = document.querySelector('[data-recording-id]')?.getAttribute('data-recording-id');
+          _wireSkeletonOverlay(video, rid);
+        } else {
+          _stopSkeletonAnimation();
+          _removeSkeletonCanvas(video);
+          _removeKpTooltip();
+        }
+      }
+    });
     document.getElementById('mv-speed')?.addEventListener('change', (ev) => {
       const v = parseFloat(ev.target.value);
       if (!Number.isNaN(v)) { playbackSpeed = v; document.querySelectorAll('video').forEach(_applyMvPlaybackSpeed); }
@@ -1559,6 +1980,96 @@ export async function pgMovementAnalyzer(setTopbar, navigate) {
     if (view === 'clinic') loadClinic();
     else loadPatient();
   }
+
+
+
+/* -- Explainability & Bias Frontend Panel (Wave 2) -- */
+
+function _renderExplainabilityPanel(analysisResult) {
+  if (!analysisResult || !analysisResult.explanation) return '';
+  const exp = analysisResult.explanation;
+  let fiBars = '';
+  if (exp.feature_importance && exp.feature_importance.length) {
+    fiBars = '<div style="margin-top:12px">' +
+      '<h4 style="font-size:12px;margin:0 0 6px;color:#6b7280">Feature Importance</h4>' +
+      exp.feature_importance.map(function(f) {
+        const pct = Math.round(f.importance * 100);
+        const barColor = f.direction === 'increased' ? '#22c55e' : f.direction === 'decreased' ? '#ef4444' : '#6b7280';
+        return '<div style="margin-bottom:4px">' +
+          '<div style="display:flex;justify-content:space-between;font-size:11px">' +
+            '<span>' + esc(f.feature) + '</span>' +
+            '<span style="color:' + barColor + '">' + esc(f.direction || 'neutral') + ' (' + pct + '%)</span>' +
+          '</div>' +
+          '<div style="background:rgba(0,0,0,0.06);border-radius:4px;height:8px;overflow:hidden">' +
+            '<div style="width:' + pct + '%;background:' + barColor + ';height:100%;border-radius:4px;opacity:0.7"></div>' +
+          '</div>' +
+          '<div style="font-size:10px;color:#9ca3af;margin-top:1px">' + esc(f.clinical_note || '') + '</div>' +
+        '</div>';
+      }).join('') +
+    '</div>';
+  }
+
+  let uncertaintyBars = '';
+  if (exp.uncertainty_breakdown) {
+    const ub = exp.uncertainty_breakdown;
+    uncertaintyBars = '<div style="margin-top:12px">' +
+      '<h4 style="font-size:12px;margin:0 0 6px;color:#6b7280">Uncertainty Breakdown</h4>' +
+      (ub.pose_estimation !== undefined ? _uncertaintyBar('Pose Estimation', ub.pose_estimation) : '') +
+      (ub.signal_processing !== undefined ? _uncertaintyBar('Signal Processing', ub.signal_processing) : '') +
+      (ub.clinical_interpretation !== undefined ? _uncertaintyBar('Clinical Interpretation', ub.clinical_interpretation) : '') +
+      '<div style="font-size:10px;color:#9ca3af;margin-top:4px">Total uncertainty: ' + Math.round((ub.total || 0) * 100) + '%</div>' +
+    '</div>';
+  }
+
+  return '<div style="background:rgba(255,255,255,0.9);border:1px solid rgba(0,212,188,0.25);border-radius:10px;padding:14px;margin-top:14px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+      '<h3 style="font-size:13px;margin:0;color:#1f2937">Why This Result?</h3>' +
+      '<span style="font-size:11px;color:#6b7280">Confidence: ' + Math.round((exp.confidence || 0) * 100) + '%</span>' +
+    '</div>' +
+    '<div style="font-size:11.5px;color:#1f2937;background:rgba(0,212,188,0.06);padding:10px;border-radius:8px;margin-bottom:10px">' +
+      '<strong>Finding:</strong> ' + esc(exp.predicted_finding || 'N/A') +
+    '</div>' +
+    fiBars + uncertaintyBars +
+    (exp.evidence_link ? '<div style="margin-top:10px;font-size:10px;color:#9ca3af;border-top:1px solid rgba(0,0,0,0.06);padding-top:8px">' + esc(exp.evidence_link) + '</div>' : '') +
+    (exp.safe_clinical_summary ? '<div style="margin-top:8px;font-size:11px;color:#6b7280;font-style:italic;border-left:3px solid rgba(0,212,188,0.4);padding-left:10px">' + esc(exp.safe_clinical_summary) + '</div>' : '') +
+  '</div>';
+}
+
+function _uncertaintyBar(label, value) {
+  const pct = Math.round((value || 0) * 100);
+  return '<div style="margin-bottom:3px">' +
+    '<div style="display:flex;justify-content:space-between;font-size:10px">' +
+      '<span>' + esc(label) + '</span>' +
+      '<span>' + pct + '%</span>' +
+    '</div>' +
+    '<div style="background:rgba(0,0,0,0.06);border-radius:3px;height:6px;overflow:hidden">' +
+      '<div style="width:' + pct + '%;background:rgba(107,114,128,0.5);height:100%;border-radius:3px"></div>' +
+    '</div>' +
+  '</div>';
+}
+
+function _renderBiasPanel(biasResult) {
+  if (!biasResult) return '';
+  const risk = biasResult.overall_bias_risk || 'unknown';
+  const riskColor = risk === 'low' ? '#16a34a' : risk === 'moderate' ? '#f59e0b' : '#ef4444';
+  let recs = '';
+  if (biasResult.recommendations && biasResult.recommendations.length) {
+    recs = '<ul style="margin:6px 0;padding-left:16px;font-size:10.5px;color:#6b7280">' +
+      biasResult.recommendations.map(function(r) { return '<li>' + esc(r) + '</li>'; }).join('') +
+    '</ul>';
+  }
+  return '<div style="background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.2);border-radius:10px;padding:12px;margin-top:12px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+      '<h4 style="font-size:12px;margin:0;color:#1f2937">Bias Assessment</h4>' +
+      '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:' + riskColor + '14;color:' + riskColor + ';font-weight:600">' + esc(risk.toUpperCase()) + ' RISK</span>' +
+    '</div>' +
+    (biasResult.adjusted_confidence !== undefined ? '<div style="font-size:11px;margin-bottom:6px">Adjusted confidence: ' + Math.round(biasResult.adjusted_confidence * 100) + '%</div>' : '') +
+    recs +
+    (biasResult.evidence_reference ? '<div style="font-size:10px;color:#9ca3af;margin-top:6px">' + esc(biasResult.evidence_reference) + '</div>' : '') +
+  '</div>';
+}
+
+/* -- End Explainability Panel -- */
 
   render();
 }

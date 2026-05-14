@@ -653,6 +653,7 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
         <button type="button" class="btn btn-ghost btn-sm" data-va-nav="qeeg-launcher">qEEG</button>
         <button type="button" class="btn btn-ghost btn-sm" data-va-nav="mri-analysis">MRI</button>
         <button type="button" class="btn btn-ghost btn-sm" data-va-nav="video-assessments">Video</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-va-nav="movement-analyzer">Movement</button>
         <button type="button" class="btn btn-ghost btn-sm" data-va-nav="text-analyzer">Text</button>
         <button type="button" class="btn btn-ghost btn-sm" data-va-nav="biomarkers">Biomarkers</button>
         <button type="button" class="btn btn-ghost btn-sm" data-va-nav="digital-phenotyping-analyzer">Digital phenotyping</button>
@@ -1103,6 +1104,29 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
   _refreshVoiceDrHero(effectivePatientId().patientId);
   // BUG-FIX-003: Load clinic recordings for initially selected patient
   await _loadClinicRecordings(effectivePatientId().patientId);
+
+  // Check for incoming navigation params from movement analyzer
+  try {
+    const incomingNav = sessionStorage.getItem('nav_voice-analyzer');
+    if (incomingNav) {
+      const navParams = JSON.parse(incomingNav);
+      if (navParams.patientId) {
+        window._selectedPatientId = navParams.patientId;
+        window._profilePatientId = navParams.patientId;
+        _persistPatientSelection(navParams.patientId);
+        const sel = document.getElementById('va-patient-select');
+        if (sel) sel.value = navParams.patientId;
+        refreshAnalysisList(navParams.patientId);
+        _refreshVoiceDrHero(navParams.patientId);
+        _loadClinicRecordings(navParams.patientId);
+      }
+      if (navParams.note) {
+        const statusEl = document.getElementById('va-status');
+        if (statusEl) statusEl.textContent = navParams.note + ' — select a recording or upload to analyze.';
+      }
+      sessionStorage.removeItem('nav_voice-analyzer');
+    }
+  } catch (_) {}
 
   // Recording
   document.getElementById('va-rec-start')?.addEventListener('click', async () => {

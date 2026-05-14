@@ -527,6 +527,7 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
         <button type="button" class="btn btn-ghost btn-sm" id="ta-nav-qeeg">qEEG</button>
         <button type="button" class="btn btn-ghost btn-sm" id="ta-nav-mri">MRI</button>
         <button type="button" class="btn btn-ghost btn-sm" id="ta-nav-video">Video</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="ta-nav-movement">Movement</button>
         <button type="button" class="btn btn-ghost btn-sm" id="ta-nav-voice">Voice</button>
         <button type="button" class="btn btn-ghost btn-sm" id="ta-nav-biomarkers">Biomarkers</button>
         <button type="button" class="btn btn-ghost btn-sm" id="ta-nav-documents">Documents</button>
@@ -656,6 +657,7 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
   wireNav('ta-nav-qeeg', 'qeeg-launcher');
   wireNav('ta-nav-mri', 'mri-analysis');
   wireNav('ta-nav-video', 'video-assessments');
+  wireNav('ta-nav-movement', 'movement-analyzer');
   wireNav('ta-nav-voice', 'voice-analyzer');
   wireNav('ta-nav-biomarkers', 'biomarkers');
   wireNav('ta-nav-documents', 'documents-v2');
@@ -667,6 +669,38 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
   wireNav('ta-nav-handbooks', 'handbooks-v2');
   wireNav('ta-nav-live', 'live-session');
   wireNav('ta-nav-evidence', 'research-evidence');
+
+  // Check for incoming navigation params from movement analyzer (or other modules)
+  try {
+    const incomingNav = sessionStorage.getItem('nav_text-analyzer');
+    if (incomingNav) {
+      const navParams = JSON.parse(incomingNav);
+      if (navParams.patientId) {
+        window._selectedPatientId = navParams.patientId;
+        window._profilePatientId = navParams.patientId;
+        _refreshTaDrHero(navParams.patientId);
+      }
+      if (navParams.prefillText) {
+        const ta = $('ta-text');
+        if (ta) {
+          const header = navParams.note ? `[From ${navParams.sourceAnalyzer || 'movement analyzer'}] ${navParams.note}\n---\n` : '';
+          ta.value = header + navParams.prefillText;
+          updateMetaHint();
+        }
+      }
+      if (navParams.source_type) {
+        const sel = $('ta-source');
+        if (sel) {
+          const apiType = toApiSourceType(navParams.source_type);
+          const optionExists = Array.from(sel.options).some((o) => toApiSourceType(o.value) === apiType);
+          if (optionExists) sel.value = navParams.source_type;
+        }
+      }
+      sessionStorage.removeItem('nav_text-analyzer');
+      const statusEl = $('ta-status');
+      if (statusEl) statusEl.textContent = 'Prefilled from movement analysis — review before extracting.';
+    }
+  } catch (_) {}
 
   $('ta-load-sample')?.addEventListener('click', () => {
     const ta = $('ta-text');
@@ -877,11 +911,26 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
       if (neuroTypes.includes(src) && ANALYZER_DEMO_FIXTURES.text.neuro) {
         ta.value = ANALYZER_DEMO_FIXTURES.text.neuro.source_text;
       } else {
-        ta.value = ANALYZER_DEMO_FIXTURES.text.source_text;
+
+        ta.value = ANALYZER_DEMO_FIXTURES.text.free_text.source_text;
       }
     }
-    updateMetaHint();
+  }
+
+  /* -- Incoming navigation from Movement Analyzer -- */
+  const movementNav = sessionStorage.getItem('nav_pages-text-analyzer');
+  if (movementNav) {
+    try {
+      const navData = JSON.parse(movementNav);
+      if (navData.source_type) {
+        const srcEl = document.getElementById('ta-source');
+        if (srcEl) srcEl.value = navData.source_type;
+      }
+      if (navData.clinician_notes) {
+        const ta = document.getElementById('ta-text');
+        if (ta) ta.value = navData.clinician_notes;
+      }
+      sessionStorage.removeItem('nav_pages-text-analyzer');
+    } catch (e) { /* ignore parse errors */ }
   }
 }
-
-export default { pgTextAnalyzer };

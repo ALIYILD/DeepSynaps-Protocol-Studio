@@ -46,6 +46,12 @@ from app.services.consent_enforcement import (
     ConsentMissingError,
 )
 from app.services import media_storage
+from app.services.video_pose_backend import (
+    MEDIAPIPE_AVAILABLE,
+    assess_video_quality,
+    extract_movement_features,
+    process_video,
+)
 from app.services.video_assessment_seed import (
     PROTOCOL_NAME,
     PROTOCOL_VERSION,
@@ -2187,7 +2193,46 @@ async def video_quality_check(
             status_code=422,
         )
 
-    result = _analyze_video_quality(raw, filename=file.filename or "unknown", params=params)
+    # Use the production video quality assessment backend
+    try:
+        quality_result = assess_video_quality(raw)
+    except RuntimeError as exc:
+        raise ApiServiceError(
+            code="quality_check_unavailable",
+            message=str(exc),
+            status_code=503,
+        ) from exc
+
+    # Map backend dict to response model
+    min_w, min_h = _parse_resolution(params.minimum_resolution)
+    res_w, res_h = _parse_resolution(quality_result.get("resolution", "0x0"))
+    resolution_ok = res_w >= min_w and res_h >= min_h
+    fps_ok = quality_result.get("frame_rate", 0.0) >= params.minimum_frame_rate
+    lighting_ok = quality_result.get("lighting_score", 0.0) >= params.minimum_lighting_score
+
+    warnings = list(quality_result.get("recommendations", []))
+    recommendations = list(quality_result.get("recommendations", []))
+
+    sufficient = (
+        resolution_ok
+        and fps_ok
+        and lighting_ok
+        and quality_result.get("blur_score", 0.0) >= 0.2
+        and quality_result.get("occlusion_score", 0.0) >= 0.3
+    )
+
+    result = VideoQualityCheckResponse(
+        filename=file.filename or "unknown",
+        resolution=quality_result.get("resolution", "unknown"),
+        frame_rate=quality_result.get("frame_rate", 0.0),
+        duration_seconds=quality_result.get("duration_ms", 0.0) / 1000.0,
+        lighting_score=quality_result.get("lighting_score", 0.0),
+        occlusion_score=quality_result.get("occlusion_score", 0.0),
+        overall_quality_score=quality_result.get("overall_quality_score", 0.0),
+        sufficient_for_analysis=sufficient,
+        warnings=warnings,
+        recommendations=recommendations,
+    )
 
     _audit_va(
         db=request.state.db if hasattr(request.state, "db") else None,
@@ -2197,11 +2242,167 @@ async def video_quality_check(
         note=(
             f"quality_score={result.overall_quality_score} "
             f"resolution={result.resolution} fps={result.frame_rate} "
+            f"lighting={result.lighting_score} blur={quality_result.get('blur_score', 0.0)} "
+            f"occlusion={quality_result.get('occlusion_score', 0.0)} "
+            f"overall={quality_result.get('overall_quality', 'unknown')} "
             f"sufficient={result.sufficient_for_analysis}"
         ),
     )
 
     return result
+
+
+# ── Pose Analysis ──────────────────────────────────────────────────────────
+# core-schema-exempt: pose-analysis request/response; not reused outside this router
+class PoseAnalysisResponse(BaseModel):
+    """Pose analysis result for a session task video."""
+
+    session_id: str
+    task_id: str
+    mediapipe_available: bool
+    pose_sequence: dict[str, Any] = Field(default_factory=dict)
+    movement_features: dict[str, Any] = Field(default_factory=dict)
+    quality_metrics: dict[str, Any] = Field(default_factory=dict)
+    processing_time_ms: float = 0.0
+    disclaimer: str = (
+        "Pose analysis output is for decision-support only and requires clinician review. "
+        "It is not a diagnosis or a substitute for clinical judgment."
+    )
+
+
+@router.post("/sessions/{session_id}/analyze-pose", response_model=PoseAnalysisResponse)
+@limiter.limit("10/minute")
+async def analyze_session_pose(
+    request: Request,
+    session_id: str = PathParam(..., min_length=8),
+    task_id: str = Query(..., min_length=1, description="Task ID to analyze"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PoseAnalysisResponse:
+    """Run MediaPipe BlazePose + movement-feature extraction on a session task video.
+
+    Requires the session to have a recorded video for the specified task.
+    Returns the full pose sequence (33 keypoints per frame) plus computed
+    clinical movement features.
+
+    Decision-support only: pose data requires clinician review.
+    """
+    import time
+
+    t0 = time.perf_counter()
+
+    # -- Authorize -----------------------------------------------------------
+    row = db.query(VideoAssessmentSession).filter(VideoAssessmentSession.id == session_id).first()
+    if row is None:
+        raise ApiServiceError(code="not_found", message="Session not found.", status_code=404)
+
+    if actor.role == "admin":
+        pass
+    elif actor.role == "patient":
+        patient = _require_patient(actor, db)
+        _gate_session_patient(row, patient)
+    else:
+        require_minimum_role(actor, "clinician")
+        _gate_session_clinician(actor, row, db)
+
+    # -- Find task video -----------------------------------------------------
+    doc = _load_session_body(row)
+    task = _find_task(doc, task_id)
+    if task is None:
+        raise ApiServiceError(code="task_not_found", message="Task not found in this session.", status_code=404)
+
+    storage_ref = task.get("recording_storage_ref")
+    if not storage_ref:
+        raise ApiServiceError(
+            code="no_recording",
+            message=f"No video recording for task '{task_id}'.",
+            status_code=404,
+        )
+
+    # -- Read video bytes ----------------------------------------------------
+    root = FsPath(get_settings().media_storage_root)
+    video_path = (root / storage_ref).resolve()
+    try:
+        video_path.relative_to(root.resolve())
+    except ValueError as exc:
+        raise ApiServiceError(code="invalid_path", message="Invalid storage reference.", status_code=400) from exc
+    if not video_path.is_file():
+        raise ApiServiceError(code="not_found", message="Recording file missing.", status_code=404)
+
+    video_bytes = video_path.read_bytes()
+    if not video_bytes:
+        raise ApiServiceError(code="empty_file", message="Recording file is empty.", status_code=422)
+
+    # -- Guard: MediaPipe availability --------------------------------------
+    if not MEDIAPIPE_AVAILABLE:
+        _audit_va(
+            db,
+            actor=actor,
+            action="pose_analysis_skipped",
+            target_id=session_id,
+            note=f"task_id={task_id} reason=mediapipe_not_installed",
+        )
+        return PoseAnalysisResponse(
+            session_id=session_id,
+            task_id=task_id,
+            mediapipe_available=False,
+            pose_sequence={
+                "error": "MediaPipe is not installed. Install it with: pip install mediapipe",
+                "backend": "mediapipe",
+                "version": "0.10.0",
+                "frames": [],
+                "summary": {"total_frames": 0, "fps": 0, "duration_ms": 0, "avg_confidence": 0.0},
+            },
+        )
+
+    # -- Run pose estimation -------------------------------------------------
+    try:
+        pose_sequence = process_video(video_bytes)
+    except RuntimeError as exc:
+        raise ApiServiceError(
+            code="pose_estimation_failed",
+            message=f"Pose estimation failed: {exc}",
+            status_code=503,
+        ) from exc
+
+    # -- Run quality assessment ----------------------------------------------
+    try:
+        quality_metrics = assess_video_quality(video_bytes)
+    except Exception:
+        _log.exception("Video quality assessment failed; continuing with pose only")
+        quality_metrics = {"error": "Quality assessment failed"}
+
+    # -- Extract movement features -------------------------------------------
+    try:
+        movement_features = extract_movement_features(pose_sequence)
+    except Exception:
+        _log.exception("Movement feature extraction failed")
+        movement_features = {"error": "Feature extraction failed"}
+
+    processing_time_ms = (time.perf_counter() - t0) * 1000.0
+
+    _audit_va(
+        db,
+        actor=actor,
+        action="pose_analysis_complete",
+        target_id=session_id,
+        note=(
+            f"task_id={task_id} "
+            f"frames={pose_sequence.get('summary', {}).get('total_frames', 0)} "
+            f"avg_conf={pose_sequence.get('summary', {}).get('avg_confidence', 0.0):.3f} "
+            f"time_ms={processing_time_ms:.1f}"
+        ),
+    )
+
+    return PoseAnalysisResponse(
+        session_id=session_id,
+        task_id=task_id,
+        mediapipe_available=True,
+        pose_sequence=pose_sequence,
+        movement_features=movement_features,
+        quality_metrics=quality_metrics,
+        processing_time_ms=round(processing_time_ms, 2),
+    )
 
 
 @router.get("/sessions/{session_id}/export.json")
