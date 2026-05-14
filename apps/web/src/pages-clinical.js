@@ -11524,11 +11524,11 @@ function _ppRenderHeader(profile, editMode) {
         <button class="btn btn-sm ${editMode ? 'btn-primary' : ''}" id="pp-edit-btn" onclick="window._profileToggleEdit()">
           ${editMode ? '&#10003; Editing' : '&#9998; Edit Profile'}
         </button>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${editMode ? `<div style="display:flex;gap:6px;flex-wrap:wrap">
           <button class="btn btn-sm" style="font-size:.75rem" onclick="window._profileAddFlag('high-risk')">+HR</button>
           <button class="btn btn-sm" style="font-size:.75rem" onclick="window._profileAddFlag('vip')">+VIP</button>
           <button class="btn btn-sm" style="font-size:.75rem" onclick="window._profileAddFlag('research-participant')">+Research</button>
-        </div>
+        </div>` : ''}
         ${(profile.flags || []).length > 0 ? `<div style="display:flex;gap:6px;flex-wrap:wrap">${(profile.flags || []).map(f => `<button class="btn btn-sm btn-danger" style="font-size:.7rem;padding:1px 6px" onclick="window._profileRemoveFlag('${f}')">&#10005; ${f}</button>`).join('')}</div>` : ''}
       </div>
     </div>`;
