@@ -414,19 +414,18 @@ test('clicking Analytics does NOT change the ?page= URL param (in-place tab)', (
   assert.equal(replaced, 1, 'replaceState must be called exactly once');
 });
 
-test('Analytics KPI grid renders with data-testid=ds-patients-analytics-kpis', async () => {
-  const { readFileSync } = await import('node:fs');
-  const { fileURLToPath } = await import('node:url');
-  const path = await import('node:path');
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const src = readFileSync(path.join(here, 'pages-patient-analytics.js'), 'utf8');
-  assert.ok(src.includes('data-testid="ds-patients-analytics-kpis"'),
-    'cohort KPI strip must expose data-testid="ds-patients-analytics-kpis"');
-  // KPI labels must still be present (no content lost in the wiring fix).
-  for (const label of ['Mean PHQ-9', 'Response rate', 'Avg adherence', 'Active patients']) {
-    assert.ok(src.includes(label), 'KPI label must still render: ' + label);
-  }
-});
+// Removed: 'Analytics KPI grid renders with data-testid=ds-patients-analytics-kpis'.
+//
+// This test pinned a cohort KPI strip (Mean PHQ-9 / Response rate / Avg
+// adherence / Active patients) that existed in the pre-PR-#840 widget
+// grid of pages-patient-analytics.js. PR #840 (Clinical data
+// infrastructure foundation, 2026-05-10) replaced that widget grid with
+// a read-only clinical analytics dashboard (summary cards / timeline /
+// audit log / risk dashboard) sourced from
+// /api/v1/patients/:id/analytics/*. The KPI labels and the
+// ds-patients-analytics-kpis testid no longer appear on that page by
+// design. Re-introduce this assertion (or a replacement targeting the
+// new summary-card shape) if a cohort KPI strip is ever re-added.
 
 test('Analytics module is cached on window for synchronous re-render (no flash)', async () => {
   const src = await _readPgSrc();

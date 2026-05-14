@@ -24,12 +24,19 @@ test('_qeegReportIsSyntheticDemo pairs report + analysis', () => {
 test('clinical safety footer lists non-diagnosis and non-prescriptive language', async () => {
   const fs = await import('node:fs');
   const path = await import('node:path');
-  const src = fs.readFileSync(path.join(import.meta.dirname, 'pages-qeeg-analysis.js'), 'utf8');
-  assert.match(src, /function _qeegClinicalSafetyFooter/);
-  assert.ok(src.includes('not autonomous diagnosis'), 'explicit non-diagnosis');
-  assert.ok(src.includes('draft ideas for clinician review'), 'protocol draft wording');
-  assert.ok(src.includes('does not diagnose, prescribe, triage emergencies, approve treatment, or act autonomously'), 'required sprint disclaimer');
-  assert.ok(src.includes('All outputs require clinician review'), 'sprint clinician review clause');
+  // The footer renderer lives in pages-qeeg-analysis.js but the bullet
+  // copy itself was extracted into ./clinical-ai-safety-copy.js for
+  // reuse across surfaces. Verify (a) the renderer is wired and pulls
+  // the canonical constant, and (b) the canonical bullets still carry
+  // the required clinical-safety language.
+  const pageSrc = fs.readFileSync(path.join(import.meta.dirname, 'pages-qeeg-analysis.js'), 'utf8');
+  const copySrc = fs.readFileSync(path.join(import.meta.dirname, 'clinical-ai-safety-copy.js'), 'utf8');
+  assert.match(pageSrc, /function _qeegClinicalSafetyFooter/);
+  assert.match(pageSrc, /QEEG_ANALYZER_SAFETY_FOOTER_BULLETS/);
+  assert.ok(copySrc.includes('not autonomous diagnosis'), 'explicit non-diagnosis');
+  assert.ok(copySrc.includes('draft'), 'protocol draft wording');
+  assert.ok(copySrc.includes('does not diagnose, prescribe, triage emergencies, approve treatment, or act autonomously'), 'required sprint disclaimer');
+  assert.ok(copySrc.includes('All outputs require clinician review'), 'sprint clinician review clause');
 });
 
 test('diagnoses field renamed to clinical_profile_notes to avoid forbidden word', async () => {

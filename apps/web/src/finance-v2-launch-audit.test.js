@@ -18,7 +18,11 @@ test('app.js registers finance-v2 and routes to pgFinanceHub', () => {
 test('app.js: guest and patient nav hide includes finance-v2', () => {
   const app = read('app.js');
   assert.match(app, /guest:\s*\[[^\]]*'finance-v2'/);
-  assert.match(app, /patient:\s*\[\s*'finance-v2'\s*\]/);
+  // patient nav hide may include additional admin-only pages
+  // (e.g. 'data-console', 'research-datasets') — the contract is
+  // "finance-v2 must be in the patient hide list", not "finance-v2 is
+  // the only entry". Match a non-exhaustive list.
+  assert.match(app, /patient:\s*\[[^\]]*'finance-v2'/);
 });
 
 test('app.js: technician and reviewer nav hide also includes finance-v2', () => {

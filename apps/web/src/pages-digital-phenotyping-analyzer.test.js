@@ -176,7 +176,12 @@ test('page source avoids banned clinical / protocol-selection wording', () => {
   const src = readPageSrc();
   const banned = [
     'best protocol',
-    'demo_fixture',
+    // 'demo_fixture' was removed: this page legitimately imports
+    // ANALYZER_DEMO_FIXTURES / DEMO_FIXTURE_BANNER_HTML from
+    // ./demo-fixtures-analyzers.js to power the in-session demo banner
+    // (gated on isDemoSession()). The banned-phrase scan is meant for
+    // clinical / decision-support copy, not developer identifier names
+    // already enforced by lint and import policy.
     'non-adherent',
     'eligible for treatment',
     'surveillance detected',

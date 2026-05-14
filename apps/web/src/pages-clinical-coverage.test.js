@@ -43,6 +43,7 @@ try {
 
 globalThis.window    = _dom.window;
 globalThis.document  = _dom.window.document;
+globalThis.navigator = _dom.window.navigator;
 globalThis.Event     = _dom.window.Event;
 globalThis.HTMLElement = _dom.window.HTMLElement;
 globalThis.Node      = _dom.window.Node;

@@ -24,7 +24,12 @@ test('Evidence Database card is wired into the Overview tab', () => {
   assert.match(src, /export async function _renderEvidenceDbCard/);
   // The Overview render composes the card into its body innerHTML.
   assert.match(src, /const evidenceDbCardHtml = await _renderEvidenceDbCard\(\)/);
-  assert.match(src, /evidenceDbCardHtml \+\s*\n?\s*kpiHtml \+ srcHtml \+ wearBridge/);
+  // evidenceDbCardHtml must precede the kpi/source/wearable strip in the
+  // body composition. Allow other intermediate components (e.g. the
+  // Neuromodulation Evidence Terminal deck) to be concatenated between
+  // them — the wiring contract is "card appears above the KPI deck",
+  // not "card is glued directly to kpiHtml".
+  assert.match(src, /evidenceDbCardHtml \+[\s\S]{0,400}?kpiHtml \+ srcHtml \+ wearBridge/);
   // It pulls counts from the live indications spine endpoint, not a fixture.
   assert.match(src, /api\.evidenceIndicationsSummary\(\)/);
   // The card click sets the Indications tab and re-navigates.

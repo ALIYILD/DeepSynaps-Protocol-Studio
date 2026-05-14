@@ -16,6 +16,12 @@ const APP = readFileSync(new URL('./app.js', import.meta.url), 'utf8');
 const WORKBENCH = readFileSync(new URL('./pages-qeeg-raw-workbench.js', import.meta.url), 'utf8');
 
 test('analyzer Raw Data tab loads embedded workbench + hero entrypoint', () => {
+  // The Raw Data tab now loads pgQEEGRawWorkbench in-page (tab switch)
+  // rather than navigating to a separate `?from=analyzer` route. The
+  // launcher contract is: lazy-import the workbench module on tab=raw,
+  // mount its async entry point, and expose a hero "Open Raw Workbench"
+  // button for navigation from other tabs. The `&from=analyzer` query
+  // string was retired with that route-to-tab consolidation.
   for (const label of [
     "if (tab === 'raw')",
     'import(\'./pages-qeeg-raw-workbench.js\')',
@@ -23,15 +29,18 @@ test('analyzer Raw Data tab loads embedded workbench + hero entrypoint', () => {
     'Loading Raw EEG Workbench',
     'qeeg-hero-open-workbench',
     'Open Raw Workbench',
-    '&from=analyzer',
   ]) {
     assert.ok(ANALYZER.includes(label), 'launcher contract: ' + label);
   }
 });
 
 test('analyzer launcher navigates into the workbench route', () => {
+  // In-page navigation: the hero button sets window._qeegTab='raw' and
+  // calls window._nav('qeeg-analysis') to re-mount the analyzer on the
+  // raw tab. The pre-consolidation `window._qeegOpenWorkbench` global
+  // helper (which routed to a separate workbench page) was removed.
   assert.ok(ANALYZER.includes('qeeg-raw-workbench'), 'navigation target');
-  assert.ok(ANALYZER.includes('window._qeegOpenWorkbench'), 'global nav helper');
+  assert.ok(ANALYZER.includes("window._qeegTab = 'raw'"), 'in-page tab switch to raw');
   assert.ok(ANALYZER.includes('window._nav'), 'nav function call');
 });
 

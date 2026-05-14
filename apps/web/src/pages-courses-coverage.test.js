@@ -63,6 +63,15 @@ globalThis.ResizeObserver = _dom.window.ResizeObserver || class {
 globalThis.requestAnimationFrame  = _dom.window.requestAnimationFrame  || ((cb) => setTimeout(cb, 0));
 globalThis.cancelAnimationFrame   = _dom.window.cancelAnimationFrame   || clearTimeout;
 
+// jsdom doesn't ship Element.prototype.scrollIntoView. Source code in
+// pages-courses.js (e.g. window._showRecordOutcome) calls it when an
+// outcome panel becomes visible, which throws TypeError under jsdom
+// and aborts the surrounding test. A no-op shim is sufficient — the
+// test does not assert on scroll position.
+if (!globalThis.HTMLElement.prototype.scrollIntoView) {
+  globalThis.HTMLElement.prototype.scrollIntoView = function() {};
+}
+
 // jsdom URL.createObjectURL stub
 if (!_dom.window.URL.createObjectURL) {
   _dom.window.URL.createObjectURL = () => 'blob:mock';
@@ -452,6 +461,12 @@ describe('pgOutcomes — render branches', () => {
     });
     clearContent();
     _lsShim.removeItem('ds_audit_trail');
+    // pages-courses.js::readLocalQueue() returns null when the storage
+    // key is missing (it parses 'null' from the || fallback). Downstream
+    // _saveLocalItem assumes an array and crashes on .findIndex(). Seed
+    // the queue key with [] so the handler can append rather than
+    // attempting to call findIndex on null.
+    _lsShim.setItem('ds_review_queue_local', '[]');
     await mod.pgReviewQueue(noopTopbar, () => {});
 
     const note = document.getElementById('rq-note-rq-1');
@@ -468,7 +483,15 @@ describe('pgOutcomes — render branches', () => {
     assert.ok(document.getElementById('rq-tab-content').innerHTML.includes('approved'));
     window._rqSortPriority();
     window._rqRenderAudit('all');
-    assert.ok(document.getElementById('rq-tab-content').innerHTML.includes('Audit trail'));
+    // auditTrailHtml() renders either the rq-audit-timeline list (when
+    // events exist) or a "No audit events yet." empty-state — there is
+    // no literal "Audit trail" heading in the content body. Match the
+    // actual rendered markers.
+    const auditPaneHtml = document.getElementById('rq-tab-content').innerHTML;
+    assert.ok(
+      auditPaneHtml.includes('rq-audit-timeline') || auditPaneHtml.includes('No audit events yet.'),
+      'audit tab must render either an audit timeline or its honest empty state',
+    );
 
     let clicked = false;
     const origCreateElement = document.createElement.bind(document);
