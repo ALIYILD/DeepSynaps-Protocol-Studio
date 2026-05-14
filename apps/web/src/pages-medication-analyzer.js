@@ -11,7 +11,7 @@ import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
 import { crossCheckMedNeuromod } from './medication-neuromod-rules.js';
 
-const CLINICAL_MEDICATION_ANALYZER_ROLES = new Set(['clinician', 'admin', 'clinic-admin', 'supervisor', 'reviewer', 'technician']);
+const CLINICAL_MEDICATION_ANALYZER_ROLES = new Set(['clinician', 'admin', 'clinic-admin', 'supervisor']);
 
 function esc(s) {
   return String(s ?? '')
@@ -627,6 +627,7 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
   }
 
   function _openPatient(pid, pname) {
+    usingFixtures = false;
     activePatientId = pid;
     activePatientName = displayPatientLabel(pid, pname);
     lastInteractionResult = null;
@@ -757,6 +758,7 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
   async function loadLog() {
     const body = $('ma-body');
     if (!body) return;
+    usingFixtures = false;
     body.innerHTML = `<div style="padding:18px;background:var(--bg-card);border:1px solid var(--border);border-radius:14px">
       ${_skeletonChips(5)}
     </div>`;
@@ -831,6 +833,7 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
   async function loadPatient() {
     const body = $('ma-body');
     if (!body || !activePatientId) return;
+    usingFixtures = false;
     body.innerHTML = `<div style="padding:18px;background:var(--bg-card);border:1px solid var(--border);border-radius:14px">
       ${_skeletonChips(4)}
     </div>`;
@@ -955,6 +958,9 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
     if (!body) return;
     const slot = body.querySelector('[data-med-list-slot]');
     if (slot) slot.innerHTML = _renderMedList(medsCache, activePatientName);
+    lastInteractionResult = null;
+    const interactionSlot = body.querySelector('[data-interaction-results]');
+    if (interactionSlot) interactionSlot.innerHTML = _renderInteractionResults(null, usingFixtures);
     const btn = body.querySelector('[data-action="check-interactions"]');
     if (btn) btn.disabled = medsCache.length < 2;
     wireMedRows();

@@ -41,6 +41,119 @@ REGULATORY_DISCLOSURES = {
 }
 
 
+# ── Curated medication search catalog (decision-support lookup, not a formulary) ──
+_MEDICATION_CATALOG: list[dict[str, Any]] = [
+    # SSRIs
+    {"name": "Sertraline", "generic_name": "sertraline", "drug_class": "SSRI", "common_indications": ["MDD", "OCD", "PTSD", "panic disorder", "social anxiety"]},
+    {"name": "Fluoxetine", "generic_name": "fluoxetine", "drug_class": "SSRI", "common_indications": ["MDD", "OCD", "bulimia nervosa", "panic disorder"]},
+    {"name": "Paroxetine", "generic_name": "paroxetine", "drug_class": "SSRI", "common_indications": ["MDD", "OCD", "panic disorder", "social anxiety", "PTSD", "GAD"]},
+    {"name": "Citalopram", "generic_name": "citalopram", "drug_class": "SSRI", "common_indications": ["MDD", "anxiety disorders"]},
+    {"name": "Escitalopram", "generic_name": "escitalopram", "drug_class": "SSRI", "common_indications": ["MDD", "GAD"]},
+    {"name": "Fluvoxamine", "generic_name": "fluvoxamine", "drug_class": "SSRI", "common_indications": ["OCD", "social anxiety"]},
+    # SNRIs
+    {"name": "Venlafaxine", "generic_name": "venlafaxine", "drug_class": "SNRI", "common_indications": ["MDD", "GAD", "panic disorder", "social anxiety"]},
+    {"name": "Desvenlafaxine", "generic_name": "desvenlafaxine", "drug_class": "SNRI", "common_indications": ["MDD"]},
+    {"name": "Duloxetine", "generic_name": "duloxetine", "drug_class": "SNRI", "common_indications": ["MDD", "GAD", "neuropathic pain", "fibromyalgia"]},
+    {"name": "Levomilnacipran", "generic_name": "levomilnacipran", "drug_class": "SNRI", "common_indications": ["MDD"]},
+    # Atypical antidepressants
+    {"name": "Bupropion", "generic_name": "bupropion", "drug_class": "NDRI", "common_indications": ["MDD", "SAD", "smoking cessation"]},
+    {"name": "Mirtazapine", "generic_name": "mirtazapine", "drug_class": "NaSSA", "common_indications": ["MDD", "insomnia", "anorexia/cachexia"]},
+    {"name": "Trazodone", "generic_name": "trazodone", "drug_class": "SARI", "common_indications": ["MDD", "insomnia"]},
+    {"name": "Vortioxetine", "generic_name": "vortioxetine", "drug_class": "multimodal antidepressant", "common_indications": ["MDD", "cognitive impairment in depression"]},
+    # Tricyclics
+    {"name": "Amitriptyline", "generic_name": "amitriptyline", "drug_class": "TCA", "common_indications": ["MDD", "neuropathic pain", "migraine prophylaxis", "fibromyalgia"]},
+    {"name": "Nortriptyline", "generic_name": "nortriptyline", "drug_class": "TCA", "common_indications": ["MDD", "neuropathic pain", "smoking cessation"]},
+    {"name": "Imipramine", "generic_name": "imipramine", "drug_class": "TCA", "common_indications": ["MDD", "panic disorder", "enuresis"]},
+    {"name": "Clomipramine", "generic_name": "clomipramine", "drug_class": "TCA", "common_indications": ["OCD", "MDD", "panic disorder"]},
+    # MAOIs
+    {"name": "Phenelzine", "generic_name": "phenelzine", "drug_class": "MAOI", "common_indications": ["MDD", "social anxiety", "PTSD"]},
+    {"name": "Tranylcypromine", "generic_name": "tranylcypromine", "drug_class": "MAOI", "common_indications": ["MDD", "atypical depression"]},
+    {"name": "Isocarboxazid", "generic_name": "isocarboxazid", "drug_class": "MAOI", "common_indications": ["MDD"]},
+    {"name": "Selegiline", "generic_name": "selegiline", "drug_class": "MAOI", "common_indications": ["MDD", "Parkinson's disease"]},
+    # Mood stabilizers
+    {"name": "Lithium", "generic_name": "lithium carbonate", "drug_class": "mood stabilizer", "common_indications": ["bipolar disorder", "MDD augmentation", "suicide prevention"]},
+    {"name": "Lamotrigine", "generic_name": "lamotrigine", "drug_class": "anticonvulsant / mood stabilizer", "common_indications": ["bipolar depression", "epilepsy"]},
+    {"name": "Valproate", "generic_name": "valproate", "drug_class": "anticonvulsant / mood stabilizer", "common_indications": ["bipolar mania", "epilepsy", "migraine prophylaxis"]},
+    {"name": "Carbamazepine", "generic_name": "carbamazepine", "drug_class": "anticonvulsant / mood stabilizer", "common_indications": ["bipolar disorder", "epilepsy", "neuropathic pain"]},
+    {"name": "Oxcarbazepine", "generic_name": "oxcarbazepine", "drug_class": "anticonvulsant / mood stabilizer", "common_indications": ["bipolar disorder", "epilepsy"]},
+    # Second-generation antipsychotics
+    {"name": "Aripiprazole", "generic_name": "aripiprazole", "drug_class": "atypical antipsychotic", "common_indications": ["schizophrenia", "bipolar disorder", "MDD augmentation", "autism irritability"]},
+    {"name": "Olanzapine", "generic_name": "olanzapine", "drug_class": "atypical antipsychotic", "common_indications": ["schizophrenia", "bipolar disorder", "treatment-resistant depression"]},
+    {"name": "Quetiapine", "generic_name": "quetiapine", "drug_class": "atypical antipsychotic", "common_indications": ["schizophrenia", "bipolar disorder", "MDD augmentation", "insomnia"]},
+    {"name": "Risperidone", "generic_name": "risperidone", "drug_class": "atypical antipsychotic", "common_indications": ["schizophrenia", "bipolar mania", "autism irritability"]},
+    {"name": "Clozapine", "generic_name": "clozapine", "drug_class": "atypical antipsychotic", "common_indications": ["treatment-resistant schizophrenia", "suicide risk in schizophrenia"]},
+    {"name": "Lurasidone", "generic_name": "lurasidone", "drug_class": "atypical antipsychotic", "common_indications": ["schizophrenia", "bipolar depression"]},
+    {"name": "Ziprasidone", "generic_name": "ziprasidone", "drug_class": "atypical antipsychotic", "common_indications": ["schizophrenia", "bipolar disorder"]},
+    {"name": "Asenapine", "generic_name": "asenapine", "drug_class": "atypical antipsychotic", "common_indications": ["bipolar disorder", "schizophrenia"]},
+    {"name": "Cariprazine", "generic_name": "cariprazine", "drug_class": "atypical antipsychotic", "common_indications": ["schizophrenia", "bipolar disorder"]},
+    {"name": "Brexpiprazole", "generic_name": "brexpiprazole", "drug_class": "atypical antipsychotic", "common_indications": ["schizophrenia", "MDD augmentation"]},
+    # Benzodiazepines
+    {"name": "Lorazepam", "generic_name": "lorazepam", "drug_class": "benzodiazepine", "common_indications": ["anxiety", "insomnia", "alcohol withdrawal", "agitation"]},
+    {"name": "Clonazepam", "generic_name": "clonazepam", "drug_class": "benzodiazepine", "common_indications": ["anxiety", "panic disorder", "seizure disorders", "akathisia"]},
+    {"name": "Alprazolam", "generic_name": "alprazolam", "drug_class": "benzodiazepine", "common_indications": ["anxiety", "panic disorder"]},
+    {"name": "Diazepam", "generic_name": "diazepam", "drug_class": "benzodiazepine", "common_indications": ["anxiety", "muscle spasm", "alcohol withdrawal", "seizures"]},
+    # Stimulants
+    {"name": "Methylphenidate", "generic_name": "methylphenidate", "drug_class": "stimulant", "common_indications": ["ADHD", "narcolepsy"]},
+    {"name": "Lisdexamfetamine", "generic_name": "lisdexamfetamine", "drug_class": "stimulant", "common_indications": ["ADHD", "binge eating disorder"]},
+    {"name": "Amphetamine / Dextroamphetamine", "generic_name": "mixed amphetamine salts", "drug_class": "stimulant", "common_indications": ["ADHD", "narcolepsy"]},
+    {"name": "Atomoxetine", "generic_name": "atomoxetine", "drug_class": "NRI", "common_indications": ["ADHD"]},
+    {"name": "Modafinil", "generic_name": "modafinil", "drug_class": "wakefulness-promoting agent", "common_indications": ["narcolepsy", "shift work sleep disorder", "OSA-related sleepiness"]},
+    # Other neuromodulation-relevant medications
+    {"name": "Pregabalin", "generic_name": "pregabalin", "drug_class": "gabapentinoid", "common_indications": ["neuropathic pain", "fibromyalgia", "GAD", "epilepsy"]},
+    {"name": "Gabapentin", "generic_name": "gabapentin", "drug_class": "gabapentinoid", "common_indications": ["neuropathic pain", "epilepsy", "anxiety (off-label)", "insomnia (off-label)"]},
+    {"name": "Topiramate", "generic_name": "topiramate", "drug_class": "anticonvulsant", "common_indications": ["epilepsy", "migraine prophylaxis", "bipolar disorder (off-label)", "weight management"]},
+    {"name": "Tramadol", "generic_name": "tramadol", "drug_class": "opioid analgesic / SNRI", "common_indications": ["moderate pain", "chronic pain", "neuropathic pain"]},
+    {"name": "Warfarin", "generic_name": "warfarin", "drug_class": "anticoagulant", "common_indications": ["AFib", "DVT/PE prevention", "mechanical heart valves"]},
+    {"name": "Apixaban", "generic_name": "apixaban", "drug_class": "DOAC", "common_indications": ["AFib stroke prevention", "DVT/PE treatment and prevention"]},
+    {"name": "Hydroxyzine", "generic_name": "hydroxyzine", "drug_class": "antihistamine / anxiolytic", "common_indications": ["anxiety", "pruritus", "insomnia"]},
+    {"name": "Buspirone", "generic_name": "buspirone", "drug_class": "5-HT1A partial agonist", "common_indications": ["GAD", "anxiety augmentation"]},
+    {"name": "Zolpidem", "generic_name": "zolpidem", "drug_class": "Z-drug / hypnotic", "common_indications": ["short-term insomnia management"]},
+]
+
+
+def search_medication_candidates(query: str, limit: int = 10) -> list[dict[str, Any]]:
+    """Return candidate medication names matching query from a curated list.
+
+    Searches across generic names, brand names, and drug classes.
+    Returns candidates with name, generic_name, drug_class, and common_indications.
+
+    This is a decision-support lookup aid, not a complete formulary or prescribing tool.
+    Results require clinician verification against the patient chart and pharmacy record.
+    """
+    if not query or not str(query).strip():
+        return []
+    q = str(query).strip().lower()
+    matches: list[dict[str, Any]] = []
+    for med in _MEDICATION_CATALOG:
+        score = 0
+        name_lower = med["name"].lower()
+        generic_lower = med["generic_name"].lower()
+        class_lower = med["drug_class"].lower()
+        indications_lower = " ".join(med["common_indications"]).lower()
+        if q == name_lower or q == generic_lower:
+            score = 100  # exact match
+        elif q in name_lower or q in generic_lower:
+            score = 80  # substring match in name
+        elif q in class_lower:
+            score = 60  # class match
+        elif q in indications_lower:
+            score = 40  # indication match
+        elif _fuzzy_prefix(q, name_lower) or _fuzzy_prefix(q, generic_lower):
+            score = 30  # prefix/fuzzy match
+        if score > 0:
+            matches.append({"score": score, **med})
+    matches.sort(key=lambda x: x["score"], reverse=True)
+    return matches[:limit]
+
+
+def _fuzzy_prefix(query: str, target: str, min_prefix_len: int = 3) -> bool:
+    """True if query is a prefix of any word in target (case-insensitive)."""
+    if len(query) < min_prefix_len:
+        return False
+    words = target.split()
+    return any(word.startswith(query) for word in words)
+
+
 def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
