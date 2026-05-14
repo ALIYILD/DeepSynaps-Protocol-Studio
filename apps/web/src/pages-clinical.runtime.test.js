@@ -325,9 +325,11 @@ test('pgPatientProfile local-only tabs cover insurance, allergies, history, note
     document.getElementById('pp-a-severity').value = 'Mild';
     window._profileSaveAllergy();
     assert.match(document.getElementById('pp-tab-content').innerHTML, /Pollen/);
-    window._profileDeleteAllergy(1);
-    const storedProfiles = JSON.parse(globalThis.localStorage.getItem('ds_patient_profiles_v1') || '[]');
-    assert.equal(storedProfiles.find((profile) => profile.id === 'srv-3')?.allergies?.some((item) => item.substance === 'Pollen'), false);
+    const storedProfiles = JSON.parse(globalThis.localStorage.getItem('ds_patient_profiles') || '[]');
+    const srv3AllergyIdx = storedProfiles.find((profile) => profile.id === 'srv-3')?.allergies?.findIndex((item) => item.substance === 'Pollen');
+    window._profileDeleteAllergy(srv3AllergyIdx);
+    const storedProfilesAfterDelete = JSON.parse(globalThis.localStorage.getItem('ds_patient_profiles') || '[]');
+    assert.equal(storedProfilesAfterDelete.find((profile) => profile.id === 'srv-3')?.allergies?.some((item) => item.substance === 'Pollen'), false);
     window._profileTab('allergies');
     assert.doesNotMatch(document.getElementById('pp-tab-content').innerHTML, /Pollen/);
 
@@ -344,9 +346,9 @@ test('pgPatientProfile local-only tabs cover insurance, allergies, history, note
 
     window._profileAddFlag('high-risk');
     window._profileAddFlag('high-risk');
-    assert.match(document.getElementById('content').innerHTML, /high-risk/);
+    assert.match(document.getElementById('pp-flags-display').innerHTML, /high-risk/i);
     window._profileRemoveFlag('high-risk');
-    assert.doesNotMatch(document.getElementById('content').innerHTML, /high-risk/);
+    assert.doesNotMatch(document.getElementById('pp-flags-display').innerHTML, /high-risk/i);
 
     window._ppAddNoteQuick('srv-3');
     document.getElementById('pp-notes-area').value = 'Updated note';
