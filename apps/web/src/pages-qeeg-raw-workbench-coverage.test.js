@@ -374,7 +374,7 @@ function findBtnByData(attr, value) {
 
 // ── EXPORTED HELPERS ────────────────────────────────────────────────────────
 
-await test('DEFAULT_CHANNELS is the canonical 19-channel 10-20 montage without ECG', () => {
+test('DEFAULT_CHANNELS is the canonical 19-channel 10-20 montage without ECG', () => {
   assert.equal(mod.DEFAULT_CHANNELS.length, 19);
   for (const ch of ['Fp1-Av', 'Fp2-Av', 'Cz-Av', 'Pz-Av', 'O1-Av', 'O2-Av']) {
     assert.ok(mod.DEFAULT_CHANNELS.includes(ch), 'includes ' + ch);
@@ -382,19 +382,19 @@ await test('DEFAULT_CHANNELS is the canonical 19-channel 10-20 montage without E
   assert.ok(!mod.DEFAULT_CHANNELS.some(c => /ECG/i.test(c)), 'excludes ECG');
 });
 
-await test('pgQEEGRawWorkbench is a callable async function', () => {
+test('pgQEEGRawWorkbench is a callable async function', () => {
   assert.equal(typeof mod.pgQEEGRawWorkbench, 'function');
   assert.equal(mod.pgQEEGRawWorkbench.constructor.name, 'AsyncFunction');
 });
 
-await test('navBack is a function with three params', () => {
+test('navBack is a function with three params', () => {
   assert.equal(typeof mod.navBack, 'function');
   assert.ok(mod.navBack.length >= 2);
 });
 
 // ── bootDemoState idempotency + edge cases ─────────────────────────────────
 
-await test('bootDemoState seeds aiSuggestions, badChannels, events on a fresh state', () => {
+test('bootDemoState seeds aiSuggestions, badChannels, events on a fresh state', () => {
   const state = {
     isDemo: true, timebase: 10, aiThreshold: 0.7,
     aiSuggestions: [], badChannels: new Set(), events: [],
@@ -410,20 +410,20 @@ await test('bootDemoState seeds aiSuggestions, badChannels, events on a fresh st
   assert.ok(state.manualReference && Array.isArray(state.manualReference.concepts));
 });
 
-await test('bootDemoState is a no-op on already-seeded state', () => {
+test('bootDemoState is a no-op on already-seeded state', () => {
   const state = { _demoSeeded: true, aiSuggestions: ['leave-me-alone'] };
   mod.bootDemoState(state);
   assert.deepEqual(state.aiSuggestions, ['leave-me-alone'], 'untouched on second call');
 });
 
-await test('bootDemoState is a no-op on null/undefined', () => {
+test('bootDemoState is a no-op on null/undefined', () => {
   // These should not throw.
   mod.bootDemoState(null);
   mod.bootDemoState(undefined);
   assert.ok(true, 'no exception');
 });
 
-await test('bootDemoState preserves pre-existing aiSuggestions if non-empty', () => {
+test('bootDemoState preserves pre-existing aiSuggestions if non-empty', () => {
   const state = {
     isDemo: true, timebase: 10,
     aiSuggestions: [{ id: 'pre1', ai_label: 'custom' }],
@@ -438,7 +438,7 @@ await test('bootDemoState preserves pre-existing aiSuggestions if non-empty', ()
 
 // ── recordAIDecision ────────────────────────────────────────────────────────
 
-await test('recordAIDecision marks state.isDirty when decision is accepted', async () => {
+test('recordAIDecision marks state.isDirty when decision is accepted', async () => {
   const state = {
     analysisId: 'cov', isDemo: true,
     aiSuggestions: [{ id: 's1', ai_label: 'eye_blink', ai_confidence: 0.9, channel: 'Fp1-Av',
@@ -453,7 +453,7 @@ await test('recordAIDecision marks state.isDirty when decision is accepted', asy
   assert.equal(state.aiSuggestions[0].decision_state, 'accepted');
 });
 
-await test('recordAIDecision returns silently for unknown id', async () => {
+test('recordAIDecision returns silently for unknown id', async () => {
   const state = {
     aiSuggestions: [], rejectedSegments: [], badChannels: new Set(), rejectedICA: new Set(),
     auditLog: [], isDirty: false, isDemo: true,
@@ -462,7 +462,7 @@ await test('recordAIDecision returns silently for unknown id', async () => {
   assert.equal(state.isDirty, false, 'no mutation when target missing');
 });
 
-await test('recordAIDecision rejected does NOT mark dirty', async () => {
+test('recordAIDecision rejected does NOT mark dirty', async () => {
   const state = {
     analysisId: 'cov', isDemo: true,
     aiSuggestions: [{ id: 's1', ai_label: 'muscle', ai_confidence: 0.8, channel: 'T3-Av',
@@ -476,7 +476,7 @@ await test('recordAIDecision rejected does NOT mark dirty', async () => {
   assert.equal(state.aiSuggestions[0].decision_status, 'rejected');
 });
 
-await test('recordAIDecision pushes mark_bad_segment into rejectedSegments on accept', async () => {
+test('recordAIDecision pushes mark_bad_segment into rejectedSegments on accept', async () => {
   const state = {
     analysisId: 'cov', isDemo: true,
     aiSuggestions: [{ id: 's2', ai_label: 'muscle', ai_confidence: 0.85, channel: 'T3-Av',
@@ -493,7 +493,7 @@ await test('recordAIDecision pushes mark_bad_segment into rejectedSegments on ac
 
 // ── navBack — clean state path ──────────────────────────────────────────────
 
-await test('navBack returns true and calls window._nav when state is clean', () => {
+test('navBack returns true and calls window._nav when state is clean', () => {
   let called = null;
   window._nav = (route) => { called = route; };
   const state = { isDirty: false, pendingNav: null };
@@ -502,7 +502,7 @@ await test('navBack returns true and calls window._nav when state is clean', () 
   assert.equal(called, 'qeeg-analysis');
 });
 
-await test('navBack target=patient routes to patients-v2 with patient id', () => {
+test('navBack target=patient routes to patients-v2 with patient id', () => {
   let called = null;
   window._nav = (route) => { called = route; };
   window._qeegSelectedPatientId = 'patient-cov-1';
@@ -517,7 +517,7 @@ await test('navBack target=patient routes to patients-v2 with patient id', () =>
 
 // ── Tab-switching renders all panel bodies ─────────────────────────────────
 
-await test('switching to manual tab renders Manual Analysis Mode + Findings Builder', () => {
+test('switching to manual tab renders Manual Analysis Mode + Findings Builder', () => {
   const tabs = querySel('.qwb-tab');
   const manual = tabs.find(t => t.dataset.tab === 'manual');
   assert.ok(manual, 'manual tab present');
@@ -529,7 +529,7 @@ await test('switching to manual tab renders Manual Analysis Mode + Findings Buil
   assert.ok(body.innerHTML.includes('Filter Panel'));
 });
 
-await test('switching to ai tab renders AI Review Queue with banner + threshold slider', () => {
+test('switching to ai tab renders AI Review Queue with banner + threshold slider', () => {
   const tabs = querySel('.qwb-tab');
   const ai = tabs.find(t => t.dataset.tab === 'ai');
   ai.click();
@@ -539,7 +539,7 @@ await test('switching to ai tab renders AI Review Queue with banner + threshold 
   assert.ok(body.innerHTML.includes('qwb-threshold-slider'));
 });
 
-await test('switching to help tab renders cleaning quality score + checklist', () => {
+test('switching to help tab renders cleaning quality score + checklist', () => {
   const tabs = querySel('.qwb-tab');
   const help = tabs.find(t => t.dataset.tab === 'help');
   help.click();
@@ -550,7 +550,7 @@ await test('switching to help tab renders cleaning quality score + checklist', (
   assert.ok(body.innerHTML.includes('Quality Metrics'));
 });
 
-await test('switching to ica tab renders the 12-cell ICA grid', () => {
+test('switching to ica tab renders the 12-cell ICA grid', () => {
   const tabs = querySel('.qwb-tab');
   const ica = tabs.find(t => t.dataset.tab === 'ica');
   ica.click();
@@ -561,7 +561,7 @@ await test('switching to ica tab renders the 12-cell ICA grid', () => {
   assert.ok(body.innerHTML.includes('Apply ICA cleaning'));
 });
 
-await test('switching to log tab renders audit panel', () => {
+test('switching to log tab renders audit panel', () => {
   const tabs = querySel('.qwb-tab');
   const log = tabs.find(t => t.dataset.tab === 'log');
   log.click();
@@ -570,7 +570,7 @@ await test('switching to log tab renders audit panel', () => {
   assert.ok(body.innerHTML.includes('AI Assistant'));
 });
 
-await test('switching to learn tab renders Learn EEG + Evidence card', () => {
+test('switching to learn tab renders Learn EEG + Evidence card', () => {
   const tabs = querySel('.qwb-tab');
   const learn = tabs.find(t => t.dataset.tab === 'learn');
   learn.click();
@@ -582,7 +582,7 @@ await test('switching to learn tab renders Learn EEG + Evidence card', () => {
 
 // ── Cleaning panel actions in demo mode ─────────────────────────────────────
 
-await test('cleaning tab → mark-segment fires postAnnotation in demo (audit log grows)', async () => {
+test('cleaning tab → mark-segment fires postAnnotation in demo (audit log grows)', async () => {
   const tabs = querySel('.qwb-tab');
   tabs.find(t => t.dataset.tab === 'cleaning').click();
   // Find mark-segment button via dataset.
@@ -593,25 +593,25 @@ await test('cleaning tab → mark-segment fires postAnnotation in demo (audit lo
   await new Promise(r => globalThis.setTimeout(r, 0));
 });
 
-await test('cleaning tab → reject-epoch action wires through to postAnnotation in demo', async () => {
+test('cleaning tab → reject-epoch action wires through to postAnnotation in demo', async () => {
   const btns = querySel('[data-action]');
   const target = btns.find(b => b.dataset.action === 'reject-epoch');
   if (target) { target.click(); await new Promise(r => globalThis.setTimeout(r, 0)); }
 });
 
-await test('cleaning tab → interpolate action wires through', async () => {
+test('cleaning tab → interpolate action wires through', async () => {
   const btns = querySel('[data-action]');
   const target = btns.find(b => b.dataset.action === 'interpolate');
   if (target) { target.click(); await new Promise(r => globalThis.setTimeout(r, 0)); }
 });
 
-await test('cleaning tab → undo action calls popHistory', async () => {
+test('cleaning tab → undo action calls popHistory', async () => {
   const btns = querySel('[data-action]');
   const target = btns.find(b => b.dataset.action === 'undo');
   if (target) { target.click(); await new Promise(r => globalThis.setTimeout(r, 0)); }
 });
 
-await test('cleaning tab → bulk region buttons mutate badChannels', async () => {
+test('cleaning tab → bulk region buttons mutate badChannels', async () => {
   for (const region of ['bulk-frontal', 'bulk-central', 'bulk-parietal', 'bulk-occipital']) {
     const btns = querySel('[data-action]');
     const target = btns.find(b => b.dataset.action === region);
@@ -619,25 +619,25 @@ await test('cleaning tab → bulk region buttons mutate badChannels', async () =
   }
 });
 
-await test('cleaning tab → save-version button triggers saveCleaningVersion', async () => {
+test('cleaning tab → save-version button triggers saveCleaningVersion', async () => {
   const btns = querySel('[data-action]');
   const target = btns.find(b => b.dataset.action === 'save-version');
   if (target) { target.click(); await new Promise(r => globalThis.setTimeout(r, 0)); }
 });
 
-await test('cleaning tab → rerun action triggers rerunAnalysis', async () => {
+test('cleaning tab → rerun action triggers rerunAnalysis', async () => {
   const btns = querySel('[data-action]');
   const target = btns.find(b => b.dataset.action === 'rerun');
   if (target) { target.click(); await new Promise(r => globalThis.setTimeout(r, 0)); }
 });
 
-await test('cleaning tab → raw-vs-cleaned action surfaces a summary', async () => {
+test('cleaning tab → raw-vs-cleaned action surfaces a summary', async () => {
   const btns = querySel('[data-action]');
   const target = btns.find(b => b.dataset.action === 'raw-vs-cleaned');
   if (target) { target.click(); await new Promise(r => globalThis.setTimeout(r, 0)); }
 });
 
-await test('cleaning tab → return-report action attempts navigation', async () => {
+test('cleaning tab → return-report action attempts navigation', async () => {
   // Mock _nav so it does not throw or mutate stale state
   let called = false;
   const prev = window._nav;
@@ -649,7 +649,7 @@ await test('cleaning tab → return-report action attempts navigation', async ()
   window._nav = prev;
 });
 
-await test('cleaning tab → all detect-* buttons trigger AI detectors in demo', async () => {
+test('cleaning tab → all detect-* buttons trigger AI detectors in demo', async () => {
   for (const action of ['detect-flat', 'detect-noisy', 'detect-blink', 'detect-muscle', 'detect-movement', 'detect-line']) {
     const btns = querySel('[data-action]');
     const target = btns.find(b => b.dataset.action === action);
@@ -662,7 +662,7 @@ await test('cleaning tab → all detect-* buttons trigger AI detectors in demo',
 
 // ── Manual analysis tab handlers ───────────────────────────────────────────
 
-await test('manual tab → mark-blink wires through postAnnotation', async () => {
+test('manual tab → mark-blink wires through postAnnotation', async () => {
   const tabs = querySel('.qwb-tab');
   tabs.find(t => t.dataset.tab === 'manual').click();
   const btns = querySel('[data-manual-action]');
@@ -670,37 +670,37 @@ await test('manual tab → mark-blink wires through postAnnotation', async () =>
   if (target) { target.click(); await new Promise(r => globalThis.setTimeout(r, 0)); }
 });
 
-await test('manual tab → mark-muscle wires through postAnnotation', async () => {
+test('manual tab → mark-muscle wires through postAnnotation', async () => {
   const btns = querySel('[data-manual-action]');
   const target = btns.find(b => b.dataset.manualAction === 'mark-muscle');
   if (target) { target.click(); await new Promise(r => globalThis.setTimeout(r, 0)); }
 });
 
-await test('manual tab → mark-movement wires through postAnnotation', async () => {
+test('manual tab → mark-movement wires through postAnnotation', async () => {
   const btns = querySel('[data-manual-action]');
   const target = btns.find(b => b.dataset.manualAction === 'mark-movement');
   if (target) { target.click(); await new Promise(r => globalThis.setTimeout(r, 0)); }
 });
 
-await test('manual tab → mark-artifact wires through postAnnotation', async () => {
+test('manual tab → mark-artifact wires through postAnnotation', async () => {
   const btns = querySel('[data-manual-action]');
   const target = btns.find(b => b.dataset.manualAction === 'mark-artifact');
   if (target) { target.click(); await new Promise(r => globalThis.setTimeout(r, 0)); }
 });
 
-await test('manual tab → reject-epoch wires through postAnnotation', async () => {
+test('manual tab → reject-epoch wires through postAnnotation', async () => {
   const btns = querySel('[data-manual-action]');
   const target = btns.find(b => b.dataset.manualAction === 'reject-epoch');
   if (target) { target.click(); await new Promise(r => globalThis.setTimeout(r, 0)); }
 });
 
-await test('manual tab → open-ica switches to ICA tab', async () => {
+test('manual tab → open-ica switches to ICA tab', async () => {
   const btns = querySel('[data-manual-action]');
   const target = btns.find(b => b.dataset.manualAction === 'open-ica');
   if (target) { target.click(); await new Promise(r => globalThis.setTimeout(r, 0)); }
 });
 
-await test('manual tab → add-event-marker pushes an event into state.events', async () => {
+test('manual tab → add-event-marker pushes an event into state.events', async () => {
   // Switch back to manual to ensure handlers exist
   const tabs = querySel('.qwb-tab');
   tabs.find(t => t.dataset.tab === 'manual').click();
@@ -709,13 +709,13 @@ await test('manual tab → add-event-marker pushes an event into state.events', 
   if (target) { target.click(); await new Promise(r => globalThis.setTimeout(r, 0)); }
 });
 
-await test('manual tab → label-segment wires through', async () => {
+test('manual tab → label-segment wires through', async () => {
   const btns = querySel('[data-manual-action]');
   const target = btns.find(b => b.dataset.manualAction === 'label-segment');
   if (target) { target.click(); await new Promise(r => globalThis.setTimeout(r, 0)); }
 });
 
-await test('manual tab → save-finding wires saveManualFinding (demo)', async () => {
+test('manual tab → save-finding wires saveManualFinding (demo)', async () => {
   const btns = querySel('[data-manual-action]');
   const target = btns.find(b => b.dataset.manualAction === 'save-finding');
   if (target) { target.click(); await new Promise(r => globalThis.setTimeout(r, 0)); }
@@ -723,19 +723,19 @@ await test('manual tab → save-finding wires saveManualFinding (demo)', async (
 
 // ── AI tab actions ─────────────────────────────────────────────────────────
 
-await test('ai tab → generate button (re)builds suggestions', async () => {
+test('ai tab → generate button (re)builds suggestions', async () => {
   const tabs = querySel('.qwb-tab');
   tabs.find(t => t.dataset.tab === 'ai').click();
   const gen = byId['qwb-ai-generate'];
   if (gen) { gen.click(); await new Promise(r => globalThis.setTimeout(r, 0)); }
 });
 
-await test('ai tab → accept-all button sweeps all above threshold', async () => {
+test('ai tab → accept-all button sweeps all above threshold', async () => {
   const acceptAll = byId['qwb-ai-accept-all'];
   if (acceptAll) { acceptAll.click(); await new Promise(r => globalThis.setTimeout(r, 0)); }
 });
 
-await test('ai tab → threshold slider input handler runs without error', async () => {
+test('ai tab → threshold slider input handler runs without error', async () => {
   const slider = byId['qwb-ai-threshold'];
   if (slider) {
     const ev = { type: 'input', target: { value: '50' }, preventDefault() {}, stopPropagation() {} };
@@ -745,14 +745,14 @@ await test('ai tab → threshold slider input handler runs without error', async
 
 // ── ICA tab actions ────────────────────────────────────────────────────────
 
-await test('ica tab → apply-ica action button triggers applyICARemovals', async () => {
+test('ica tab → apply-ica action button triggers applyICARemovals', async () => {
   const tabs = querySel('.qwb-tab');
   tabs.find(t => t.dataset.tab === 'ica').click();
   const apply = byId['qwb-ica-apply'];
   if (apply) { apply.click(); await new Promise(r => globalThis.setTimeout(r, 0)); }
 });
 
-await test('ica tab → toggling components mutates rejectedICA + posts annotation', async () => {
+test('ica tab → toggling components mutates rejectedICA + posts annotation', async () => {
   const btns = querySel('[data-ica-toggle]');
   if (btns.length > 0) {
     btns[0].click();
@@ -765,7 +765,7 @@ await test('ica tab → toggling components mutates rejectedICA + posts annotati
 
 // ── Best-Practice (help) tab handlers ─────────────────────────────────────
 
-await test('help tab → checklist toggle handler runs without error', async () => {
+test('help tab → checklist toggle handler runs without error', async () => {
   const tabs = querySel('.qwb-tab');
   tabs.find(t => t.dataset.tab === 'help').click();
   const lis = querySel('[data-checklist-cat]');
@@ -778,59 +778,59 @@ await test('help tab → checklist toggle handler runs without error', async () 
 
 // ── Toolbar wiring ─────────────────────────────────────────────────────────
 
-await test('toolbar quick-snapshot button triggers snapshotTraceWindow', async () => {
+test('toolbar quick-snapshot button triggers snapshotTraceWindow', async () => {
   const snap = byId['qwb-quick-snapshot'];
   if (snap) snap.click();
 });
 
-await test('toolbar quick-export button opens export modal', async () => {
+test('toolbar quick-export button opens export modal', async () => {
   const qx = byId['qwb-quick-export'];
   if (qx) qx.click();
 });
 
-await test('toolbar quick-save button triggers saveCleaningVersion', async () => {
+test('toolbar quick-save button triggers saveCleaningVersion', async () => {
   const qs = byId['qwb-quick-save'];
   if (qs) qs.click();
 });
 
-await test('toolbar quick-rerun button triggers rerunAnalysis', async () => {
+test('toolbar quick-rerun button triggers rerunAnalysis', async () => {
   const qr = byId['qwb-quick-rerun'];
   if (qr) qr.click();
 });
 
-await test('toolbar quick-spectral button opens spectral view (or honest stub)', async () => {
+test('toolbar quick-spectral button opens spectral view (or honest stub)', async () => {
   const sp = byId['qwb-quick-spectral'];
   if (sp) sp.click();
 });
 
-await test('toolbar tier-toggle expands/collapses secondary controls', async () => {
+test('toolbar tier-toggle expands/collapses secondary controls', async () => {
   const tt = byId['qwb-tb-tier-toggle'];
   if (tt) { tt.click(); tt.click(); }
 });
 
-await test('toolbar baseline-reset zeros the baseline', async () => {
+test('toolbar baseline-reset zeros the baseline', async () => {
   const br = byId['qwb-baseline-reset'];
   if (br) br.click();
 });
 
-await test('toolbar prev-window button decrements windowStart', async () => {
+test('toolbar prev-window button decrements windowStart', async () => {
   const prev = byId['qwb-prev-window'];
   if (prev) { prev.click(); prev.click(); }
 });
 
-await test('toolbar next-window button increments windowStart', async () => {
+test('toolbar next-window button increments windowStart', async () => {
   const next = byId['qwb-next-window'];
   if (next) { next.click(); next.click(); }
 });
 
-await test('toolbar event-prev / event-next jump to events', async () => {
+test('toolbar event-prev / event-next jump to events', async () => {
   const ep = byId['qwb-event-prev'];
   const en = byId['qwb-event-next'];
   if (ep) ep.click();
   if (en) en.click();
 });
 
-await test('toolbar play button toggles play/pause state', async () => {
+test('toolbar play button toggles play/pause state', async () => {
   const play = byId['qwb-play'];
   if (play) {
     play.click(); // start
@@ -838,25 +838,25 @@ await test('toolbar play button toggles play/pause state', async () => {
   }
 });
 
-await test('view-toggle buttons cycle through 4 view modes', async () => {
+test('view-toggle buttons cycle through 4 view modes', async () => {
   const buttons = querySel('#qwb-view-toggle button');
   for (const b of buttons) b.click();
 });
 
-await test('display-toggle buttons cycle through row/stack/butterfly', async () => {
+test('display-toggle buttons cycle through row/stack/butterfly', async () => {
   const buttons = querySel('#qwb-display-toggle button');
   for (const b of buttons) b.click();
 });
 
 // ── Title-bar menu dropdowns ───────────────────────────────────────────────
 
-await test('all 10 title-bar menus open without throwing', async () => {
+test('all 10 title-bar menus open without throwing', async () => {
   const menus = querySel('.qwb-menu-btn');
   // Each menu button has data-menu attr; click each to invoke handleTitleMenu
   for (const m of menus) m.click();
 });
 
-await test('handleMenuItem covers File menu items', async () => {
+test('handleMenuItem covers File menu items', async () => {
   // simulate the menu items by clicking inserted dropdown items
   const items = querySel('.qwb-menu-item');
   // Click only those that are NOT disabled (they get the 'qwb-menu-item--disabled' class)
@@ -867,7 +867,7 @@ await test('handleMenuItem covers File menu items', async () => {
 
 // ── Tool selector ──────────────────────────────────────────────────────────
 
-await test('tool-selector buttons cycle through 5 active tools', async () => {
+test('tool-selector buttons cycle through 5 active tools', async () => {
   const buttons = querySel('.qwb-tool-btn');
   for (const b of buttons) {
     if (b.dataset && b.dataset.tool) b.click();
@@ -876,7 +876,7 @@ await test('tool-selector buttons cycle through 5 active tools', async () => {
 
 // ── Channel rail interactions ──────────────────────────────────────────────
 
-await test('clicking a channel row toggles solo and updates selectedChannel', async () => {
+test('clicking a channel row toggles solo and updates selectedChannel', async () => {
   const rows = querySel('.qwb-ch-row');
   // Click a row twice to toggle solo on/off.
   if (rows.length > 0) {
@@ -887,7 +887,7 @@ await test('clicking a channel row toggles solo and updates selectedChannel', as
 
 // ── Keyboard shortcuts ─────────────────────────────────────────────────────
 
-await test('keyboard handler responds to navigation, view, cleaning, view-toggle keys', () => {
+test('keyboard handler responds to navigation, view, cleaning, view-toggle keys', () => {
   // Reach into the document keydown listener (it was registered globally).
   // We can't easily resurface it, so just assert it was attached.
   // We re-validate via attachKeyboard semantics in the source-string check.
@@ -897,7 +897,7 @@ await test('keyboard handler responds to navigation, view, cleaning, view-toggle
 
 // ── Status bar live updates ────────────────────────────────────────────────
 
-await test('status bar fields update on tab switch (window/sel/bad/rej/retain)', () => {
+test('status bar fields update on tab switch (window/sel/bad/rej/retain)', () => {
   const stWindow = byId['qwb-st-window'];
   const stSel = byId['qwb-st-sel'];
   const stBad = byId['qwb-st-bad'];
@@ -909,7 +909,7 @@ await test('status bar fields update on tab switch (window/sel/bad/rej/retain)',
 
 // ── Modal: shortcuts open + close ─────────────────────────────────────────
 
-await test('shortcuts modal can be opened then closed', async () => {
+test('shortcuts modal can be opened then closed', async () => {
   const sh = byId['qwb-shortcuts'];
   if (sh) sh.click();
   const close = byId['qwb-close-shortcuts'];
@@ -918,7 +918,7 @@ await test('shortcuts modal can be opened then closed', async () => {
 
 // ── Modal: export open + format pick + cancel ──────────────────────────────
 
-await test('export modal opens, format buttons toggle, cancel closes it', async () => {
+test('export modal opens, format buttons toggle, cancel closes it', async () => {
   const ex = byId['qwb-export'];
   if (ex) ex.click();
   const fmtBtns = querySel('#qwb-export-fmts [data-export-fmt]');
@@ -927,7 +927,7 @@ await test('export modal opens, format buttons toggle, cancel closes it', async 
   if (cancel) cancel.click();
 });
 
-await test('export bundle button triggers bundle build (with summary fetch)', async () => {
+test('export bundle button triggers bundle build (with summary fetch)', async () => {
   const ex = byId['qwb-export'];
   if (ex) ex.click();
   const go = byId['qwb-export-go'];
@@ -937,7 +937,7 @@ await test('export bundle button triggers bundle build (with summary fetch)', as
 
 // ── Modal: unsaved-edits flow ──────────────────────────────────────────────
 
-await test('unsaved-edits modal: navBack with dirty → modal shown; cancel keeps state', () => {
+test('unsaved-edits modal: navBack with dirty → modal shown; cancel keeps state', () => {
   const state = { isDirty: true, pendingNav: null };
   const modal = byId['qwb-unsaved-modal'];
   if (modal) modal.style.display = 'none';
@@ -948,7 +948,7 @@ await test('unsaved-edits modal: navBack with dirty → modal shown; cancel keep
   assert.equal(navCalled, false, 'cancel does not nav');
 });
 
-await test('unsaved-edits modal: leave-without-saving clears dirty + invokes pendingNav', async () => {
+test('unsaved-edits modal: leave-without-saving clears dirty + invokes pendingNav', async () => {
   // First open the modal via navBack.
   const state = { isDirty: true, pendingNav: null };
   let pendingFired = false;
@@ -965,7 +965,7 @@ await test('unsaved-edits modal: leave-without-saving clears dirty + invokes pen
   assert.ok(true, 'no exception');
 });
 
-await test('unsaved-edits modal: save-and-leave saves then runs pendingNav', async () => {
+test('unsaved-edits modal: save-and-leave saves then runs pendingNav', async () => {
   const save = byId['qwb-unsaved-save'];
   if (save) {
     save.click();
@@ -975,7 +975,7 @@ await test('unsaved-edits modal: save-and-leave saves then runs pendingNav', asy
 
 // ── Mini-map / topo-strip / time-slider ────────────────────────────────────
 
-await test('mini-map track click jumps the window', () => {
+test('mini-map track click jumps the window', () => {
   const track = byId['qwb-minimap-track'];
   if (track) {
     const ev = { type: 'click', target: track, currentTarget: track,
@@ -985,7 +985,7 @@ await test('mini-map track click jumps the window', () => {
   }
 });
 
-await test('time slider input handler updates windowStart', () => {
+test('time slider input handler updates windowStart', () => {
   const slider = byId['qwb-time-slider'];
   if (slider) {
     slider.value = '120';
@@ -994,7 +994,7 @@ await test('time slider input handler updates windowStart', () => {
   }
 });
 
-await test('time slider prev / next nav buttons advance the window', () => {
+test('time slider prev / next nav buttons advance the window', () => {
   const tsPrev = byId['qwb-ts-prev'];
   const tsNext = byId['qwb-ts-next'];
   if (tsPrev) tsPrev.click();
@@ -1003,7 +1003,7 @@ await test('time slider prev / next nav buttons advance the window', () => {
 
 // ── Right panel resize handle ─────────────────────────────────────────────
 
-await test('right-panel toggle button collapses + expands the panel', () => {
+test('right-panel toggle button collapses + expands the panel', () => {
   const toggle = byId['qwb-right-toggle'];
   if (toggle) {
     toggle.click(); // collapse
@@ -1013,32 +1013,32 @@ await test('right-panel toggle button collapses + expands the panel', () => {
 
 // ── Snapshot / audit / event nav surface coverage ─────────────────────────
 
-await test('clicking back-analyzer button triggers navBack', () => {
+test('clicking back-analyzer button triggers navBack', () => {
   const back = byId['qwb-back'];
   if (back) back.click();
 });
 
-await test('clicking back-patient button triggers navBack with patient target', () => {
+test('clicking back-patient button triggers navBack with patient target', () => {
   const back = byId['qwb-back-patient'];
   if (back) back.click();
 });
 
-await test('clicking save (top toolbar) triggers saveCleaningVersion', () => {
+test('clicking save (top toolbar) triggers saveCleaningVersion', () => {
   const save = byId['qwb-save'];
   if (save) save.click();
 });
 
-await test('clicking rerun (top toolbar) triggers rerunAnalysis', () => {
+test('clicking rerun (top toolbar) triggers rerunAnalysis', () => {
   const rerun = byId['qwb-rerun'];
   if (rerun) rerun.click();
 });
 
-await test('clicking compare button triggers loadRawVsCleaned', async () => {
+test('clicking compare button triggers loadRawVsCleaned', async () => {
   const cmp = byId['qwb-compare'];
   if (cmp) { cmp.click(); await new Promise(r => globalThis.setTimeout(r, 0)); }
 });
 
-await test('clicking return-report button calls returnToReport', () => {
+test('clicking return-report button calls returnToReport', () => {
   // Stub _nav to avoid mutating outer state.
   const prev = window._nav;
   window._nav = () => {};
@@ -1049,7 +1049,7 @@ await test('clicking return-report button calls returnToReport', () => {
 
 // ── Audit chat input + send ────────────────────────────────────────────────
 
-await test('audit tab → chat input + send wires localChatReply (no WebSocket)', async () => {
+test('audit tab → chat input + send wires localChatReply (no WebSocket)', async () => {
   const tabs = querySel('.qwb-tab');
   tabs.find(t => t.dataset.tab === 'log').click();
   const inp = byId['qwb-chat-input'];
@@ -1062,7 +1062,7 @@ await test('audit tab → chat input + send wires localChatReply (no WebSocket)'
   if (send) send.click();
 });
 
-await test('audit tab → chat Enter key sends message', async () => {
+test('audit tab → chat Enter key sends message', async () => {
   const inp = byId['qwb-chat-input'];
   if (inp) {
     inp.value = 'help';
@@ -1073,7 +1073,7 @@ await test('audit tab → chat Enter key sends message', async () => {
 
 // ── Source-string assertions for hard-to-mount paths ─────────────────────
 
-await test('source includes kindColour branches for every label family', () => {
+test('source includes kindColour branches for every label family', () => {
   for (const family of [
     'blink', 'eye', 'chewing', 'muscle', 'movement', 'motion', 'line', 'mains',
     'flat', 'saturat', 'sweat', 'drift',
@@ -1086,7 +1086,7 @@ await test('source includes kindColour branches for every label family', () => {
   }
 });
 
-await test('source includes localChatReply branches for clinical question patterns', () => {
+test('source includes localChatReply branches for clinical question patterns', () => {
   // Channel-name match branch
   assert.ok(SRC.includes("var chMatch = t.match("));
   // Topic branches
@@ -1097,7 +1097,7 @@ await test('source includes localChatReply branches for clinical question patter
   }
 });
 
-await test('source declares aiExplainFeatures branches for every artefact archetype', () => {
+test('source declares aiExplainFeatures branches for every artefact archetype', () => {
   for (const family of [
     'blink', 'eye', 'muscle', 'movement', 'line', 'flat',
     'spindle', 'k_complex', 'kcomplex', 'vertex',
@@ -1110,37 +1110,37 @@ await test('source declares aiExplainFeatures branches for every artefact archet
   }
 });
 
-await test('source includes the seven-tab right panel definition', () => {
+test('source includes the seven-tab right panel definition', () => {
   for (const id of ['cleaning', 'manual', 'ai', 'help', 'ica', 'log', 'learn']) {
     assert.ok(SRC.includes(`id: '${id}'`), 'tab id: ' + id);
   }
 });
 
-await test('source defines all 5 spectral bands and their ranges', () => {
+test('source defines all 5 spectral bands and their ranges', () => {
   for (const band of ['Delta', 'Theta', 'Alpha', 'Beta', 'Gamma']) {
     assert.ok(SRC.includes(`label: '${band}'`), 'band: ' + band);
   }
 });
 
-await test('source defines 5 cleaning tools with their tooltips', () => {
+test('source defines 5 cleaning tools with their tooltips', () => {
   for (const tool of ['Select', 'Mark bad segment (B)', 'Mark bad channel (C)', 'Annotate (A)', 'Measure']) {
     assert.ok(SRC.includes(`label: '${tool}'`), 'tool: ' + tool);
   }
 });
 
-await test('source defines all 10 title menus', () => {
+test('source defines all 10 title menus', () => {
   for (const m of ['File','Edit','View','Format','Recording','Analysis','Setup','Window','Language','Help']) {
     assert.ok(SRC.includes(`'${m}'`), 'menu: ' + m);
   }
 });
 
-await test('source includes deterministic detector helper signatures', () => {
+test('source includes deterministic detector helper signatures', () => {
   for (const fn of ['detectBlinks', 'detectMuscle', 'detectMovement', 'detectLineNoise', 'detectFlat', 'detectSweat']) {
     assert.ok(SRC.includes(`function ${fn}`), 'detector defined: ' + fn);
   }
 });
 
-await test('source includes _channelStats / _bandPower / _nextId helpers', () => {
+test('source includes _channelStats / _bandPower / _nextId helpers', () => {
   for (const fn of ['_channelStats', '_bandPower', '_nextId', '_pushSuggestion',
                      '_computeBeforeAfterMetrics', '_computeReportReadiness',
                      '_capabilityStatusPill', '_computeFFT', '_bandPowerFromPSD']) {
@@ -1148,12 +1148,12 @@ await test('source includes _channelStats / _bandPower / _nextId helpers', () =>
   }
 });
 
-await test('source defines spectral analysis FFT helper', () => {
+test('source defines spectral analysis FFT helper', () => {
   assert.ok(SRC.includes('Cooley-Tukey'), 'FFT comment');
   assert.ok(SRC.includes('Power spectral density'), 'PSD comment');
 });
 
-await test('source defines NORMAL_VARIANTS for benign clinical patterns', () => {
+test('source defines NORMAL_VARIANTS for benign clinical patterns', () => {
   for (const variant of ['mu_rhythm', 'lambda_waves', 'wicket_waves', 'rmtd',
                           'sleep_spindles', 'vertex_waves', 'k_complex', 'posts',
                           'bets', '14_and_6', 'breach_rhythm', 'pdr']) {
@@ -1161,7 +1161,7 @@ await test('source defines NORMAL_VARIANTS for benign clinical patterns', () => 
   }
 });
 
-await test('source defines CHANNEL_ANATOMY for all 19 10-20 channels', () => {
+test('source defines CHANNEL_ANATOMY for all 19 10-20 channels', () => {
   for (const ch of [
     'Fp1-Av','Fp2-Av','F7-Av','F3-Av','Fz-Av','F4-Av','F8-Av',
     'T3-Av','C3-Av','Cz-Av','C4-Av','T4-Av',
@@ -1174,7 +1174,7 @@ await test('source defines CHANNEL_ANATOMY for all 19 10-20 channels', () => {
   }
 });
 
-await test('source defines CHANNEL_WAVES for all 19 10-20 channels', () => {
+test('source defines CHANNEL_WAVES for all 19 10-20 channels', () => {
   for (const ch of [
     'Fp1-Av','Fp2-Av','F7-Av','F3-Av','Fz-Av','F4-Av','F8-Av',
     'T3-Av','C3-Av','Cz-Av','C4-Av','T4-Av',
@@ -1186,32 +1186,32 @@ await test('source defines CHANNEL_WAVES for all 19 10-20 channels', () => {
   }
 });
 
-await test('source defines BEST_PRACTICE topics with references', () => {
+test('source defines BEST_PRACTICE topics with references', () => {
   for (const topic of ['Bad channel detection','Eye blink','Line noise','When NOT to over-clean','Preserve original raw EEG']) {
     assert.ok(SRC.includes(topic), 'BP topic: ' + topic);
   }
 });
 
-await test('source defines KEYBOARD_SHORTCUTS for navigation/cleaning/view', () => {
+test('source defines KEYBOARD_SHORTCUTS for navigation/cleaning/view', () => {
   for (const grp of ['Navigation', 'Cleaning', 'View']) {
     assert.ok(SRC.includes(`['${grp}'`), 'shortcut group: ' + grp);
   }
 });
 
-await test('source defines ARTEFACT_EXAMPLES for the canonical artefacts', () => {
+test('source defines ARTEFACT_EXAMPLES for the canonical artefacts', () => {
   for (const ex of ['alpha-eyes-closed', 'eye-blink', 'muscle-temporal', 'line-noise',
                      'flat-channel', 'electrode-pop', 'movement', 'ecg', 'poor-recording']) {
     assert.ok(SRC.includes(`id: '${ex}'`), 'artefact example: ' + ex);
   }
 });
 
-await test('source defines QWB_HEADMAP_COORDS with 19 channel positions', () => {
+test('source defines QWB_HEADMAP_COORDS with 19 channel positions', () => {
   for (const ch of ['Fp1-Av', 'Cz-Av', 'O2-Av']) {
     assert.ok(SRC.includes(`['${ch}',`), 'headmap coord: ' + ch);
   }
 });
 
-await test('source defines title-menu items for File/Edit/View/Format/Recording/Analysis/Setup/Window/Language/Help', () => {
+test('source defines title-menu items for File/Edit/View/Format/Recording/Analysis/Setup/Window/Language/Help', () => {
   assert.ok(SRC.includes('Export bundle…'));
   assert.ok(SRC.includes('Save cleaning version'));
   assert.ok(SRC.includes('Toggle right panel'));
@@ -1226,35 +1226,35 @@ await test('source defines title-menu items for File/Edit/View/Format/Recording/
   assert.ok(SRC.includes('Keyboard shortcuts'));
 });
 
-await test('source defines safety guarantees: original raw EEG preserved + decision-support only', () => {
+test('source defines safety guarantees: original raw EEG preserved + decision-support only', () => {
   assert.ok(SRC.includes('Original raw EEG preserved'));
   assert.ok(SRC.includes('Decision support only.'));
   assert.ok(SRC.includes('Clinician confirmation required'));
 });
 
-await test('source defines all view modes and their labels', () => {
+test('source defines all view modes and their labels', () => {
   for (const view of ['cleaned', 'overlay', 'split', 'raw']) {
     assert.ok(SRC.includes(`id: '${view}'`), 'view: ' + view);
   }
 });
 
-await test('source defines view-toggle / display-toggle button wiring', () => {
+test('source defines view-toggle / display-toggle button wiring', () => {
   assert.ok(SRC.includes('data-display='));
   assert.ok(SRC.includes('data-view='));
   assert.ok(SRC.includes('displayMode'));
 });
 
-await test('source PDF export wraps content in printable A4 styling', () => {
+test('source PDF export wraps content in printable A4 styling', () => {
   assert.ok(SRC.includes('@page { size: A4'));
   assert.ok(SRC.includes('qEEG Cleaning Report'));
   assert.ok(SRC.includes('Decision-support only'));
 });
 
-await test('source defines pull-from-server fallback caveat for capabilities panel', () => {
+test('source defines pull-from-server fallback caveat for capabilities panel', () => {
   assert.ok(SRC.includes('Capability reporting endpoint is unavailable'));
 });
 
-await test('source defines saveQEEGCleaningVersion payload shape', () => {
+test('source defines saveQEEGCleaningVersion payload shape', () => {
   for (const k of ['bad_channels', 'rejected_segments', 'rejected_epochs',
                     'rejected_ica_components', 'interpolated_channels',
                     'annotation_ids']) {
@@ -1264,7 +1264,7 @@ await test('source defines saveQEEGCleaningVersion payload shape', () => {
 
 // ── Runtime: localChatReply via DOM chat ───────────────────────────────────
 
-await test('chat reply branch: badChannels response when channel matches', async () => {
+test('chat reply branch: badChannels response when channel matches', async () => {
   const tabs = querySel('.qwb-tab');
   tabs.find(t => t.dataset.tab === 'log').click();
   const inp = byId['qwb-chat-input'];
@@ -1277,7 +1277,7 @@ await test('chat reply branch: badChannels response when channel matches', async
   }
 });
 
-await test('chat reply branch: priority/clean-first response', async () => {
+test('chat reply branch: priority/clean-first response', async () => {
   const inp = byId['qwb-chat-input'];
   if (inp) {
     inp.value = 'what should I clean first?';
@@ -1288,7 +1288,7 @@ await test('chat reply branch: priority/clean-first response', async () => {
   }
 });
 
-await test('chat reply branch: report readiness response', async () => {
+test('chat reply branch: report readiness response', async () => {
   const inp = byId['qwb-chat-input'];
   if (inp) {
     inp.value = 'is the report ready?';
@@ -1299,7 +1299,7 @@ await test('chat reply branch: report readiness response', async () => {
   }
 });
 
-await test('chat reply branch: blink response', async () => {
+test('chat reply branch: blink response', async () => {
   const inp = byId['qwb-chat-input'];
   if (inp) {
     inp.value = 'tell me about blink artifacts';
@@ -1310,7 +1310,7 @@ await test('chat reply branch: blink response', async () => {
   }
 });
 
-await test('chat reply branch: muscle response', async () => {
+test('chat reply branch: muscle response', async () => {
   const inp = byId['qwb-chat-input'];
   if (inp) {
     inp.value = 'how do I deal with muscle?';
@@ -1321,7 +1321,7 @@ await test('chat reply branch: muscle response', async () => {
   }
 });
 
-await test('chat reply branch: flat response', async () => {
+test('chat reply branch: flat response', async () => {
   const inp = byId['qwb-chat-input'];
   if (inp) {
     inp.value = 'what about a flat channel?';
@@ -1332,7 +1332,7 @@ await test('chat reply branch: flat response', async () => {
   }
 });
 
-await test('chat reply branch: save / version response', async () => {
+test('chat reply branch: save / version response', async () => {
   const inp = byId['qwb-chat-input'];
   if (inp) {
     inp.value = 'should I save now?';
@@ -1343,7 +1343,7 @@ await test('chat reply branch: save / version response', async () => {
   }
 });
 
-await test('chat reply branch: hello/help response', async () => {
+test('chat reply branch: hello/help response', async () => {
   const inp = byId['qwb-chat-input'];
   if (inp) {
     inp.value = 'hello';
@@ -1354,7 +1354,7 @@ await test('chat reply branch: hello/help response', async () => {
   }
 });
 
-await test('chat reply default branch: random unrecognized input', async () => {
+test('chat reply default branch: random unrecognized input', async () => {
   const inp = byId['qwb-chat-input'];
   if (inp) {
     inp.value = 'abracadabra';
@@ -1367,7 +1367,7 @@ await test('chat reply default branch: random unrecognized input', async () => {
 
 // ── recordingStatus rule branches ──────────────────────────────────────────
 
-await test('recordingStatus is documented in source with strict isDirty rule', () => {
+test('recordingStatus is documented in source with strict isDirty rule', () => {
   const block = SRC.match(/function recordingStatus\(state\)[\s\S]+?\n\}/);
   assert.ok(block);
   const body = block[0];
@@ -1379,7 +1379,7 @@ await test('recordingStatus is documented in source with strict isDirty rule', (
 
 // ── recordingMeta defaults ────────────────────────────────────────────────
 
-await test('source defines recordingMeta with metadata fallback chain', () => {
+test('source defines recordingMeta with metadata fallback chain', () => {
   assert.ok(SRC.includes('state.metadata?.patient_name'));
   assert.ok(SRC.includes('state.metadata?.recording_date'));
   assert.ok(SRC.includes('state.metadata?.duration_label'));
@@ -1388,21 +1388,21 @@ await test('source defines recordingMeta with metadata fallback chain', () => {
 
 // ── Source-string asserts for advanced renderers ──────────────────────────
 
-await test('renderHelpPanel computes readiness PASS/NEEDS REVIEW/BLOCK grades', () => {
+test('renderHelpPanel computes readiness PASS/NEEDS REVIEW/BLOCK grades', () => {
   assert.ok(SRC.includes("var grade = r.score >= 80 ? 'PASS' : r.score >= 60 ? 'NEEDS REVIEW' : 'BLOCK'"));
 });
 
-await test('renderICAPanel pads grid to 12 cells and labels them Brain/Eye/Muscle/Mixed', () => {
+test('renderICAPanel pads grid to 12 cells and labels them Brain/Eye/Muscle/Mixed', () => {
   assert.ok(SRC.includes('for (let i = 0; i < 12; i++)'));
   assert.ok(SRC.includes("['Brain','Eye','Muscle','Mixed']"));
 });
 
-await test('renderAuditPanel renders chat + audit-trail sections', () => {
+test('renderAuditPanel renders chat + audit-trail sections', () => {
   assert.ok(SRC.includes('AI Assistant'));
   assert.ok(SRC.includes('Cleaning Audit Trail'));
 });
 
-await test('renderManualAnalysisPanel renders the 7 sections + reference pills', () => {
+test('renderManualAnalysisPanel renders the 7 sections + reference pills', () => {
   for (const heading of [
     '1. Signal Quality Panel',
     '2. Montage Panel',
@@ -1418,13 +1418,13 @@ await test('renderManualAnalysisPanel renders the 7 sections + reference pills',
 
 // ── Final smoke ─────────────────────────────────────────────────────────────
 
-await test('overlay root retained the qwb-clinical class after all interactions', () => {
+test('overlay root retained the qwb-clinical class after all interactions', () => {
   const overlay = document._byId['qwb-overlay'];
   assert.ok(overlay);
   assert.ok(overlay.innerHTML.includes('qwb-clinical'));
   assert.ok(overlay.innerHTML.includes('data-testid="qwb-root"'));
 });
 
-await test('teardown global is wired up so router cleanup works', () => {
+test('teardown global is wired up so router cleanup works', () => {
   assert.equal(typeof window._qeegRawWorkbenchTeardown, 'function');
 });
