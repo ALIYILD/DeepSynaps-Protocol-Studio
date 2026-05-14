@@ -29,6 +29,29 @@ const DOMAIN_LABEL = {
   outcomes: 'Outcomes',
 };
 
+// Cross-page deep-link route map — every clinical domain that has a
+// dedicated analyzer page gets an entry so domain cards can link into
+// the correct tool while preserving patient context.
+const DEEP_LINK_ROUTES = {
+  qeeg: { page: 'qeeg', label: 'qEEG Analyzer', path: '/qeeg' },
+  mri: { page: 'mri', label: 'MRI Analyzer', path: '/mri' },
+  biomarkers: { page: 'biomarkers', label: 'Biomarkers', path: '/biomarkers' },
+  labs: { page: 'labs', label: 'Labs', path: '/labs' },
+  medications: { page: 'medication-analyzer', label: 'Medication Analyzer', path: '/medication-analyzer' },
+  interventions: { page: 'intervention-analyzer', label: 'Intervention Analyzer', path: '/intervention-analyzer' },
+  assessments: { page: 'assessments', label: 'Assessments', path: '/assessments' },
+  voice: { page: 'voice', label: 'Voice Analyzer', path: '/voice' },
+  video: { page: 'video', label: 'Video Analyzer', path: '/video' },
+  text: { page: 'text', label: 'Text Analyzer', path: '/text' },
+  risk: { page: 'risk', label: 'Risk Analyzer', path: '/risk' },
+  digital_phenotyping: { page: 'digital-phenotyping', label: 'Digital Phenotyping', path: '/digital-phenotyping' },
+  wearable: { page: 'wearable', label: 'Wearables', path: '/wearable' },
+  protocol_studio: { page: 'protocol-studio', label: 'Protocol Studio', path: '/protocol-studio' },
+  reports: { page: 'reports', label: 'Reports', path: '/reports' },
+  evidence: { page: 'evidence', label: 'Evidence', path: '/evidence' },
+  patient_profile: { page: 'patient-profile', label: 'Patient Profile', path: '/patient-profile' },
+};
+
 const UNAVAILABLE_STATUSES = new Set(['unavailable', 'withheld', 'not_implemented', 'not_available', 'disabled']);
 
 function _humanizeReason(reason) {
@@ -64,6 +87,33 @@ function _sectionAvailability(payload, hasContent) {
     return { kind: 'empty', status, reason, summary };
   }
   return null;
+}
+
+// Deep-link button generator — navigates to a domain-specific analyzer
+// while preserving patient context via query parameter.
+function _deepLinkButton(domain, patientId) {
+  const route = DEEP_LINK_ROUTES[domain];
+  if (!route) return '';
+  return `<a class="dt-deep-link" href="${route.path}?patient_id=${patientId}" data-navigate="${route.page}" data-patient="${patientId}" style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);color:var(--blue);font-size:11px;text-decoration:none;cursor:pointer">${escHtml(route.label)} \u2192</a>`;
+}
+
+// Evidence DB search button — opens the evidence page with a pre-filled
+// query so clinicians can quickly look up literature for a hypothesis.
+function _evidenceSearchButton(query, patientId) {
+  return `<a class="dt-evidence-link" href="/evidence?query=${encodeURIComponent(query)}&patient_id=${patientId}" data-navigate="evidence" style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:6px;border:1px solid rgba(74,158,255,.2);background:rgba(74,158,255,.05);color:var(--blue);font-size:11px;text-decoration:none;cursor:pointer">Search Evidence \u2192</a>`;
+}
+
+// Multimodal context banner — shows which analyzers have contributed data
+// to the current twin view, with deep-link chips for each connected source.
+export function multimodalContextBanner(dataSources, patientId) {
+  if (!dataSources?.sources_connected?.length) return '';
+  const chips = dataSources.sources_connected.map(s => {
+    const link = DEEP_LINK_ROUTES[s.key];
+    return link
+      ? `<a href="${link.path}?patient_id=${patientId}" data-navigate="${link.page}" style="display:inline-block;padding:2px 8px;border-radius:10px;background:rgba(0,212,188,.08);color:var(--teal);font-size:11px;text-decoration:none;margin:2px">${escHtml(link.label)}</a>`
+      : `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:rgba(255,255,255,.04);color:var(--text-secondary);font-size:11px;margin:2px">${escHtml(s.label)}</span>`;
+  }).join('');
+  return `<div style="padding:10px 14px;border-radius:8px;border:1px solid var(--border);background:rgba(255,255,255,.02);margin-bottom:12px"><div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px">Multimodal contributors:</div><div style="display:flex;flex-wrap:wrap;gap:4px">${chips}</div></div>`;
 }
 
 function _renderSectionState({
@@ -146,7 +196,7 @@ export function renderHeader({ patientLabel, condition, summary, dataSources }) 
 }
 
 // 2. Data source grid ----------------------------------------------------
-export function renderDataSources({ summary, dataSources }) {
+export function renderDataSources({ summary, dataSources, patientId }) {
   // Prefer real data-sources map (migration 063); fall back to summary shape.
   if (dataSources?.sources) {
     const entries = Object.entries(dataSources.sources);
@@ -167,10 +217,12 @@ export function renderDataSources({ summary, dataSources }) {
     }
     const cells = entries.filter(([, s]) => s.available).map(([key, s]) => {
       const stale = s.last_updated && (Date.now() - new Date(s.last_updated).getTime() > 90 * 86400000);
+      const deepLink = patientId ? _deepLinkButton(key, patientId) : '';
       return `
       <div class="dt-src dt-src-on ${stale ? 'dt-src-stale' : ''}">
         <div class="dt-src-label">${escHtml(DOMAIN_LABEL[key] || key)}</div>
         <div class="dt-src-meta">${s.count} records · updated ${s.last_updated ? new Date(s.last_updated).toLocaleDateString() : '—'}${stale ? ' · stale' : ''}</div>
+        ${deepLink ? `<div class="dt-src-links" style="margin-top:6px">${deepLink}</div>` : ''}
       </div>`;
     }).join('');
     const off = entries.filter(([, s]) => !s.available).map(([key]) => `
@@ -207,12 +259,16 @@ export function renderDataSources({ summary, dataSources }) {
       </section>
     `;
   }
-  const cells = connected.map(s => `
+  const cells = connected.map(s => {
+    const deepLink = patientId ? _deepLinkButton(s.key, patientId) : '';
+    return `
     <div class="dt-src dt-src-on">
       <div class="dt-src-label">${escHtml(s.label || s.key)}</div>
       <div class="dt-src-meta">last sync ${escHtml(String(s.last_sync_days_ago ?? '?'))}d ago</div>
+      ${deepLink ? `<div class="dt-src-links" style="margin-top:6px">${deepLink}</div>` : ''}
     </div>
-  `).join('');
+  `;
+  }).join('');
   const off = missing.map(s => `
     <div class="dt-src dt-src-off">
       <div class="dt-src-label">${escHtml(s.label || s.key)}</div>
@@ -397,7 +453,7 @@ export function mountCorrelations(hostId, correlations) {
 }
 
 // 6. Causal hypothesis panel --------------------------------------------
-export function renderCausal({ correlations }) {
+export function renderCausal({ correlations, patientId }) {
   const hypotheses = correlations?.hypotheses || [];
   const state = _sectionAvailability(correlations, hypotheses.length > 0);
   if (state) {
@@ -422,19 +478,27 @@ export function renderCausal({ correlations }) {
     const ef = (h.evidence_for || []).map(s => `<li>${escHtml(s)}</li>`).join('');
     const ea = (h.evidence_against || []).map(s => `<li>${escHtml(s)}</li>`).join('');
     const md = (h.missing_data || []).map(s => `<li>${escHtml(s)}</li>`).join('');
+    const evQuery = `${h.driver} ${h.outcome}`;
+    const evButton = patientId ? _evidenceSearchButton(evQuery, patientId) : '';
+    const evGrade = h.evidence_grade ? evidenceGradeBadge(h.evidence_grade) : evidenceGradeBadge('low');
+    const evLinked = h.evidence_linked === false
+      ? '<div class="dt-muted" style="font-size:11px;margin-top:4px">No evidence linked — use Search Evidence to find supporting literature.</div>'
+      : '';
     return `
       <div class="dt-causal">
         <div class="dt-causal-h">
           <div><strong>${escHtml(h.driver)}</strong> <span class="dt-arrow">→</span> <strong>${escHtml(h.outcome)}</strong></div>
-          ${evidenceGradeBadge(h.evidence_grade)}
+          ${evGrade}
         </div>
         <div class="dt-causal-grid">
           <div><div class="dt-k">Evidence for</div><ul>${ef}</ul></div>
           <div><div class="dt-k">Evidence against</div><ul>${ea}</ul></div>
           <div><div class="dt-k">Missing data</div><ul>${md}</ul></div>
         </div>
+        ${evLinked}
         <div class="dt-causal-foot">
           <span>confidence ${escHtml(String(Math.round((h.confidence || 0) * 100)))}%</span>
+          ${evButton}
           <span class="dt-stamp dt-stamp-review">Clinician interpretation needed</span>
         </div>
       </div>
