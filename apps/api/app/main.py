@@ -177,7 +177,11 @@ from app.routers.reviewer_sla_calibration_threshold_tuning_router import (
 from app.routers.digital_phenotyping_router import router as digital_phenotyping_router
 from app.routers.labs_analyzer_router import router as labs_analyzer_router
 from app.routers.medication_analyzer_router import router as medication_analyzer_router
-from app.routers.movement_analyzer_router import router as movement_analyzer_router
+# Movement analyzer router depends on `MovementBiomarkerTrend` (ORM class +
+# `movement_biomarker_trends` table) that does not yet exist in
+# `app.persistence.models` or in any Alembic migration. Gate the import +
+# inclusion behind a feature flag so production boots cleanly until the
+# backing model + migration land. Default off. See PR #947.
 from app.routers.nutrition_analyzer_router import router as nutrition_analyzer_router
 from app.routers.qeeg_annotation_outcome_tracker_router import (
     router as qeeg_annotation_outcome_tracker_router,
@@ -489,7 +493,11 @@ app.include_router(medications_router)
 app.include_router(medication_analyzer_router)
 app.include_router(labs_analyzer_router)
 app.include_router(digital_phenotyping_router)
-app.include_router(movement_analyzer_router)
+if os.getenv("DEEPSYNAPS_ENABLE_MOVEMENT_ANALYZER") == "1":
+    from app.routers.movement_analyzer_router import (
+        router as movement_analyzer_router,
+    )
+    app.include_router(movement_analyzer_router)
 app.include_router(nutrition_analyzer_router)
 app.include_router(consent_management_router)
 # Patient Home Program Tasks (Homework) launch-audit (2026-05-01).
