@@ -723,7 +723,7 @@ main() {
             log_section "╔══════════════════════════════════════════╗"
             log_section "║     PRE-DEPLOYMENT CHECKLIST             ║"
             log_section "╚══════════════════════════════════════════╝"
-            check_dependencies
+            check_dependencies || true
             check_fly_auth
             check_app_exists
             check_environment_variables

@@ -642,6 +642,6 @@ main() {
 }
 
 # ── Trap to ensure cleanup ──────────────────────────────────────────────────
-trap 'cleanup "$secrets_file" 2>/dev/null' EXIT
+trap 'cleanup "${secrets_file:-}" 2>/dev/null' EXIT
 
 main "$@"
