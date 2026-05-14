@@ -33,7 +33,11 @@ from app.persistence.models import (
     MriAnalysis,
     OutcomeEvent,
     Patient,
+    PatientLabResult,
+    PatientMedication,
     QEEGAnalysis,
+    VideoAnalysis,
+    VoiceAnalysis,
     WearableObservation,
 )
 from app.repositories.audit import create_audit_event
@@ -42,6 +46,7 @@ from app.services.deeptwin_decision_support import (
     ANALYZE_SCHEMA_VERSION,
     SCHEMA_VERSION,
     build_calibration_status,
+    build_evidence_links,
     build_provenance,
     build_scenario_comparison,
     build_uncertainty_block,
@@ -2914,6 +2919,170 @@ def deeptwin_get_data_sources(
         sources={k: v.model_dump() for k, v in sources.items()},
         completeness_score=completeness,
     )
+
+
+# ---------------------------------------------------------------------------
+# Cross-analyzer multimodal context endpoint (replaces frontend fan-out)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/multimodal-context/{patient_id}")
+def multimodal_context(
+    patient_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Return aggregated data from all connected analyzers for a patient.
+
+    Batches queries across 17+ analyzers in a single endpoint to reduce
+    frontend fan-out. Each analyzer result includes provenance, timestamp,
+    and data quality indicators.
+
+    Decision-support only. Not a diagnostic or treatment endpoint.
+    """
+    require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
+
+    # Batch query all analyzers
+    context: dict[str, Any] = {
+        "patient_id": patient_id,
+        "timestamp": _now_iso(),
+        "analyzers": {},
+        "provenance": build_provenance(
+            surface="multimodal_context",
+            inputs={"patient_id": patient_id, "endpoint": "multimodal_context"},
+            schema_version=SCHEMA_VERSION,
+        ),
+    }
+
+    # qEEG
+    try:
+        qeeg_rows = db.query(QEEGAnalysis).filter(QEEGAnalysis.patient_id == patient_id).order_by(QEEGAnalysis.created_at.desc()).limit(5).all()
+        context["analyzers"]["qeeg"] = {
+            "status": "available" if qeeg_rows else "missing",
+            "latest": qeeg_rows[0].created_at.isoformat() if qeeg_rows else None,
+            "count": len(qeeg_rows),
+            "provenance": {"source": "qeeg_analysis", "retrieved_at": _now_iso()},
+        }
+    except Exception:
+        context["analyzers"]["qeeg"] = {"status": "error", "provenance": {"source": "qeeg_analysis", "error": "query_failed"}}
+
+    # MRI
+    try:
+        mri_rows = db.query(MriAnalysis).filter(MriAnalysis.patient_id == patient_id).order_by(MriAnalysis.created_at.desc()).limit(5).all()
+        context["analyzers"]["mri"] = {
+            "status": "available" if mri_rows else "missing",
+            "latest": mri_rows[0].created_at.isoformat() if mri_rows else None,
+            "count": len(mri_rows),
+            "provenance": {"source": "mri_analysis", "retrieved_at": _now_iso()},
+        }
+    except Exception:
+        context["analyzers"]["mri"] = {"status": "error", "provenance": {"source": "mri_analysis", "error": "query_failed"}}
+
+    # Assessments
+    try:
+        assessment_rows = db.query(AssessmentRecord).filter(AssessmentRecord.patient_id == patient_id).order_by(AssessmentRecord.created_at.desc()).limit(10).all()
+        context["analyzers"]["assessments"] = {
+            "status": "available" if assessment_rows else "missing",
+            "latest": assessment_rows[0].created_at.isoformat() if assessment_rows else None,
+            "count": len(assessment_rows),
+            "latest_scores": [{"instrument": a.instrument, "score": a.score, "date": a.created_at.isoformat()} for a in assessment_rows[:3]],
+            "provenance": {"source": "assessments", "retrieved_at": _now_iso()},
+        }
+    except Exception:
+        context["analyzers"]["assessments"] = {"status": "error", "provenance": {"source": "assessments", "error": "query_failed"}}
+
+    # Medications
+    try:
+        med_rows = db.query(PatientMedication).filter(PatientMedication.patient_id == patient_id).order_by(PatientMedication.created_at.desc()).limit(10).all()
+        context["analyzers"]["medications"] = {
+            "status": "available" if med_rows else "missing",
+            "count": len(med_rows),
+            "active": len([m for m in med_rows if getattr(m, 'status', None) == 'active']),
+            "latest_change": med_rows[0].created_at.isoformat() if med_rows else None,
+            "provenance": {"source": "medication_analyzer", "retrieved_at": _now_iso()},
+        }
+    except Exception:
+        context["analyzers"]["medications"] = {"status": "error", "provenance": {"source": "medication_analyzer", "error": "query_failed"}}
+
+    # Labs
+    try:
+        lab_rows = db.query(PatientLabResult).filter(PatientLabResult.patient_id == patient_id).order_by(PatientLabResult.created_at.desc()).limit(10).all()
+        context["analyzers"]["labs"] = {
+            "status": "available" if lab_rows else "missing",
+            "count": len(lab_rows),
+            "latest": lab_rows[0].created_at.isoformat() if lab_rows else None,
+            "provenance": {"source": "labs_analyzer", "retrieved_at": _now_iso()},
+        }
+    except Exception:
+        context["analyzers"]["labs"] = {"status": "error", "provenance": {"source": "labs_analyzer", "error": "query_failed"}}
+
+    # Voice
+    try:
+        voice_rows = db.query(VoiceAnalysis).filter(VoiceAnalysis.patient_id == patient_id).order_by(VoiceAnalysis.created_at.desc()).limit(5).all()
+        context["analyzers"]["voice"] = {
+            "status": "available" if voice_rows else "missing",
+            "count": len(voice_rows),
+            "latest": voice_rows[0].created_at.isoformat() if voice_rows else None,
+            "provenance": {"source": "voice_analyzer", "retrieved_at": _now_iso()},
+        }
+    except Exception:
+        context["analyzers"]["voice"] = {"status": "error", "provenance": {"source": "voice_analyzer", "error": "query_failed"}}
+
+    # Video
+    try:
+        video_rows = db.query(VideoAnalysis).filter(VideoAnalysis.patient_id == patient_id).order_by(VideoAnalysis.created_at.desc()).limit(5).all()
+        context["analyzers"]["video"] = {
+            "status": "available" if video_rows else "missing",
+            "count": len(video_rows),
+            "latest": video_rows[0].created_at.isoformat() if video_rows else None,
+            "provenance": {"source": "video_analyzer", "retrieved_at": _now_iso()},
+        }
+    except Exception:
+        context["analyzers"]["video"] = {"status": "error", "provenance": {"source": "video_analyzer", "error": "query_failed"}}
+
+    # Wearables
+    try:
+        wear_rows = db.query(WearableObservation).filter(WearableObservation.patient_id == patient_id).order_by(WearableObservation.created_at.desc()).limit(10).all()
+        context["analyzers"]["wearables"] = {
+            "status": "available" if wear_rows else "missing",
+            "count": len(wear_rows),
+            "latest": wear_rows[0].created_at.isoformat() if wear_rows else None,
+            "provenance": {"source": "wearables", "retrieved_at": _now_iso()},
+        }
+    except Exception:
+        context["analyzers"]["wearables"] = {"status": "error", "provenance": {"source": "wearables", "error": "query_failed"}}
+
+    # Treatment Sessions / Interventions
+    try:
+        session_rows = db.query(ClinicalSession).filter(ClinicalSession.patient_id == patient_id).order_by(ClinicalSession.created_at.desc()).limit(10).all()
+        context["analyzers"]["interventions"] = {
+            "status": "available" if session_rows else "missing",
+            "count": len(session_rows),
+            "latest": session_rows[0].created_at.isoformat() if session_rows else None,
+            "provenance": {"source": "intervention_analyzer", "retrieved_at": _now_iso()},
+        }
+    except Exception:
+        context["analyzers"]["interventions"] = {"status": "error", "provenance": {"source": "intervention_analyzer", "error": "query_failed"}}
+
+    # Audit
+    analyzers_queried = len(context["analyzers"])
+    analyzers_available = sum(
+        1 for a in context["analyzers"].values() if a.get("status") == "available"
+    )
+    create_audit_event(
+        db,
+        event_id=f"dt-mmctx-{actor.actor_id}-{uuid.uuid4().hex[:12]}",
+        target_id=patient_id,
+        target_type="patient",
+        action="deeptwin_multimodal_context_loaded",
+        role=actor.role,
+        actor_id=actor.actor_id,
+        note=f"analyzers_queried={analyzers_queried}; available={analyzers_available}",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+    return context
 
 
 @router.post("/patients/{patient_id}/analysis-runs", response_model=AnalysisRunOut)
