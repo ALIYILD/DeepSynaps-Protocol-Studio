@@ -77,6 +77,66 @@ _INTERACTION_RULES: list[dict] = [
         "description": "Stimulants can alter cortical excitability; interaction with tDCS response is context-dependent.",
         "recommendation": "Requires clinician review when interpreting neuromodulation tolerability/response — no autonomous medication timing advice.",
     },
+    {
+        "drugs": ["clozapine", "anticonvulsant"],
+        "severity": "severe",
+        "description": "Clozapine is among the most pro-convulsant antipsychotics; combining with any anticonvulsant (valproate, lamotrigine, carbamazepine, etc.) significantly increases seizure risk with complex pharmacokinetic interactions. Elevated seizure risk is dose-dependent and increased in clozapine-polytherapy patients.",
+        "recommendation": "Requires psychiatrist and neurologist co-review before any neuromodulation or medication adjustment; monitor clozapine plasma levels and EEG — this tool does not direct dose changes.",
+    },
+    {
+        "drugs": ["bupropion", "seizure"],
+        "severity": "moderate",
+        "description": "Bupropion lowers seizure threshold dose-dependently; any additional seizure-threshold lowering agent (antipsychotics, TCAs, tramadol, alcohol withdrawal, theophylline) increases cumulative risk. 10% of bupropion-related adverse events involve seizure activity.",
+        "recommendation": "Requires clinician/pharmacist review to assess cumulative seizure risk; consider substitution if seizure threshold is a concern — not a directive to stop or start medication.",
+    },
+    {
+        "drugs": ["lithium", "ect"],
+        "severity": "severe",
+        "description": "Lithium combined with ECT increases risk of post-ECT delirium, prolonged seizures, and neurotoxic encephalopathy. Case reports document irreversible cerebellar effects with combined use. Risk is highest at therapeutic-to-high serum levels (>0.8 mmol/L).",
+        "recommendation": "Requires psychiatrist and anesthesia review before ECT course; hold lithium 24–72 hours before each ECT session or reduce to maintain level <0.6 mmol/L — this is a decision-support prompt requiring individualized clinical judgment.",
+    },
+    {
+        "drugs": ["benzodiazepine", "ect"],
+        "severity": "severe",
+        "description": "Benzodiazepines elevate seizure threshold and blunt seizure expression during ECT, reducing treatment efficacy. Seizure duration may be shortened below therapeutic thresholds (e.g., <15 seconds), leading to higher stimulus doses and cumulative cognitive burden.",
+        "recommendation": "Requires anesthesia and psychiatrist review; consider benzodiazepine taper or switch to non-benzodiazepine anxiolytic before ECT course — not a directive to alter medication without clinical oversight.",
+    },
+    {
+        "drugs": ["maoi", "serotonergic"],
+        "severity": "severe",
+        "description": "MAOIs combined with serotonergic agents (SSRIs, SNRIs, TCAs, tramadol, meperidine, dextromethorphan, St. John's wort) carry high risk of serotonin syndrome — a potentially life-threatening condition with hyperthermia, autonomic instability, and altered mental status.",
+        "recommendation": "Requires psychiatrist and pharmacist review; observe mandatory washout periods (minimum 2 weeks between irreversible MAOIs and SSRIs; 5 weeks for fluoxetine) — this tool does not determine washout or substitution timing.",
+    },
+    {
+        "drugs": ["anticoagulant", "ect"],
+        "severity": "moderate",
+        "description": "Anticoagulants (warfarin, DOACs) combined with ECT increase bleeding risk due to transient blood pressure surges, physical exertion during seizure, and potential bite-block trauma. Risk includes intracranial hemorrhage, gastrointestinal bleeding, and oropharyngeal hematoma.",
+        "recommendation": "Requires anesthesia review and documented bleed-risk plan; confirm INR within therapeutic range (warfarin) or last DOAC dose timing; use soft bite-block and BP control — this tool does not instruct anticoagulation management.",
+    },
+    {
+        "drugs": ["stimulant", "maoi"],
+        "severity": "severe",
+        "description": "Stimulants (methylphenidate, amphetamines, lisdexamfetamine) combined with MAOIs can precipitate hypertensive crisis, severe headache, hyperthermia, and intracranial hemorrhage due to potentiated catecholamine release and blocked reuptake.",
+        "recommendation": "Absolute contraindication in standard formularies — requires immediate clinician/pharmacist review; if both are clinically necessary, document indication, obtain cardiology input, and implement continuous BP monitoring — this tool does not authorize concurrent use.",
+    },
+    {
+        "drugs": ["tca", "rtms"],
+        "severity": "moderate",
+        "description": "Tricyclic antidepressants dose-dependently lower seizure threshold; when combined with high-frequency rTMS protocols this materially increases seizure risk. Clomipramine carries the highest risk among TCAs (>1 seizure per 100 treatment-years).",
+        "recommendation": "Requires clinician and neuromodulation prescriber review; avoid high-frequency / high-intensity rTMS with concurrent TCA use, or consider medication adjustment per psychiatric consultation — not a directive to change therapy.",
+    },
+    {
+        "drugs": ["valproate", "carbamazepine"],
+        "severity": "moderate",
+        "description": "Valproate and carbamazepine combination produces complex pharmacokinetic interactions including CYP enzyme induction/inhibition, plasma protein displacement, and altered hepatic clearance. Valproate levels may decrease 20–50% while carbamazepine-epoxide metabolite increases, raising neurotoxicity risk.",
+        "recommendation": "Requires clinician/pharmacist review with therapeutic drug monitoring (valproate trough, carbamazepine + epoxide levels, LFTs, CBC) — this tool does not adjust doses or recommend target levels.",
+    },
+    {
+        "drugs": ["lithium", "diuretic"],
+        "severity": "moderate",
+        "description": "Thiazide and loop diuretics reduce lithium renal clearance, increasing serum lithium levels and toxicity risk (tremor, ataxia, renal impairment, encephalopathy). Up to 50% of lithium toxicity cases involve concurrent diuretic use.",
+        "recommendation": "Requires clinician/pharmacist review with lithium level monitoring and renal function assessment; if diuretic use is necessary, monitor levels more frequently and consider dose adjustment — not a dosing directive from this tool.",
+    },
 ]
 
 INTERACTION_ENGINE_ID = "ds_med_rules_v1"
