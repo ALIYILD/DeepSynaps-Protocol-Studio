@@ -42,6 +42,15 @@ DOMAINS: tuple[str, ...] = (
     "sessions",
     "tasks_adherence",
     "notes_text",
+    "wearables",
+    "outcomes",
+    "voice",
+    "video",
+    "digital_phenotyping",
+    "risk_scores",
+    "medications",
+    "labs",
+    "text_analysis",
 )
 
 SOURCE_LABELS: dict[str, str] = {
@@ -55,7 +64,13 @@ SOURCE_LABELS: dict[str, str] = {
     "assessments": "Assessments",
     "ehr_text": "EHR text",
     "video": "Video",
-    "audio": "Audio",
+    "audio": "Voice",
+    "voice": "Voice",
+    "digital_phenotyping": "Digital phenotyping",
+    "risk_scores": "Risk scores",
+    "medications": "Medications",
+    "labs": "Labs",
+    "text_analysis": "Text analysis",
 }
 
 
