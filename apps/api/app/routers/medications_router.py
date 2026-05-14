@@ -137,6 +137,78 @@ _INTERACTION_RULES: list[dict] = [
         "description": "Thiazide and loop diuretics reduce lithium renal clearance, increasing serum lithium levels and toxicity risk (tremor, ataxia, renal impairment, encephalopathy). Up to 50% of lithium toxicity cases involve concurrent diuretic use.",
         "recommendation": "Requires clinician/pharmacist review with lithium level monitoring and renal function assessment; if diuretic use is necessary, monitor levels more frequently and consider dose adjustment — not a dosing directive from this tool.",
     },
+    {
+        "drugs": ["fluoxetine", "tramadol"],
+        "severity": "severe",
+        "description": "Fluoxetine is a potent CYP2D6 inhibitor that impairs tramadol metabolism to its active M1 metabolite while increasing serotonergic burden via combined SSRI and tramadol serotonin-reuptake inhibition. Risk of serotonin syndrome includes hyperthermia, clonus, autonomic instability, and altered mental status.",
+        "recommendation": "Requires clinician/pharmacist review — avoid concurrent use where possible; if both are necessary, document indication, monitor for serotonin syndrome signs, and ensure pharmacist co-review — not a dosing directive from this tool.",
+    },
+    {
+        "drugs": ["venlafaxine", "warfarin"],
+        "severity": "moderate",
+        "description": "Venlafaxine (SNRI) combined with warfarin increases bleeding risk through additive effects on platelet function and possible SNRI-associated impairment of serotonin-mediated platelet aggregation. Risk includes epistaxis, gastrointestinal bleeding, and prolonged INR.",
+        "recommendation": "Requires clinician/pharmacist review with INR monitoring and bleeding-risk assessment per local protocol — not a dosing directive from this tool.",
+    },
+    {
+        "drugs": ["mirtazapine", "linezolid"],
+        "severity": "severe",
+        "description": "Linezolid is a reversible non-selective monoamine oxidase inhibitor (MAOI) with serotonergic activity; combined with mirtazapine (which enhances noradrenergic and serotonergic transmission via 5-HT2/3 antagonism), this carries high risk of serotonin syndrome including hyperthermia, autonomic instability, and neuromuscular abnormalities.",
+        "recommendation": "Requires psychiatrist and pharmacist review before any co-prescription; if linezolid is necessary for infection, hold mirtazapine and observe minimum 2-week washout — this tool does not determine washout or substitution timing.",
+    },
+    {
+        "drugs": ["paroxetine", "tamoxifen"],
+        "severity": "severe",
+        "description": "Paroxetine is a potent CYP2D6 inhibitor that blocks conversion of tamoxifen to its active endoxifen metabolite. Reduced endoxifen levels impair anti-estrogen efficacy in hormone-receptor-positive breast cancer, potentially increasing recurrence risk. Fluoxetine and bupropion carry similar CYP2D6 inhibition concerns.",
+        "recommendation": "Requires oncologist and pharmacist review — avoid paroxetine/fluoxetine/bupropion with tamoxifen; prefer CYP2D6-sparing antidepressants (e.g., escitalopram, venlafaxine, mirtazapine) with documented oncology input — not a directive to switch without specialist review.",
+    },
+    {
+        "drugs": ["escitalopram", "qt_prolonging"],
+        "severity": "moderate",
+        "description": "Escitalopram at higher doses (≥20 mg) causes dose-dependent QTc prolongation; additive effects with other QT-prolonging agents (amiodarone, haloperidol, ziprasidone, moxifloxacin, ondansetron, methadone, etc.) increase risk of torsades de pointes, particularly in patients with electrolyte abnormalities or underlying cardiac disease.",
+        "recommendation": "Requires clinician/pharmacist review with baseline and follow-up ECG if multiple QT-prolonging agents are co-prescribed; correct hypokalemia and hypomagnesemia before starting — not a directive to start, stop, or dose-adjust without cardiology input where indicated.",
+    },
+    {
+        "drugs": ["olanzapine", "metformin"],
+        "severity": "moderate",
+        "description": "Olanzapine promotes weight gain, insulin resistance, and dyslipidaemia through H1 antagonism, 5-HT2C antagonism, and M3 muscarinic antagonism; combined with metformin this signals metabolic syndrome risk that requires active monitoring (HbA1c, fasting glucose, lipids, BMI/waist circumference).",
+        "recommendation": "Requires clinician review with metabolic monitoring baseline and at 3-month intervals per metabolic-safety protocol; lifestyle intervention and possible endocrinology referral if HbA1c rises — not a dosing directive from this tool.",
+    },
+    {
+        "drugs": ["lithium", "ace_inhibitor"],
+        "severity": "moderate",
+        "description": "ACE inhibitors reduce angiotensin II-mediated aldosterone secretion, decreasing sodium reabsorption and increasing lithium renal reabsorption. This can raise serum lithium levels 25-60% and precipitate toxicity (tremor, ataxia, renal impairment, encephalopathy), especially with dehydration or renal impairment.",
+        "recommendation": "Requires clinician/pharmacist review with lithium level monitoring within 1-2 weeks of ACE inhibitor initiation or dose change, then every 3-6 months; maintain hydration — not a dosing directive from this tool.",
+    },
+    {
+        "drugs": ["clozapine", "benzodiazepine"],
+        "severity": "severe",
+        "description": "Clozapine combined with benzodiazepines produces additive sedation, respiratory depression, and orthostatic hypotension through combined central nervous system depression. Risk is highest during clozapine titration, in elderly patients, and with high-dose or long-acting benzodiazepines. Case reports describe respiratory arrest with parenteral benzodiazepines.",
+        "recommendation": "Requires psychiatrist review before concurrent use; if both are clinically necessary, use lowest effective doses, avoid parenteral benzodiazepines, and monitor respiratory rate, oxygen saturation, and orthostatic blood pressure — this tool does not authorize concurrent use or direct dose changes.",
+    },
+    {
+        "drugs": ["risperidone", "fluoxetine"],
+        "severity": "moderate",
+        "description": "Fluoxetine potently inhibits CYP2D6, which is the primary metabolic pathway for risperidone to its active 9-hydroxyrisperidone (paliperidone) metabolite. Co-administration increases risperidone AUC 2-4 fold, raising risk of extrapyramidal symptoms, hyperprolactinaemia, sedation, and QTc prolongation.",
+        "recommendation": "Requires clinician/pharmacist review; consider risperidone dose reduction or switching to a CYP2D6-sparing antipsychotic; monitor for EPS and prolactin-related effects — not a dosing directive from this tool.",
+    },
+    {
+        "drugs": ["quetiapine", "erythromycin"],
+        "severity": "moderate",
+        "description": "Erythromycin is a CYP3A4 inhibitor that reduces quetiapine metabolism, increasing quetiapine plasma levels and risk of sedation, orthostatic hypotension, and QTc prolongation. Clarithromycin, ketoconazole, itraconazole, HIV protease inhibitors, and grapefruit juice produce similar CYP3A4 inhibition.",
+        "recommendation": "Requires clinician/pharmacist review; consider temporary quetiapine dose reduction or alternative antibiotic (e.g., azithromycin with less CYP3A4 inhibition); monitor for excess sedation and orthostatic changes — not a dosing directive from this tool.",
+    },
+    {
+        "drugs": ["lamotrigine", "estrogen"],
+        "severity": "moderate",
+        "description": "Estrogen-containing contraceptives and hormone replacement therapy induce UDP-glucuronosyltransferase (UGT1A4), increasing lamotrigine glucuronidation by 40-60% and reducing lamotrigine serum levels. This increases seizure risk in epilepsy and may compromise mood-stabilising efficacy in bipolar disorder. The effect is most pronounced in the first 1-2 weeks of combined oral contraceptive use.",
+        "recommendation": "Requires clinician/pharmacist review with lamotrigine level monitoring; dose adjustment may be needed when starting, stopping, or changing estrogen therapy — not a dosing directive from this tool. Consider progesterone-only or non-hormonal alternatives if clinically appropriate.",
+    },
+    {
+        "drugs": ["duloxetine", "fluvoxamine"],
+        "severity": "severe",
+        "description": "Fluvoxamine potently inhibits both CYP1A2 and CYP2D6, the two primary metabolic pathways for duloxetine. Dual-pathway inhibition produces a marked increase in duloxetine plasma levels (AUC increase up to 5-fold), raising risk of serotonin syndrome, hepatotoxicity, hypertension, and urinary retention. This is one of the most clinically significant CYP-mediated antidepressant interactions.",
+        "recommendation": "Requires psychiatrist and pharmacist review — avoid concurrent use; if both are necessary for treatment-resistant depression/OCD, use the lowest effective duloxetine dose with close monitoring for serotonergic toxicity and hepatic function — this tool does not direct dose changes.",
+    },
 ]
 
 INTERACTION_ENGINE_ID = "ds_med_rules_v1"
