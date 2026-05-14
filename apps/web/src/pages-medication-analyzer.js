@@ -93,6 +93,83 @@ function _modLabel(m) {
   return _MODALITY_LABEL[k] || (k ? k.toUpperCase() : '—');
 }
 
+/** Color mapping for medication timeline drug classes. */
+export const TIMELINE_COLORS = {
+  ssri: '#3b82f6',
+  snri: '#6366f1',
+  tca: '#f59e0b',
+  maoi: '#dc2626',
+  'atypical antipsychotic': '#8b5cf6',
+  antipsychotic: '#7c3aed',
+  benzodiazepine: '#06b6d4',
+  'z-drug / hypnotic': '#06b6d4',
+  stimulant: '#ef4444',
+  ndri: '#10b981',
+  nassa: '#f97316',
+  sari: '#ec4899',
+  gabapentinoid: '#14b8a6',
+  'mood stabilizer': '#eab308',
+  anticonvulsant: '#a855f7',
+  'anticonvulsant / mood stabilizer': '#a855f7',
+  lithium: '#eab308',
+  opioid: '#b91c1c',
+  warfarin: '#7f1d1d',
+  ppi: '#64748b',
+  diuretic: '#0ea5e9',
+  default: '#94a3b8',
+};
+
+/** Washout period reference data (from backend MEDICATION_BIOMARKER_CONFOUNDER_MATRIX). */
+export const WASHOUT_PERIODS = {
+  antipsychotic: { standard: 14, extended: 30, color: '#7c3aed', label: 'Antipsychotic' },
+  'atypical antipsychotic': { standard: 14, extended: 30, color: '#8b5cf6', label: 'Atypical antipsychotic' },
+  benzodiazepine: { standard: 7, extended: 21, color: '#06b6d4', label: 'Benzodiazepine' },
+  ssri: { standard: 14, extended: 21, color: '#3b82f6', label: 'SSRI' },
+  snri: { standard: 7, extended: 14, color: '#6366f1', label: 'SNRI' },
+  tca: { standard: 7, extended: 14, color: '#f59e0b', label: 'Tricyclic' },
+  stimulant: { standard: 2, extended: 5, color: '#ef4444', label: 'Stimulant' },
+  lithium: { standard: 7, extended: 14, color: '#eab308', label: 'Lithium' },
+  'mood stabilizer': { standard: 7, extended: 14, color: '#eab308', label: 'Mood stabilizer' },
+  nassa: { standard: 7, extended: 14, color: '#f97316', label: 'NaSSA' },
+};
+
+function _drugClassToWashoutKey(className) {
+  if (!className) return null;
+  const c = className.toLowerCase();
+  if (c.includes('ssri')) return 'ssri';
+  if (c.includes('snri')) return 'snri';
+  if (c.includes('tricyclic') || c.includes('tca')) return 'tca';
+  if (c.includes('benzodiazepine')) return 'benzodiazepine';
+  if (c.includes('stimulant')) return 'stimulant';
+  if (c.includes('lithium')) return 'lithium';
+  if (c.includes('mirtazapine') || c.includes('nassa')) return 'nassa';
+  if (c.includes('atypical antipsychotic')) return 'atypical antipsychotic';
+  if (c.includes('antipsychotic')) return 'antipsychotic';
+  if (c.includes('mood stabilizer')) return 'mood stabilizer';
+  return null;
+}
+
+function _washoutUrgencyColor(standardDays) {
+  if (standardDays <= 3) return 'var(--green)';
+  if (standardDays <= 7) return 'var(--amber)';
+  if (standardDays <= 14) return 'var(--orange,#f97316)';
+  return 'var(--red)';
+}
+
+export function normalize_medication_list_for_render(meds) {
+  if (!Array.isArray(meds)) return [];
+  return meds.map((m) => ({
+    ...m,
+    id: m.id || `med-${Math.random().toString(36).slice(2)}`,
+    drug_name: m.drug_name || m.name || 'Unknown',
+    medication_class: m.medication_class || m.drug_class || '',
+    status: m.status || (m.active ? 'active' : 'inactive'),
+    dose: m.dose?.value || m.dose || '',
+    start_date: m.start_date || m.started_at || null,
+    end_date: m.end_date || m.stopped_at || null,
+  }));
+}
+
 function _skeletonChips(n = 6) {
   const chip = '<span style="display:inline-block;width:120px;height:22px;border-radius:11px;background:linear-gradient(90deg,rgba(255,255,255,.04),rgba(255,255,255,.08),rgba(255,255,255,.04));background-size:200% 100%;animation:dh2AttnPulse 1.6s ease-in-out infinite"></span>';
   return `<div style="display:flex;gap:8px;flex-wrap:wrap">${Array.from({ length: n }, () => chip).join('')}</div>`;
@@ -130,6 +207,133 @@ function _renderInteractionMeta(result, usingFixtures) {
   </div>`;
 }
 
+// ── Evidence grade badge helper ──────────────────────────────────────────────
+
+function _evidenceGradeBadge(grade) {
+  const g = String(grade || 'C').toUpperCase();
+  const colors = {
+    A: { bg: 'rgba(74,222,128,0.12)', color: 'var(--green)', border: 'rgba(74,222,128,0.35)', label: 'Grade A' },
+    B: { bg: 'rgba(96,165,250,0.12)', color: 'var(--blue)', border: 'rgba(96,165,250,0.35)', label: 'Grade B' },
+    C: { bg: 'rgba(250,204,21,0.12)', color: 'var(--amber)', border: 'rgba(250,204,21,0.35)', label: 'Grade C' },
+    D: { bg: 'rgba(255,107,107,0.12)', color: 'var(--red)', border: 'rgba(255,107,107,0.35)', label: 'Grade D' },
+  };
+  const c = colors[g] || colors.C;
+  return `<span class="pill" style="background:${c.bg};color:${c.color};border:1px solid ${c.border};font-size:10.5px;min-height:22px;padding:2px 8px" title="Evidence grade ${g}: ${c.label} -- strength of supporting evidence">${esc(c.label)}</span>`;
+}
+
+function _evidenceSourceBadge(source) {
+  const s = String(source || '').toLowerCase();
+  if (s.includes('cpic')) {
+    return `<span class="pill" style="background:rgba(155,127,255,0.10);color:var(--violet,#9b7fff);border:1px solid rgba(155,127,255,0.30);font-size:10px;min-height:20px;padding:1px 6px">CPIC</span>`;
+  }
+  if (s.includes('drugbank')) {
+    return `<span class="pill" style="background:rgba(45,212,191,0.10);color:var(--teal);border:1px solid rgba(45,212,191,0.30);font-size:10px;min-height:20px;padding:1px 6px">DrugBank</span>`;
+  }
+  if (s.includes('openfda') || s.includes('faers')) {
+    return `<span class="pill" style="background:rgba(251,146,60,0.10);color:var(--orange);border:1px solid rgba(251,146,60,0.30);font-size:10px;min-height:20px;padding:1px 6px">OpenFDA</span>`;
+  }
+  if (s.includes('dpwg')) {
+    return `<span class="pill" style="background:rgba(96,165,250,0.10);color:var(--blue);border:1px solid rgba(96,165,250,0.30);font-size:10px;min-height:20px;padding:1px 6px">DPWG</span>`;
+  }
+  return '';
+}
+
+function _tierBadge(severity) {
+  const s = String(severity || '').toLowerCase();
+  const tiers = {
+    contraindicated: { label: 'Contraindicated', color: 'var(--red)', bg: 'rgba(255,107,107,0.18)' },
+    severe: { label: 'Severe', color: 'var(--red)', bg: 'rgba(255,107,107,0.12)' },
+    critical: { label: 'Critical', color: 'var(--red)', bg: 'rgba(255,107,107,0.12)' },
+    major: { label: 'Major', color: 'var(--red)', bg: 'rgba(255,107,107,0.08)' },
+    moderate: { label: 'Moderate', color: 'var(--amber)', bg: 'rgba(250,204,21,0.10)' },
+    minor: { label: 'Minor', color: 'var(--blue)', bg: 'rgba(96,165,250,0.08)' },
+    mild: { label: 'Mild', color: 'var(--blue)', bg: 'rgba(96,165,250,0.08)' },
+  };
+  const t = tiers[s];
+  if (!t) return '';
+  return `<span class="pill" style="background:${t.bg};color:${t.color};border:1px solid ${t.color};font-size:10.5px;min-height:22px;padding:2px 8px">${esc(t.label)}</span>`;
+}
+
+function _washoutBadge(days) {
+  if (!days || days <= 0) return '';
+  const weeks = Math.round(days / 7 * 10) / 10;
+  return `<span class="pill" style="background:rgba(155,127,255,0.08);color:var(--violet,#9b7fff);border:1px solid rgba(155,127,255,0.25);font-size:10px;min-height:20px;padding:1px 6px" title="Recommended washout period before starting interacting medication">Washout: ${esc(String(days))}d (${weeks}w)</span>`;
+}
+
+function _renderPMIDLinks(pmids) {
+  if (!Array.isArray(pmids) || !pmids.length) return '';
+  const links = pmids.map((pmid) => {
+    const p = esc(String(pmid));
+    const prefill = esc(`${p}`);
+    return `<span style="display:inline-flex;gap:4px;align-items:center">
+      <button type="button" class="pill" data-action="open-evidence" data-prefill="${prefill}"
+        title="Search PMID ${p} in evidence corpus"
+        style="background:rgba(155,127,255,0.10);color:var(--violet,#9b7fff);border:1px solid rgba(155,127,255,0.30);cursor:pointer;font-size:10px;min-height:20px;padding:1px 6px">PMID ${p}</button>
+      <a class="pill" href="https://pubmed.ncbi.nlm.nih.gov/${p}/" target="_blank" rel="noopener noreferrer"
+        title="Open PMID ${p} on PubMed"
+        style="background:rgba(45,212,191,0.10);color:var(--teal);border:1px solid rgba(45,212,191,0.30);text-decoration:none;font-size:10px;min-height:20px;padding:1px 6px">PubMed</a>
+    </span>`;
+  }).join('');
+  return `<div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:6px">${links}</div>`;
+}
+
+function _renderMechanismSection(mechanism, management) {
+  if (!mechanism && !management) return '';
+  const mechBlock = mechanism
+    ? `<div style="font-size:11px;color:var(--text-secondary);line-height:1.5;margin-bottom:6px"><strong style="color:var(--text-primary)">Mechanism:</strong> ${esc(mechanism)}</div>`
+    : '';
+  const mgmtBlock = management
+    ? `<div style="font-size:11px;color:var(--text-secondary);line-height:1.5;padding:8px;border-radius:8px;background:rgba(96,165,250,0.05);border-left:3px solid var(--blue)"><strong style="color:var(--text-primary)">Management:</strong> ${esc(management)}</div>`
+    : '';
+  return `<details style="margin-top:8px">
+    <summary style="cursor:pointer;font-size:11px;color:var(--text-tertiary);padding:4px 0">Details &amp; management</summary>
+    <div style="padding:8px 0">
+      ${mechBlock}
+      ${mgmtBlock}
+    </div>
+  </details>`;
+}
+
+function _renderEvidenceLinkedCard(interaction, tier, grade, washout) {
+  const sev = String(interaction.severity || tier || '').toLowerCase();
+  const evGrade = interaction.evidence_grade || grade || 'C';
+  const evSource = interaction.evidence_source || '';
+  const drugs = Array.isArray(interaction.drugs) ? interaction.drugs.join(' + ') : (interaction.drug_name || interaction.medication || '--');
+  const mechanism = interaction.mechanism || interaction.description || '';
+  const management = interaction.management || interaction.recommendation || '';
+  const washoutDays = interaction.washout_days || washout || null;
+  const pmids = interaction.pmids || [];
+  const gene = interaction.gene || '';
+  const isPharmacogenomic = interaction.pharmacogenomic || !!gene;
+  const lastUpdated = interaction.last_updated || interaction.computed_at || '';
+
+  const borderColor = sev === 'none' ? 'var(--border)' : _neuromodSeverityColor(sev === 'severe' ? 'critical' : sev);
+  const pgxBanner = isPharmacogenomic
+    ? `<div style="font-size:10px;color:var(--violet,#9b7fff);margin-bottom:6px;padding:4px 8px;border-radius:6px;background:rgba(155,127,255,0.06);border:1px solid rgba(155,127,255,0.20)"><strong>Pharmacogenomic:</strong> ${esc(gene)} -- decision-support only, not a substitute for clinical genetic testing</div>`
+    : '';
+  const timestampBlock = lastUpdated
+    ? `<div style="font-size:10px;color:var(--text-tertiary);margin-top:6px">Last updated: ${esc(String(lastUpdated).slice(0, 16))}</div>`
+    : '';
+
+  return `<div style="padding:14px;border:1px solid ${borderColor};background:rgba(255,255,255,.02);border-radius:12px;display:flex;flex-direction:column;gap:6px" data-evidence-card data-severity="${esc(sev)}">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <div style="font-weight:600;font-size:13px">${esc(drugs)}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        ${_tierBadge(sev)}
+        ${_evidenceGradeBadge(evGrade)}
+        ${_evidenceSourceBadge(evSource)}
+        ${_washoutBadge(washoutDays)}
+      </div>
+    </div>
+    ${pgxBanner}
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.55">${esc(interaction.description || '')}</div>
+    ${_renderMechanismSection(mechanism, management)}
+    ${_renderPMIDLinks(pmids)}
+    ${timestampBlock}
+    <div style="font-size:10px;color:var(--text-tertiary);margin-top:4px;font-style:italic">${esc(interaction.disclaimer || 'Decision-support only -- requires clinician/pharmacist verification.')}</div>
+  </div>`;
+}
+
 function _renderInteractionResults(result, usingFixtures) {
   if (!result) return '';
   const interactions = Array.isArray(result.interactions) ? result.interactions : [];
@@ -143,24 +347,44 @@ function _renderInteractionResults(result, usingFixtures) {
       </div>
     </div>`;
   }
-  const cards = interactions.map((it) => {
-    const sev = String(it.severity || '').toLowerCase();
-    const color = sev === 'none' ? 'var(--border)' : _neuromodSeverityColor(sev === 'severe' ? 'critical' : sev);
-    const drugs = Array.isArray(it.drugs) ? it.drugs.join(' + ') : '—';
-    const rec = it.recommendation
-      ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px;padding:8px;border-radius:8px;background:rgba(255,255,255,.03)"><strong style="color:var(--text-secondary)">Review considerations (not a prescribing directive):</strong> ${esc(it.recommendation)}</div>`
-      : '';
-    return `<div style="padding:14px;border:1px solid ${color};background:rgba(255,255,255,.02);border-radius:12px;display:flex;flex-direction:column;gap:6px">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-        <div style="font-weight:600;font-size:13px">Possible pair: ${esc(drugs)}</div>
-        <div>${_severityPillInteraction(sev)}</div>
-      </div>
-      <div style="font-size:12px;color:var(--text-secondary);line-height:1.55">${esc(it.description || '')}</div>
-      ${rec}
-    </div>`;
-  }).join('');
+
+  // Check if result contains evidence-linked interactions (Phase 2 format)
+  const hasEvidenceCards = result.evidence_linked || interactions.some((it) => it.evidence_grade || it.mechanism || it.pmids);
+
+  let cards;
+  if (hasEvidenceCards) {
+    // Use evidence-linked cards for Phase 2 data
+    cards = interactions.map((it) => _renderEvidenceLinkedCard(it, it.severity, it.evidence_grade, it.washout_days)).join('');
+  } else {
+    // Legacy card rendering for basic interaction data
+    cards = interactions.map((it) => {
+      const sev = String(it.severity || '').toLowerCase();
+      const color = sev === 'none' ? 'var(--border)' : _neuromodSeverityColor(sev === 'severe' ? 'critical' : sev);
+      const drugs = Array.isArray(it.drugs) ? it.drugs.join(' + ') : '—';
+      const rec = it.recommendation
+        ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px;padding:8px;border-radius:8px;background:rgba(255,255,255,.03)"><strong style="color:var(--text-secondary)">Review considerations (not a prescribing directive):</strong> ${esc(it.recommendation)}</div>`
+        : '';
+      return `<div style="padding:14px;border:1px solid ${color};background:rgba(255,255,255,.02);border-radius:12px;display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <div style="font-weight:600;font-size:13px">Possible pair: ${esc(drugs)}</div>
+          <div>${_severityPillInteraction(sev)}</div>
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.55">${esc(it.description || '')}</div>
+        ${rec}
+      </div>`;
+    }).join('');
+  }
+
   return `${meta}<div style="margin-top:14px;display:flex;flex-direction:column;gap:10px">
-    <div style="font-size:12px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px">Rule-based pair findings (${interactions.length})</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <div style="font-size:12px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px">Rule-based pair findings (${interactions.length})</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:10px;color:var(--text-tertiary)">Evidence:</span>
+        ${_evidenceGradeBadge('A')}
+        ${_evidenceGradeBadge('B')}
+        ${_evidenceGradeBadge('C')}
+      </div>
+    </div>
     ${cards}
   </div>`;
 }
@@ -190,6 +414,269 @@ function _renderRefPills(refs) {
     <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.4px">References</div>
     <div style="display:flex;flex-wrap:wrap;align-items:center;gap:2px">${items}</div>
   </div>`;
+}
+
+
+export function _renderWashoutPanel(meds) {
+  if (!Array.isArray(meds) || !meds.length) {
+    return _missingSection('Washout periods', 'No active medications to compute washout recommendations.');
+  }
+  const active = meds.filter((m) => m.status === 'active' || m.active);
+  if (!active.length) {
+    return _missingSection('Washout periods', 'No active medications — washout not applicable.');
+  }
+
+  const rows = active.map((m) => {
+    const classKey = _drugClassToWashoutKey(m.medication_class || m.drug_class || m.drug_class);
+    const washout = classKey ? WASHOUT_PERIODS[classKey] : null;
+    const medName = esc(m.drug_name || m.name || 'Unknown');
+    const medClass = esc(m.medication_class || m.drug_class || 'unspecified');
+
+    if (!washout) {
+      return `<div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:12px">${medName}</div>
+          <div style="font-size:11px;color:var(--text-tertiary)">${medClass} · no washout data</div>
+        </div>
+        <span class="pill pill-inactive">No data</span>
+      </div>`;
+    }
+
+    const urgencyColor = _washoutUrgencyColor(washout.standard);
+    const standardLabel = washout.standard === 1 ? '1 day' : `${washout.standard} days`;
+    const extendedLabel = washout.extended === 1 ? '1 day' : `${washout.extended} days`;
+
+    const mechanismMap = {
+      antipsychotic: 'D2 receptor blockade (prolactin), anticholinergic effects (qEEG), and metabolic changes may persist 2-4 weeks.',
+      'atypical antipsychotic': 'Multi-receptor effects (5-HT2A, D2, H1, M3) cause qEEG, metabolic, and endocrine changes. Washout allows receptor normalization.',
+      benzodiazepine: 'GABA-A receptor upregulation and cognitive effects may outlast plasma half-life. Beta power normalizes within 1-3 weeks.',
+      ssri: 'Neuroplasticity and inflammatory marker effects take 2-4 weeks to normalize. Fluoxetine active metabolite has long half-life (4-16 days).',
+      snri: 'Noradrenergic effects on HRV may persist. NESDA study found large HRV reductions with SNRIs requiring longer washout.',
+      tca: 'Anticholinergic effects, alpha-1 blockade, and HRV changes may persist. Cardiac effects require monitoring during washout.',
+      stimulant: 'Effects are largely acute and state-dependent. qEEG changes resolve within 24-48 hours.',
+      lithium: 'TSH changes may persist months; neuroplasticity and volume changes may be structural rather than reversible.',
+      'mood stabilizer': 'Varies by agent — lithium requires longest washout for endocrine effects.',
+      nassa: 'H1 antagonism effects on appetite and sedation resolve within 1-2 weeks.',
+    };
+    const mechanism = mechanismMap[classKey] || 'Consult medication-specific pharmacokinetics and washout guidelines.';
+
+    return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:12px">${medName}</div>
+          <div style="font-size:11px;color:var(--text-tertiary)">${medClass}</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span class="pill" style="background:${urgencyColor}18;color:${urgencyColor};border:1px solid ${urgencyColor}30">Standard: ${standardLabel}</span>
+          ${washout.extended > washout.standard ? `<span class="pill" style="background:rgba(155,127,255,0.12);color:var(--violet,#9b7fff);border:1px solid rgba(155,127,255,0.25)">Extended: ${extendedLabel}</span>` : ''}
+        </div>
+      </div>
+      <details style="margin-top:6px">
+        <summary style="cursor:pointer;font-size:11px;color:var(--text-tertiary)">Why?</summary>
+        <div style="padding:8px 0;font-size:11px;color:var(--text-secondary);line-height:1.55">${esc(mechanism)}</div>
+      </details>
+    </div>`;
+  }).join('');
+
+  return `<section style="margin-top:14px;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--bg-card)" aria-label="Washout period recommendations">
+    <div style="font-weight:600;font-size:13px;margin-bottom:8px">Washout period recommendations</div>
+    <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:10px;line-height:1.45">
+      Standard washout = minimum days before biomarker measurement for acute effects to resolve.
+      Extended washout = recommended for chronic/subacute confounds (e.g., neuroplasticity, metabolic).
+      Refer to MEDICATION_BIOMARKER_CONFOUNDER_MATRIX for detailed evidence grades.
+    </div>
+    <div style="font-size:11px;color:var(--amber);margin-bottom:10px;padding:8px;border-radius:8px;background:rgba(255,180,80,0.06);border:1px dashed rgba(255,180,80,0.25)">
+      <strong>Clinical decision-support only.</strong> Washout periods are literature-based estimates, not patient-specific pharmacokinetic predictions. Individual clearance varies by age, hepatic/renal function, genetics, and drug interactions. Do not delay clinically needed treatment based on these estimates.
+    </div>
+    ${rows}
+  </section>`;
+}
+
+
+export function _renderMedicationTimeline(meds, timelineEvents) {
+  if (!Array.isArray(meds) || !meds.length) {
+    return _missingSection('Medication timeline', 'No medication records to display.');
+  }
+
+  const medsWithDates = meds.filter((m) => m.start_date || m.started_at);
+  if (!medsWithDates.length) {
+    return _missingSection('Medication timeline', 'No medications with start dates recorded.');
+  }
+
+  const now = Date.now();
+  const allStarts = medsWithDates.map((m) => Date.parse(m.start_date || m.started_at));
+  const allEnds = medsWithDates.map((m) => {
+    if (m.end_date || m.stopped_at) return Date.parse(m.end_date || m.stopped_at);
+    return now;
+  });
+  const minTime = Math.min(...allStarts);
+  const maxTime = Math.max(...allEnds, now);
+  const rangeMs = maxTime - minTime || 1;
+
+  const barHeight = 28;
+  const gap = 6;
+  const trackHeight = barHeight + gap;
+
+  const bars = medsWithDates.map((m, idx) => {
+    const start = Date.parse(m.start_date || m.started_at);
+    const end = (m.end_date || m.stopped_at) ? Date.parse(m.end_date || m.stopped_at) : now;
+    const isOngoing = !(m.end_date || m.stopped_at) && (m.status === 'active' || m.active);
+
+    const leftPct = ((start - minTime) / rangeMs) * 100;
+    const widthPct = ((end - start) / rangeMs) * 100;
+
+    const classKey = (m.medication_class || m.drug_class || '').toLowerCase();
+    let color = TIMELINE_COLORS.default;
+    for (const [key, val] of Object.entries(TIMELINE_COLORS)) {
+      if (classKey.includes(key)) { color = val; break; }
+    }
+
+    const medName = esc(m.drug_name || m.name || 'Unknown');
+    const dose = esc(m.dose?.value || m.dose || '');
+    const durationDays = Math.round((end - start) / (1000 * 60 * 60 * 24));
+    const durationLabel = durationDays === 0 ? '< 1 day' : `${durationDays} day${durationDays === 1 ? '' : 's'}`;
+    const statusLabel = isOngoing ? 'ONGOING' : 'DISCONTINUED';
+
+    return `<div style="position:relative;height:${trackHeight}px" data-timeline-bar="${medName}">
+      <div style="position:absolute;left:${leftPct}%;width:${Math.max(widthPct, 0.5)}%;top:0;height:${barHeight}px;background:${color}22;border:1px solid ${color}60;border-radius:6px;display:flex;align-items:center;padding:0 8px;cursor:pointer;min-width:60px"
+        title="${medName} · ${dose} · ${durationLabel} · ${statusLabel}"
+        onmouseenter="this.style.background='${color}33'"
+        onmouseleave="this.style.background='${color}22'">
+        <span style="font-size:10px;color:${color};font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%">${medName}${dose ? ` · ${dose}` : ''}</span>
+        ${isOngoing ? `<span style="font-size:9px;color:var(--green);margin-left:4px;font-weight:600">&#9679;</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  const eventDots = (Array.isArray(timelineEvents) ? timelineEvents : []).filter((ev) => {
+    const t = ev.occurred_at ? Date.parse(ev.occurred_at) : NaN;
+    return !isNaN(t) && t >= minTime && t <= maxTime;
+  }).map((ev) => {
+    const t = Date.parse(ev.occurred_at);
+    const leftPct = ((t - minTime) / rangeMs) * 100;
+    const typeColors = {
+      start: 'var(--green)',
+      stop: 'var(--red)',
+      dose_change: 'var(--amber)',
+      side_effect_report: '#f97316',
+      missed_dose: '#6366f1',
+      symptom_change: '#ec4899',
+      neuromod_session: '#06b6d4',
+      default: '#94a3b8',
+    };
+    const dotColor = typeColors[ev.event_type] || typeColors.default;
+    const tooltip = `${ev.event_type || 'event'} · ${ev.occurred_at || ''}`;
+    return `<div style="position:absolute;left:${leftPct}%;top:-3px;width:8px;height:8px;background:${dotColor};border-radius:50%;transform:translateX(-50%);border:1.5px solid var(--bg-card);z-index:2;cursor:pointer" title="${esc(tooltip)}"></div>`;
+  }).join('');
+
+  const numTicks = 6;
+  const ticks = Array.from({ length: numTicks }, (_, i) => {
+    const pct = (i / (numTicks - 1)) * 100;
+    const tickTime = minTime + (rangeMs * (i / (numTicks - 1)));
+    const label = new Date(tickTime).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+    return `<div style="position:absolute;left:${pct}%;transform:translateX(-50%);font-size:10px;color:var(--text-tertiary);white-space:nowrap">${esc(label)}</div>`;
+  }).join('');
+
+  const legendItems = [
+    { color: TIMELINE_COLORS.ssri, label: 'SSRI' },
+    { color: TIMELINE_COLORS.snri, label: 'SNRI' },
+    { color: TIMELINE_COLORS['atypical antipsychotic'], label: 'Antipsychotic' },
+    { color: TIMELINE_COLORS.benzodiazepine, label: 'Benzo/Z-drug' },
+    { color: TIMELINE_COLORS.stimulant, label: 'Stimulant' },
+    { color: TIMELINE_COLORS.lithium, label: 'Lithium' },
+    { color: TIMELINE_COLORS.tca, label: 'TCA' },
+    { color: TIMELINE_COLORS.ndri, label: 'NDRI/Other' },
+  ].map((item) => `<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--text-tertiary)"><span style="width:8px;height:8px;border-radius:2px;background:${item.color}22;border:1px solid ${item.color}60;display:inline-block"></span>${esc(item.label)}</span>`).join('');
+
+  return `<section style="margin-top:14px;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--bg-card)" aria-label="Longitudinal medication timeline">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      <div style="font-weight:600;font-size:13px">Medication timeline</div>
+      <div style="font-size:11px;color:var(--text-tertiary)">${medsWithDates.length} medication${medsWithDates.length === 1 ? '' : 's'} · ${new Date(minTime).toLocaleDateString()} – ${new Date(maxTime).toLocaleDateString()}</div>
+    </div>
+    <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:10px;line-height:1.45">
+      Bar length = treatment duration. &#9679; = ongoing. Dots = timeline events (start, stop, dose change, side effect, missed dose).
+      Hover bars for details. Colors represent drug class.
+    </div>
+    <div style="position:relative;margin-bottom:8px;min-height:${medsWithDates.length * trackHeight + 20}px">
+      ${bars}
+      <div style="position:absolute;top:0;left:0;right:0;height:100%;pointer-events:none">
+        ${eventDots}
+      </div>
+    </div>
+    <div style="position:relative;height:16px;margin-bottom:6px;border-top:1px solid var(--border)">
+      ${ticks}
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+      ${legendItems}
+    </div>
+    <div style="font-size:11px;color:var(--amber);margin-top:10px;padding:8px;border-radius:8px;background:rgba(255,180,80,0.06);border:1px dashed rgba(255,180,80,0.25)">
+      <strong>Interpretation aid only.</strong> Timeline visualization is based on recorded start/stop dates and may not reflect actual adherence. Dose information is optional and may not reflect current prescribing.
+    </div>
+  </section>`;
+}
+
+
+export function _renderNutritionLabPanel(payload) {
+  const panel = payload?.nutrition_lab_panel;
+  if (!panel) {
+    return _missingSection('Nutrition &amp; lab monitoring', 'Nutrition/lab panel not available for this patient. Run the Medication Analyzer to generate recommendations.');
+  }
+
+  const interactions = Array.isArray(panel.nutrition_interactions) ? panel.nutrition_interactions : [];
+  const schedules = Array.isArray(panel.lab_monitoring_schedules) ? panel.lab_monitoring_schedules : [];
+
+  const severityPill = (sev) => {
+    if (sev === 'critical') return '<span class="pill" style="background:rgba(255,107,107,0.18);color:var(--red);border:1px solid rgba(255,107,107,0.4)">Critical</span>';
+    if (sev === 'severe') return '<span class="pill" style="background:rgba(255,107,107,0.12);color:var(--red);border:1px solid rgba(255,107,107,0.25)">Severe</span>';
+    if (sev === 'moderate') return '<span class="pill pill-pending">Moderate</span>';
+    return '<span class="pill pill-review">Mild</span>';
+  };
+
+  const interactionRows = interactions.length
+    ? interactions.map((ni) => `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+          <div style="font-weight:600;font-size:12px">${esc(ni.nutrient || '')} &#8596; ${esc(ni.id?.split('-')[1] || '')}</div>
+          ${severityPill(ni.severity)}
+        </div>
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:4px;line-height:1.45">${esc(ni.mechanism || '')}</div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px"><strong>Action:</strong> ${esc(ni.clinical_action || '')}</div>
+        <div style="font-size:10px;color:var(--text-tertiary);margin-top:4px">Evidence grade: ${esc(ni.evidence_grade || 'N/A')}</div>
+      </div>`).join('')
+    : '<div style="font-size:12px;color:var(--text-tertiary);padding:8px 0">No drug-nutrient interactions identified for current medications.</div>';
+
+  const scheduleRows = schedules.length
+    ? schedules.map((ls) => {
+        const baselines = Array.isArray(ls.baseline_labs) && ls.baseline_labs.length
+          ? `<div style="margin-top:6px"><div style="font-size:10px;font-weight:600;color:var(--text-tertiary);margin-bottom:3px">Baseline</div>${ls.baseline_labs.map((b) => `<div style="font-size:11px;color:var(--text-secondary);padding:2px 0">&#183; ${esc(b.test)}${b.rationale ? ` &#8212; ${esc(b.rationale)}` : ''}</div>`).join('')}</div>`
+          : '';
+        const ongoing = Array.isArray(ls.ongoing_labs) && ls.ongoing_labs.length
+          ? `<div style="margin-top:6px"><div style="font-size:10px;font-weight:600;color:var(--text-tertiary);margin-bottom:3px">Ongoing</div>${ls.ongoing_labs.map((o) => `<div style="font-size:11px;color:var(--text-secondary);padding:2px 0">&#183; ${esc(o.test)}${o.frequency ? ` <span style="color:var(--amber)">${esc(o.frequency)}</span>` : ''}${o.rationale ? ` &#8212; ${esc(o.rationale)}` : ''}</div>`).join('')}</div>`
+          : '';
+        const specials = Array.isArray(ls.special) && ls.special.length
+          ? `<div style="margin-top:6px"><div style="font-size:10px;font-weight:600;color:var(--text-tertiary);margin-bottom:3px">Special scenarios</div>${ls.special.map((s) => `<div style="font-size:11px;color:var(--text-secondary);padding:2px 0">&#183; <strong>${esc(s.scenario || s.action || '')}</strong>${s.test ? ` &#8594; ${esc(s.test)}` : ''}${s.timing ? ` (${esc(s.timing)})` : ''}${s.rationale ? ` &#8212; ${esc(s.rationale)}` : ''}</div>`).join('')}</div>`
+          : '';
+        return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+          <div style="font-weight:600;font-size:12px;text-transform:capitalize">${esc(ls.schedule_key?.replace(/_/g, ' ') || '')}</div>
+          ${baselines}${ongoing}${specials}
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:4px">Evidence grade: ${esc(ls.evidence_grade || 'N/A')}</div>
+        </div>`;
+      }).join('')
+    : '<div style="font-size:12px;color:var(--text-tertiary);padding:8px 0">No lab monitoring schedules matched.</div>';
+
+  return `<section style="margin-top:14px;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--bg-card)" aria-label="Nutrition and lab monitoring panel">
+    <div style="font-weight:600;font-size:13px;margin-bottom:8px">Nutrition &amp; lab monitoring</div>
+    <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">${panel.nutrition_interactions_found || 0} nutrient interaction(s) &#183; ${panel.schedules_matched || 0} lab schedule(s) matched</div>
+    ${panel.critical_nutrition_count > 0 ? `<div style="font-size:11px;color:var(--red);margin-bottom:8px;padding:6px 8px;border-radius:6px;background:rgba(255,107,107,0.08);border:1px solid rgba(255,107,107,0.2)"><strong>${panel.critical_nutrition_count} critical</strong> nutrient interaction(s) require immediate clinical review.</div>` : ''}
+    <details style="margin-top:8px;border:1px solid var(--border);border-radius:10px;padding:10px" open>
+      <summary style="cursor:pointer;font-weight:600;font-size:12px">Drug-nutrient interactions (${interactions.length})</summary>
+      <div style="margin-top:8px">${interactionRows}</div>
+    </details>
+    <details style="margin-top:8px;border:1px solid var(--border);border-radius:10px;padding:10px" open>
+      <summary style="cursor:pointer;font-weight:600;font-size:12px">Lab monitoring schedules (${schedules.length})</summary>
+      <div style="margin-top:8px">${scheduleRows}</div>
+    </details>
+    ${panel.disclaimer ? `<div style="font-size:10px;color:var(--text-tertiary);margin-top:10px;line-height:1.45;border-top:1px solid var(--border);padding-top:8px">${esc(panel.disclaimer)}</div>` : ''}
+  </section>`;
 }
 
 function _renderNeuromodSection(state, usingFixtures) {
@@ -899,6 +1386,9 @@ export async function pgMedicationAnalyzer(setTopbar, navigate) {
         <div data-interaction-results style="margin-top:14px">${_renderInteractionResults(lastInteractionResult, usingFixtures)}</div>
         <div data-neuromod-results>${_renderNeuromodSection(neuromodState, usingFixtures)}</div>
       </section>
+      ${_renderWashoutPanel(normalize_medication_list_for_render(medsCache))}
+      ${_renderMedicationTimeline(medsCache, analyzerPayload?.timeline || [])}
+      ${_renderNutritionLabPanel(analyzerPayload)}
       ${_renderMedicationAnalyzerSupport(analyzerPayload)}
       ${_renderGovernancePanel()}
       ${_renderLinkedActions()}
