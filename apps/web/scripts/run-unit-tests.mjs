@@ -81,6 +81,24 @@ const QUARANTINE = new Set([
   //   Quarantine until rewritten using `node:test` + `node:assert`.
   'src/consent-error-handler.test.js',
 
+  // TODO(test-coverage): pages-qeeg-raw-workbench-coverage.test.js hangs
+  //   the apps/web unit-test runner on CI Node 20. The file mounts
+  //   `pgQEEGRawWorkbench(...)` at the top level and then runs ~100
+  //   `await test(...)` calls. Somewhere along that mount path an orphan
+  //   Promise is created that never resolves. On Node 25 the test runner
+  //   detects this and cancels after ~33s with the message
+  //   "Promise resolution is still pending but the event loop has already
+  //   resolved". On Node 20 there is no equivalent cancellation, so the
+  //   subprocess hangs indefinitely; with --test-concurrency=4 that one
+  //   blocked worker stalls the whole runner until the 1 500 000 ms
+  //   wall-clock SIGKILL (PR #885) fires. `--test-force-exit` (PR #887)
+  //   does NOT save us because force-exit only kicks in after all tests
+  //   complete — and these never do. Sibling `pages-qeeg-raw-workbench
+  //   .test.js` shows the same cancellation signature with a ~0.5 s
+  //   latency; keep an eye on it as the next candidate.
+  //   Tracking: https://github.com/ALIYILD/DeepSynaps-Protocol-Studio/issues/930
+  'src/pages-qeeg-raw-workbench-coverage.test.js',
+
   // TODO(test-coverage): patient-runtime suite from PR #848 (~1437 LOC of
   //   new/expanded tests) tipped Frontend coverage past the 30m CI ceiling
   //   in run 25640811762. Tests pass locally in ~10s but combined with the
