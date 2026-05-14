@@ -614,6 +614,8 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
   let mriItems = [];
   let loadErr = null;
   let patientsLoadErr = null;
+  // BUG-FIX-004: per-modality error state tracking
+  let _modalityState = { wearable: { s: 'loading' }, qeeg: { s: 'loading' }, mri: { s: 'loading' }, labs: { s: 'loading' } };
 
   async function loadPatients() {
     patientsLoadErr = null;
@@ -635,6 +637,7 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
     labsDemo = false;
     loadErr = null;
     labsSourceKind = 'unavailable';
+    _modalityState = { wearable: { s: 'loading' }, qeeg: { s: 'loading' }, mri: { s: 'loading' }, labs: { s: 'loading' } };
     if (!selectedId) return;
 
     let labsRes = null;
@@ -646,23 +649,48 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
     if (labsRes && labsRes.patient_id) {
       labsProfile = labsRes;
       labsSourceKind = 'api';
+      _modalityState.labs = { s: 'loaded', items: labsRes };
     } else if (isDemoSession() && typeof ANALYZER_DEMO_FIXTURES?.labs?.patient_profile === 'function') {
       const demo = ANALYZER_DEMO_FIXTURES.labs.patient_profile(selectedId);
       if (demo) {
         labsProfile = demo;
         labsDemo = true;
         labsSourceKind = 'demo_fixture';
+        _modalityState.labs = { s: 'demo', items: demo };
       }
+    } else {
+      _modalityState.labs = { s: loadErr ? 'error' : 'unavailable', msg: loadErr || 'No labs data' };
     }
 
-    const [wearRes, qeegRes, mriRes] = await Promise.all([
-      api.getPatientWearableSummary(selectedId, 30).catch(() => null),
-      api.listPatientQEEGAnalyses(selectedId, { limit: 20 }).catch(() => null),
-      api.listPatientMRIAnalyses(selectedId).catch(() => null),
-    ]);
-    wearableOut = wearRes;
-    qeegItems = qeegRes?.items || (Array.isArray(qeegRes) ? qeegRes : []) || [];
-    mriItems = mriRes?.items || (Array.isArray(mriRes) ? mriRes : []) || [];
+    // BUG-FIX-004: honest per-modality error states — no silent swallowing
+    try {
+      const wearRes = await api.getPatientWearableSummary(selectedId, 30);
+      wearableOut = wearRes;
+      _modalityState.wearable = { s: 'loaded', items: wearRes?.items || [] };
+    } catch (err) {
+      _modalityState.wearable = { s: 'error', code: err?.status, msg: err?.message || 'Failed to load' };
+      wearableOut = null;
+    }
+
+    try {
+      const qeegRes = await api.listPatientQEEGAnalyses(selectedId, { limit: 20 });
+      qeegItems = qeegRes?.items || (Array.isArray(qeegRes) ? qeegRes : []) || [];
+      _modalityState.qeeg = { s: 'loaded', items: qeegItems };
+    } catch (err) {
+      _modalityState.qeeg = { s: 'error', code: err?.status, msg: err?.message || 'Failed to load' };
+      qeegItems = [];
+    }
+
+    try {
+      const mriRes = await api.listPatientMRIAnalyses(selectedId);
+      // BUG-FIX-002: normalize MRI response — backend returns .analyses, legacy returns .items
+      const mriRaw = mriRes?.analyses || mriRes?.items || (Array.isArray(mriRes) ? mriRes : []) || [];
+      mriItems = mriRaw;
+      _modalityState.mri = { s: 'loaded', items: mriRaw };
+    } catch (err) {
+      _modalityState.mri = { s: 'error', code: err?.status, msg: err?.message || 'Failed to load' };
+      mriItems = [];
+    }
 
     try {
       await api.recordPatientProfileAuditEvent(selectedId, {
@@ -766,9 +794,9 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
             <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:8px">Data sources</div>
             <ul style="margin:0;padding-left:18px;font-size:12px;color:var(--text-secondary);line-height:1.55">
               <li>Labs: ${rows.length ? `${rows.length} analytes (${abnormalCount} abnormal)` : 'No structured labs in this summary'}</li>
-              <li>Wearables: ${summaries.length ? `${summaries.length} daily summaries (30d)` : 'No wearable summaries'}</li>
-              <li>qEEG analyses: ${qeegItems.length} record(s) (counts only — open qEEG for reads)</li>
-              <li>MRI analyses: ${mriItems.length} record(s) (counts only — open MRI Analyzer for reads)</li>
+              <li>Wearables: ${_modalityState.wearable.s === 'error' ? `<span style="color:var(--amber)">Unavailable</span> (${esc(_modalityState.wearable.msg)})` : summaries.length ? `${summaries.length} daily summaries (30d)` : 'No wearable summaries'}</li>
+              <li>qEEG analyses: ${_modalityState.qeeg.s === 'error' ? `<span style="color:var(--amber)">Unavailable</span> (${esc(_modalityState.qeeg.msg)})` : `${qeegItems.length} record(s) (counts only — open qEEG for reads)`}</li>
+              <li>MRI analyses: ${_modalityState.mri.s === 'error' ? `<span style="color:var(--amber)">Unavailable</span> (${esc(_modalityState.mri.msg)})` : `${mriItems.length} record(s) (counts only — open MRI Analyzer for reads)`}</li>
             </ul>
             ${readiness ? `<div style="margin-top:10px;font-size:11px;color:var(--text-tertiary)">Readiness payload present \u2014 see Biometrics for detail.</div>` : ''}
           </section>
