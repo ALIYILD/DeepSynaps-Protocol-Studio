@@ -12821,8 +12821,17 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       window._ahForm = null;
     };
 
+    // BUG-FIX-002: Offline draft fallback — payload must be declared BEFORE the
+    // if/else so the catch block can access it. Also verify localStorage writes.
     window._ahSaveDraft = async () => {
       const s = window._ahForm; if (!s) return;
+      // Build payload BEFORE the if/else so catch can access it
+      const payload = {
+        patient_id: s.patientId || null,
+        scale_id: s.instrumentId,
+        status: 'draft',
+        data: { items: s.values, scale_id: s.instrumentId, source: 'assessments-hub-v2' },
+      };
       try {
         // If we have an existing backend assignment id, persist via v2 assignment responses.
         if (s.backendId && api.assessmentsV2SubmitResponses) {
@@ -12831,16 +12840,24 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
             items: s.values,
           });
         } else {
-          const payload = {
-            patient_id: s.patientId || null,
-            scale_id: s.instrumentId,
-            status: 'draft',
-            data: { items: s.values, scale_id: s.instrumentId, source: 'assessments-hub-v2' },
-          };
           if (s.backendId) {
-            await api.updateAssessment(s.backendId, payload);
+            // BUG-FIX-005: Try v2 first, fall back to v1
+            try {
+              await api.updateAssessmentV2(s.backendId, payload);
+            } catch (e) {
+              if (e && e.status === 404) {
+                await api.updateAssessment(s.backendId, payload);
+              } else { throw e; }
+            }
           } else {
-            const res = await api.createAssessment(payload);
+            let res;
+            try {
+              res = await api.createAssessment(payload);
+            } catch (e) {
+              if (e && e.status === 404) {
+                res = await api.createAssessment(payload);
+              } else { throw e; }
+            }
             if (res && res.id) s.backendId = res.id;
           }
         }
@@ -12848,11 +12865,15 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       } catch {
         // Local fallback — stash in localStorage so it's not lost.
         try {
-          const key = 'ds_assessment_drafts';
-          const arr = JSON.parse(localStorage.getItem(key) || '[]');
+          const key = 'ds_assessment_drafts_' + Date.now();
+          const arr = JSON.parse(localStorage.getItem('ds_assessment_drafts') || '[]');
           arr.push({ ...payload, saved_at: new Date().toISOString() });
-          localStorage.setItem(key, JSON.stringify(arr));
-        } catch {}
+          localStorage.setItem('ds_assessment_drafts', JSON.stringify(arr));
+        } catch (storageErr) {
+          window._dsToast?.({ title:'Save failed', body:'Failed to save draft offline. Storage may be full.', severity:'error' });
+          console.error('localStorage write failed:', storageErr);
+          return;
+        }
         window._dsToast?.({ title:'Draft saved (offline)', body:'Saved locally; will sync.', severity:'info' });
       }
     };

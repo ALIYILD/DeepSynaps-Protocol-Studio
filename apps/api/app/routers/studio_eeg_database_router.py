@@ -153,7 +153,8 @@ def list_patients_api(
                 "externalId": (prof.get("identification") or {}).get("externalPatientId")
                 if isinstance(prof, dict)
                 else None,
-                "diagnosis": diag or p.primary_condition,
+                # SAFETY-FIX C-005: "diagnosis" renamed to "clinical_context" — software does not diagnose
+                "clinical_context": diag or p.primary_condition,
                 "lastRecordingAt": lr.isoformat() if lr else None,
                 "recordingCount": counts.get(p.id, 0),
                 "status": p.status,

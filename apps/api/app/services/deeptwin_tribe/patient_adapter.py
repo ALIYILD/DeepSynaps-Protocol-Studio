@@ -39,7 +39,8 @@ def adapt(latent: PatientLatent, profile: dict[str, Any] | None = None) -> Adapt
     adapted = np.tanh(base_vec + bias)
     summary: dict[str, Any] = {
         "applied_baseline_severity": float(profile.get("baseline_severity_z", 0.0) or 0.0),
-        "primary_diagnosis": profile.get("primary_diagnosis"),
+        # SAFETY-FIX C-001: "primary_diagnosis" output renamed to "primary_clinical_context" — software does not diagnose
+        "primary_clinical_context": profile.get("primary_diagnosis"),
         "n_used_modalities": len(latent.used_modalities),
         "fusion_quality": latent.fusion_quality,
         "coverage_ratio": latent.coverage_ratio,

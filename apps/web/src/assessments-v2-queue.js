@@ -25,13 +25,21 @@ export function normalizeQueuePayload(payload) {
  * @param {Loader | null | undefined} args.loadLegacyQueue
  * @param {() => any[] | Promise<any[]>} args.loadDemoRows
  * @param {boolean} args.allowDemoFallback
- * @returns {Promise<{ source: 'v2'|'legacy'|'demo', rows: any[], demo: boolean, warnings: string[], errors: string[] }>}
+ * @param {(row: any, index: number) => any} [args.mapRow] — optional row mapper (e.g., mapApiAssessmentToQueueRow)
+ * @param {boolean} [args.fetchFailed] — caller passes this flag
+ * @param {boolean} [args.emptyOk] — caller passes this flag
+ * @param {number} [args.maxRows] — cap on returned rows
+ * @returns {Promise<{ source: 'v2'|'legacy'|'demo', rows: any[], demo: boolean, warnings: string[], errors: string[], fetchFailed: boolean, emptyOk: boolean }>}
  */
 export async function hydrateAssessmentsQueueV2({
   loadV2Queue,
   loadLegacyQueue,
   loadDemoRows,
   allowDemoFallback,
+  mapRow,
+  fetchFailed,
+  emptyOk,
+  maxRows,
 }) {
   const warnings = [];
   const errors = [];
@@ -52,27 +60,40 @@ export async function hydrateAssessmentsQueueV2({
   // 1) v2 first
   const v2 = await tryLoad('v2', loadV2Queue);
   if (v2.ok) {
-    if (v2.rows.length > 0) return { source: 'v2', rows: v2.rows, demo: false, warnings, errors };
+    let rows = v2.rows;
+    if (rows.length > 0) {
+      // BUG-FIX-001: apply row mapper if provided
+      if (mapRow) rows = rows.map((r, i) => mapRow(r, i));
+      if (maxRows && maxRows > 0) rows = rows.slice(0, maxRows);
+      return { source: 'v2', rows, demo: false, warnings, errors, fetchFailed: fetchFailed || false, emptyOk: emptyOk || false };
+    }
     warnings.push('v2_empty');
   }
 
   // 2) legacy fallback
   const legacy = await tryLoad('legacy', loadLegacyQueue);
   if (legacy.ok) {
-    if (legacy.rows.length > 0) return { source: 'legacy', rows: legacy.rows, demo: false, warnings, errors };
+    let rows = legacy.rows;
+    if (rows.length > 0) {
+      if (mapRow) rows = rows.map((r, i) => mapRow(r, i));
+      if (maxRows && maxRows > 0) rows = rows.slice(0, maxRows);
+      return { source: 'legacy', rows, demo: false, warnings, errors, fetchFailed: fetchFailed || false, emptyOk: emptyOk || false };
+    }
     warnings.push('legacy_empty');
   }
 
   // 3) demo fallback (only when allowed)
   if (allowDemoFallback) {
     const demoRows = await Promise.resolve(loadDemoRows ? loadDemoRows() : []);
-    const rows = Array.isArray(demoRows) ? demoRows : [];
-    return { source: 'demo', rows, demo: true, warnings: [...warnings, 'demo_fallback'], errors };
+    let rows = Array.isArray(demoRows) ? demoRows : [];
+    if (mapRow) rows = rows.map((r, i) => mapRow(r, i));
+    if (maxRows && maxRows > 0) rows = rows.slice(0, maxRows);
+    return { source: 'demo', rows, demo: true, warnings: [...warnings, 'demo_fallback'], errors, fetchFailed: fetchFailed || false, emptyOk: emptyOk || false };
   }
 
   // No demo allowed: return empty with warnings.
   warnings.push('no_demo_fallback');
-  return { source: 'legacy', rows: [], demo: false, warnings, errors };
+  return { source: 'legacy', rows: [], demo: false, warnings, errors, fetchFailed: fetchFailed || false, emptyOk: emptyOk || true };
 }
 
 // Backward-compatible export name used by pgAssessmentsHub.

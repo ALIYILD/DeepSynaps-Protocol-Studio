@@ -816,12 +816,13 @@ def _scoped_saved_citation_status_counts(
     return int(row.pending or 0), int(row.unverified or 0)
 
 
+# SAFETY-FIX C-001/C-005: diagnosis field renamed to clinical_context — software does not diagnose
 class ByFindingRequest(BaseModel):
     patient_id: str
     context_type: str = "biomarker"
     target_name: str
     modality: Optional[str] = None
-    diagnosis: Optional[str] = None
+    clinical_context: Optional[str] = None
     intervention: Optional[str] = None
     phenotype_tags: list[str] = Field(default_factory=list)
     feature_summary: list[dict] = Field(default_factory=list)
@@ -898,7 +899,8 @@ def evidence_by_finding(
         context_type=body.context_type,  # type: ignore[arg-type]
         target_name=body.target_name,
         modality_filters=[body.modality] if body.modality else [],
-        diagnosis_filters=[body.diagnosis] if body.diagnosis else [],
+        # SAFETY-FIX C-005: body.diagnosis → body.clinical_context — software does not diagnose
+        diagnosis_filters=[body.clinical_context] if body.clinical_context else [],
         intervention_filters=[body.intervention] if body.intervention else [],
         phenotype_tags=body.phenotype_tags,
         feature_summary=body.feature_summary,

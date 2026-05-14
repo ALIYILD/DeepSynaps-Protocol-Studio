@@ -1514,6 +1514,8 @@ export const api = {
 
   // ── Assessments ─────────────────────────────────────────────────────────
   listAssessments: (patientId) => apiFetchWithRetry(`/api/v1/assessments${patientId ? `?patient_id=${encodeURIComponent(patientId)}` : ''}`),
+  // BUG-FIX-001 + BUG-FIX-005: v2 assessment queue endpoint
+  listAssessmentsV2: (patientId) => apiFetchWithRetry(`/api/v2/assessments/patients/queue${patientId ? `?patient_id=${encodeURIComponent(patientId)}` : ''}`),
   createAssessment: (data) => apiFetch('/api/v1/assessments', { method: 'POST', body: JSON.stringify(data) }),
   updateAssessment: (id, data) => apiFetch(`/api/v1/assessments/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteAssessment: (id) => apiFetch(`/api/v1/assessments/${id}`, { method: 'DELETE' }),
@@ -1533,6 +1535,12 @@ export const api = {
   escalateCrisis: (patientId, payload) => apiFetch(`/api/v1/crisis-escalations`, { method: 'POST', body: JSON.stringify({ patient_id: patientId, ...(payload || {}) }) }),
   listCohorts: () => apiFetchWithRetry('/api/v1/cohorts'),
 
+  // BUG-FIX-005: V2 Assessment API wrappers
+  updateAssessmentV2: (id, data) => apiFetch('/api/v2/assessments/assignments/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify(data) }),
+  approveAssessmentV2: (id, body) => apiFetch('/api/v2/assessments/assignments/' + encodeURIComponent(id) + '/approve', { method: 'POST', body: JSON.stringify(body || { approved: true }) }),
+  bulkAssignV2: (data) => apiFetch('/api/v2/assessments/bulk-assign', { method: 'POST', body: JSON.stringify(data) }),
+  getAssessmentLibraryV2: () => apiFetch('/api/v2/assessments/library'),
+  getPatientAssessmentContextV2: (patientId) => apiFetch('/api/v2/assessments/patients/' + encodeURIComponent(patientId) + '/context'),
   // ── Assessments v2 (doctor workspace) ───────────────────────────────────
   // Thin wrappers over /api/v1/assessments-v2/* (licence-aware, audit-logged).
   assessmentsV2Library: () => apiFetchWithRetry('/api/v1/assessments-v2/library'),

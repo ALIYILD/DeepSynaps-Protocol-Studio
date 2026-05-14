@@ -42,7 +42,8 @@ class NeuroSign(Base):
     # Clinical narrative
     visual_description = Column(Text, nullable=True)
     pathophysiology_explanation = Column(Text, nullable=True)
-    differential_diagnosis = Column(Text, nullable=True)
+    # SAFETY-FIX C-006: differential_diagnosis renamed to clinical_observations — clinical observation only
+    clinical_observations = Column(Text, nullable=True)
     reporting_phrase = Column(Text, nullable=True)
     clinical_caveat = Column(Text, nullable=True)
     evidence_notes = Column(Text, nullable=True)

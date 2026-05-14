@@ -5938,35 +5938,104 @@ export async function pgAssessmentsHub(setTopbar) {
     };
   }
 
+  // BUG-FIX-005: v2 feature detection — default true, can be disabled via window flag
+  const _useV2 = window.__ASSESSMENTS_V2_ENABLED !== false;
+  async function _callV2WithFallback(v2Fn, v1Fn, label) {
+    if (!_useV2) return v1Fn();
+    try {
+      return await v2Fn();
+    } catch (e) {
+      if (e && e.status === 404) {
+        console.warn(`[assessments] ${label} v2 not found, falling back to v1`);
+        return v1Fn();
+      }
+      throw e;
+    }
+  }
+  function _demoAllowed() {
+    try { return !!(import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'); } catch (_) { return false; }
+  }
+  function _showDemoBanner() {
+    console.warn('[assessments-hub] using demo data');
+  }
+
+  // BUG-FIX-001: Wire hydrateAssessmentsQueueV2 + mapApiAssessmentToQueueRow for v2 hydration
   async function hydrate() {
     DATA.loading = true;
     DATA.error = null;
     try {
-      const resp = await api.listAssessments();
-      const items = Array.isArray(resp) ? resp : (resp && resp.items) || [];
-      const groups = {};
-      items.forEach(r => {
-        const k = _groupKey(r);
-        (groups[k] = groups[k] || []).push(r);
+      const { hydrateAssessmentsQueueV2 } = await import('./assessments-v2-queue.js');
+      const { mapApiAssessmentToQueueRow } = await import('./assessments-hub-mapping.js');
+      const result = await hydrateAssessmentsQueueV2({
+        // BUG-FIX-005: Try v2 endpoint first, fall back to v1
+        loadV2Queue: () => api.listAssessmentsV2(),
+        loadLegacyQueue: () => api.listAssessments(),
+        loadDemoRows: () => [],
+        allowDemoFallback: _demoAllowed(),
+        mapRow: (row, index) => mapApiAssessmentToQueueRow(row, index, null, window._assessmentRegistry || []),
+        fetchFailed: false,
+        emptyOk: true,
       });
-      DATA.assignments = Object.values(groups).map(_groupToAssignment);
-    } catch (err) {
-      // Demo build: backend rejects demo tokens. Render an empty-but-valid hub
-      // (template library + scale registry are bundled in the JS, no backend
-      // needed) instead of an error banner so reviewers see usable copy.
-      let _demoBuild = false;
-      try { _demoBuild = !!(import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'); } catch (_) { _demoBuild = false; }
-      const _isDemoSession = (err && (err.code === 'demo_session' || /demo session/i.test(String(err.message || ''))));
-      if (_demoBuild && _isDemoSession) {
-        DATA.assignments = [];
-        DATA.error = null;
+
+      if (result.errors.length > 0) {
+        console.warn('[assessments-hub] hydration warnings:', result.warnings, 'errors:', result.errors);
+      }
+
+      // result.rows are pre-mapped with inst, patient, sev, dueCls, redflag, sendLabel
+      // Convert mapped rows into assignment-group shape for backward-compatible rendering.
+      const rows = result.rows || [];
+      if (rows.length > 0) {
+        // Group mapped rows by patientId + diagnosis into assignment-compatible objects
+        const groups = {};
+        rows.forEach(r => {
+          const k = (r.patientId || 'unknown') + '|' + (r.dx || 'Unassigned');
+          (groups[k] = groups[k] || []).push(r);
+        });
+        DATA.assignments = Object.values(groups).map(gr => {
+          const first = gr[0];
+          const today = new Date().toISOString().slice(0, 10);
+          const scaleSet = [...new Set(gr.map(r => r.inst).filter(Boolean))];
+          const scoresEntered = gr.filter(r => r.score != null);
+          const allCompleted = gr.every(r => r.status === 'completed' || r.reviewed);
+          const anyOverdue = gr.some(r => r.overdue || r.dueCls === 'overdue');
+          const dueDate = first.dueISO ? first.dueISO.slice(0, 10) : today;
+          let status = allCompleted ? 'completed' : 'pending';
+          if (!allCompleted && dueDate < today) status = 'overdue';
+          return {
+            id: 'G-' + String(first.patientId || 'unk').replace(/[^a-z0-9]/gi, '-') + '-' + String(gr[0].id || '').replace(/[^a-z0-9]/gi, '-'),
+            patientId: first.patientId || '',
+            condName: first.dx || 'Unassigned',
+            phase: 'baseline',
+            scales: scaleSet,
+            assignedBy: 'Clinician',
+            assignedDate: today,
+            dueDate,
+            status,
+            completedDate: allCompleted ? today : null,
+            reviewed: gr.every(r => r.reviewed),
+            results: scoresEntered.map(r => ({
+              scale: r.inst,
+              score: r.score,
+              interp: r.sevLabel || '',
+            })),
+            // BUG-FIX-001: expose pre-mapped fields for render
+            _mappedRows: gr,
+          };
+        });
       } else {
         DATA.assignments = [];
-        DATA.error = (err && err.message) || 'Failed to load assessments';
-        console.warn('[assessments-hub] hydrate failed:', err);
       }
+
+      // Show demo banner if using demo data
+      if (result.demo) {
+        _showDemoBanner();
+      }
+    } catch (err) {
+      DATA.error = (err && err.message) || 'Failed to load assessments';
+      console.error('[assessments-hub] hydrate failed:', err);
     } finally {
       DATA.loading = false;
+      render();
     }
   }
   let activeTab = 'dashboard';
@@ -6216,6 +6285,8 @@ export async function pgAssessmentsHub(setTopbar) {
 
   function assignCard(a) {
     const today = new Date().toISOString().slice(0,10);
+    // BUG-FIX-001: Use pre-mapped row fields (inst, patient, sev, dueCls, redflag, sendLabel) when available
+    const mapped = (a._mappedRows && a._mappedRows[0]) || null;
     const isOverdue = a.status === 'overdue' || (a.status === 'pending' && a.dueDate < today);
     const statusCls = isOverdue ? 'ah2-status-danger' : a.status === 'completed' ? 'ah2-status-ok' : 'ah2-status-warn';
     const statusLabel = isOverdue && a.status === 'pending' ? 'overdue' : a.status;
@@ -6225,19 +6296,34 @@ export async function pgAssessmentsHub(setTopbar) {
     const safeId = String(a.id || '').replace(/[^A-Za-z0-9_-]/g, '');
     const phaseKey = String(a.phase || '').replace(/[^a-z_]/gi, '');
     const phaseLbl = PHASE_LABELS[a.phase] || a.phase || '';
-    return '<div class="ah2-assign-card' + (isOverdue ? ' ah2-assign-card--danger' : '') + '">' +
+    // Pre-mapped fields from v2 hydration
+    const displayPatient = mapped ? _hubEscHtml(mapped.patient || '') : 'Patient ' + _hubEscHtml(a.patientId || '');
+    const displayCond = mapped ? _hubEscHtml(mapped.dx || '') : _hubEscHtml(a.condName || '');
+    const displayScales = mapped
+      ? a._mappedRows.map(r => _hubEscHtml(r.inst || '') + (r.score != null ? ' <strong>' + r.score + (r.max ? '/' + r.max : '') + '</strong>' : '')).join(' &middot; ')
+      : (a.scales || []).map(_hubEscHtml).join(' &middot; ');
+    const displayDue = mapped ? _hubEscHtml(mapped.due || '') : 'Due ' + _hubEscHtml(a.dueDate || '');
+    const dueCls = mapped ? (mapped.dueCls || '') : '';
+    const redflagHtml = mapped && mapped.redflag ? '<span class="ah2-badge ah2-status-danger" style="margin-left:6px">RED FLAG</span>' : '';
+    const sendLabel = mapped ? (mapped.sendLabel || 'Open') : null;
+    const sevHtml = mapped && mapped.sevLabel && mapped.sevLabel !== '—'
+      ? '<span class="ah2-badge ah2-status-warn" style="margin-left:6px">' + _hubEscHtml(mapped.sevLabel) + '</span>'
+      : '';
+    return '<div class="ah2-assign-card' + (isOverdue || dueCls === 'overdue' ? ' ah2-assign-card--danger' : '') + '">' +
       '<div class="ah2-assign-main">' +
-        '<span class="ah2-assign-cond">' + _hubEscHtml(a.condName || '') + '</span>' +
+        '<span class="ah2-assign-cond">' + displayCond + '</span>' +
         '<span class="ah2-phase-pill ah2-phase-' + phaseKey + '">' + _hubEscHtml(phaseLbl) + '</span>' +
-        '<span class="ah2-assign-patient">Patient ' + _hubEscHtml(a.patientId || '') + '</span>' +
-        '<div class="ah2-assign-scales">' + (a.scales || []).map(_hubEscHtml).join(' &middot; ') + '</div>' +
+        '<span class="ah2-assign-patient">' + displayPatient + '</span>' +
+        redflagHtml +
+        sevHtml +
+        '<div class="ah2-assign-scales">' + displayScales + '</div>' +
       '</div>' +
       '<div class="ah2-assign-meta">' +
         '<span class="ah2-badge ' + statusCls + '">' + _hubEscHtml(statusLabel) + '</span>' +
-        '<span class="ah2-assign-due">Due ' + _hubEscHtml(a.dueDate || '') + '</span>' +
+        '<span class="ah2-assign-due' + (dueCls === 'overdue' ? ' ah2-status-danger' : '') + '">' + displayDue + '</span>' +
       '</div>' +
       '<div class="ah2-assign-actions">' +
-        (a.status !== 'completed' ? '<button class="ah2-btn ah2-btn-sm" onclick="window._ah2Score(\'' + safeId + '\')">Enter Scores</button>' : '') +
+        (a.status !== 'completed' ? '<button class="ah2-btn ah2-btn-sm" onclick="window._ah2Score(\'' + safeId + '\')">' + (sendLabel && sendLabel !== 'Open' ? _hubEscHtml(sendLabel) : 'Enter Scores') + '</button>' : '') +
         (a.status === 'completed' && !a.reviewed ? '<button class="ah2-btn ah2-btn-sm ah2-btn-info" onclick="window._ah2Review(\'' + safeId + '\')">Review</button>' : '') +
         '<button class="ah2-btn ah2-btn-sm ah2-btn-ghost" onclick="window._ah2Detail(\'' + safeId + '\')">Detail</button>' +
       '</div>' +
@@ -6477,14 +6563,26 @@ export async function pgAssessmentsHub(setTopbar) {
       });
       // bulk-assign takes one template list; we call it once and then PATCH each
       // record with the right data.scale_id (so hydrate() can map it back).
-      const resp = await api.bulkAssignAssessments({
-        patient_id: patient,
-        template_ids: items.map(i => i.templateId),
-        phase,
-        due_date: due,
-        bundle_id: condId,
-        clinician_notes: recur ? 'Recurrence: ' + recur : null,
-      });
+      // BUG-FIX-005: Try v2 bulk-assign first, fall back to v1
+      const resp = await _callV2WithFallback(
+        () => api.bulkAssignV2({
+          patient_id: patient,
+          template_ids: items.map(i => i.templateId),
+          phase,
+          due_date: due,
+          bundle_id: condId,
+          clinician_notes: recur ? 'Recurrence: ' + recur : null,
+        }),
+        () => api.bulkAssignAssessments({
+          patient_id: patient,
+          template_ids: items.map(i => i.templateId),
+          phase,
+          due_date: due,
+          bundle_id: condId,
+          clinician_notes: recur ? 'Recurrence: ' + recur : null,
+        }),
+        'bulkAssign'
+      );
       const created = (resp && resp.created) || [];
       // Stamp each newly-created record with its scale id + recurrence so the
       // grouping/round-trip in hydrate() lines up cleanly.
@@ -6612,18 +6710,34 @@ export async function pgAssessmentsHub(setTopbar) {
           return;
         }
         try {
-          await api.updateAssessment(backendId, {
-            status: 'completed',
-            score: String(r.score),
-            data: {
-              score: r.score,
-              interpretation: r.interp,
-              items: r.items || null,
-              scale_id: r.scale,
-              source: 'assessments-hub',
-              safetyAlerts: safetyAlerts.filter(s => s.scale === r.scale),
-            },
-          });
+          // BUG-FIX-005: Try v2 endpoint first, fall back to v1
+          await _callV2WithFallback(
+            () => api.updateAssessmentV2(backendId, {
+              status: 'completed',
+              score_numeric: r.score,
+              data: {
+                score: r.score,
+                interpretation: r.interp,
+                items: r.items || null,
+                scale_id: r.scale,
+                source: 'assessments-hub',
+                safetyAlerts: safetyAlerts.filter(s => s.scale === r.scale),
+              },
+            }),
+            () => api.updateAssessment(backendId, {
+              status: 'completed',
+              score: String(r.score),
+              data: {
+                score: r.score,
+                interpretation: r.interp,
+                items: r.items || null,
+                scale_id: r.scale,
+                source: 'assessments-hub',
+                safetyAlerts: safetyAlerts.filter(s => s.scale === r.scale),
+              },
+            }),
+            'updateAssessment'
+          );
         } catch (err) {
           failures.push({ scale: r.scale, reason: (err && err.message) || 'Network error' });
         }
@@ -6687,8 +6801,13 @@ export async function pgAssessmentsHub(setTopbar) {
     const ids = Object.values(a._backendIds || {});
     if (!ids.length) { _dsToast('Nothing to review — assignment has no backend records.', 'warn'); return; }
     try {
+      // BUG-FIX-005: Try v2 endpoint first, fall back to v1
       await Promise.all(ids.map(bid =>
-        api.approveAssessment(bid, { approved: true }).catch(err => {
+        _callV2WithFallback(
+          () => api.approveAssessmentV2(bid, { approved: true }),
+          () => api.approveAssessment(bid, { approved: true }),
+          'approveAssessment'
+        ).catch(err => {
           console.warn('[assessments-hub] approve failed for', bid, err);
           throw err;
         })

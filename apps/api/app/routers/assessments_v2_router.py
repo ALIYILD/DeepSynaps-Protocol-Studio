@@ -122,8 +122,24 @@ def _scoring_status(tpl_id: str, *, score_only: bool, embedded_text_allowed: boo
     return "licence_required"
 
 
+class UpdateAssignmentV2(BaseModel):
+    """BUG-FIX-003: JSON body schema for PATCH /assignments/{id}.
+
+    Matches the payload sent by api.js assessmentsV2PatchAssignment().
+    All fields are optional so callers may send partial updates.
+    """
+
+    items: dict[str, int] | list[int] | None = None
+    score_numeric: float | None = None
+    clinician_notes: str | None = None
+    status: str | None = None
+
+
 @router.get("/library", response_model=LibraryResponse)
-def library(actor: AuthenticatedActor = Depends(get_authenticated_actor)) -> LibraryResponse:
+def library(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),  # BUG-FIX-004: inject Session instead of calling generator
+) -> LibraryResponse:
     require_minimum_role(actor, "clinician")
     scales = list_scale_catalog()
     out: list[AssessmentRegistryEntry] = []
@@ -158,8 +174,9 @@ def library(actor: AuthenticatedActor = Depends(get_authenticated_actor)) -> Lib
                 clinician_review_required=True,
             )
         )
+    # BUG-FIX-004: use injected db Session instead of get_db_session() generator
     _audit_db(
-        session=get_db_session(),
+        db,
         actor=actor,
         target_id="library",
         target_type="assessments_v2",
@@ -371,18 +388,40 @@ def clinic_queue(
 
 
 @router.patch("/assignments/{assignment_id}", response_model=QueueItemV2)
-def update_assignment_status(
+def update_assignment(
     assignment_id: str,
-    status: str = Query(...),
+    body: UpdateAssignmentV2,  # BUG-FIX-003: accept JSON body (items, score_numeric, clinician_notes, status)
+    status: str | None = Query(None, description="BUG-FIX-003: v1 compat — overrides body.status if provided"),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> QueueItemV2:
+    """BUG-FIX-003: Full assignment update via JSON body.
+
+    The client (api.js assessmentsV2PatchAssignment) sends a JSON payload with
+    items, score_numeric, clinician_notes, and status.  This endpoint accepts
+    those fields in the body and falls back to a query ``status`` for v1
+    clients that still pass it on the URL.
+    """
     require_minimum_role(actor, "clinician")
     existing = get_assessment(db, assignment_id, actor.actor_id)
     if existing is None:
         raise ApiServiceError(code="not_found", message="Assignment not found.", status_code=404)
     _gate_patient_access(actor, existing.patient_id, db)
-    updated = update_assessment(db, assignment_id, actor.actor_id, status=status)
+
+    updates: dict[str, Any] = {}
+    if body.items is not None:
+        updates["items"] = body.items
+    if body.score_numeric is not None:
+        updates["score_numeric"] = body.score_numeric
+        updates["score"] = str(body.score_numeric)
+    if body.clinician_notes is not None:
+        updates["clinician_notes"] = body.clinician_notes
+    # BUG-FIX-003: body.status wins; fall back to query param for v1 compat
+    effective_status = body.status or status
+    if effective_status:
+        updates["status"] = effective_status
+
+    updated = update_assessment(db, assignment_id, actor.actor_id, **updates)
     if updated is None:
         raise ApiServiceError(code="not_found", message="Assignment not found.", status_code=404)
     tpl = _tpl_by_id(updated.template_id)
@@ -392,9 +431,22 @@ def update_assignment_status(
         target_id=assignment_id,
         target_type="assessment_assignment",
         action="update",
-        note=f"status={status}",
+        note=f"status={effective_status} items={'items' in updates} score={'score_numeric' in updates} notes={'clinician_notes' in updates}",
     )
     return _queue_row_from_record(updated, tpl=tpl)
+
+
+# BUG-FIX-003: backward-compatible alias for v1 clients migrating to v2.
+# Some legacy callers POST to .../update instead of PATCH to .../
+@router.patch("/assignments/{assignment_id}/update", response_model=QueueItemV2)
+def update_assignment_alias(
+    assignment_id: str,
+    body: UpdateAssignmentV2,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> QueueItemV2:
+    """Backward-compatible alias — delegates to the canonical PATCH handler."""
+    return update_assignment(assignment_id, body, None, actor, db)
 
 
 # ── Form (licensing-aware) ────────────────────────────────────────────────────

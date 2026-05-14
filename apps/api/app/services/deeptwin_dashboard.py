@@ -56,9 +56,10 @@ from app.persistence.models import (
     WearableObservation,
 )
 
+# SAFETY-FIX C-001: "diagnosis" renamed to "clinical_context" — software does not diagnose
 DOMAIN_KEYS = (
     "identity",
-    "diagnosis",
+    "clinical_context",
     "symptoms_goals",
     "assessments",
     "qeeg",
@@ -84,7 +85,8 @@ assert len(DOMAIN_KEYS) == 22
 
 DOMAIN_LABELS: dict[str, str] = {
     "identity": "Identity / demographics",
-    "diagnosis": "Diagnosis / phenotype",
+    # SAFETY-FIX C-001: renamed from "Diagnosis / phenotype" — software does not diagnose
+    "clinical_context": "Clinical context / phenotype",
     "symptoms_goals": "Symptoms / goals",
     "assessments": "Assessments",
     "qeeg": "EEG / qEEG",
@@ -285,7 +287,8 @@ def _decode_secondary_conditions(raw: str | None) -> list[str]:
     return []
 
 
-def _diagnosis(session: Session, patient: Patient) -> dict[str, Any]:
+# SAFETY-FIX C-001: _diagnosis renamed to _clinical_context; "diagnosis" → "clinical_context" — software does not diagnose
+def _clinical_context(session: Session, patient: Patient) -> dict[str, Any]:
     n_phen = session.scalar(
         select(func.count()).select_from(PhenotypeAssignment).where(
             PhenotypeAssignment.patient_id == patient.id
@@ -294,13 +297,14 @@ def _diagnosis(session: Session, patient: Patient) -> dict[str, Any]:
     primary = (patient.primary_condition or "").strip()
     secondary = _decode_secondary_conditions(getattr(patient, "secondary_conditions", None))
     has_dx = bool(primary or secondary or n_phen)
-    summary = primary or "No primary diagnosis recorded."
+    # SAFETY-FIX C-002: changed from "No primary diagnosis recorded" to observational language
+    summary = primary or "No primary clinical context recorded."
     if secondary:
         summary += f" · {len(secondary)} secondary condition(s)."
     if n_phen:
         summary += f" · {n_phen} phenotype assignment(s)."
     return _domain(
-        "diagnosis",
+        "clinical_context",
         status="available" if has_dx else "missing",
         record_count=int(bool(primary)) + len(secondary) + int(n_phen),
         last_updated=patient.updated_at.isoformat() if patient.updated_at else None,
@@ -1079,11 +1083,13 @@ def _patient_summary(patient: Patient) -> dict[str, Any]:
         except (TypeError, ValueError):
             age = None
     secondary = _decode_secondary_conditions(getattr(patient, "secondary_conditions", None))
-    diagnosis = ([patient.primary_condition] if patient.primary_condition else []) + secondary
+    # SAFETY-FIX C-001: diagnosis variable renamed to clinical_context_list — software does not diagnose
+    clinical_context_list = ([patient.primary_condition] if patient.primary_condition else []) + secondary
     return {
         "name": name,
         "age": age,
-        "diagnosis": diagnosis,
+        # SAFETY-FIX C-001: "diagnosis" key renamed to "clinical_context" — software does not diagnose
+        "clinical_context": clinical_context_list,
         "phenotype": [],
         "primary_goals": [],
         "risk_level": "unknown",
@@ -1099,7 +1105,8 @@ def build_dashboard_payload(session: Session, patient: Patient) -> dict[str, Any
     pid = patient.id
     domains: list[dict[str, Any]] = [
         _identity(session, patient),
-        _diagnosis(session, patient),
+        # SAFETY-FIX C-001: _diagnosis renamed to _clinical_context — software does not diagnose
+        _clinical_context(session, patient),
         _symptoms_goals(session, patient),
         _assessments(session, pid),
         _qeeg(session, pid),
