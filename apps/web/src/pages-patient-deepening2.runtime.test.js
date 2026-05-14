@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
@@ -617,4 +617,21 @@ test('pgPatientProfile deep — exercises both has_coverage and no_coverage bran
     await softCallA(window._ptRefreshProfile);
   }
   assert.ok(true);
+});
+
+// ── File-scope JSDOM cleanup ──────────────────────────────────────────────────
+// Clears the shimmed setInterval handles, closes the dom window, and removes
+// globalThis overrides so Node-20 --test-force-exit can drain cleanly.
+after(() => {
+  // Clear all shimmed interval IDs (the shim stores them in __ivIds).
+  try { for (const id of __ivIds) globalThis.clearInterval(id); __ivIds.clear(); } catch {}
+  // Clear VirtualCare timers via the module-scoped dom.window reference.
+  for (const k of ['_vcPollTimer', '_vcRecordTimer', '_vcBioTimer', '_vcVoiceTimer']) {
+    try { if (dom.window[k]) globalThis.clearInterval(dom.window[k]); } catch {}
+    try { dom.window[k] = null; } catch {}
+  }
+  try { dom.window.close(); } catch {}
+  for (const k of ['window', 'document', 'navigator', 'HTMLElement', 'Event', 'Node', 'FormData', 'MutationObserver', 'IntersectionObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'localStorage']) {
+    try { delete globalThis[k]; } catch {}
+  }
 });
