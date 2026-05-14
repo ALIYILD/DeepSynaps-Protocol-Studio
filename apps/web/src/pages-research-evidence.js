@@ -674,6 +674,12 @@ async function renderOverview(body, liveEvidence = null) {
     ? _reRenderTerminalMetricCards(terminalSnapshot) + _reRenderTerminalExplorer(terminalSnapshot)
     : '<div class="ch-card" style="padding:14px;margin-bottom:16px;border-left:3px solid var(--rose)"><div style="font-size:13px;font-weight:600;color:var(--rose);margin-bottom:6px">Neuromodulation Evidence Terminal unavailable</div><div style="font-size:12px;color:var(--text-secondary);line-height:1.55">The live terminal snapshot could not be loaded. Bundled orientation panels remain available below, but they are not authoritative search output.</div></div>';
 
+  /* Condition × Modality Heatmap */
+  const heatmapHtml = _renderConditionModalityHeatmap(conditions, S);
+
+  /* Trial Timeline */
+  const timelineHtml = _renderTrialTimeline(S);
+
   /* two-column layout for charts */
   body.innerHTML =
     _resWorkspaceHeader(liveEvidence, { shortcuts: true }) +
@@ -684,6 +690,8 @@ async function renderOverview(body, liveEvidence = null) {
     // merged from main: 90f0484e/bf505698 intent: live evidence-link, template, and safety panels
     yearHtml + gradeHtml + modHtml + tcHtml + liveLinksHtml + liveTemplateHtml + liveSafetyHtml +
     '</div>' +
+    heatmapHtml +
+    timelineHtml +
     '<p style="font-size:11px;color:var(--text-tertiary);margin-top:12px">Grade and year distributions use bundled registry approximations when the live API is unavailable — use <strong>Live Indexed Evidence Search</strong> for verified primary literature retrieval.</p>';
 }
 
@@ -691,6 +699,229 @@ async function renderOverview(body, liveEvidence = null) {
 /* ══════════════════════════════════════════════════════════════════════════════
    TAB 2 — Conditions & Comorbidity
    ══════════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════════
+   FEATURE: Condition × Modality Heatmap
+   ══════════════════════════════════════════════════════════════════════════════ */
+function _renderConditionModalityHeatmap(conditions, S) {
+  if (!conditions || conditions.length === 0) return '';
+
+  // Top modalities from PROTOCOL_REGISTRY
+  const modalities = ['tDCS', 'tACS', 'tRNS', 'rTMS', 'tVNS', 'PBM', 'Pulsed_Electro', 'Neurofeedback'];
+  const topConditions = conditions
+    .filter(c => c.paper_count > 0 || c.condition_category)
+    .slice(0, 16)
+    .map(c => ({
+      name: c.condition_label || c.condition_slug || 'Unknown',
+      category: c.condition_category || 'Other',
+      papers: c.paper_count || 0,
+      rcts: c.rct_count || 0,
+      meta: c.meta_analysis_count || 0,
+      modalities: c.priority_modalities || [],
+    }));
+
+  if (topConditions.length === 0) return '';
+
+  // Heatmap color scale: 0 papers → transparent, 1-5 → low, 6-20 → med, 21+ → high
+  const _heatColor = (count) => {
+    if (!count || count <= 0) return 'transparent';
+    if (count <= 5) return 'rgba(45,212,191,0.25)';   // teal low
+    if (count <= 20) return 'rgba(45,212,191,0.5)';   // teal med
+    if (count <= 50) return 'rgba(45,212,191,0.75)';  // teal high
+    return 'rgba(45,212,191,0.95)';                    // teal max
+  };
+  const _heatText = (count) => {
+    if (!count || count <= 0) return '<span style="color:var(--text-tertiary)">—</span>';
+    return `<span style="font-weight:700;color:${count > 20 ? '#fff' : 'var(--text-primary)'}">${count}</span>`;
+  };
+
+  let rows = '';
+  for (const cond of topConditions) {
+    let cells = '';
+    for (const mod of modalities) {
+      const hasMod = Array.isArray(cond.modalities) && cond.modalities.some(m =>
+        String(m).toLowerCase().includes(mod.toLowerCase()) ||
+        (mod === 'rTMS' && String(m).toLowerCase().includes('tms')) ||
+        (mod === 'Pulsed_Electro' && String(m).toLowerCase().includes('pulse'))
+      );
+      const count = hasMod ? Math.max(1, Math.floor(cond.papers / Math.max(1, cond.modalities.length))) : 0;
+      const bg = _heatColor(count);
+      const txt = _heatText(count);
+      cells += `<td style="padding:6px 10px;text-align:center;border:1px solid var(--border-subtle);background:${bg};cursor:default" title="${esc(cond.name)} × ${mod}: ${count} papers">${txt}</td>`;
+    }
+    rows += `<tr><td style="padding:6px 10px;font-size:12px;font-weight:600;color:var(--text-primary);border:1px solid var(--border-subtle);white-space:nowrap">${esc(cond.name)}</td>${cells}</tr>`;
+  }
+
+  const headerCells = modalities.map(m =>
+    `<th style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-secondary);border:1px solid var(--border-subtle);text-align:center;min-width:60px">${esc(m)}</th>`
+  ).join('');
+
+  return (
+    '<div class="ch-card" style="margin-top:16px;padding:16px">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">' +
+    '<div style="font-size:14px;font-weight:700;color:var(--text-primary)">Condition × Modality Evidence Heatmap</div>' +
+    '<span style="font-size:11px;color:var(--text-tertiary)">Paper count per condition-modality pair</span>' +
+    '</div>' +
+    '<div style="overflow-x:auto">' +
+    '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+    '<thead><tr><th style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--text-secondary);border:1px solid var(--border-subtle);text-align:left">Condition</th>' + headerCells + '</tr></thead>' +
+    '<tbody>' + rows + '</tbody>' +
+    '</table></div>' +
+    '<div style="display:flex;align-items:center;gap:12px;margin-top:10px;font-size:11px;color:var(--text-tertiary)">' +
+    '<span>Intensity:</span>' +
+    '<span style="display:inline-block;width:12px;height:12px;background:transparent;border:1px solid var(--border-subtle)"></span> None' +
+    '<span style="display:inline-block;width:12px;height:12px;background:rgba(45,212,191,0.25)"></span> Low' +
+    '<span style="display:inline-block;width:12px;height:12px;background:rgba(45,212,191,0.5)"></span> Medium' +
+    '<span style="display:inline-block;width:12px;height:12px;background:rgba(45,212,191,0.75)"></span> High' +
+    '<span style="display:inline-block;width:12px;height:12px;background:rgba(45,212,191,0.95)"></span> Very High' +
+    '</div>' +
+    '<p style="font-size:11px;color:var(--text-tertiary);margin-top:8px">' +
+    'Counts are approximate based on bundled registry data. Use <strong>Live Indexed Evidence Search</strong> for precise paper counts per condition-modality pair. <em>Not a diagnosis or treatment recommendation.</em>' +
+    '</p></div>'
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   FEATURE: Trial Timeline
+   ══════════════════════════════════════════════════════════════════════════════ */
+function _renderTrialTimeline(S) {
+  const trials = S && S.trials ? S.trials.slice(0, 20) : [];
+  if (trials.length === 0) return '';
+
+  // Sort by year descending
+  const sorted = [...trials].sort((a, b) => (b.year || 0) - (a.year || 0));
+
+  let items = '';
+  let lastYear = null;
+  for (const t of sorted) {
+    const year = t.year || 'Unknown';
+    const yearLabel = year !== lastYear ? `<div style="font-size:11px;font-weight:700;color:var(--text-tertiary);margin:12px 0 4px;padding-left:28px;border-left:2px solid var(--border-subtle)">${year}</div>` : '';
+    lastYear = year;
+    const title = esc(t.brief_title || t.official_title || t.nct_id || 'Unnamed Trial');
+    const phase = t.phase ? `<span class="lib-tag" style="margin-left:6px">${esc(t.phase)}</span>` : '';
+    const status = t.overall_status ? `<span class="lib-tag" style="margin-left:4px;background:${t.overall_status === 'COMPLETED' ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)'};color:${t.overall_status === 'COMPLETED' ? 'var(--emerald)' : 'var(--amber)'}">${esc(t.overall_status)}</span>` : '';
+    const condition = t.condition ? `<span style="font-size:11px;color:var(--text-secondary)">${esc(t.condition)}</span>` : '';
+    items += yearLabel +
+      '<div style="display:flex;align-items:flex-start;gap:10px;padding:6px 0 6px 28px;border-left:2px solid var(--border-subtle);position:relative">' +
+      '<div style="position:absolute;left:-5px;top:10px;width:8px;height:8px;border-radius:50%;background:var(--teal);border:2px solid var(--bg-primary)"></div>' +
+      '<div style="flex:1;min-width:0">' +
+      '<div style="font-size:12px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + title + '">' + title + phase + status + '</div>' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-top:2px">' + condition +
+      (t.enrollment ? `<span style="font-size:11px;color:var(--text-tertiary)">${fmt(t.enrollment)} enrolled</span>` : '') +
+      '</div></div></div>';
+  }
+
+  return (
+    '<div class="ch-card" style="margin-top:16px;padding:16px">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">' +
+    '<div style="font-size:14px;font-weight:700;color:var(--text-primary)">Clinical Trial Timeline</div>' +
+    '<span style="font-size:11px;color:var(--text-tertiary)">Latest 20 trials from registry</span>' +
+    '</div>' +
+    items +
+    '<p style="font-size:11px;color:var(--text-tertiary);margin-top:12px">' +
+    '<em>Trial statuses and enrollment are sourced from ClinicalTrials.gov and registry bundles. Verify current status at clinicaltrials.gov before citing.</em>' +
+    '</p></div>'
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   FEATURE: Saved Searches
+   ══════════════════════════════════════════════════════════════════════════════ */
+function _renderSavedSearches() {
+  const saved = JSON.parse(localStorage.getItem('_reSavedSearches') || '[]');
+  if (!saved.length) return '';
+
+  const items = saved.map((s, i) =>
+    '<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border-subtle)">' +
+    '<div style="font-size:12px;color:var(--text-primary);cursor:pointer" onclick="window._reLoadSavedSearch(' + i + ')" title="Click to rerun this search">' +
+    '<strong>' + esc(s.q || '(empty query)') + '</strong>' +
+    (s.indication ? ' · <span style="color:var(--text-secondary)">' + esc(s.indication) + '</span>' : '') +
+    (s.grade ? ' · Grade ' + esc(s.grade) : '') +
+    '</div>' +
+    '<div style="font-size:11px;color:var(--text-tertiary);white-space:nowrap">' + esc(s.date || '') +
+    ' <button onclick="window._reDeleteSavedSearch(' + i + ')" style="background:none;border:none;color:var(--rose);cursor:pointer;font-size:11px;margin-left:8px" title="Remove">×</button></div>' +
+    '</div>'
+  ).join('');
+
+  return (
+    '<div class="ch-card" style="margin-top:16px;padding:16px">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">' +
+    '<div style="font-size:14px;font-weight:700;color:var(--text-primary)">Saved Searches</div>' +
+    '<button class="btn btn-sm btn-ghost" onclick="window._reClearSavedSearches()">Clear All</button>' +
+    '</div>' + items + '</div>'
+  );
+}
+
+window._reSaveSearchFromUI = function() {
+  const q = document.getElementById('lib-ext-q')?.value || '';
+  const source = document.getElementById('re-ev-search-source')?.value || '';
+  const grade = document.getElementById('re-ev-filter-grade')?.value || '';
+  const oaOnly = document.getElementById('re-ev-oa-only')?.checked || false;
+  window._reSaveSearch(q, source, grade, oaOnly);
+  // Refresh saved searches panel
+  const panel = document.getElementById('re-ev-saved-searches');
+  if (panel) panel.innerHTML = _renderSavedSearches();
+  // Show brief confirmation
+  const btn = event?.target;
+  if (btn) { btn.textContent = 'Saved!'; setTimeout(() => btn.textContent = 'Save', 1500); }
+};
+
+window._reSaveSearch = function(q, indication, grade, oaOnly) {
+  const saved = JSON.parse(localStorage.getItem('_reSavedSearches') || '[]');
+  const entry = { q, indication, grade, oa_only: oaOnly, date: new Date().toLocaleString() };
+  // Don't duplicate exact same search
+  const dupIndex = saved.findIndex(s => s.q === q && s.indication === indication && s.grade === grade);
+  if (dupIndex >= 0) saved.splice(dupIndex, 1);
+  saved.unshift(entry);
+  if (saved.length > 20) saved.pop(); // keep last 20
+  localStorage.setItem('_reSavedSearches', JSON.stringify(saved));
+};
+
+window._reLoadSavedSearch = function(index) {
+  const saved = JSON.parse(localStorage.getItem('_reSavedSearches') || '[]');
+  const s = saved[index]; if (!s) return;
+  window._reSearchQ = s.q || '';
+  window._reSearchIndication = s.indication || '';
+  window._reSearchGrade = s.grade || '';
+  window._reSearchOA = s.oa_only || false;
+  // Trigger search refresh
+  const evt = new Event('_reRerunSearch');
+  window.dispatchEvent(evt);
+};
+
+window._reDeleteSavedSearch = function(index) {
+  const saved = JSON.parse(localStorage.getItem('_reSavedSearches') || '[]');
+  saved.splice(index, 1);
+  localStorage.setItem('_reSavedSearches', JSON.stringify(saved));
+  // Refresh UI
+  const evt = new Event('_reRefreshSavedSearches');
+  window.dispatchEvent(evt);
+};
+
+window._reClearSavedSearches = function() {
+  localStorage.removeItem('_reSavedSearches');
+  const evt = new Event('_reRefreshSavedSearches');
+  window.dispatchEvent(evt);
+};
+
+// Event listeners for saved search refresh
+window.addEventListener('_reRefreshSavedSearches', function() {
+  const panel = document.getElementById('re-ev-saved-searches');
+  if (panel) panel.innerHTML = _renderSavedSearches();
+});
+window.addEventListener('_reRerunSearch', function() {
+  // Refresh search inputs from saved search state
+  const qEl = document.getElementById('lib-ext-q');
+  if (qEl && window._reSearchQ !== undefined) qEl.value = window._reSearchQ;
+  const indEl = document.getElementById('re-ev-search-source');
+  if (indEl && window._reSearchIndication !== undefined) indEl.value = window._reSearchIndication;
+  const gradeEl = document.getElementById('re-ev-filter-grade');
+  if (gradeEl && window._reSearchGrade !== undefined) gradeEl.value = window._reSearchGrade;
+  const oaEl = document.getElementById('re-ev-oa-only');
+  if (oaEl && window._reSearchOA !== undefined) oaEl.checked = window._reSearchOA;
+  // Trigger search
+  window._libUnifiedEvidenceSearch();
+});
+
 async function renderConditions(body, q, filt, sort, sInput, pills, sortBtn) {
   const cats = ['All', 'Mood', 'Anxiety', 'OCD Spectrum', 'Trauma', 'ADHD', 'Autism',
     'Pain', 'Sleep', 'Neurological', 'Substance', 'Eating', 'Comorbid', 'Other'];
@@ -2857,6 +3088,7 @@ async function renderEvidenceSearch(body) {
           '<select id="lib-ext-cond" class="ph-search-input" style="width:100%">' + condOptions + '</select>' +
         '</div>' +
         '<button type="button" class="btn btn-primary btn-sm" onclick="window._libUnifiedEvidenceSearch()">Search</button>' +
+        '<button type="button" class="btn btn-ghost btn-sm" onclick="window._reSaveSearchFromUI()" title="Save this search for quick access later">Save</button>' +
       '</div>' +
       '<div style="padding:10px 16px 12px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;border-top:1px solid var(--border)">' +
         '<div style="min-width:140px">' +
@@ -2909,6 +3141,7 @@ async function renderEvidenceSearch(body) {
         '<details style="margin-top:8px"><summary style="font-size:12px;cursor:pointer;color:var(--text-secondary)">Optional ranked research view (neuromodulation bundle)</summary>' +
         '<div id="re-ev-ranked-results" style="margin-top:10px;min-height:28px;font-size:12px;color:var(--text-tertiary)"></div></details>' +
       '</div>' +
+      '<div id="re-ev-saved-searches" style="padding:0 16px 12px">' + _renderSavedSearches() + '</div>' +
       '<div style="padding:0 16px 16px">' +
         '<div class="ch-card" style="padding:14px;margin-bottom:12px;background:linear-gradient(135deg,rgba(15,23,42,0.32),rgba(15,23,42,0.08))">' +
           '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><div style="font-weight:600;font-size:13px;color:var(--text-primary)">Terminal result table</div><div style="font-size:11px;color:var(--text-tertiary)">Dense cross-source index for quick review and basket curation</div></div>' +
