@@ -7,8 +7,11 @@
 //   - pgGuardianPortal       (in pages-patient.js)
 //
 // Setup copied verbatim from `pages-patient.runtime.test.js`. We also
-// surface an `app-content` element because pgGuardianPortal renders into
-// that id.
+// surface a `content` element because `_gpRender()` in pages-patient.js
+// writes the guardian portal markup into `#content` (matches the real
+// `apps/web/index.html`, which has `<div id="content" tabindex="-1">`).
+// PR #908 moved `_gpRender`'s mount point off `#app-content`; the
+// assertions and the JSDOM container here were updated to match.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
@@ -18,6 +21,7 @@ const dom = new JSDOM(
    <html><body>
      <div id="patient-content"></div>
      <div id="app-content"></div>
+     <div id="content"></div>
      <ul id="patient-nav-list"></ul>
      <div id="pt-bottom-nav"></div>
      <div id="patient-page-title"></div>
@@ -102,6 +106,7 @@ function resetHarness() {
   localStorageShim.clear();
   document.getElementById('patient-content').innerHTML = '';
   document.getElementById('app-content').innerHTML = '';
+  document.getElementById('content').innerHTML = '';
   document.getElementById('patient-nav-list').innerHTML = '';
   document.getElementById('pt-bottom-nav').innerHTML = '';
   document.getElementById('patient-page-title').textContent = '';
@@ -370,9 +375,14 @@ test('pgGuardianPortal uses default setTopbar and seeds + renders the guardian p
   resetHarness();
   await mod.pgGuardianPortal();
   assert.equal(document.getElementById('patient-page-title').textContent, 'Guardian Portal');
-  const html = document.getElementById('app-content').innerHTML;
+  const html = document.getElementById('content').innerHTML;
   assert.ok(html.length > 0);
   assert.match(html, /Family &amp; Guardian Portal|Welcome, Maria Santos|Demo Guardian Portal/);
+  // Render-readiness marker (PR #926 pattern) so e2e waits resolve deterministically.
+  assert.ok(
+    document.querySelector('[data-page="guardian-portal"]'),
+    'guardian portal should emit a [data-page="guardian-portal"] marker',
+  );
 });
 
 test('pgGuardianPortal forwards to a custom setTopbarFn with Crisis Plan action', async () => {
@@ -392,7 +402,7 @@ test('pgGuardianPortal exposes window helpers for patient switch, hw mark, and c
   assert.equal(typeof window._gpSwitch, 'function');
   window._gpSwitch('p_adult');
   assert.equal(localStorage.getItem('ds_active_guardian_patient'), 'p_adult');
-  assert.match(document.getElementById('app-content').innerHTML, /Carlos Santos/);
+  assert.match(document.getElementById('content').innerHTML, /Carlos Santos/);
 
   window._gpSwitch('p_child');
 

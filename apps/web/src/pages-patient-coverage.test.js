@@ -553,10 +553,17 @@ describe('pgPatientBrainMap() unauthenticated path', () => {
 });
 
 // ── 8. pgGuardianPortal — guardian render and handlers ────────────────────────
+// `_gpRender()` writes into `#content` (matches `apps/web/index.html`, which
+// has `<div id="content" tabindex="-1">`). PR #908 moved the mount point off
+// `#app-content`; the assertions below were updated to match. The render
+// readiness marker is `[data-page="guardian-portal"]` (PR #926 pattern).
+//
+// The top-level `beforeEach` (line 108) clears localStorage, so we re-seed
+// per-test by re-running `pgGuardianPortal()` in this describe's own
+// `beforeEach`. That keeps every test independent and deterministic.
 describe('pgGuardianPortal()', () => {
-  before(async () => {
+  beforeEach(async () => {
     resetDom();
-    // Ensure guardian local seed is fresh-ish so render is deterministic
     [
       'ds_guardian_profiles', 'ds_guardian_messages', 'ds_guardian_consents',
       'ds_crisis_plans', 'ds_homework_plans', 'ds_active_guardian_patient',
@@ -564,10 +571,15 @@ describe('pgGuardianPortal()', () => {
     await ppModule.pgGuardianPortal();
   });
 
-  it('renders guardian markup into #app-content', () => {
-    const html = document.getElementById('app-content').innerHTML;
+  it('renders guardian markup into #content', () => {
+    const html = document.getElementById('content').innerHTML;
     assert.ok(html.length > 0);
     assert.ok(html.includes('Family') || html.includes('Guardian'));
+    // Render-readiness marker — must be present so e2e waits resolve.
+    assert.ok(
+      document.querySelector('[data-page="guardian-portal"]'),
+      'guardian portal should emit a data-page render-readiness marker',
+    );
   });
 
   it('seeds guardian localStorage on first render', () => {
@@ -579,7 +591,7 @@ describe('pgGuardianPortal()', () => {
   });
 
   it('renders a demo banner on the guardian portal', () => {
-    const html = document.getElementById('app-content').innerHTML;
+    const html = document.getElementById('content').innerHTML;
     assert.ok(html.includes('Demo'));
   });
 
@@ -778,9 +790,11 @@ describe('pgPatientOutcomePortal()', () => {
 });
 
 // ── 12. _GP_SEED data integrity (renders depend on this) ──────────────────────
+// Top-level `beforeEach` (line 108) clears localStorage between tests, so the
+// seed must be re-installed per-test. Using `beforeEach` here mirrors the
+// pattern used by the `pgGuardianPortal()` describe block above.
 describe('Guardian portal seed data integrity', () => {
-  before(async () => {
-    // Ensure portal has run once so seed is in place.
+  beforeEach(async () => {
     resetDom();
     [
       'ds_guardian_profiles', 'ds_guardian_messages', 'ds_guardian_consents',

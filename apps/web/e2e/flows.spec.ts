@@ -200,13 +200,17 @@ test.describe('Flow 3: Patient portal', () => {
   });
 
   test('guardian portal loads in clinician app', async ({ page }) => {
-    // guardian-portal is a clinician-side page
+    // guardian-portal is a clinician-side page. Use the strict marker-based
+    // wait — the loose `navTo` `#content:not(:empty)` heuristic let the
+    // dashboard's loading skeleton satisfy `:not(:empty)` and the assertion
+    // fired before `_gpRender` mounted the guardian markup. The marker is
+    // emitted by `_gpRender` in pages-patient.js (PR #926 pattern, mirrors
+    // `pgTelehealthRecorder`).
     await mockClinicianAuth(page);
     await page.goto('/');
     await waitForClinicianApp(page);
-    await navTo(page, 'guardian-portal');
-    // The guardian portal page heading renders even if content has a runtime error
-    await expect(page.locator('h1')).toContainText(/(guardian|caregiver|family)/i);
+    await navToStrict(page, 'guardian-portal');
+    await expect(page.locator('[data-page="guardian-portal"]')).toContainText(/(guardian|caregiver|family)/i);
   });
 });
 
