@@ -92,6 +92,22 @@ const QUARANTINE = new Set([
   'src/pages-patient-dashboard-outcomes.runtime.test.js',
   'src/pages-patient-deepening.runtime.test.js',
   'src/pages-patient-homework-builder.runtime.test.js',
+
+  // quarantined 2026-05-14 — hang investigation — owner: TODO
+  //   Bisect evidence: this file was the root cause of the original 25-min
+  //   HARD TIMEOUT (see PR #887 commit message). 195 tests across 66 describes
+  //   all pass, then runner hangs indefinitely: "Promise resolution is still
+  //   pending but the event loop has already resolved". Confirmed locally on
+  //   Node 25 without --test-force-exit (timeout 120s, never exits). PR #887
+  //   added --test-force-exit which fixes the hang on Node 25 (44s clean exit)
+  //   but CI runs Node 20 where the flag may not fully suppress the
+  //   unresolved-promise stall; the runner then blocks for the full 25-minute
+  //   wall-clock budget. Root causes in-file: JSDOM windows, patched api.js
+  //   mock handles, and a setInterval in _wireRawViewerSummary left live after
+  //   test completion. Fix: guard each async test body with a Promise.race
+  //   timeout or abort signal, clear the interval in afterEach, upgrade CI to
+  //   Node 22+. Quarantined until one of those is done.
+  'src/pages-qeeg-analysis-coverage.test.js',
 ]);
 
 function listTestFiles(dir) {
