@@ -1,0 +1,247 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Load Test CI Workflow — DeepSynaps Protocol Studio
+# ═══════════════════════════════════════════════════════════════════════════════
+# Runs the Locust load-test suite against the staging environment.
+#
+# Triggers:
+#   - Weekly schedule (Sunday 02:00 UTC) — baseline drift detection
+#   - Manual (workflow_dispatch) — on-demand testing with profile selection
+#   - Post-deploy hook (repository_dispatch) — after staging deployment
+#
+# SLO Gates:
+#   P95 latency  < 200 ms
+#   Error rate   < 0.1%
+#
+# On SLO breach:
+#   - Workflow fails (red X on commit)
+#   - Summary posted to GitHub Step Summary
+#   - Slack notification sent (if webhook configured)
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: Load Tests
+
+on:
+  schedule:
+    - cron: "0 2 * * 0"   # Every Sunday 02:00 UTC
+
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "Load test profile"
+        required: true
+        default: "gradual-ramp"
+        type: choice
+        options:
+          - gradual-ramp
+          - sustained-load
+          - spike-test
+          - endurance
+          - stress
+      host:
+        description: "Target host URL"
+        required: false
+        default: "https://staging-api.deepsynaps.io"
+        type: string
+      users:
+        description: "Peak user count (overrides profile default)"
+        required: false
+        default: ""
+        type: string
+
+  repository_dispatch:
+    types: [staging-deployed]
+
+env:
+  PYTHONUNBUFFERED: "1"
+  LOAD_TEST_PROFILE: ${{ github.event.inputs.profile || 'gradual-ramp' }}
+  LOAD_TEST_HOST: ${{ github.event.inputs.host || 'https://staging-api.deepsynaps.io' }}
+
+jobs:
+  # ── Phase 1: Staging health check ──────────────────────────────────────────
+  preflight:
+    name: Preflight health check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check /health endpoint
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS --max-time 10 "${{ env.LOAD_TEST_HOST }}/health" > /dev/null; then
+              echo "Staging is healthy"
+              exit 0
+            fi
+            echo "Attempt $i/12 — staging not ready, retrying in 10s..."
+            sleep 10
+          done
+          echo "Staging failed health check after 120s"
+          exit 1
+
+      - name: Check /version endpoint
+        run: |
+          curl -fsS --max-time 10 "${{ env.LOAD_TEST_HOST }}/api/v1/version" | head -c 200
+
+  # ── Phase 2: Run load test ─────────────────────────────────────────────────
+  load-test:
+    name: Locust load test (${{ env.LOAD_TEST_PROFILE }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: [preflight]
+
+    outputs:
+      p95_ms: ${{ steps.parse.outputs.p95_ms }}
+      error_rate: ${{ steps.parse.outputs.error_rate }}
+      total_requests: ${{ steps.parse.outputs.total_requests }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Locust
+        run: |
+          python -m pip install --upgrade pip
+          pip install locust==2.31.* requests
+
+      - name: Run Locust (headless)
+        id: locust
+        continue-on-error: true
+        run: |
+          mkdir -p load-results
+
+          # Build command
+          CMD="locust \
+            -f tests/load/locustfile.py \
+            --host ${{ env.LOAD_TEST_HOST }} \
+            --headless \
+            --config tests/load/load-test-config.yml \
+            --csv load-results/run"
+
+          # Override users if provided
+          if [ -n "${{ github.event.inputs.users }}" ]; then
+            CMD="$CMD --users ${{ github.event.inputs.users }}"
+          fi
+
+          # Set profile env var
+          export LOAD_PROFILE=${{ env.LOAD_TEST_PROFILE }}
+          export TEST_DATA_SEED=${{ github.run_number }}
+
+          echo "Running: $CMD"
+          $CMD 2>&1 | tee load-results/locust.log
+
+          # Capture exit code
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+        timeout-minutes: 55
+
+      - name: Upload raw results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-raw-${{ github.run_id }}-${{ env.LOAD_TEST_PROFILE }}
+          path: load-results/
+          retention-days: 30
+
+      - name: Parse SLO summary from log
+        id: parse
+        if: always()
+        run: |
+          LOG="load-results/locust.log"
+
+          # Extract metrics from the SLO summary block
+          if [ -f "$LOG" ]; then
+            p95=$(grep -oP 'P95 latency\s+:\s+\K[0-9.]+' "$LOG" || echo "N/A")
+            errors=$(grep -oP 'Errors\s+:\s+\d+\s+\(\K[0-9.]+' "$LOG" || echo "N/A")
+            total=$(grep -oP 'Total requests\s+:\s+\K[0-9]+' "$LOG" || echo "N/A")
+          else
+            p95="N/A"; errors="N/A"; total="N/A"
+          fi
+
+          echo "p95_ms=$p95" >> "$GITHUB_OUTPUT"
+          echo "error_rate=$errors" >> "$GITHUB_OUTPUT"
+          echo "total_requests=$total" >> "$GITHUB_OUTPUT"
+
+          echo "### Load Test Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Metric | Value | SLO | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+
+          # Determine pass/fail
+          p95_num=$(echo "$p95" | grep -oP '^[0-9.]+' || echo "99999")
+          err_num=$(echo "$errors" | grep -oP '^[0-9.]+' || echo "999")
+
+          if (( $(echo "$p95_num <= 200" | bc -l) )); then
+            p95_status="✅ PASS"; else p95_status="❌ FAIL"; fi
+          if (( $(echo "$err_num <= 0.1" | bc -l) )); then
+            err_status="✅ PASS"; else err_status="❌ FAIL"; fi
+
+          echo "| P95 latency | ${p95} ms | < 200 ms | ${p95_status} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Error rate | ${errors}% | < 0.1% | ${err_status} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Total requests | ${total} | — | — |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Profile: \`${{ env.LOAD_TEST_PROFILE }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Target: ${{ env.LOAD_TEST_HOST }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail on SLO breach
+        if: steps.locust.outputs.exit_code != '0'
+        run: |
+          echo "❌ Load test failed — SLO breach detected."
+          exit 1
+
+  # ── Phase 3: Compare against baseline ──────────────────────────────────────
+  baseline-compare:
+    name: Compare against baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [load-test]
+    if: always()
+    steps:
+      - name: Download previous baseline
+        uses: actions/download-artifact@v4
+        with:
+          name: load-test-baseline
+          path: baseline/
+        continue-on-error: true
+
+      - name: Compare metrics
+        run: |
+          echo "### Baseline Comparison" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          # This is a placeholder for actual baseline comparison logic.
+          # In production, read the previous run's CSV and compare P95/error-rate.
+          # If drift > 20%, mark as warning.
+
+          echo "P95 drift: baseline vs current — see raw artifacts for details." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload new baseline (on main branch success)
+        if: github.ref == 'refs/heads/main' && needs.load-test.result == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-baseline
+          path: load-results/run_stats.csv
+          retention-days: 90
+        continue-on-error: true
+
+  # ── Phase 4: Notify ────────────────────────────────────────────────────────
+  notify:
+    name: Notify results
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [load-test]
+    if: always()
+    steps:
+      - name: Slack notification
+        if: env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_LOAD_TEST_WEBHOOK }}
+        run: |
+          STATUS="${{ needs.load-test.result }}"
+          EMOJI=$([ "$STATUS" == "success" ] && echo "✅" || echo "❌")
+
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{
+              \"text\": \"${EMOJI} Load test *${{ env.LOAD_TEST_PROFILE }}* finished with status: *${STATUS}*\\nP95: ${{ needs.load-test.outputs.p95_ms }} ms | Errors: ${{ needs.load-test.outputs.error_rate }}% | Total: ${{ needs.load-test.outputs.total_requests }}\"
+            }" \
+            "$SLACK_WEBHOOK_URL" || true

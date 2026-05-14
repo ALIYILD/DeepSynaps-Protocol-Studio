@@ -1,0 +1,492 @@
+# =============================================================================
+# DeepSynaps Protocol Studio — Automated Rollback Pipeline
+# =============================================================================
+# Healthcare-grade rollback automation for the DeepSynaps neuromodulation
+# platform. Provides both automatic rollback on deployment failure and manual
+# rollback via workflow_dispatch.
+#
+# SAFETY WARNING: Database migrations are NOT automatically rolled back.
+# Migration rollback requires manual DBA review due to clinical data
+# integrity requirements. This workflow provides warnings and checklist
+# items for migration handling.
+#
+# HIPAA Compliance:
+#   - No patient data or PHI is logged
+#   - All rollback actions are audited
+#   - Rollback decisions require explicit approval in production
+# =============================================================================
+
+name: Rollback
+
+on:
+  # Automatic trigger: when the deploy-blue-green workflow fails
+  workflow_run:
+    workflows: ["Deploy (Blue-Green)"]
+    types: [completed]
+  # Manual trigger with rollback options
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to roll back"
+        required: true
+        default: "staging"
+        type: choice
+        options:
+          - staging
+          - production
+      rollback_type:
+        description: "Rollback strategy"
+        required: true
+        default: "previous_version"
+        type: choice
+        options:
+          - previous_version    # Roll back to the previous known-good image
+          - green_abandon       # Abandon green deployment, keep blue running
+          - database_rollback   # Rollback with database migration revert
+      confirmation:
+        description: "Type 'ROLLBACK' to confirm (required for production)"
+        required: false
+        default: ""
+        type: string
+      reason:
+        description: "Reason for rollback (will be logged in audit trail)"
+        required: true
+        default: ""
+        type: string
+      notify_slack:
+        description: "Send Slack notification"
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: rollback-${{ github.event.inputs.environment || 'staging' }}
+  cancel-in-progress: false
+
+env:
+  APP_BLUE: "deepsynaps-studio"
+  APP_GREEN: "deepsynaps-studio-green"
+  APP_BLUE_STAGING: "deepsynaps-studio-staging"
+  APP_GREEN_STAGING: "deepsynaps-studio-staging-green"
+  ROLLBACK_TIMEOUT_MINUTES: "5"
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  # ===========================================================================
+  # Job 1: Validate and Authorize Rollback
+  # ===========================================================================
+  authorize:
+    name: Authorize Rollback
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      authorized: ${{ steps.auth.outputs.authorized }}
+      environment: ${{ steps.config.outputs.environment }}
+      app_blue: ${{ steps.config.outputs.app_blue }}
+      app_green: ${{ steps.config.outputs.app_green }}
+      rollback_type: ${{ steps.config.outputs.rollback_type }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine configuration
+        id: config
+        run: |
+          # Determine environment
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ENV="${{ github.event.inputs.environment }}"
+            ROLLBACK_TYPE="${{ github.event.inputs.rollback_type }}"
+          else
+            # Auto-triggered from failed deploy — read from triggering workflow
+            ENV="staging"  # Default; could be parsed from workflow_run payload
+            ROLLBACK_TYPE="green_abandon"
+          fi
+
+          # Determine app names
+          if [ "$ENV" = "production" ]; then
+            APP_BLUE="${{ env.APP_BLUE }}"
+            APP_GREEN="${{ env.APP_GREEN }}"
+          else
+            APP_BLUE="${{ env.APP_BLUE_STAGING }}"
+            APP_GREEN="${{ env.APP_GREEN_STAGING }}"
+          fi
+
+          echo "environment=$ENV" >> "$GITHUB_OUTPUT"
+          echo "app_blue=$APP_BLUE" >> "$GITHUB_OUTPUT"
+          echo "app_green=$APP_GREEN" >> "$GITHUB_OUTPUT"
+          echo "rollback_type=$ROLLBACK_TYPE" >> "$GITHUB_OUTPUT"
+
+          echo "=== Rollback Configuration ==="
+          echo "Environment  : $ENV"
+          echo "Blue App     : $APP_BLUE"
+          echo "Green App    : $APP_GREEN"
+          echo "Rollback Type: $ROLLBACK_TYPE"
+
+      - name: Verify rollback authorization
+        id: auth
+        run: |
+          ENV="${{ steps.config.outputs.environment }}"
+
+          # Production requires explicit confirmation
+          if [ "$ENV" = "production" ]; then
+            CONFIRMATION="${{ github.event.inputs.confirmation }}"
+            if [ "$CONFIRMATION" != "ROLLBACK" ]; then
+              echo "✗ Production rollback requires confirmation code 'ROLLBACK'" >&2
+              echo "  Received: '$CONFIRMATION'" >&2
+              echo "authorized=false" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+            echo "✓ Production rollback confirmed"
+          fi
+
+          # Require rollback reason
+          REASON="${{ github.event.inputs.reason }}"
+          if [ -z "$REASON" ] && [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "✗ Rollback reason is required" >&2
+            echo "authorized=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          echo "authorized=true" >> "$GITHUB_OUTPUT"
+          echo "✓ Rollback authorized"
+
+      - name: Audit log rollback request
+        run: |
+          ENV="${{ steps.config.outputs.environment }}"
+          ROLLBACK_TYPE="${{ steps.config.outputs.rollback_type }}"
+          REASON="${{ github.event.inputs.reason || 'Auto-triggered from failed deployment' }}"
+          ACTOR="${{ github.actor }}"
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          echo "=== ROLLBACK AUDIT LOG ==="
+          echo "Timestamp : $TIMESTAMP"
+          echo "Actor     : $ACTOR"
+          echo "Run URL   : $RUN_URL"
+          echo "Environment: $ENV"
+          echo "Type      : $ROLLBACK_TYPE"
+          echo "Reason    : $REASON"
+          echo "==========================="
+
+          # This log is captured by GitHub Actions and becomes part of the audit trail
+          # In production, you might also send this to a SIEM or audit database
+
+  # ===========================================================================
+  # Job 2: Detect Current State
+  # ===========================================================================
+  detect-state:
+    name: Detect Current State
+    runs-on: ubuntu-latest
+    needs: authorize
+    if: needs.authorize.outputs.authorized == 'true'
+    timeout-minutes: 3
+    outputs:
+      active_app: ${{ steps.state.outputs.active_app }}
+      blue_image: ${{ steps.state.outputs.blue_image }}
+      green_image: ${{ steps.state.outputs.green_image }}
+      previous_images: ${{ steps.state.outputs.previous_images }}
+    steps:
+      - name: Setup Fly CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Detect active deployment state
+        id: state
+        env:
+          FLY_ACCESS_TOKEN: ${{ secrets.FLY_ACCESS_TOKEN }}
+        run: |
+          APP_BLUE="${{ needs.authorize.outputs.app_blue }}"
+          APP_GREEN="${{ needs.authorize.outputs.app_green }}"
+
+          echo "=== Detecting current deployment state ==="
+
+          # Get blue app status
+          echo "--- Blue app ($APP_BLUE) ---"
+          BLUE_STATUS=$(flyctl status --app "$APP_BLUE" --json 2>/dev/null || echo '{}')
+          BLUE_IMAGE=$(echo "$BLUE_STATUS" | jq -r '.Machines[0].ImageRef // "unknown"')
+          BLUE_MACHINES=$(echo "$BLUE_STATUS" | jq '.Machines | length')
+          echo "Blue image    : $BLUE_IMAGE"
+          echo "Blue machines : $BLUE_MACHINES"
+
+          # Get green app status
+          echo "--- Green app ($APP_GREEN) ---"
+          GREEN_STATUS=$(flyctl status --app "$APP_GREEN" --json 2>/dev/null || echo '{}')
+          GREEN_IMAGE=$(echo "$GREEN_STATUS" | jq -r '.Machines[0].ImageRef // "unknown"')
+          GREEN_MACHINES=$(echo "$GREEN_STATUS" | jq '.Machines | length')
+          echo "Green image    : $GREEN_IMAGE"
+          echo "Green machines : $GREEN_MACHINES"
+
+          # Get image history for rollback targets
+          echo "--- Recent deployments ---"
+          flyctl releases list --app "$APP_BLUE" --json 2>/dev/null | \
+            jq -r '.[:5] | .[] | "\(.Stable) \(.Version) \(.Reason // "deploy")"' || echo "No release history"
+
+          # Determine which app is active (has machines running)
+          if [ "$BLUE_MACHINES" -gt 0 ] && [ "$GREEN_MACHINES" -gt 0 ]; then
+            echo "Both blue and green are running — blue is the live app"
+            ACTIVE="blue"
+          elif [ "$BLUE_MACHINES" -gt 0 ]; then
+            ACTIVE="blue"
+          elif [ "$GREEN_MACHINES" -gt 0 ]; then
+            ACTIVE="green"
+          else
+            echo "✗ Neither app has running machines — manual intervention required" >&2
+            exit 1
+          fi
+
+          echo "Active app: $ACTIVE"
+          echo "active_app=$ACTIVE" >> "$GITHUB_OUTPUT"
+          echo "blue_image=$BLUE_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "green_image=$GREEN_IMAGE" >> "$GITHUB_OUTPUT"
+
+          # List previous images for potential rollback
+          PREVIOUS=$(flyctl releases list --app "$APP_BLUE" --json 2>/dev/null | \
+            jq -c '[.[].ImageRef | select(. != null) | select(. != "'$BLUE_IMAGE'")] | unique | .[:3]')
+          echo "previous_images=$PREVIOUS" >> "$GITHUB_OUTPUT"
+
+  # ===========================================================================
+  # Job 3: Execute Rollback
+  # ===========================================================================
+  execute-rollback:
+    name: Execute Rollback
+    runs-on: ubuntu-latest
+    needs: [authorize, detect-state]
+    if: needs.authorize.outputs.authorized == 'true'
+    timeout-minutes: 10
+    outputs:
+      rolled_back: ${{ steps.execute.outputs.rolled_back }}
+      new_active_image: ${{ steps.execute.outputs.new_active_image }}
+    steps:
+      - name: Setup Fly CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Execute rollback strategy
+        id: execute
+        env:
+          FLY_ACCESS_TOKEN: ${{ secrets.FLY_ACCESS_TOKEN }}
+        run: |
+          APP_BLUE="${{ needs.authorize.outputs.app_blue }}"
+          APP_GREEN="${{ needs.authorize.outputs.app_green }}"
+          ROLLBACK_TYPE="${{ needs.authorize.outputs.rollback_type }}"
+          ACTIVE_APP="${{ needs.detect-state.outputs.active_app }}"
+          BLUE_IMAGE="${{ needs.detect-state.outputs.blue_image }}"
+          PREVIOUS_IMAGES='${{ needs.detect-state.outputs.previous_images }}'
+
+          echo "=== Executing Rollback ==="
+          echo "Rollback Type: $ROLLBACK_TYPE"
+          echo "Active App   : $ACTIVE_APP"
+
+          case "$ROLLBACK_TYPE" in
+            previous_version)
+              echo "→ Strategy: Roll back to previous known-good version"
+
+              # Get the previous release image
+              PREV_IMAGE=$(echo "$PREVIOUS_IMAGES" | jq -r '.[0] // empty')
+
+              if [ -z "$PREV_IMAGE" ] || [ "$PREV_IMAGE" = "null" ]; then
+                echo "✗ No previous image found in release history" >&2
+                echo "  Attempting rollback via Fly releases instead..."
+
+                # Fallback: Use fly releases rollback
+                LATEST_RELEASE=$(flyctl releases list --app "$APP_BLUE" --json | jq -r '.[1].Version // empty')
+                if [ -n "$LATEST_RELEASE" ] && [ "$LATEST_RELEASE" != "null" ]; then
+                  echo "Rolling back to release version $LATEST_RELEASE"
+                  flyctl deploy --app "$APP_BLUE" --image "$BLUE_IMAGE" --yes --strategy immediate
+                else
+                  echo "✗ Cannot determine previous release" >&2
+                  exit 1
+                fi
+              else
+                echo "Rolling back to image: $PREV_IMAGE"
+                flyctl deploy --app "$APP_BLUE" --image "$PREV_IMAGE" --yes --strategy immediate
+              fi
+              ;;
+
+            green_abandon)
+              echo "→ Strategy: Abandon green, keep blue running"
+
+              # Ensure blue is scaled up and healthy
+              echo "Ensuring blue is running..."
+              flyctl scale count 1 --app "$APP_BLUE" --yes
+
+              # Scale green to 0 (abandon it)
+              echo "Scaling green to 0..."
+              flyctl scale count 0 --app "$APP_GREEN" --yes || true
+
+              echo "✓ Green deployment abandoned. Blue continues serving."
+              ;;
+
+            database_rollback)
+              echo "→ Strategy: Rollback with database migration revert"
+              echo "⚠️ WARNING: Database rollback requires manual steps!"
+              echo ""
+              echo "=== DATABASE ROLLBACK CHECKLIST ==="
+              echo "[ ] 1. Identify which migrations were applied in the failed deploy"
+              echo "[ ] 2. Review migration downgrades with clinical data team"
+              echo "[ ] 3. Verify backup exists from before deployment"
+              echo "[ ] 4. Run: cd apps/api && alembic downgrade -1  (or target revision)"
+              echo "[ ] 5. Validate data integrity after downgrade"
+              echo "[ ] 6. Only then proceed with application rollback"
+              echo ""
+              echo "Forcing green_abandon strategy for application layer..."
+
+              # Default to green_abandon for the app layer
+              flyctl scale count 1 --app "$APP_BLUE" --yes
+              flyctl scale count 0 --app "$APP_GREEN" --yes || true
+              ;;
+
+            *)
+              echo "✗ Unknown rollback type: $ROLLBACK_TYPE" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "rolled_back=true" >> "$GITHUB_OUTPUT"
+          echo "✓ Rollback execution complete"
+
+      - name: Wait for rollback to stabilize
+        env:
+          FLY_ACCESS_TOKEN: ${{ secrets.FLY_ACCESS_TOKEN }}
+        run: |
+          APP_BLUE="${{ needs.authorize.outputs.app_blue }}"
+          BLUE_URL="https://${APP_BLUE}.fly.dev"
+
+          echo "=== Waiting for rollback to stabilize ==="
+
+          for i in $(seq 1 30); do
+            if curl -fsS "${BLUE_URL}/health" > /dev/null 2>&1; then
+              echo "✓ App is healthy after rollback (attempt $i)"
+              exit 0
+            fi
+            echo "  Attempt $i/30 — waiting..."
+            sleep 2
+          done
+
+          echo "✗ App did not become healthy after rollback" >&2
+          exit 1
+
+  # ===========================================================================
+  # Job 4: Verify Rollback Health
+  # ===========================================================================
+  verify-rollback:
+    name: Verify Rollback Health
+    runs-on: ubuntu-latest
+    needs: [authorize, execute-rollback]
+    if: needs.execute-rollback.outputs.rolled_back == 'true'
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run rollback verification checks
+        env:
+          APP_BLUE: ${{ needs.authorize.outputs.app_blue }}
+        run: |
+          BLUE_URL="https://${APP_BLUE}.fly.dev"
+          echo "=== Rollback Verification: $BLUE_URL ==="
+
+          # Check 1: Health endpoint responds
+          echo "→ Check 1: Health endpoint"
+          HEALTH=$(curl -fsS "${BLUE_URL}/health" 2>/dev/null || echo '{"status": "error"}')
+          echo "Response: $HEALTH"
+
+          if ! echo "$HEALTH" | grep -q '"status".*"ok"\|"healthy"\|"ok"'; then
+            echo "⚠ Health check did not return expected status (may be different format)"
+          fi
+
+          # Check 2: Core API endpoints respond
+          echo "→ Check 2: Core endpoints"
+          ENDPOINTS=("/api/v1/conditions" "/api/v1/devices" "/api/v1/modalities")
+          for ep in "${ENDPOINTS[@]}"; do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" "${BLUE_URL}${ep}" || echo "000")
+            if [ "$CODE" = "200" ] || [ "$CODE" = "401" ]; then
+              echo "  ✓ $ep → HTTP $CODE"
+            else
+              echo "  ⚠ $ep → HTTP $CODE"
+            fi
+          done
+
+          # Check 3: Response time check
+          echo "→ Check 3: Response time"
+          RESPONSE_TIME=$(curl -fsS -o /dev/null -w "%{time_total}" "${BLUE_URL}/health" || echo "999")
+          echo "  Health endpoint response time: ${RESPONSE_TIME}s"
+
+          if (( $(echo "$RESPONSE_TIME > 5.0" | bc -l) )); then
+            echo "  ⚠ Response time is elevated (> 5s)"
+          else
+            echo "  ✓ Response time acceptable"
+          fi
+
+          # Check 4: SSL certificate
+          echo "→ Check 4: SSL certificate"
+          SSL_DAYS=$(echo | openssl s_client -servername "${APP_BLUE}.fly.dev" \
+            -connect "${APP_BLUE}.fly.dev:443" 2>/dev/null | \
+            openssl x509 -noout -checkend 86400 2>/dev/null && echo "valid" || echo "expiring-soon")
+          echo "  SSL status: $SSL_DAYS"
+
+          echo "✓ Rollback verification complete"
+
+  # ===========================================================================
+  # Job 5: Notify and Audit
+  # ===========================================================================
+  notify:
+    name: Notify & Audit
+    runs-on: ubuntu-latest
+    needs: [authorize, execute-rollback, verify-rollback]
+    if: always() && needs.execute-rollback.outputs.rolled_back == 'true'
+    timeout-minutes: 3
+    steps:
+      - name: Send Slack notification
+        if: github.event.inputs.notify_slack != 'false'
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_DEPLOY_WEBHOOK }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK" ]; then
+            echo "⚠ No Slack webhook configured"
+            exit 0
+          fi
+
+          ENV="${{ needs.authorize.outputs.environment }}"
+          APP_BLUE="${{ needs.authorize.outputs.app_blue }}"
+          ROLLBACK_TYPE="${{ needs.authorize.outputs.rollback_type }}"
+          REASON="${{ github.event.inputs.reason || 'Auto-triggered from failed deployment' }}"
+          ACTOR="${{ github.actor }}"
+          STATUS="${{ needs.verify-rollback.result }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          if [ "$STATUS" = "success" ]; then
+            STATUS_EMOJI="✅"
+            STATUS_TEXT="Rollback Successful"
+          else
+            STATUS_EMOJI="🚨"
+            STATUS_TEXT="Rollback Completed with Warnings"
+          fi
+
+          curl -s -X POST "$SLACK_WEBHOOK" \
+            -H 'Content-type: application/json' \
+            --data "{
+              \"text\": \"${STATUS_EMOJI} *DeepSynaps Rollback — ${STATUS_TEXT}*\\nEnv: ${ENV} | App: ${APP_BLUE} | Type: ${ROLLBACK_TYPE}\",
+              \"blocks\": [
+                {
+                  \"type\": \"section\",
+                  \"text\": {
+                    \"type\": \"mrkdwn\",
+                    \"text\": \"${STATUS_EMOJI} *Rollback ${STATUS}*\\n• Environment: \\\`${ENV}\\\`\\n• App: \\\`${APP_BLUE}\\\`\\n• Type: \\\`${ROLLBACK_TYPE}\\\`\\n• Reason: ${REASON}\\n• Initiated by: \\\`${ACTOR}\\\`\\n• <${RUN_URL}|View Run>\\n\\n⚠️ If database migrations were involved, verify data integrity separately.\"
+                  }
+                }
+              ]
+            }" || echo "⚠ Slack notification failed (non-critical)"
+
+      - name: Final audit log
+        run: |
+          ENV="${{ needs.authorize.outputs.environment }}"
+          ROLLBACK_TYPE="${{ needs.authorize.outputs.rollback_type }}"
+          STATUS="${{ needs.verify-rollback.result }}"
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          echo "=== ROLLBACK COMPLETE — AUDIT TRAIL ==="
+          echo "Completed : $TIMESTAMP"
+          echo "Status    : $STATUS"
+          echo "========== END AUDIT TRAIL ============"

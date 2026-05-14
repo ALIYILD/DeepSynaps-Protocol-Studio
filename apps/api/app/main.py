@@ -269,6 +269,7 @@ from app.routers.rotation_policy_advisor_threshold_tuning_router import (
     router as rotation_policy_advisor_threshold_tuning_router,
 )
 from app.routers.treatment_sessions_router import router as treatment_sessions_router
+from app.monitoring.middleware import MetricsMiddleware, metrics_router
 from app.sentry_setup import init_sentry
 from app.settings import get_settings
 from app.services.brain_regions import list_brain_regions
@@ -447,6 +448,8 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title=settings.api_title, version=settings.api_version, lifespan=lifespan)
+# ── Prometheus metrics endpoint (must be before auth to allow unauthenticated scraping)
+app.include_router(metrics_router)
 app.include_router(auth_router)
 app.include_router(payments_router)
 app.include_router(agent_billing_router)
@@ -774,6 +777,12 @@ class MaxBodySizeMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(MaxBodySizeMiddleware)
+
+# ── Prometheus metrics collection middleware ─────────────────────────────────
+# Collects request count, duration, and in-progress gauges for all HTTP
+# requests. Labels use route templates (not raw URLs) to prevent cardinality
+# explosion. All labels are PHI-safe — no patient identifiers.
+app.add_middleware(MetricsMiddleware)
 
 
 @app.middleware("http")
@@ -1128,4 +1137,4 @@ app.mount("/static", StaticFiles(directory=str(_DATA_DIR)), name="static")
 # Serve React frontend — must be mounted after all API routes.
 # SPA fallback is handled by spa_fallback_middleware above.
 if _frontend_dist.exists():
-    app.mount("/", StaticFiles(directory=str(_frontend_dist), html=True), name="frontend")
+    app.mount("/", 
