@@ -146,3 +146,120 @@ test('parseMutation: invalid body → merge yields pending', () => {
   assert.equal(p.isValidResponse, false);
   assert.equal(mergeParsedMutationIntoLocalTask(t, p)._syncStatus, SYNC_STATUS.PENDING);
 });
+
+// ── Branch-coverage additions for merge + parse defensive paths ───────────
+
+test('mergePatientTasksFromServer: null/undefined local and server lists are tolerated', () => {
+  // Hits the (localTasks || []) and (serverTasks || []) || branches on
+  // lines 119-120 and 124, 168.
+  assert.deepStrictEqual(mergePatientTasksFromServer(null, null), []);
+  assert.deepStrictEqual(mergePatientTasksFromServer(undefined, undefined), []);
+});
+
+test('mergePatientTasksFromServer: server-only rows are appended as synced', () => {
+  // Hits the second for-loop (line 168) when consumedServer set is empty.
+  const out = mergePatientTasksFromServer([], [
+    { id: 'new', title: 'fresh', serverRevision: 5, serverUpdatedAt: '2026-04-15T00:00:00Z' },
+  ]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0]._syncStatus, SYNC_STATUS.SYNCED);
+  assert.equal(out[0].lastSyncedServerRevision, 5);
+});
+
+test('mergePatientTasksFromServer: local-only rows are kept verbatim', () => {
+  // Hits the `if (!s) out.push(local)` branch on line 126.
+  const local = [{ id: 'local-only', title: 'mine', _syncStatus: SYNC_STATUS.PENDING }];
+  const out = mergePatientTasksFromServer(local, []);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].title, 'mine');
+});
+
+test('mergePatientTasksFromServer: existing CONFLICT row sticks through merge', () => {
+  // Hits the CONFLICT branch on line 135.
+  const local = [{
+    id: 'c',
+    title: 'local',
+    _syncStatus: SYNC_STATUS.CONFLICT,
+    lastSyncedServerRevision: 1,
+  }];
+  const server = [{ id: 'c', title: 'remote', serverRevision: 9 }];
+  const out = mergePatientTasksFromServer(local, server);
+  assert.equal(out[0]._syncStatus, SYNC_STATUS.CONFLICT);
+  assert.equal(out[0].title, 'local');
+});
+
+test('mergePatientTasksFromServer: PENDING with baseline but no server advance keeps local', () => {
+  // Hits line 155: out.push(local) after `if (srev > lrev)` is false.
+  const local = [{
+    id: 'pending-stable',
+    title: 'mine',
+    _syncStatus: SYNC_STATUS.PENDING,
+    lastSyncedServerRevision: 5,
+  }];
+  const server = [{ id: 'pending-stable', title: 'remote', serverRevision: 5 }];
+  const out = mergePatientTasksFromServer(local, server);
+  assert.equal(out[0]._syncStatus, SYNC_STATUS.PENDING);
+  assert.equal(out[0].title, 'mine');
+});
+
+test('mergePatientTasksFromServer: default _syncStatus is SYNCED when missing', () => {
+  // Hits line 131: local._syncStatus || SYNC_STATUS.SYNCED falsy branch.
+  const local = [{ id: 'no-status', title: 'L' }]; // no _syncStatus
+  const server = [{ id: 'no-status', title: 'S', serverRevision: 7 }];
+  const out = mergePatientTasksFromServer(local, server);
+  assert.equal(out[0].title, 'S');
+  assert.equal(out[0]._syncStatus, SYNC_STATUS.SYNCED);
+});
+
+test('mergePatientTasksFromServer: missing serverRevision treats srev as 0', () => {
+  // Hits line 133: Number(s.serverRevision) || 0 fallback.
+  const local = [{
+    id: 'no-srev',
+    title: 'mine',
+    _syncStatus: SYNC_STATUS.PENDING,
+    lastSyncedServerRevision: 0,
+  }];
+  const server = [{ id: 'no-srev', title: 'remote' /* no serverRevision */ }];
+  const out = mergePatientTasksFromServer(local, server);
+  // srev (0) is not > lrev (0) → keep local pending.
+  assert.equal(out[0]._syncStatus, SYNC_STATUS.PENDING);
+});
+
+test('mergePatientTasksFromServer: synced row falls back to lastSyncedAt when serverUpdatedAt missing', () => {
+  // Hits line 162: s.serverUpdatedAt || s.lastSyncedAt fallback.
+  const local = [{ id: 'a', _syncStatus: SYNC_STATUS.SYNCED, lastSyncedServerRevision: 1 }];
+  const server = [{ id: 'a', serverRevision: 2, lastSyncedAt: '2026-04-12T09:00:00Z' /* no serverUpdatedAt */ }];
+  const out = mergePatientTasksFromServer(local, server);
+  assert.equal(out[0].lastSyncedAt, '2026-04-12T09:00:00Z');
+});
+
+test('mergePatientTasksFromServer: server-only row falls back to lastSyncedAt', () => {
+  // Hits line 170: s.serverUpdatedAt || s.lastSyncedAt fallback in second loop.
+  const out = mergePatientTasksFromServer([], [
+    { id: 'srv-only', serverRevision: 3, lastSyncedAt: '2026-04-13T00:00:00Z' /* no serverUpdatedAt */ },
+  ]);
+  assert.equal(out[0].lastSyncedAt, '2026-04-13T00:00:00Z');
+});
+
+test('parseMutation: missing serverRevision yields undefined revision', () => {
+  // Hits line 65: responseBody.serverRevision != null falsy branch.
+  const p = parseHomeProgramTaskMutationResponse({ id: 't', title: 'v1' });
+  assert.equal(p.revision.serverRevision, undefined);
+});
+
+test('parseMutation: legacyPutCreateHeader=\"true\" string also flips deprecation flag', () => {
+  // Hits the "=== 'true'" string side of the || on line 68.
+  const p = parseHomeProgramTaskMutationResponse(
+    { id: 't', serverRevision: 1 },
+    { legacyPutCreateHeader: 'true' },
+  );
+  assert.equal(p.deprecation.legacyPutCreate, true);
+});
+
+test('mergeParsedMutation: falls back to existing lastSyncedServerRevision when clean lacks serverRevision', () => {
+  // Hits line 100: clean.serverRevision ?? task.lastSyncedServerRevision branch.
+  const t = { id: 'x', lastSyncedServerRevision: 9, _syncStatus: SYNC_STATUS.SYNCING };
+  const parsed = parseHomeProgramTaskMutationResponse({ id: 'x', title: 'v2' }); // no serverRevision
+  const out = mergeParsedMutationIntoLocalTask(t, parsed);
+  assert.equal(out.lastSyncedServerRevision, 9);
+});

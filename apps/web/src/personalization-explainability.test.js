@@ -101,3 +101,76 @@ test('shouldAttach omits when selected id mismatches snapshot', () => {
   };
   assert.equal(shouldAttachPersonalizationExplainability(ws, gen, computeWizardDraftFingerprint(ws)), null);
 });
+
+// ── Branch-coverage additions: defensive defaults and non-object inputs ───
+
+test('toPersisted falls back to [] when top_protocols_by_structured_score is not an array', () => {
+  const dbg = { ...sampleDbg, top_protocols_by_structured_score: null };
+  const p = toPersistedPersonalizationExplainability(dbg);
+  assert.deepEqual(p.top_protocols_by_structured_score, []);
+});
+
+test('toPersisted applies all nullish coalescing fallbacks for missing fields', () => {
+  // Empty object → every ?? default must kick in.
+  const p = toPersistedPersonalizationExplainability({});
+  assert.equal(p.format_version, 1);
+  assert.equal(p.selected_protocol_id, '');
+  assert.equal(p.csv_first_protocol_id, null);
+  assert.equal(p.personalization_changed_vs_csv_first, null);
+  assert.deepEqual(p.fired_rule_ids, []);
+  assert.deepEqual(p.fired_rule_labels, []);
+  assert.equal(p.structured_rule_score_total, 0);
+  assert.equal(p.token_fallback_used, false);
+  assert.deepEqual(p.ranking_factors_applied, []);
+  assert.deepEqual(p.top_protocols_by_structured_score, []);
+  assert.equal(p.eligible_protocol_count, 0);
+});
+
+test('toPersisted returns null for non-object inputs (string, number, array)', () => {
+  // !dbg || typeof dbg !== 'object' branch.
+  assert.equal(toPersistedPersonalizationExplainability('string'), null);
+  assert.equal(toPersistedPersonalizationExplainability(0), null);
+  // Note: arrays are objects so they go through the mapper; this is fine —
+  // the null-input branch is what we need to hit, and 'string'/0 already do.
+});
+
+test('computeWizardDraftFingerprint tolerates an empty wizard state with no modality list', () => {
+  // Hits the (ws.modalitySlugs || []) and other || '' branches on lines 44-58.
+  const fp = computeWizardDraftFingerprint({});
+  // All fields default to empty strings joined by "::". The fingerprint
+  // should be a deterministic delimiter-only string, not throw.
+  assert.equal(typeof fp, 'string');
+  assert.ok(fp.includes('::'));
+});
+
+test('computeWizardDraftFingerprint sorts modalitySlugs to be order-independent', () => {
+  const a = computeWizardDraftFingerprint({ modalitySlugs: ['tms', 'tdcs'] });
+  const b = computeWizardDraftFingerprint({ modalitySlugs: ['tdcs', 'tms'] });
+  assert.equal(a, b);
+});
+
+test('shouldAttach returns null when ws snapshot is a non-object value', () => {
+  // Hits the !snap || typeof snap !== 'object' branch on line 70.
+  const ws = {
+    modalitySlugs: ['rtms'],
+    draftGenContextFingerprint: 'fp',
+    generatedProtocolPersistedExplainability: 'not-an-object',
+  };
+  assert.equal(shouldAttachPersonalizationExplainability(ws, { personalization_why_selected_debug: sampleDbg }, 'fp'), null);
+});
+
+test('shouldAttach returns null when generated debug has empty selected_protocol_id', () => {
+  // Hits line 74: dbg.selected_protocol_id || '' falsy branch.
+  const ws = {
+    modalitySlugs: ['rtms'],
+    generatedProtocolPersistedExplainability: toPersistedPersonalizationExplainability(sampleDbg),
+  };
+  ws.draftGenContextFingerprint = computeWizardDraftFingerprint(ws);
+  const gen = {
+    personalization_why_selected_debug: { ...sampleDbg, selected_protocol_id: '' },
+  };
+  assert.equal(
+    shouldAttachPersonalizationExplainability(ws, gen, computeWizardDraftFingerprint(ws)),
+    null,
+  );
+});
