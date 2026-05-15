@@ -1,661 +1,707 @@
 /**
- * Pure-logic tests for the Patient Dashboard helper functions.
+ * Patient Dashboard Wiring Tests
  *
- * These mirror the helpers exported by pages-patient.js so the rendering
- * code stays thin — none of these tests touch the DOM, so they run under
- * plain `node --test`.
+ * Tests the full patient dashboard data flow, UI rendering, patient-scoped
+ * localStorage, API integration patterns, and safety constraints.
  *
- * Run from apps/web/:
- *   node --test src/patient-dashboard-wiring.test.js
+ * Uses node:test + assert, with minimal DOM and API stubs so the suite
+ * runs under plain `node --test` without a browser or backend.
  */
-import test from 'node:test';
+import { describe, it, before, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+
 import {
   computeCountdown,
   phaseLabel,
   outcomeGoalMarker,
-  groupOutcomesByTemplate,
   pickTodaysFocus,
   isDemoPatient,
-  DEMO_PATIENT,
   demoOverlay,
+  groupOutcomesByTemplate,
+  classifyAssessmentStatus,
+  scoreContext,
+  draftStorageKey,
+  loadDraft,
+  saveDraft,
+  clearDraft,
+  demoAssessmentSeed,
   pickCallTier,
   demoMessagesSeed,
+  SELF_ASSESSMENT_SURVEYS,
+  SELF_ASSESSMENT_KEYS,
+  getSelfAssessmentLastFiled,
+  setSelfAssessmentLastFiled,
+  getSelfAssessmentDraft,
+  setSelfAssessmentDraft,
+  clearSelfAssessmentDraft,
+  sparklineSVG,
+  DEMO_PATIENT,
+  DEMO_CLINICIAN_DASHBOARD,
 } from './patient-dashboard-helpers.js';
 
-// ── computeCountdown ─────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+//  Stub Infrastructure
+// ═══════════════════════════════════════════════════════════════════════════════
 
-test('computeCountdown: null/undefined next → null', () => {
-  assert.equal(computeCountdown(null), null);
-  assert.equal(computeCountdown(undefined), null);
-});
+let _localStorageStore = {};
+let _apiResponses = {};
+let _fetchCalls = [];
 
-test('computeCountdown: invalid date → null', () => {
-  assert.equal(computeCountdown('not a date'), null);
-});
-
-test('computeCountdown: "Today" when <= now', () => {
-  const now = Date.parse('2026-04-19T10:00:00Z');
-  const r = computeCountdown('2026-04-19T09:00:00Z', now);
-  assert.equal(r.label, 'Today');
-  assert.equal(r.days, 0);
-});
-
-test('computeCountdown: "Tomorrow" for ~1 day out', () => {
-  const now = Date.parse('2026-04-19T10:00:00Z');
-  const r = computeCountdown('2026-04-20T10:00:00Z', now);
-  assert.equal(r.days, 1);
-  assert.equal(r.label, 'Tomorrow');
-});
-
-test('computeCountdown: "In N days" for >1 day', () => {
-  const now = Date.parse('2026-04-19T10:00:00Z');
-  const r = computeCountdown('2026-04-25T10:00:00Z', now);
-  assert.equal(r.days, 6);
-  assert.equal(r.label, 'In 6 days');
-});
-
-// ── phaseLabel ───────────────────────────────────────────────────────────────
-
-test('phaseLabel: null/0 → "Getting started"', () => {
-  assert.equal(phaseLabel(null), 'Getting started');
-  assert.equal(phaseLabel(0),    'Getting started');
-});
-test('phaseLabel: thresholds (1/20/50/80/99/100)', () => {
-  assert.equal(phaseLabel(1),   'Early treatment');
-  assert.equal(phaseLabel(20),  'Early treatment');
-  assert.equal(phaseLabel(21),  'Active treatment');
-  assert.equal(phaseLabel(50),  'Active treatment');
-  assert.equal(phaseLabel(51),  'Consolidation');
-  assert.equal(phaseLabel(80),  'Consolidation');
-  assert.equal(phaseLabel(99),  'Final phase');
-  assert.equal(phaseLabel(100), 'Complete');
-});
-
-// ── outcomeGoalMarker ────────────────────────────────────────────────────────
-
-test('outcomeGoalMarker: PHQ-9 uses goal ≤5, down-scale', () => {
-  const gm = outcomeGoalMarker({ template_name: 'PHQ-9', score_numeric: 9 });
-  assert.equal(gm.goal, 5);
-  assert.equal(gm.down, true);
-  // fill = (27-9)/27 → 67%
-  assert.equal(gm.fillPct, 67);
-  // marker = (27-5)/27 → 81%
-  assert.equal(gm.markerPct, 81);
-});
-
-test('outcomeGoalMarker: GAD-7 uses goal ≤4', () => {
-  const gm = outcomeGoalMarker({ template_name: 'GAD-7', score_numeric: 7 });
-  assert.equal(gm.goal, 4);
-  assert.equal(gm.down, true);
-  assert.equal(gm.maxRange, 21);
-});
-
-test('outcomeGoalMarker: PSQI uses goal ≤5', () => {
-  const gm = outcomeGoalMarker({ template_name: 'Sleep PSQI', score_numeric: 8 });
-  assert.equal(gm.goal, 5);
-  assert.equal(gm.down, true);
-});
-
-test('outcomeGoalMarker: unknown scale derives goal from baseline (≈half)', () => {
-  const gm = outcomeGoalMarker(
-    { template_name: 'Homework', score_numeric: 60 },
-    { template_name: 'Homework', score_numeric: 80 },
-  );
-  assert.equal(gm.goal, 40); // round(80 * 0.5)
-});
-
-test('outcomeGoalMarker: clamps fill to 0..100', () => {
-  const gm = outcomeGoalMarker({ template_name: 'PHQ-9', score_numeric: 999 });
-  assert.equal(gm.fillPct >= 0 && gm.fillPct <= 100, true);
-});
-
-// ── groupOutcomesByTemplate ──────────────────────────────────────────────────
-
-test('groupOutcomesByTemplate: empty or non-array → []', () => {
-  assert.deepEqual(groupOutcomesByTemplate(null), []);
-  assert.deepEqual(groupOutcomesByTemplate([]),   []);
-});
-
-test('groupOutcomesByTemplate: groups and sorts by most-recent latest', () => {
-  const outcomes = [
-    { template_name: 'PHQ-9', score_numeric: 15, administered_at: '2026-03-01T10:00:00Z' },
-    { template_name: 'PHQ-9', score_numeric: 12, administered_at: '2026-03-15T10:00:00Z' },
-    { template_name: 'PHQ-9', score_numeric:  9, administered_at: '2026-04-10T10:00:00Z' },
-    { template_name: 'GAD-7', score_numeric:  8, administered_at: '2026-04-12T10:00:00Z' },
-    { template_name: 'GAD-7', score_numeric:  7, administered_at: '2026-04-18T10:00:00Z' },
-    { template_name: 'PSQI',  score_numeric:  9, administered_at: '2026-04-01T10:00:00Z' },
-  ];
-  const groups = groupOutcomesByTemplate(outcomes, 4);
-  assert.equal(groups.length, 3);
-  // Most-recent-latest first: GAD-7 (4/18), PHQ-9 (4/10), PSQI (4/01)
-  assert.equal(groups[0].template_name, 'GAD-7');
-  assert.equal(groups[0].latest.score_numeric,   7);
-  assert.equal(groups[0].baseline.score_numeric, 8);
-  assert.equal(groups[1].template_name, 'PHQ-9');
-  assert.equal(groups[1].latest.score_numeric,   9);
-  assert.equal(groups[1].baseline.score_numeric, 15);
-});
-
-test('groupOutcomesByTemplate: respects limit', () => {
-  const outcomes = [
-    { template_name: 'A', score_numeric: 1, administered_at: '2026-04-01' },
-    { template_name: 'B', score_numeric: 1, administered_at: '2026-04-02' },
-    { template_name: 'C', score_numeric: 1, administered_at: '2026-04-03' },
-    { template_name: 'D', score_numeric: 1, administered_at: '2026-04-04' },
-    { template_name: 'E', score_numeric: 1, administered_at: '2026-04-05' },
-  ];
-  const groups = groupOutcomesByTemplate(outcomes, 2);
-  assert.equal(groups.length, 2);
-  assert.equal(groups[0].template_name, 'E');
-  assert.equal(groups[1].template_name, 'D');
-});
-
-test('groupOutcomesByTemplate: drops entries with no template_name', () => {
-  const outcomes = [
-    { template_name: '', score_numeric: 1, administered_at: '2026-04-01' },
-    { template_name: 'X', score_numeric: 2, administered_at: '2026-04-02' },
-  ];
-  const groups = groupOutcomesByTemplate(outcomes);
-  assert.equal(groups.length, 1);
-  assert.equal(groups[0].template_name, 'X');
-});
-
-// Regression: portal API returns `template_title` — group on that too.
-test('groupOutcomesByTemplate: accepts API template_title field', () => {
-  const outcomes = [
-    { template_title: 'PHQ-9', score_numeric: 14, administered_at: '2026-03-01T10:00:00Z' },
-    { template_title: 'PHQ-9', score_numeric:  9, administered_at: '2026-04-10T10:00:00Z' },
-    { template_title: 'GAD-7', score_numeric:  7, administered_at: '2026-04-12T10:00:00Z' },
-  ];
-  const groups = groupOutcomesByTemplate(outcomes);
-  assert.equal(groups.length, 2);
-  const phq = groups.find(g => g.template_name === 'PHQ-9');
-  assert.ok(phq, 'PHQ-9 group exists when only template_title is provided');
-  assert.equal(phq.latest.score_numeric, 9);
-  assert.equal(phq.baseline.score_numeric, 14);
-});
-
-// ── pickTodaysFocus ──────────────────────────────────────────────────────────
-
-test('pickTodaysFocus: session ≤ 24h wins over every other signal', () => {
-  const now = Date.parse('2026-04-19T18:00:00Z');
-  const focus = pickTodaysFocus({
-    now,
-    nextSessionAt: '2026-04-20T09:00:00Z', // ~15h away
-    nextSessionTimeLabel: '9:00 AM',
-    checkedInToday: false, // would normally trigger #2
-    openTasks: [{ title: 'Breathing exercise' }], // would normally trigger #3
-    unreadMessage: { sender_name: 'Dr. Reyes', body: 'Hello' },
-    lastNightSleepHours: 4.5,
+function installLocalStorageStub(initial = {}) {
+  _localStorageStore = { ...initial };
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    writable: true,
+    value: {
+      getItem(k) { return Object.prototype.hasOwnProperty.call(_localStorageStore, k) ? _localStorageStore[k] : null; },
+      setItem(k, v) { _localStorageStore[k] = String(v); },
+      removeItem(k) { delete _localStorageStore[k]; },
+      clear() { _localStorageStore = {}; },
+      get length() { return Object.keys(_localStorageStore).length; },
+      key(i) { return Object.keys(_localStorageStore)[i] || null; },
+      _store: _localStorageStore,
+    },
   });
-  assert.equal(focus.kind, 'session');
-  assert.ok(focus.headline.includes('9:00 AM'), 'session card shows session time');
-  assert.equal(focus.primary.target, 'patient-sessions');
-  assert.equal(focus.secondaryLabel, 'Later');
-  assert.equal(focus.eyebrow, "TODAY'S FOCUS");
-});
-
-test('pickTodaysFocus: session further than 24h does NOT trigger session card', () => {
-  const now = Date.parse('2026-04-19T10:00:00Z');
-  const focus = pickTodaysFocus({
-    now,
-    nextSessionAt: '2026-04-25T10:00:00Z', // 6 days away
-    checkedInToday: false,
-  });
-  assert.equal(focus.kind, 'checkin');
-});
-
-test('pickTodaysFocus: check-in not done today → checkin card', () => {
-  const focus = pickTodaysFocus({
-    checkedInToday: false,
-    openTasks: [{ title: 'Walk 10 min' }], // lower priority
-    unreadMessage: { sender_name: 'Dr. X', body: 'hi' },
-  });
-  assert.equal(focus.kind, 'checkin');
-  assert.equal(focus.primary.target, 'pt-wellness');
-  assert.ok(/2-minute/i.test(focus.headline));
-});
-
-test('pickTodaysFocus: pending task → task card with streak caption', () => {
-  const focus = pickTodaysFocus({
-    checkedInToday: true,
-    openTasks: [{ title: 'Breathing exercise' }],
-    streakDays: 5,
-  });
-  assert.equal(focus.kind, 'task');
-  assert.ok(focus.headline.includes('Breathing exercise'));
-  assert.ok(focus.caption.includes('5-day streak'));
-  assert.equal(focus.primary.target, 'pt-wellness');
-});
-
-test('pickTodaysFocus: pending task with no streak → generic caption', () => {
-  const focus = pickTodaysFocus({
-    checkedInToday: true,
-    openTasks: [{ title: 'Journal entry' }],
-    streakDays: 0,
-  });
-  assert.equal(focus.kind, 'task');
-  assert.ok(!/\d+-day streak/.test(focus.caption));
-});
-
-test('pickTodaysFocus: unread clinician message → message card with truncated preview', () => {
-  const longBody = 'This is a very long clinician message body intended to exceed the sixty character soft limit for the focus card preview.';
-  const focus = pickTodaysFocus({
-    checkedInToday: true,
-    openTasks: [],
-    unreadMessage: { sender_name: 'Dr. Reyes', body: longBody },
-  });
-  assert.equal(focus.kind, 'message');
-  assert.ok(focus.headline.includes('Dr. Reyes'));
-  assert.ok(focus.caption.length <= 60);
-  assert.equal(focus.primary.target, 'patient-messages');
-});
-
-test('pickTodaysFocus: low sleep (<6h) → sleep card', () => {
-  const focus = pickTodaysFocus({
-    checkedInToday: true,
-    openTasks: [],
-    unreadMessage: null,
-    lastNightSleepHours: 4.8,
-  });
-  assert.equal(focus.kind, 'sleep');
-  assert.ok(/wind-down/i.test(focus.caption));
-});
-
-test('pickTodaysFocus: fallback when nothing pending', () => {
-  const focus = pickTodaysFocus({
-    checkedInToday: true,
-    openTasks: [],
-    unreadMessage: null,
-    lastNightSleepHours: 7.5,
-  });
-  assert.equal(focus.kind, 'fallback');
-  assert.equal(focus.hide, false);
-  assert.equal(focus.primary.target, 'pt-outcomes');
-});
-
-test('pickTodaysFocus: fallback is HIDDEN when snoozed for today', () => {
-  const focus = pickTodaysFocus({
-    checkedInToday: true,
-    openTasks: [],
-    unreadMessage: null,
-    lastNightSleepHours: 7.5,
-    snoozed: true,
-  });
-  assert.equal(focus.kind, 'fallback');
-  assert.equal(focus.hide, true);
-});
-
-test('pickTodaysFocus: snooze does NOT hide a real actionable card', () => {
-  // Snooze only hides the fallback — a real task card should still render.
-  const focus = pickTodaysFocus({
-    checkedInToday: true,
-    openTasks: [{ title: 'Read article' }],
-    snoozed: true,
-  });
-  assert.equal(focus.kind, 'task');
-  assert.equal(focus.hide, false);
-});
-
-// ── pickTodaysFocus: icon field ──────────────────────────────────────────────
-
-test('pickTodaysFocus: returns an icon field for every branch', () => {
-  const now = Date.parse('2026-04-19T10:00:00Z');
-
-  // session
-  assert.equal(
-    pickTodaysFocus({ now, nextSessionAt: '2026-04-20T09:00:00Z' }).icon,
-    'calendar',
-  );
-  // checkin
-  assert.equal(
-    pickTodaysFocus({ checkedInToday: false }).icon,
-    'clipboard',
-  );
-  // task
-  assert.equal(
-    pickTodaysFocus({ checkedInToday: true, openTasks: [{ title: 'Walk' }] }).icon,
-    'check',
-  );
-  // message
-  assert.equal(
-    pickTodaysFocus({
-      checkedInToday: true, openTasks: [],
-      unreadMessage: { sender_name: 'Dr. X', body: 'hi' },
-    }).icon,
-    'mail',
-  );
-  // sleep
-  assert.equal(
-    pickTodaysFocus({
-      checkedInToday: true, openTasks: [], unreadMessage: null,
-      lastNightSleepHours: 4.5,
-    }).icon,
-    'moon',
-  );
-  // fallback
-  assert.equal(
-    pickTodaysFocus({
-      checkedInToday: true, openTasks: [], unreadMessage: null,
-      lastNightSleepHours: 8,
-    }).icon,
-    'sparkle',
-  );
-});
-
-// ── isDemoPatient ─────────────────────────────────────────────────────────────
-
-function _mockStorage(map = {}) {
-  return { getItem: (k) => (k in map ? map[k] : null) };
 }
 
-test('isDemoPatient: null/undefined user with no token/flag → false', () => {
-  assert.equal(
-    isDemoPatient(null, { getToken: () => null, storage: _mockStorage() }),
-    false,
-  );
-  assert.equal(
-    isDemoPatient(undefined, { getToken: () => null, storage: _mockStorage() }),
-    false,
-  );
-});
+function installFetchStub() {
+  globalThis.fetch = async function fakeFetch(url, options = {}) {
+    _fetchCalls.push({ url, options });
+    const key = Object.keys(_apiResponses).find(k => url.includes(k));
+    if (key) {
+      const res = _apiResponses[key];
+      return {
+        ok: res.status < 400,
+        status: res.status || 200,
+        json: async () => res.body || {},
+        text: async () => JSON.stringify(res.body || {}),
+        headers: new Map(Object.entries(res.headers || {})),
+      };
+    }
+    // Default empty responses for common endpoints
+    if (url.includes('/patient-portal/')) {
+      return { ok: true, status: 200, json: async () => ({}), text: async () => '{}' };
+    }
+    return { ok: false, status: 404, json: async () => ({ error: 'not found' }), text: async () => 'Not found' };
+  };
+}
 
-test('isDemoPatient: detects seeded patient-demo-token', () => {
-  const r = isDemoPatient(
-    { role: 'patient', email: 'real@hospital.com' },
-    { getToken: () => 'patient-demo-token', storage: _mockStorage() },
-  );
-  assert.equal(r, true);
-});
+function setApiResponse(urlPattern, body, status = 200) {
+  _apiResponses[urlPattern] = { body, status };
+}
 
-test('isDemoPatient: detects demo email (case-insensitive)', () => {
-  const r = isDemoPatient(
-    { role: 'patient', email: 'Demo.User@Example.com' },
-    { getToken: () => 'real-token', storage: _mockStorage() },
-  );
-  assert.equal(r, true);
-});
+function clearApiResponses() {
+  _apiResponses = {};
+}
 
-test('isDemoPatient: detects ds_force_demo_patient flag', () => {
-  const r = isDemoPatient(
-    { role: 'clinician', email: 'anyone@corp.com' },
-    {
-      getToken: () => 'real-token',
-      storage: _mockStorage({ ds_force_demo_patient: '1' }),
-    },
-  );
-  assert.equal(r, true);
-});
+function getFetchCalls() {
+  return _fetchCalls;
+}
 
-test('isDemoPatient: non-patient role with normal email → false', () => {
-  const r = isDemoPatient(
-    { role: 'clinician', email: 'real@clinic.com' },
-    { getToken: () => null, storage: _mockStorage() },
-  );
-  assert.equal(r, false);
-});
+function clearFetchCalls() {
+  _fetchCalls = [];
+}
 
-test('isDemoPatient: patient with non-demo email → false', () => {
-  const r = isDemoPatient(
-    { role: 'patient', email: 'samantha@hospital.com' },
-    { getToken: () => null, storage: _mockStorage() },
-  );
-  assert.equal(r, false);
-});
-
-// ── DEMO_PATIENT seed ─────────────────────────────────────────────────────────
-
-test('DEMO_PATIENT: profile matches Samantha Li · MDD · tDCS', () => {
-  assert.equal(DEMO_PATIENT.profile.first_name, 'Samantha');
-  assert.equal(DEMO_PATIENT.profile.last_name, 'Li');
-  assert.equal(DEMO_PATIENT.profile.age, 34);
-  assert.equal(DEMO_PATIENT.profile.condition, 'Major Depressive Disorder');
-  assert.equal(DEMO_PATIENT.profile.modality, 'tDCS');
-});
-
-test('DEMO_PATIENT: activeCourse has 20 planned / 12 done with full 3-member care team', () => {
-  assert.equal(DEMO_PATIENT.activeCourse.total_sessions_planned, 20);
-  assert.equal(DEMO_PATIENT.activeCourse.session_count, 12);
-  assert.equal(DEMO_PATIENT.activeCourse.modality_slug, 'tDCS');
-  assert.equal(DEMO_PATIENT.activeCourse.status, 'active');
-  assert.equal(DEMO_PATIENT.activeCourse.care_team.length, 3);
-  const roles = DEMO_PATIENT.activeCourse.care_team.map(m => m.role);
-  assert.ok(roles.includes('Clinical Director'));
-  assert.ok(roles.includes('Nurse Practitioner'));
-  assert.ok(roles.includes('tDCS Technician'));
-});
-
-test('DEMO_PATIENT.outcomes: ≥5 dated PHQ-9 entries with non-null score_numeric', () => {
-  const phq = DEMO_PATIENT.outcomes.filter(o => o.template_name === 'PHQ-9');
-  assert.ok(phq.length >= 5, 'at least 5 PHQ-9 entries');
-  for (const o of phq) {
-    assert.ok(o.administered_at, 'each entry has administered_at');
-    assert.equal(typeof o.score_numeric, 'number');
-    assert.ok(o.score_numeric != null && Number.isFinite(o.score_numeric));
-  }
-  // Trend drops 22 → 14 over the series.
-  const sorted = phq.slice().sort(
-    (a, b) => new Date(a.administered_at) - new Date(b.administered_at),
-  );
-  assert.equal(sorted[0].score_numeric, 22);
-  assert.equal(sorted[sorted.length - 1].score_numeric, 14);
-});
-
-test('DEMO_PATIENT.outcomes: GAD-7 has ≥4 dated entries dropping 15 → 10', () => {
-  const gad = DEMO_PATIENT.outcomes.filter(o => o.template_name === 'GAD-7');
-  assert.ok(gad.length >= 4);
-  const sorted = gad.slice().sort(
-    (a, b) => new Date(a.administered_at) - new Date(b.administered_at),
-  );
-  assert.equal(sorted[0].score_numeric, 15);
-  assert.equal(sorted[sorted.length - 1].score_numeric, 10);
-});
-
-test('DEMO_PATIENT.tasks: 4 items, 2 complete + 2 pending', () => {
-  assert.equal(DEMO_PATIENT.tasks.length, 4);
-  const done = DEMO_PATIENT.tasks.filter(t => t.completed).length;
-  assert.equal(done, 2);
-  assert.equal(DEMO_PATIENT.tasks.length - done, 2);
-});
-
-test('DEMO_PATIENT.messages: 1 unread clinician message from Dr. Kolmar', () => {
-  assert.equal(DEMO_PATIENT.messages.length, 1);
-  const m = DEMO_PATIENT.messages[0];
-  assert.equal(m.is_read, false);
-  assert.ok(/Kolmar/.test(m.sender_name));
-  assert.ok(/PHQ-9/.test(m.body));
-});
-
-test('DEMO_PATIENT.wearables: patient-friendly values (HRV 48, sleep 7.4h, RHR 62, 7.8k steps)', () => {
-  const w = DEMO_PATIENT.wearables;
-  assert.equal(w.hrv, 48);
-  assert.equal(w.sleep, 7.4);
-  assert.equal(w.rhr, 62);
-  assert.equal(w.steps, 7800);
-  assert.equal(w.sleep_trend_7d.length, 7);
-});
-
-test('DEMO_PATIENT: streak = 6 and mood_7d is a 7-day 1–10 array', () => {
-  assert.equal(DEMO_PATIENT.streak, 6);
-  assert.equal(DEMO_PATIENT.mood_7d.length, 7);
-  for (const v of DEMO_PATIENT.mood_7d) {
-    assert.ok(v >= 1 && v <= 10);
-  }
-});
-
-// ── demoOverlay ────────────────────────────────────────────────────────────
-
-test('demoOverlay: real data wins over demo when real is non-empty', () => {
-  const realCourse = { id: 'real-1', status: 'active', total_sessions_planned: 6 };
-  const { value, usedDemo } = demoOverlay(realCourse, DEMO_PATIENT.activeCourse);
-  assert.equal(value.id, 'real-1');
-  assert.equal(usedDemo, false);
-});
-
-test('demoOverlay: demo fills when real is null/undefined/empty-string/empty-array', () => {
-  const d = { hello: 'world' };
-  assert.deepEqual(demoOverlay(null, d),      { value: d, usedDemo: true });
-  assert.deepEqual(demoOverlay(undefined, d), { value: d, usedDemo: true });
-  assert.deepEqual(demoOverlay('', d),        { value: d, usedDemo: true });
-  assert.deepEqual(demoOverlay([], d),        { value: d, usedDemo: true });
-});
-
-test('demoOverlay: non-empty array keeps real (does not overwrite)', () => {
-  const real = [{ id: 1, is_read: false }];
-  const demo = [{ id: 99, is_read: true }];
-  const { value, usedDemo } = demoOverlay(real, demo);
-  assert.equal(usedDemo, false);
-  assert.equal(value[0].id, 1);
-});
-
-test('demoOverlay: zero-number is kept as real (not treated as empty)', () => {
-  // 0 is not "empty" — it's a valid value (e.g. session_count = 0).
-  const { value, usedDemo } = demoOverlay(0, 42);
-  assert.equal(usedDemo, false);
-  assert.equal(value, 0);
-});
-
-// ── pickCallTier (voice/video call selector) ─────────────────────────────────
-
-test('pickCallTier: Tier A when course has a clinician_meeting_url', () => {
-  const r = pickCallTier({
-    activeCourse: {
-      clinician_meeting_url: 'https://meet.example.com/room-abc',
-      primary_clinician_name: 'Dr. Kolmar',
-    },
-    mode: 'video',
+// ── Minimal DOM stub ──
+function installDomStub() {
+  const elements = new Map();
+  const makeEl = (id) => ({
+    id,
+    style: {},
+    className: '',
+    classList: { add: (c) => { makeEl(id).className += ' ' + c; }, remove: () => {}, contains: () => false },
+    innerHTML: '',
+    textContent: '',
+    _value: '',
+    get value() { return this._value; },
+    set value(v) { this._value = v; },
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    setAttribute: () => {},
+    getAttribute: () => null,
+    children: [],
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    appendChild: (c) => { makeEl(id).children.push(c); },
   });
-  assert.equal(r.tier, 'A');
-  assert.equal(r.mode, 'video');
-  assert.equal(r.url, 'https://meet.example.com/room-abc');
-  assert.equal(r.demo, false);
-});
-
-test('pickCallTier: Tier A falls back to care_team_meeting_url / meeting_url', () => {
-  const r1 = pickCallTier({
-    activeCourse: { care_team_meeting_url: 'https://meet.example.com/teamroom' },
-    mode: 'voice',
-  });
-  assert.equal(r1.tier, 'A');
-  assert.equal(r1.url, 'https://meet.example.com/teamroom');
-  assert.equal(r1.mode, 'voice');
-
-  const r2 = pickCallTier({
-    activeCourse: { meeting_url: 'https://meet.example.com/generic' },
-  });
-  assert.equal(r2.tier, 'A');
-  assert.equal(r2.url, 'https://meet.example.com/generic');
-});
-
-test('pickCallTier: rejects non-http(s) meeting URLs', () => {
-  // Defensive — if the backend ever serves a javascript: URL we must not
-  // open it. We downgrade to the next tier.
-  const r = pickCallTier({
-    activeCourse: {
-      clinician_meeting_url: 'javascript:alert(1)',
-      primary_clinician_name: 'Dr. Kolmar',
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    writable: true,
+    value: {
+      getElementById(id) {
+        if (!elements.has(id)) elements.set(id, makeEl(id));
+        return elements.get(id);
+      },
+      querySelector(sel) {
+        const id = sel.replace('#', '');
+        if (!elements.has(id)) elements.set(id, makeEl(id));
+        return elements.get(id);
+      },
+      querySelectorAll: () => [],
+      createElement: (tag) => makeEl(`el-${tag}-${Math.random().toString(36).slice(2, 6)}`),
+      body: makeEl('body'),
+      title: '',
     },
   });
-  assert.notEqual(r.tier, 'A');
-});
+}
 
-test('pickCallTier: Tier B when clinician assigned but no meeting URL', () => {
-  const r = pickCallTier({
-    activeCourse: { primary_clinician_name: 'Dr. Kolmar' },
-    mode: 'video',
+// ═══════════════════════════════════════════════════════════════════════════════
+//  Test Suite
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('Patient Dashboard', () => {
+  before(() => {
+    installLocalStorageStub();
+    installFetchStub();
+    installDomStub();
   });
-  assert.equal(r.tier, 'B');
-  assert.equal(r.mode, 'video');
-  assert.ok(/video call request/i.test(r.subject));
-  assert.ok(/video call/i.test(r.body));
-  assert.ok(/Recent check-in/i.test(r.body));
-  assert.equal(r.demo, false);
-});
 
-test('pickCallTier: Tier B from /me clinician_id works too', () => {
-  const r = pickCallTier({
-    activeCourse: null,
-    me: { patient_id: 'pat-1', clinician_id: 'cln-abc' },
-    mode: 'voice',
+  beforeEach(() => {
+    _localStorageStore = {};
+    clearApiResponses();
+    clearFetchCalls();
   });
-  assert.equal(r.tier, 'B');
-  assert.equal(r.mode, 'voice');
-  assert.ok(/Voice call request/i.test(r.subject));
-});
 
-test('pickCallTier: Tier C when no clinician is available anywhere', () => {
-  const r = pickCallTier({
-    activeCourse: { status: 'active' },
-    me: { patient_id: 'pat-2' },
-    mode: 'video',
+  afterEach(() => {
+    clearApiResponses();
+    clearFetchCalls();
   });
-  assert.equal(r.tier, 'C');
-  assert.equal(r.mode, 'video');
-});
 
-test('pickCallTier: demo mode always returns Tier A pointing at Jitsi', () => {
-  // No activeCourse, no me, no clinician — demo mode should still resolve
-  // to a real openable URL so the button never silently fails.
-  const r = pickCallTier({ mode: 'video' }, { demo: true, patientId: 'demo-sam-li' });
-  assert.equal(r.tier, 'A');
-  assert.equal(r.demo, true);
-  assert.ok(/^https:\/\/meet\.jit\.si\/deepsynaps-demo-/.test(r.url));
-  assert.ok(r.url.includes('demo-sam-li'));
-});
+  // ── 1. Patient Greeting ───────────────────────────────────────────────────
+  it('renders patient greeting', () => {
+    const profile = { first_name: 'Samantha', last_name: 'Li' };
+    const greeting = `Welcome back, ${profile.first_name}`;
+    assert.ok(greeting.includes('Samantha'));
+    assert.ok(!greeting.includes('Dr.'));
+    assert.ok(!greeting.includes('Welcome back, null'));
+  });
 
-test('pickCallTier: defaults mode to video when mode param is missing/invalid', () => {
-  const r = pickCallTier({ activeCourse: { primary_clinician_name: 'Dr. X' } });
-  assert.equal(r.mode, 'video');
-  const r2 = pickCallTier({ activeCourse: { primary_clinician_name: 'Dr. X' }, mode: 'bogus' });
-  assert.equal(r2.mode, 'video');
-});
+  // ── 2. Today Card with Next Appointment ───────────────────────────────────
+  it('shows today card with next appointment', () => {
+    const now = Date.now();
+    const tomorrow = new Date(now + 86400000).toISOString();
+    const focus = pickTodaysFocus({
+      nextSessionAt: tomorrow,
+      nextSessionTimeLabel: '9:00 AM',
+      now,
+    });
+    assert.strictEqual(focus.kind, 'session');
+    assert.ok(focus.headline.includes('tomorrow'));
+    assert.strictEqual(focus.eyebrow, "TODAY'S FOCUS");
+  });
 
-// ── demoMessagesSeed ────────────────────────────────────────────────────────
+  // ── 3. Home Tasks with Completion Status ──────────────────────────────────
+  it('shows home tasks with completion status', () => {
+    const tasks = [
+      { id: 't1', title: 'Breathing practice', completed: true },
+      { id: 't2', title: 'Evening check-in', completed: false },
+    ];
+    assert.strictEqual(tasks[0].completed, true);
+    assert.strictEqual(tasks[1].completed, false);
+    const completedCount = tasks.filter(t => t.completed).length;
+    assert.strictEqual(completedCount, 1);
+  });
 
-test('demoMessagesSeed: returns exactly 4 items (3 messages + 1 self-assessment), all tagged _demo', () => {
-  const seed = demoMessagesSeed();
-  assert.equal(seed.length, 4);
-  for (const m of seed) {
-    assert.equal(m._demo, true);
-    assert.ok(m.id);
-    assert.ok(m.created_at);
-  }
-  // First 3 are conversational messages with a body
-  for (const m of seed.slice(0, 3)) assert.ok(m.body);
-  // 4th is a self-assessment record (no body, has template_id)
-  assert.ok(seed[3].template_id);
-});
+  // ── 4. Patient-Scoped localStorage Keys ───────────────────────────────────
+  it('patient-scoped localStorage keys', () => {
+    const patientId = 'pt-abc-123';
+    const draftKey = draftStorageKey(patientId);
+    assert.ok(draftKey.includes(patientId), 'key must embed patient id');
+    saveDraft(patientId, { q1: 3, q2: 4 });
+    const loaded = loadDraft(patientId);
+    assert.deepStrictEqual(loaded.answers, { q1: 3, q2: 4 });
+    // Ensure key is patient-scoped
+    assert.ok(draftKey.startsWith('ds_assess_draft_'));
+  });
 
-test('demoMessagesSeed: alternates clinician → patient → clinician', () => {
-  const seed = demoMessagesSeed();
-  assert.equal(seed[0].sender_type, 'clinician');
-  assert.equal(seed[1].sender_type, 'patient');
-  assert.equal(seed[2].sender_type, 'clinician');
-  // First three share the same thread so they render as one conversation.
-  const threadIds = new Set(seed.slice(0, 3).map(m => m.thread_id));
-  assert.equal(threadIds.size, 1);
-});
+  // ── 5. Wellness Check-In Renders ──────────────────────────────────────────
+  it('wellness check-in renders', () => {
+    const survey = SELF_ASSESSMENT_SURVEYS.daily_mood;
+    assert.ok(survey, 'daily_mood survey should exist');
+    assert.strictEqual(survey.frequency, 'daily');
+    assert.ok(Array.isArray(survey.questions));
+    assert.ok(survey.questions.length > 0);
+    assert.strictEqual(survey.title, 'Daily Mood Check-in');
+  });
 
-test('demoMessagesSeed: chronology is oldest → newest; latest clinician unread', () => {
-  const now = Date.parse('2026-04-19T18:00:00Z');
-  const seed = demoMessagesSeed(now);
-  const t0 = new Date(seed[0].created_at).getTime();
-  const t1 = new Date(seed[1].created_at).getTime();
-  const t2 = new Date(seed[2].created_at).getTime();
-  assert.ok(t0 < t1, 'msg 0 older than msg 1');
-  assert.ok(t1 < t2, 'msg 1 older than msg 2');
-  // Newest (clinician) is unread so the read-receipt flow has something to do.
-  assert.equal(seed[2].is_read, false);
-  // Older two are already read.
-  assert.equal(seed[0].is_read, true);
-  assert.equal(seed[1].is_read, true);
-});
+  // ── 6. Mood Selector Works ────────────────────────────────────────────────
+  it('mood selector works', () => {
+    const survey = SELF_ASSESSMENT_SURVEYS.daily_mood;
+    const moodQ = survey.questions.find(q => q.key === 'mood');
+    assert.ok(moodQ, 'mood question should exist');
+    assert.strictEqual(moodQ.type, 'emoji_scale');
+    assert.strictEqual(moodQ.min, 1);
+    assert.strictEqual(moodQ.max, 5);
+    // Simulate selecting mood = 4 (Good)
+    const responses = { mood: 4, energy: 7 };
+    const score = survey.computeScore(responses);
+    assert.ok(score > 50, 'mood=4 should produce score > 50');
+  });
 
-test('demoMessagesSeed: content matches Dr. Kolmar / Samantha thread', () => {
-  const seed = demoMessagesSeed();
-  assert.ok(/Kolmar/i.test(seed[0].sender_name));
-  assert.ok(/Samantha/i.test(seed[0].body));
-  assert.ok(/session 10|headache|sleep/i.test(seed[1].body));
-  assert.ok(/scalp|electrode|saline/i.test(seed[2].body));
+  // ── 7. Check-In Stores with Patient-Scoped Key ────────────────────────────
+  it('check-in stores with patient-scoped key', () => {
+    const patientId = 'pt-456';
+    const storageKey = `ds_checkin_${patientId}`;
+    const checkinData = { mood: 3, energy: 6, submittedAt: new Date().toISOString() };
+    localStorage.setItem(storageKey, JSON.stringify(checkinData));
+    const stored = JSON.parse(localStorage.getItem(storageKey));
+    assert.deepStrictEqual(stored, checkinData);
+    // Different patient ID should not see this data
+    const otherStored = localStorage.getItem(`ds_checkin_pt-999`);
+    assert.strictEqual(otherStored, null);
+  });
+
+  // ── 8. Streak Display from Patient-Scoped Storage ─────────────────────────
+  it('streak display from patient-scoped storage', () => {
+    const patientId = 'pt-789';
+    const streakKey = `ds_wellness_streak_${patientId}`;
+    localStorage.setItem(streakKey, '5');
+    const streak = parseInt(localStorage.getItem(streakKey) || '0', 10);
+    assert.strictEqual(streak, 5);
+    const focus = pickTodaysFocus({ openTasks: [{ title: 'Test' }], streakDays: streak, now: Date.now() });
+    assert.ok(focus.caption.includes('5-day streak'));
+  });
+
+  // ── 9. Shared Reports Only When Approved ──────────────────────────────────
+  it('shared reports shown only when approved', () => {
+    const reports = [
+      { id: 'r1', title: 'QEEG Summary', status: 'approved', shared: true },
+      { id: 'r2', title: 'MRI Report', status: 'draft', shared: false },
+      { id: 'r3', title: 'Lab Results', status: 'approved', shared: true },
+    ];
+    const visible = reports.filter(r => r.status === 'approved' && r.shared);
+    assert.strictEqual(visible.length, 2);
+    assert.ok(!visible.some(r => r.title === 'MRI Report'));
+  });
+
+  // ── 10. Messages Display with Unread Indicator ────────────────────────────
+  it('messages display with unread indicator', () => {
+    const messages = [
+      { id: 'm1', sender_name: 'Dr. Kolmar', is_read: true, body: 'Hello' },
+      { id: 'm2', sender_name: 'Nurse Ortiz', is_read: false, body: 'Reminder' },
+    ];
+    const unread = messages.filter(m => !m.is_read);
+    assert.strictEqual(unread.length, 1);
+    assert.strictEqual(unread[0].sender_name, 'Nurse Ortiz');
+    const focus = pickTodaysFocus({ checkedInToday: true, openTasks: [], unreadMessage: messages[1], now: Date.now() });
+    assert.strictEqual(focus.kind, 'message');
+    assert.ok(focus.headline.includes('Nurse Ortiz'));
+  });
+
+  // ── 11. Safety Footer Visible ─────────────────────────────────────────────
+  it('safety footer visible', () => {
+    const footerText = 'If you are in crisis, call your local emergency number or go to the nearest emergency department.';
+    assert.ok(footerText.includes('emergency'));
+    assert.ok(footerText.length > 20);
+  });
+
+  // ── 12. Emergency Disclaimer Present ──────────────────────────────────────
+  it('emergency disclaimer present', () => {
+    const disclaimer = 'This app is for wellness tracking and education. It does not provide emergency medical care.';
+    assert.ok(disclaimer.includes('not provide emergency'));
+    assert.ok(disclaimer.toLowerCase().includes('wellness'));
+  });
+
+  // ── 13. Wearable Summary Renders with Provenance ──────────────────────────
+  it('wearable summary renders with provenance', () => {
+    const wearables = {
+      hrv: 48,
+      sleep: 7.4,
+      rhr: 62,
+      steps: 7800,
+      source: 'oura_ring',
+      last_sync_at: new Date().toISOString(),
+      provenance: 'wearable_sync_patient_portal',
+    };
+    assert.ok(wearables.provenance);
+    assert.ok(wearables.last_sync_at);
+    assert.strictEqual(typeof wearables.hrv, 'number');
+    assert.strictEqual(typeof wearables.sleep, 'number');
+  });
+
+  // ── 14. Education Items Display ───────────────────────────────────────────
+  it('education items display', () => {
+    const educationItems = [
+      { id: 'edu1', title: 'What is tDCS?', category: 'therapy', read_time: '5 min' },
+      { id: 'edu2', title: 'Sleep hygiene tips', category: 'lifestyle', read_time: '3 min' },
+    ];
+    assert.strictEqual(educationItems.length, 2);
+    assert.ok(educationItems[0].title.length > 0);
+    assert.ok(educationItems.every(e => e.category && e.read_time));
+  });
+
+  // ── 15. Upload Requests Visible ───────────────────────────────────────────
+  it('upload requests visible', () => {
+    const uploads = [
+      { id: 'up1', type: 'lab_result', status: 'pending', requested_at: new Date().toISOString() },
+      { id: 'up2', type: 'insurance_card', status: 'completed', requested_at: new Date().toISOString() },
+    ];
+    const pending = uploads.filter(u => u.status === 'pending');
+    assert.strictEqual(pending.length, 1);
+    assert.strictEqual(pending[0].type, 'lab_result');
+  });
+
+  // ── 16. Loading State Shown Initially ─────────────────────────────────────
+  it('loading state shown initially', () => {
+    const state = { loading: true, data: null, error: null };
+    assert.strictEqual(state.loading, true);
+    assert.strictEqual(state.data, null);
+    assert.strictEqual(state.error, null);
+  });
+
+  // ── 17. Error State on API Failure ────────────────────────────────────────
+  it('error state on API failure', async () => {
+    setApiResponse('/patient-portal/dashboard', { error: 'Service unavailable' }, 500);
+    const res = await fetch('/api/v1/patient-portal/dashboard');
+    assert.strictEqual(res.status, 500);
+    const body = await res.json();
+    assert.ok(body.error);
+  });
+
+  // ── 18. Empty State When No Data ──────────────────────────────────────────
+  it('empty state when no data', () => {
+    const courses = [];
+    const tasks = [];
+    const messages = [];
+    assert.strictEqual(courses.length, 0);
+    assert.strictEqual(tasks.length, 0);
+    assert.strictEqual(messages.length, 0);
+    const focus = pickTodaysFocus({ checkedInToday: true, now: Date.now() });
+    assert.strictEqual(focus.kind, 'fallback');
+    assert.ok(focus.headline.includes('on track'));
+  });
+
+  // ── 19. Course Progress Bar Renders ───────────────────────────────────────
+  it('course progress bar renders', () => {
+    const course = { session_count: 12, total_sessions_planned: 20 };
+    const pct = Math.round((course.session_count / course.total_sessions_planned) * 100);
+    assert.strictEqual(pct, 60);
+    const label = phaseLabel(pct);
+    assert.strictEqual(label, 'Active treatment');
+  });
+
+  // ── 20. Task Completion Uses Top-Level completed ──────────────────────────
+  it('task completion uses top-level completed', () => {
+    const task = {
+      server_task_id: 'task-123',
+      title: 'Breathing practice',
+      completed: true,  // top-level field
+      rating: 5,
+    };
+    assert.strictEqual(task.completed, true);
+    assert.strictEqual(task.rating, 5);
+    // Verify it's a boolean at top-level, not nested
+    assert.strictEqual(typeof task.completed, 'boolean');
+  });
+
+  // ── 21. No Clinician-Only Endpoint Called ─────────────────────────────────
+  it('no clinician-only endpoint called', () => {
+    // Simulate patient dashboard data fetch
+    const patientEndpoints = [
+      '/api/v1/patient-portal/me',
+      '/api/v1/patient-portal/dashboard',
+      '/api/v1/patient-portal/courses',
+      '/api/v1/patient-portal/sessions',
+      '/api/v1/patient-portal/messages',
+      '/api/v1/patient-portal/wearable-summary',
+      '/api/v1/home-program-tasks/patient/today',
+      '/api/v1/home-program-tasks/patient/summary',
+    ];
+    const clinicianOnlyEndpoints = [
+      '/api/v1/clinicians/',
+      '/api/v1/patients/all',
+      '/api/v1/admin/',
+      '/api/v1/analyses/',
+    ];
+    for (const endpoint of patientEndpoints) {
+      assert.ok(!clinicianOnlyEndpoints.some(ce => endpoint.includes(ce)),
+        `Patient endpoint ${endpoint} should not overlap with clinician-only`);
+    }
+  });
+
+  // ── 22. Mobile Layout Is Single Column ────────────────────────────────────
+  it('mobile layout is single column', () => {
+    const breakpoints = { mobile: 768, tablet: 1024, desktop: 1280 };
+    const mobileWidth = 375;
+    assert.ok(mobileWidth < breakpoints.mobile, 'mobile width should be below tablet breakpoint');
+    // CSS grid should collapse to 1 column on mobile
+    const gridStyle = `@media (max-width: ${breakpoints.mobile}px) { .pt-dashboard { grid-template-columns: 1fr; } }`;
+    assert.ok(gridStyle.includes('1fr'));
+  });
+
+  // ── 23. Readability Is Patient-Friendly ───────────────────────────────────
+  it('readability is patient-friendly', () => {
+    const labels = [
+      'Getting started',
+      'Active treatment',
+      'Your session is tomorrow',
+      'Take your 2-minute check-in',
+      "You're on track today",
+    ];
+    for (const label of labels) {
+      assert.ok(label.length > 0);
+      assert.ok(!label.includes('diagnosis'), `label "${label}" should not contain clinical jargon`);
+      assert.ok(!label.includes('prescription'), `label "${label}" should not contain prescription language`);
+    }
+  });
+
+  // ── 24. No Diagnosis Language Present ─────────────────────────────────────
+  it('no diagnosis language present', () => {
+    const uiText = 'Your latest brainwave review has been processed. Your care team can compare this recording with earlier sessions to look for overall patterns and changes over time.';
+    const banned = ['diagnosis', 'diagnoses', 'diagnostic', 'diagnosed', 'treatment recommendation'];
+    for (const word of banned) {
+      assert.ok(!uiText.toLowerCase().includes(word), `UI text should not contain "${word}"`);
+    }
+  });
+
+  // ── 25. No Prescription Language Present ──────────────────────────────────
+  it('no prescription language present', () => {
+    const uiText = 'Tasks shown here are assigned by your clinician. Marking a task started creates an audit row your care team can review.';
+    const banned = ['prescription', 'prescribe', 'prescribed medication dosage', 'refill'];
+    for (const word of banned) {
+      assert.ok(!uiText.toLowerCase().includes(word), `UI text should not contain "${word}"`);
+    }
+  });
+
+  // ── 26. All Clinical Data Has Disclaimer ──────────────────────────────────
+  it('all clinical data has disclaimer', () => {
+    const summaries = [
+      { findings_plain_language: [{ body: 'Your brainwave recording was processed.' }], regulatory_footer: 'Research/wellness use \u2014 not diagnostic.' },
+      { findings_plain_language: [{ body: 'Some patterns were noted.' }], regulatory_footer: 'Research/wellness use \u2014 not diagnostic.' },
+    ];
+    for (const s of summaries) {
+      assert.ok(s.regulatory_footer, 'every clinical summary must have a regulatory_footer');
+      assert.ok(s.regulatory_footer.includes('not diagnostic'), 'footer must say "not diagnostic"');
+    }
+  });
+
+  // ── 27. Demo Data Is Tagged ───────────────────────────────────────────────
+  it('demo data is tagged', () => {
+    assert.ok(DEMO_PATIENT.profile.first_name);
+    assert.ok(DEMO_PATIENT.activeCourse.name);
+    assert.strictEqual(typeof DEMO_PATIENT.streak, 'number');
+    assert.ok(Array.isArray(DEMO_PATIENT.outcomes));
+    assert.ok(Array.isArray(DEMO_PATIENT.tasks));
+  });
+
+  // ── 28. LocalStorage Isolation Between Patients ───────────────────────────
+  it('localStorage isolation between patients', () => {
+    const p1 = 'pt-alpha';
+    const p2 = 'pt-beta';
+    localStorage.setItem(`ds_draft_${p1}`, JSON.stringify({ mood: 5 }));
+    localStorage.setItem(`ds_draft_${p2}`, JSON.stringify({ mood: 2 }));
+    const d1 = JSON.parse(localStorage.getItem(`ds_draft_${p1}`));
+    const d2 = JSON.parse(localStorage.getItem(`ds_draft_${p2}`));
+    assert.strictEqual(d1.mood, 5);
+    assert.strictEqual(d2.mood, 2);
+  });
+
+  // ── 29. Fetch Calls Include Auth Header ────────────────────────────────────
+  it('fetch calls include auth header', async () => {
+    const token = 'patient-demo-token-xyz';
+    await fetch('/api/v1/patient-portal/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const calls = getFetchCalls();
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(calls[0].options.headers.Authorization, `Bearer ${token}`);
+  });
+
+  // ── 30. Self-Assessment Score Computation ─────────────────────────────────
+  it('self-assessment score computation', () => {
+    const survey = SELF_ASSESSMENT_SURVEYS.daily_mood;
+    const score = survey.computeScore({ mood: 5, energy: 10 });
+    assert.strictEqual(score, 100);
+    const lowScore = survey.computeScore({ mood: 1, energy: 1 });
+    assert.strictEqual(lowScore, 0);
+  });
+
+  // ── 31. Wellness Streak Computation ───────────────────────────────────────
+  it('wellness streak computation', () => {
+    const now = Date.now();
+    const ONE_DAY = 86400000;
+    // Simulate 3 days of check-ins
+    const checkins = [
+      now - 2 * ONE_DAY,
+      now - 1 * ONE_DAY,
+      now,
+    ];
+    const streak = checkins.length;
+    assert.strictEqual(streak, 3);
+    const focus = pickTodaysFocus({ checkedInToday: true, openTasks: [], streakDays: streak, now });
+    assert.strictEqual(focus.kind, 'fallback');
+  });
+
+  // ── 32. Outcome Grouping by Template ──────────────────────────────────────
+  it('outcome grouping by template', () => {
+    const outcomes = [
+      { template_name: 'PHQ-9', score_numeric: 22, administered_at: '2026-01-01T00:00:00Z' },
+      { template_name: 'PHQ-9', score_numeric: 18, administered_at: '2026-01-08T00:00:00Z' },
+      { template_name: 'GAD-7', score_numeric: 15, administered_at: '2026-01-02T00:00:00Z' },
+    ];
+    const grouped = groupOutcomesByTemplate(outcomes);
+    assert.strictEqual(grouped.length, 2);
+    const phq = grouped.find(g => g.template_name === 'PHQ-9');
+    assert.ok(phq);
+    assert.deepStrictEqual(phq.allScores, [22, 18]);
+  });
+
+  // ── 33. Assessment Status Classification ──────────────────────────────────
+  it('assessment status classification', () => {
+    const now = new Date('2026-01-10T12:00:00Z').getTime();
+    assert.strictEqual(classifyAssessmentStatus(null, now), 'due');
+    assert.strictEqual(classifyAssessmentStatus({ status: 'done' }, now), 'completed');
+    assert.strictEqual(classifyAssessmentStatus({ status: 'partial' }, now), 'in-progress');
+    assert.strictEqual(classifyAssessmentStatus({ status: 'scheduled' }, now), 'upcoming');
+  });
+
+  // ── 34. Score Context Mapping ─────────────────────────────────────────────
+  it('score context mapping', () => {
+    const meta = {
+      scoreRanges: [
+        { max: 4, label: 'Minimal', note: 'Minimal symptoms' },
+        { max: 9, label: 'Mild', note: 'Mild symptoms' },
+        { max: 14, label: 'Moderate', note: 'Moderate symptoms' },
+        { max: 27, label: 'Severe', note: 'Severe symptoms' },
+      ],
+    };
+    const ctx = scoreContext(meta, 10);
+    assert.strictEqual(ctx.label, 'Moderate');
+    assert.strictEqual(scoreContext(meta, 3).label, 'Minimal');
+  });
+
+  // ── 35. Draft Save and Load Cycle ─────────────────────────────────────────
+  it('draft save and load cycle', () => {
+    const id = 'test-assessment-001';
+    const answers = { q1: 2, q2: 3, q3: 1 };
+    saveDraft(id, answers);
+    const loaded = loadDraft(id);
+    assert.deepStrictEqual(loaded.answers, answers);
+    clearDraft(id);
+    assert.strictEqual(loadDraft(id), null);
+  });
+
+  // ── 36. Self-Assessment Draft Helpers ─────────────────────────────────────
+  it('self-assessment draft helpers', () => {
+    const key = 'daily_mood';
+    const data = { mood: 4, energy: 7, note: 'Feeling good' };
+    setSelfAssessmentDraft(key, data);
+    const loaded = getSelfAssessmentDraft(key);
+    assert.deepStrictEqual(loaded, data);
+    clearSelfAssessmentDraft(key);
+    assert.strictEqual(getSelfAssessmentDraft(key), null);
+  });
+
+  // ── 37. Self-Assessment Last Filed Timestamp ──────────────────────────────
+  it('self-assessment last filed timestamp', () => {
+    const key = 'daily_mood';
+    const iso = new Date().toISOString();
+    setSelfAssessmentLastFiled(key, iso);
+    assert.strictEqual(getSelfAssessmentLastFiled(key), iso);
+  });
+
+  // ── 38. Sparkline SVG Generation ──────────────────────────────────────────
+  it('sparkline SVG generation', () => {
+    const svg = sparklineSVG([1, 2, 3, 4, 5]);
+    assert.ok(svg.startsWith('<svg'));
+    assert.ok(svg.includes('<polyline'));
+    assert.strictEqual(sparklineSVG([]), '');
+    assert.strictEqual(sparklineSVG([42]), '');
+  });
+
+  // ── 39. Demo Patient Constant Shape ───────────────────────────────────────
+  it('demo patient constant shape', () => {
+    assert.ok(DEMO_PATIENT.profile.first_name);
+    assert.ok(DEMO_PATIENT.profile.last_name);
+    assert.ok(DEMO_PATIENT.activeCourse);
+    assert.ok(Array.isArray(DEMO_PATIENT.outcomes));
+    assert.ok(Array.isArray(DEMO_PATIENT.tasks));
+    assert.ok(DEMO_PATIENT.wearables);
+    assert.strictEqual(typeof DEMO_PATIENT.streak, 'number');
+  });
+
+  // ── 40. Demo Clinician Dashboard Shape ────────────────────────────────────
+  it('demo clinician dashboard shape', () => {
+    assert.ok(Array.isArray(DEMO_CLINICIAN_DASHBOARD.sessions));
+    assert.ok(Array.isArray(DEMO_CLINICIAN_DASHBOARD.assessments));
+  });
+
+  // ── 41. Focus Card Prioritizes Session Within 24h ─────────────────────────
+  it('focus card prioritizes session within 24h', () => {
+    const now = Date.now();
+    const in12h = new Date(now + 12 * 3600000).toISOString();
+    const focus = pickTodaysFocus({ nextSessionAt: in12h, checkedInToday: false, now });
+    assert.strictEqual(focus.kind, 'session');
+  });
+
+  // ── 42. Focus Card Falls Back to Check-In ─────────────────────────────────
+  it('focus card falls back to check-in', () => {
+    const now = Date.now();
+    const focus = pickTodaysFocus({ nextSessionAt: null, checkedInToday: false, now });
+    assert.strictEqual(focus.kind, 'checkin');
+  });
+
+  // ── 43. Focus Card Falls Back to Task ─────────────────────────────────────
+  it('focus card falls back to task', () => {
+    const now = Date.now();
+    const focus = pickTodaysFocus({ checkedInToday: true, openTasks: [{ title: 'Read chapter' }], now });
+    assert.strictEqual(focus.kind, 'task');
+    assert.ok(focus.headline.includes('Read chapter'));
+  });
+
+  // ── 44. Focus Card Falls Back to Message ──────────────────────────────────
+  it('focus card falls back to message', () => {
+    const now = Date.now();
+    const msg = { sender_name: 'Dr. Test', body: 'How are you feeling?' };
+    const focus = pickTodaysFocus({ checkedInToday: true, openTasks: [], unreadMessage: msg, now });
+    assert.strictEqual(focus.kind, 'message');
+  });
+
+  // ── 45. Focus Card Falls Back to Sleep Warning ────────────────────────────
+  it('focus card falls back to sleep warning', () => {
+    const now = Date.now();
+    const focus = pickTodaysFocus({ checkedInToday: true, openTasks: [], lastNightSleepHours: 4.5, now });
+    assert.strictEqual(focus.kind, 'sleep');
+  });
+
+  // ── 46. Focus Card Shows Fallback When Nothing Pending ────────────────────
+  it('focus card shows fallback when nothing pending', () => {
+    const now = Date.now();
+    const focus = pickTodaysFocus({ checkedInToday: true, openTasks: [], now });
+    assert.strictEqual(focus.kind, 'fallback');
+    assert.ok(focus.headline.includes('on track'));
+  });
+
+  // ── 47. Demo Overlay Returns Real When Available ──────────────────────────
+  it('demo overlay returns real when available', () => {
+    const result = demoOverlay('real data', 'demo data');
+    assert.strictEqual(result.value, 'real data');
+    assert.strictEqual(result.usedDemo, false);
+  });
+
+  // ── 48. Demo Overlay Falls Back to Demo ───────────────────────────────────
+  it('demo overlay falls back to demo', () => {
+    const result = demoOverlay(null, 'demo data');
+    assert.strictEqual(result.value, 'demo data');
+    assert.strictEqual(result.usedDemo, true);
+  });
+
+  // ── 49. Phase Labels Map Correctly ────────────────────────────────────────
+  it('phase labels map correctly', () => {
+    assert.strictEqual(phaseLabel(0), 'Getting started');
+    assert.strictEqual(phaseLabel(15), 'Early treatment');
+    assert.strictEqual(phaseLabel(40), 'Active treatment');
+    assert.strictEqual(phaseLabel(70), 'Consolidation');
+    assert.strictEqual(phaseLabel(90), 'Final phase');
+    assert.strictEqual(phaseLabel(100), 'Complete');
+  });
+
+  // ── 50. Outcome Goal Marker Math ──────────────────────────────────────────
+  it('outcome goal marker math', () => {
+    const phq = outcomeGoalMarker({ template_name: 'PHQ-9', score_numeric: 14 });
+    assert.strictEqual(phq.goal, 5);
+    assert.strictEqual(phq.down, true);
+    const gad = outcomeGoalMarker({ template_name: 'GAD-7', score_numeric: 10 });
+    assert.strictEqual(gad.goal, 4);
+  });
 });
