@@ -61,6 +61,11 @@ var _mriSavedEvidenceCitations = [];
 var _mriCapabilities = null;  // { features: [...], status: 'active'|'fallback'|'unavailable' }
 var _workbenchSections = null;  // Bug 3 fix — workbench sections cache
 
+// Phase 3 (Weeks 9-12): Neuroimaging Intelligence state
+var _biomarkerPanelData = null;
+var _aiFindingsData = null;
+var _atlasRegistrationResult = null; // workbench sections cache
+
 function _getMRIReportEvidenceContext() {
   return {
     kind: 'mri',
@@ -201,6 +206,8 @@ function _mriSectionNavItems(showBrainAge) {
     { id: 'ds-mri-section-safety', label: 'Safety' },
     { id: 'ds-mri-section-targets', label: 'Targets' },
     { id: 'ds-mri-section-spatial', label: 'Views' },
+    { id: 'ds-mri-section-biomarkers', label: 'Biomarkers' },
+    { id: 'ds-mri-section-ai-findings', label: 'AI Findings' },
     { id: 'ds-mri-section-medrag', label: 'Literature' },
     { id: 'ds-mri-section-evidence-qa', label: 'QA & PHI' },
     { id: 'ds-mri-section-review', label: 'Review' },
@@ -473,6 +480,65 @@ async function _loadWorkbenchSections(analysisId) {
   return sections;
 }
 
+// Phase 3 (Weeks 9-12): Neuroimaging Intelligence data loaders
+
+/** Fetch the evidence-graded biomarker panel for an analysis (W9). */
+async function _loadBiomarkerPanel(analysisId) {
+  if (!analysisId || analysisId === 'demo') return null;
+  try {
+    var panel = await api.get('/mri/' + analysisId + '/biomarkers');
+    _biomarkerPanelData = panel;
+    return panel;
+  } catch (e) {
+    console.warn('Biomarker panel unavailable:', e);
+    _biomarkerPanelData = null;
+    return null;
+  }
+}
+
+/** Fetch AI-detected abnormalities for an analysis (W11). */
+async function _loadAIFindings(analysisId) {
+  if (!analysisId || analysisId === 'demo') return null;
+  try {
+    var findings = await api.get('/mri/' + analysisId + '/ai-findings');
+    _aiFindingsData = findings;
+    return findings;
+  } catch (e) {
+    console.warn('AI findings unavailable:', e);
+    _aiFindingsData = null;
+    return null;
+  }
+}
+
+/** Register patient volume to atlas space (W10). */
+async function _registerAtlas(analysisId, atlasName, method) {
+  if (!analysisId || analysisId === 'demo') return null;
+  atlasName = atlasName || 'MNI152NLin2009cAsym';
+  method = method || 'ants_syn_quick';
+  try {
+    var result = await api.post('/mri/' + analysisId + '/register-atlas?atlas_name=' + encodeURIComponent(atlasName) + '&method=' + encodeURIComponent(method));
+    _atlasRegistrationResult = result;
+    return result;
+  } catch (e) {
+    console.warn('Atlas registration failed:', e);
+    _atlasRegistrationResult = null;
+    return null;
+  }
+}
+
+/** Load all Phase 3 intelligence data in parallel. */
+async function _loadPhase3Intelligence(analysisId) {
+  if (!analysisId || analysisId === 'demo') return;
+  try {
+    await Promise.all([
+      _loadBiomarkerPanel(analysisId),
+      _loadAIFindings(analysisId),
+    ]);
+  } catch (e) {
+    console.warn('Phase 3 intelligence loading incomplete:', e);
+  }
+}
+
 async function _fetchFusionSummary(patientId) {
   if (!patientId) return null;
   if (_isDemoMode()) return _demoFusionSummary(patientId);
@@ -665,8 +731,727 @@ export function renderFusionSummaryCard(fusion, patientId) {
   );
 }
 
+// This file contains the Phase 2 replacement code that will be spliced into
+// pages-mri-analysis.js, replacing the old NiiVue integration (lines 668-845).
+// It implements Tasks 1-4 of Phase 2 (Weeks 5-8).
+
+// ============================================
+// PHASE 2: Professional Viewer (Weeks 5-8)
+// ============================================
+
+// ── Legacy loader state (preserved for backward compat) ──────────────────────
 var _niivueLoaderPromise = null;
 
+// ── Task 1: NiiVue Production Integration (Week 5) ───────────────────────────
+
+const NIIVUE_CDN = 'https://cdn.jsdelivr.net/npm/@niivue/niivue@0.46.0/dist/index.js';
+let niivueInstance = null;
+
+/**
+ * Initialize NiiVue with robust error handling and CDN fallback.
+ *
+ * Progressive enhancement: NiiVue -> Canvas fallback -> Error state
+ *
+ * @param {string} canvasId   - DOM id of the <canvas> element
+ * @param {string} volumeUrl  - URL to the base NIfTI volume
+ * @param {Array}  overlays   - Optional overlay descriptors [{url, colormap}]
+ * @returns {Promise<{status, viewer, instance, error}>}
+ */
+async function _initNiiVueViewer(canvasId, volumeUrl, overlays) {
+  try {
+    // Dynamic import with timeout
+    const nv = await _loadNiiVue(5000);
+    if (!nv) {
+      _transitionViewerState('failure');
+      return { status: 'cdn_failed', viewer: 'fallback' };
+    }
+
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) {
+      _transitionViewerState('failure');
+      return { status: 'canvas_missing', viewer: 'fallback' };
+    }
+
+    _transitionViewerState('success');
+
+    // Configure NiiVue instance
+    const opts = {
+      loggingLevel: nv.LoggingLevel ? nv.LoggingLevel.LOGGING_LEVEL_ERROR : 0,
+      dragAndDropEnabled: false,
+      backColor: [0, 0, 0, 1],
+      crosshairColor: [1, 0, 0, 1],
+      crosshairWidth: 1,
+      show3DCrosshair: true,
+      onLocationChange: _handleLocationChange,
+    };
+
+    niivueInstance = new nv.Niivue(opts);
+    await niivueInstance.attachToCanvas(canvas);
+
+    // Load volume
+    const volumeList = [{ url: volumeUrl, name: 'T1' }];
+    await niivueInstance.loadVolumes(volumeList);
+
+    // Add overlays if provided
+    if (overlays && overlays.length > 0) {
+      _transitionViewerState('add_overlay');
+      for (const overlay of overlays) {
+        try {
+          await niivueInstance.loadVolumeFromUrl({
+            url: overlay.url,
+            colormap: overlay.colormap || 'jet',
+            opacity: overlay.opacity != null ? overlay.opacity : 0.5,
+          });
+        } catch (_ovErr) {
+          console.warn('Overlay load failed:', overlay.url, _ovErr);
+        }
+      }
+      _transitionViewerState('success');
+    }
+
+    // Set multi-planar layout
+    niivueInstance.setSliceType(niivueInstance.sliceTypeMultiplanar);
+
+    // Initialize annotation overlay canvas
+    _initAnnotationOverlay(canvas);
+
+    return { status: 'ready', viewer: 'niivue', instance: niivueInstance };
+  } catch (e) {
+    console.warn('NiiVue initialization failed:', e);
+    _transitionViewerState('failure');
+    return { status: 'error', viewer: 'fallback', error: e.message };
+  }
+}
+
+/**
+ * Load NiiVue from CDN with timeout and graceful fallback.
+ *
+ * @param {number} timeoutMs - Max wait time in milliseconds
+ * @returns {Promise<object|null>}  The Niivue module or null on failure
+ */
+async function _loadNiiVue(timeoutMs) {
+  return new Promise(function (resolve) {
+    const timer = setTimeout(function () {
+      console.warn('NiiVue CDN load timeout after ' + timeoutMs + 'ms');
+      resolve(null);
+    }, timeoutMs);
+
+    // Check if already loaded (legacy global or new CDN)
+    if (window.Niivue) { clearTimeout(timer); resolve(window.Niivue); return; }
+    if (window.niivue && window.niivue.Niivue) {
+      clearTimeout(timer);
+      resolve(window.niivue);
+      return;
+    }
+
+    // Dynamic script load
+    const script = document.createElement('script');
+    script.src = NIIVUE_CDN;
+    script.onload = function () {
+      clearTimeout(timer);
+      // New CDN exposes Niivue globally; legacy exposes niivue
+      resolve(window.Niivue || window.niivue || null);
+    };
+    script.onerror = function () {
+      clearTimeout(timer);
+      // Try legacy fallback CDN
+      _loadNiiVueLegacy(timer, resolve);
+    };
+    document.head.appendChild(script);
+  });
+}
+
+/** Legacy CDN fallback for NiiVue. */
+function _loadNiiVueLegacy(clearedTimer, resolve) {
+  try { clearTimeout(clearedTimer); } catch (_) {}
+  var script = document.createElement('script');
+  script.src = 'https://cdn.jsdelivr.net/npm/niivue@0.64.0/dist/niivue.umd.js';
+  script.async = true;
+  script.onload = function () {
+    resolve(window.niivue || window.Niivue || null);
+  };
+  script.onerror = function () { resolve(null); };
+  document.head.appendChild(script);
+}
+
+/** Sync crosshair position across views and update coordinate display. */
+function _handleLocationChange(data) {
+  if (!data || !data.vox) return;
+  const coords = data.vox;
+  var i = coords[0], j = coords[1], k = coords[2];
+  if (typeof i !== 'number') { i = coords.x; j = coords.y; k = coords.z; }
+  var coordEl = document.getElementById('viewer-coordinates');
+  if (coordEl) coordEl.textContent = 'Voxel: ' + i + ', ' + j + ', ' + k;
+}
+
+/** Render viewer toolbar with colormap, layout, and screenshot buttons. */
+function _renderViewerToolbar() {
+  return '<div class="mri-viewer-toolbar" style="display:flex;gap:8px;padding:8px;border-bottom:1px solid var(--border);flex-wrap:wrap">'
+    + '<select id="niivue-colormap" onchange="_changeColormap(this.value)" style="padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--input);color:var(--text-primary);font-size:12px;cursor:pointer">'
+    + '<option value="gray">Grayscale</option>'
+    + '<option value="hot">Hot</option>'
+    + '<option value="cool">Cool</option>'
+    + '<option value="jet">Jet</option>'
+    + '<option value="viridis">Viridis</option>'
+    + '<option value="plasma">Plasma</option>'
+    + '<option value="inferno">Inferno</option>'
+    + '<option value="turbo">Turbo</option>'
+    + '<option value="winter">Winter</option>'
+    + '</select>'
+    + '<button onclick="_setLayout(\'multiplanar\')" class="mri-vbtn" style="padding:4px 10px;border-radius:4px;border:1px solid var(--border);background:var(--input);color:var(--text-primary);font-size:12px;cursor:pointer">MPR</button>'
+    + '<button onclick="_setLayout(\'axial\')" class="mri-vbtn" style="padding:4px 10px;border-radius:4px;border:1px solid var(--border);background:var(--input);color:var(--text-primary);font-size:12px;cursor:pointer">Axial</button>'
+    + '<button onclick="_setLayout(\'coronal\')" class="mri-vbtn" style="padding:4px 10px;border-radius:4px;border:1px solid var(--border);background:var(--input);color:var(--text-primary);font-size:12px;cursor:pointer">Coronal</button>'
+    + '<button onclick="_setLayout(\'sagittal\')" class="mri-vbtn" style="padding:4px 10px;border-radius:4px;border:1px solid var(--border);background:var(--input);color:var(--text-primary);font-size:12px;cursor:pointer">Sagittal</button>'
+    + '<button onclick="_setLayout(\'render\')" class="mri-vbtn" style="padding:4px 10px;border-radius:4px;border:1px solid var(--border);background:var(--input);color:var(--text-primary);font-size:12px;cursor:pointer">3D Render</button>'
+    + '<button onclick="_captureScreenshot()" class="mri-vbtn" style="padding:4px 10px;border-radius:4px;border:1px solid var(--border);background:var(--input);color:var(--text-primary);font-size:12px;cursor:pointer">&#128247; Screenshot</button>'
+    + '</div>';
+}
+
+/** Change the colormap of the base volume. */
+function _changeColormap(colormap) {
+  if (niivueInstance && niivueInstance.volumes && niivueInstance.volumes.length > 0) {
+    niivueInstance.volumes[0].colormap = colormap;
+    niivueInstance.updateGLVolume();
+  }
+}
+
+/** Set the viewer layout (multiplanar, axial, coronal, sagittal, render). */
+function _setLayout(layout) {
+  if (!niivueInstance) return;
+  var layouts = {
+    multiplanar: niivueInstance.sliceTypeMultiplanar,
+    axial: niivueInstance.sliceTypeAxial,
+    coronal: niivueInstance.sliceTypeCoronal,
+    sagittal: niivueInstance.sliceTypeSagittal,
+    render: niivueInstance.sliceTypeRender,
+  };
+  var sliceType = layouts[layout] || layouts.multiplanar;
+  niivueInstance.setSliceType(sliceType);
+  // Save layout preference
+  try {
+    sessionStorage.setItem('ds_mri_viewer_layout', layout);
+  } catch (_) {}
+}
+
+/** Capture a screenshot of the current viewer canvas. */
+function _captureScreenshot() {
+  if (!niivueInstance || !niivueInstance.canvas) return;
+  var canvas = niivueInstance.canvas;
+  var link = document.createElement('a');
+  var timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  link.download = 'mri-screenshot-' + timestamp + '.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+}
+
+
+// ── Task 2: Viewer State Machine (Week 6) ───────────────────────────────────
+
+/** Viewer progressive-enhancement state machine.
+ *
+ * States: idle -> loading_niivue -> niivue_ready -> loading_overlay -> overlay_ready
+ *                                        |              |                    |
+ *                                        v              v                    v
+ *                                loading_cs3d -> cs3d_ready -> fallback_canvas
+ *                                                                       |
+ *                                                                       v
+ *                                                                   error (retry)
+ */
+var VIEWER_STATE_MACHINE = {
+  states: ['idle', 'loading_niivue', 'niivue_ready', 'loading_cs3d', 'cs3d_ready', 'loading_overlay', 'overlay_ready', 'fallback_canvas', 'error'],
+  transitions: {
+    idle:               { load: 'loading_niivue' },
+    loading_niivue:     { success: 'niivue_ready',  failure: 'loading_cs3d',  timeout: 'loading_cs3d' },
+    niivue_ready:       { add_overlay: 'loading_overlay', error: 'fallback_canvas' },
+    loading_cs3d:       { success: 'cs3d_ready',    failure: 'fallback_canvas', timeout: 'fallback_canvas' },
+    cs3d_ready:         { add_overlay: 'loading_overlay', error: 'fallback_canvas' },
+    loading_overlay:    { success: 'overlay_ready', failure: 'niivue_ready' },
+    overlay_ready:      { error: 'niivue_ready' },
+    fallback_canvas:    { retry: 'loading_niivue' },
+    error:              { retry: 'loading_niivue' },
+  },
+};
+
+var viewerState = 'idle';
+
+/** Transition the viewer state machine.
+ * @param {string} event - The event to trigger (success, failure, timeout, add_overlay, error, retry, load)
+ */
+function _transitionViewerState(event) {
+  var transitions = VIEWER_STATE_MACHINE.transitions[viewerState];
+  if (transitions && transitions[event]) {
+    var oldState = viewerState;
+    viewerState = transitions[event];
+    console.log('Viewer state: ' + oldState + ' -> ' + viewerState + ' (' + event + ')');
+    _renderViewerStateUI();
+  }
+}
+
+/** Reset viewer state to idle. */
+function _resetViewerState() {
+  viewerState = 'idle';
+  _renderViewerStateUI();
+}
+
+/** Render the viewer state indicator in the UI. */
+function _renderViewerStateUI() {
+  var el = document.getElementById('viewer-state-indicator');
+  if (!el) return;
+  var statusMap = {
+    idle:               { text: 'Ready',              color: 'var(--text-secondary)' },
+    loading_niivue:     { text: 'Loading NiiVue...',  color: 'var(--amber)' },
+    niivue_ready:       { text: 'NiiVue Active',      color: 'var(--teal)' },
+    loading_cs3d:       { text: 'Loading Cornerstone3D...', color: 'var(--amber)' },
+    cs3d_ready:         { text: 'Cornerstone3D Active', color: 'var(--teal)' },
+    loading_overlay:    { text: 'Loading Overlays...', color: 'var(--amber)' },
+    overlay_ready:      { text: 'Overlays Active',    color: 'var(--teal)' },
+    fallback_canvas:    { text: 'Canvas Fallback',    color: 'var(--amber)' },
+    error:              { text: 'Error -- Click to Retry', color: 'var(--red)' },
+  };
+  var s = statusMap[viewerState] || statusMap.idle;
+  el.innerHTML = '<span style="color:' + s.color + ';font-size:11px;font-weight:500">' + s.text + '</span>';
+}
+
+/** Render the viewer state indicator HTML shell.
+ * Call this when building the viewer container.
+ */
+function _renderStateIndicator() {
+  return '<div id="viewer-state-indicator" style="padding:4px 8px;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.3)">'
+    + '<span style="color:var(--text-secondary);font-size:11px;font-weight:500">Ready</span>'
+    + '</div>';
+}
+
+/** Render a retry button for fallback/error states. */
+function _renderRetryButton() {
+  return '<button onclick="_retryViewer()" class="mri-vbtn mri-vbtn--primary" style="padding:6px 14px;border-radius:4px;border:1px solid var(--border);background:var(--input);color:var(--text-primary);font-size:12px;cursor:pointer;margin:8px">'
+    + '&#x21bb; Retry Viewer'
+    + '</button>';
+}
+
+/** Retry the viewer from fallback or error state. */
+function _retryViewer() {
+  _transitionViewerState('retry');
+  // Trigger re-mount by dispatching a custom event
+  var retryEvent = new CustomEvent('ds-mri-viewer-retry', {
+    detail: { timestamp: Date.now() },
+  });
+  document.dispatchEvent(retryEvent);
+}
+
+
+// ── Task 3: Annotation System (Week 7) ──────────────────────────────────────
+
+var annotations = [];
+var currentAnnotation = null;
+var isDrawing = false;
+var currentAnnotationType = 'line';
+var _annotationOverlay = null;
+var _annotationCtx = null;
+
+/** Initialize the annotation system on the given viewer canvas. */
+function _initAnnotationSystem(canvas) {
+  if (!canvas) return;
+  _initAnnotationOverlay(canvas);
+  canvas.addEventListener('mousedown', _startAnnotation);
+  canvas.addEventListener('mousemove', _drawAnnotation);
+  canvas.addEventListener('mouseup', _endAnnotation);
+  // Touch support
+  canvas.addEventListener('touchstart', _startAnnotationTouch, { passive: false });
+  canvas.addEventListener('touchmove', _drawAnnotationTouch, { passive: false });
+  canvas.addEventListener('touchend', _endAnnotation);
+}
+
+/** Create an overlay canvas for annotations above the NiiVue canvas. */
+function _initAnnotationOverlay(nvCanvas) {
+  if (!nvCanvas || !nvCanvas.parentElement) return;
+  // Remove existing overlay
+  var existing = document.getElementById('annotation-overlay');
+  if (existing) existing.remove();
+
+  var overlay = document.createElement('canvas');
+  overlay.id = 'annotation-overlay';
+  overlay.style.position = 'absolute';
+  overlay.style.top = '0';
+  overlay.style.left = '0';
+  overlay.style.width = '100%';
+  overlay.style.height = '100%';
+  overlay.style.pointerEvents = 'none'; // Let clicks pass through to NiiVue
+  overlay.style.zIndex = '10';
+
+  var rect = nvCanvas.getBoundingClientRect();
+  overlay.width = rect.width || nvCanvas.width || 640;
+  overlay.height = rect.height || nvCanvas.height || 480;
+
+  nvCanvas.parentElement.style.position = 'relative';
+  nvCanvas.parentElement.appendChild(overlay);
+
+  _annotationOverlay = overlay;
+  _annotationCtx = overlay.getContext('2d');
+
+  // Resize observer to keep overlay in sync
+  try {
+    var ro = new ResizeObserver(function (entries) {
+      for (var idx = 0; idx < entries.length; idx++) {
+        var cr = entries[idx].contentRect;
+        if (overlay && cr.width > 0 && cr.height > 0) {
+          overlay.width = cr.width;
+          overlay.height = cr.height;
+          _redrawAnnotations();
+        }
+      }
+    });
+    ro.observe(nvCanvas.parentElement);
+  } catch (_) {
+    // Fallback: window resize
+    window.addEventListener('resize', function () {
+      var r = nvCanvas.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) {
+        overlay.width = r.width;
+        overlay.height = r.height;
+        _redrawAnnotations();
+      }
+    });
+  }
+}
+
+function _startAnnotation(e) {
+  if (!_annotationOverlay) return;
+  isDrawing = true;
+  var rect = _annotationOverlay.getBoundingClientRect();
+  var x = (e.clientX || e.pageX) - rect.left;
+  var y = (e.clientY || e.pageY) - rect.top;
+  currentAnnotation = {
+    type: currentAnnotationType, // line, circle, freehand
+    points: [{ x: x, y: y }],
+    color: '#ff0000',
+    width: 2,
+    label: '',
+    created_at: new Date().toISOString(),
+  };
+}
+
+function _startAnnotationTouch(e) {
+  if (!_annotationOverlay) return;
+  e.preventDefault();
+  var touch = e.touches[0];
+  var mouseEvent = { clientX: touch.clientX, clientY: touch.clientY };
+  _startAnnotation(mouseEvent);
+}
+
+function _drawAnnotation(e) {
+  if (!isDrawing || !currentAnnotation || !_annotationOverlay) return;
+  var rect = _annotationOverlay.getBoundingClientRect();
+  var x = (e.clientX || e.pageX) - rect.left;
+  var y = (e.clientY || e.pageY) - rect.top;
+  currentAnnotation.points.push({ x: x, y: y });
+  _redrawAnnotations();
+}
+
+function _drawAnnotationTouch(e) {
+  if (!isDrawing) return;
+  e.preventDefault();
+  var touch = e.touches[0];
+  var mouseEvent = { clientX: touch.clientX, clientY: touch.clientY };
+  _drawAnnotation(mouseEvent);
+}
+
+function _endAnnotation() {
+  if (!isDrawing || !currentAnnotation) return;
+  isDrawing = false;
+  if (currentAnnotation.points.length > 1) {
+    annotations.push(currentAnnotation);
+    _renderAnnotationList();
+  }
+  currentAnnotation = null;
+}
+
+function _redrawAnnotations() {
+  if (!_annotationOverlay || !_annotationCtx) return;
+  var ctx = _annotationCtx;
+  ctx.clearRect(0, 0, _annotationOverlay.width, _annotationOverlay.height);
+
+  var all = annotations.slice();
+  if (currentAnnotation) all.push(currentAnnotation);
+
+  for (var aIdx = 0; aIdx < all.length; aIdx++) {
+    var ann = all[aIdx];
+    if (!ann || !ann.points || ann.points.length === 0) continue;
+    ctx.strokeStyle = ann.color;
+    ctx.lineWidth = ann.width;
+
+    if (ann.type === 'circle' && ann.points.length >= 2) {
+      var p0 = ann.points[0];
+      var p1 = ann.points[ann.points.length - 1];
+      var radius = Math.sqrt(Math.pow(p1.x - p0.x, 2) + Math.pow(p1.y - p0.y, 2));
+      ctx.beginPath();
+      ctx.arc(p0.x, p0.y, radius, 0, 2 * Math.PI);
+      ctx.stroke();
+    } else {
+      // line and freehand
+      ctx.beginPath();
+      ctx.moveTo(ann.points[0].x, ann.points[0].y);
+      for (var pIdx = 1; pIdx < ann.points.length; pIdx++) {
+        ctx.lineTo(ann.points[pIdx].x, ann.points[pIdx].y);
+      }
+      ctx.stroke();
+    }
+  }
+}
+
+/** Render the annotation toolbar HTML. */
+function _renderAnnotationToolbar() {
+  return '<div class="mri-annotation-toolbar" style="display:flex;gap:6px;padding:6px;border-bottom:1px solid var(--border);flex-wrap:wrap;align-items:center">'
+    + '<span style="font-size:11px;color:var(--text-tertiary);margin-right:4px">Draw:</span>'
+    + '<button onclick="_setAnnotationType(\'line\')" id="anno-btn-line" class="mri-vbtn mri-vbtn--active" style="padding:3px 8px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:var(--input);color:var(--text-primary);cursor:pointer">Line</button>'
+    + '<button onclick="_setAnnotationType(\'circle\')" id="anno-btn-circle" class="mri-vbtn" style="padding:3px 8px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:var(--input);color:var(--text-primary);cursor:pointer">Circle</button>'
+    + '<button onclick="_setAnnotationType(\'freehand\')" id="anno-btn-freehand" class="mri-vbtn" style="padding:3px 8px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:var(--input);color:var(--text-primary);cursor:pointer">Freehand</button>'
+    + '<span style="width:1px;height:18px;background:var(--border);margin:0 4px"></span>'
+    + '<button onclick="_clearAnnotations()" class="mri-vbtn" style="padding:3px 8px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:var(--input);color:var(--red);cursor:pointer">Clear All</button>'
+    + '<button onclick="_exportAnnotations()" class="mri-vbtn" style="padding:3px 8px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:var(--input);color:var(--blue);cursor:pointer">Export JSON</button>'
+    + '<button onclick="_saveAnnotationsToBackend()" class="mri-vbtn" style="padding:3px 8px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:var(--input);color:var(--teal);cursor:pointer">Save</button>'
+    + '</div>';
+}
+
+/** Set the current annotation type and update button styles. */
+function _setAnnotationType(type) {
+  currentAnnotationType = type;
+  // Update active button styling
+  var types = ['line', 'circle', 'freehand'];
+  for (var tIdx = 0; tIdx < types.length; tIdx++) {
+    var btn = document.getElementById('anno-btn-' + types[tIdx]);
+    if (btn) {
+      if (types[tIdx] === type) {
+        btn.style.background = 'var(--teal)';
+        btn.style.color = '#000';
+      } else {
+        btn.style.background = 'var(--input)';
+        btn.style.color = 'var(--text-primary)';
+      }
+    }
+  }
+}
+
+/** Clear all annotations. */
+function _clearAnnotations() {
+  annotations = [];
+  currentAnnotation = null;
+  isDrawing = false;
+  _redrawAnnotations();
+  _renderAnnotationList();
+}
+
+/** Export annotations as JSON download. */
+function _exportAnnotations() {
+  if (annotations.length === 0) {
+    showToast('No annotations to export', 'warning');
+    return;
+  }
+  var blob = new Blob([JSON.stringify(annotations, null, 2)], { type: 'application/json' });
+  var link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  var timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  link.download = 'mri-annotations-' + timestamp + '.json';
+  link.click();
+  showToast('Annotations exported', 'success');
+}
+
+/** Render the annotation list panel. */
+function _renderAnnotationList() {
+  var el = document.getElementById('annotation-list');
+  if (!el) return;
+  if (annotations.length === 0) {
+    el.innerHTML = '<div style="font-size:11px;color:var(--text-tertiary);padding:8px">No annotations yet. Use the drawing tools above.</div>';
+    return;
+  }
+  el.innerHTML = annotations.map(function (ann, idx) {
+    var typeLabel = ann.type.charAt(0).toUpperCase() + ann.type.slice(1);
+    var dateStr = ann.created_at ? new Date(ann.created_at).toLocaleTimeString() : '';
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 8px;border-bottom:1px solid rgba(255,255,255,0.04);font-size:11px">'
+      + '<span><span style="color:' + ann.color + ';font-weight:600">&#9632;</span> ' + typeLabel + ' #' + (idx + 1)
+      + ' <span style="color:var(--text-tertiary)">' + ann.points.length + ' pts</span></span>'
+      + '<span style="color:var(--text-tertiary)">' + dateStr + '</span>'
+      + '</div>';
+  }).join('');
+}
+
+/** Save annotations to the backend (Phase 3 API integration). */
+async function _saveAnnotationsToBackend() {
+  if (annotations.length === 0) {
+    showToast('No annotations to save', 'warning');
+    return;
+  }
+  var analysisId = _mriAnalysisId || (_report && _report.analysis_id);
+  if (!analysisId || analysisId === 'demo') {
+    showToast('Annotations saved locally (demo mode)', 'info');
+    return;
+  }
+  try {
+    await api.saveMRIViewerState(analysisId, {
+      annotations: annotations,
+      saved_at: new Date().toISOString(),
+    });
+    showToast('Annotations saved to server', 'success');
+  } catch (err) {
+    showToast('Save failed: ' + (err.message || err), 'error');
+  }
+}
+
+/** Load saved annotations from backend or localStorage. */
+async function _loadAnnotationsFromBackend() {
+  var analysisId = _mriAnalysisId || (_report && _report.analysis_id);
+  if (!analysisId || analysisId === 'demo') {
+    // Try localStorage
+    try {
+      var saved = sessionStorage.getItem('ds_mri_annotations_' + analysisId);
+      if (saved) { annotations = JSON.parse(saved); _redrawAnnotations(); _renderAnnotationList(); }
+    } catch (_) {}
+    return;
+  }
+  try {
+    var resp = await api.getMRIViewerState(analysisId);
+    if (resp && resp.annotations && Array.isArray(resp.annotations)) {
+      annotations = resp.annotations;
+      _redrawAnnotations();
+      _renderAnnotationList();
+    }
+  } catch (_) {
+    // Silently fail
+  }
+}
+
+
+// ── Task 4: Keyboard Shortcuts + Window/Level (Week 8) ──────────────────────
+
+/** Initialize keyboard shortcuts for the MRI viewer.
+ *  Arrow keys: navigate crosshair
+ *  +/-: zoom
+ *  W/A/S/D: window/level
+ *  1/2/3/4: layout modes
+ */
+function _initKeyboardShortcuts() {
+  // Prevent duplicate registration
+  if (window._dsMriKeyboardInitialized) return;
+  window._dsMriKeyboardInitialized = true;
+
+  document.addEventListener('keydown', function (e) {
+    // Only activate when viewer is focused or no input is focused
+    var activeEl = document.activeElement;
+    if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT')) {
+      return;
+    }
+
+    if (!niivueInstance) return;
+
+    var handled = true;
+    switch (e.key) {
+      // Crosshair navigation
+      case 'ArrowUp':    niivueInstance.moveCrosshair(0, 0, 1);  break;
+      case 'ArrowDown':  niivueInstance.moveCrosshair(0, 0, -1); break;
+      case 'ArrowLeft':  niivueInstance.moveCrosshair(-1, 0, 0); break;
+      case 'ArrowRight': niivueInstance.moveCrosshair(1, 0, 0);  break;
+      // Zoom
+      case '=':
+      case '+':
+        niivueInstance.setScale(niivueInstance.scene.scale + 0.1);
+        break;
+      case '-':
+      case '_':
+        niivueInstance.setScale(Math.max(0.1, niivueInstance.scene.scale - 0.1));
+        break;
+      // Window/Level (WASD)
+      case 'w': case 'W': _adjustWindowLevel(5, 0);  break;
+      case 's': case 'S': _adjustWindowLevel(-5, 0); break;
+      case 'a': case 'A': _adjustWindowLevel(0, -5); break;
+      case 'd': case 'D': _adjustWindowLevel(0, 5);  break;
+      // Layout shortcuts
+      case '1': _setLayout('multiplanar'); break;
+      case '2': _setLayout('axial');       break;
+      case '3': _setLayout('coronal');     break;
+      case '4': _setLayout('sagittal');    break;
+      case '5': _setLayout('render');      break;
+      // Screenshot
+      case 'p': case 'P': _captureScreenshot(); break;
+      default: handled = false;
+    }
+    if (handled) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  });
+}
+
+/** Adjust window and level of the base volume.
+ * @param {number} windowDelta - Change to window (contrast)
+ * @param {number} levelDelta  - Change to level (brightness)
+ */
+function _adjustWindowLevel(windowDelta, levelDelta) {
+  if (!niivueInstance || !niivueInstance.volumes || !niivueInstance.volumes[0]) return;
+  var vol = niivueInstance.volumes[0];
+  vol.calMin = (vol.calMin || 0) + levelDelta;
+  vol.calMax = (vol.calMax || 100) + windowDelta;
+  niivueInstance.updateGLVolume();
+  // Show brief feedback
+  var wlEl = document.getElementById('viewer-window-level');
+  if (wlEl) {
+    wlEl.textContent = 'W: ' + vol.calMax + ' L: ' + vol.calMin;
+    wlEl.style.opacity = '1';
+    clearTimeout(wlEl._fadeTimer);
+    wlEl._fadeTimer = setTimeout(function () { wlEl.style.opacity = '0'; }, 1500);
+  }
+}
+
+/** Render keyboard shortcut help tooltip/popover. */
+function _renderKeyboardShortcutHelp() {
+  return '<div class="mri-shortcut-help" style="font-size:11px;color:var(--text-tertiary);padding:8px;border-top:1px solid var(--border)">'
+    + '<strong style="color:var(--text-primary)">Shortcuts:</strong> '
+    + '<span class="mri-kbd">&#8593;&#8595;&#8592;&#8594;</span> Navigate '
+    + '<span class="mri-kbd">+/-</span> Zoom '
+    + '<span class="mri-kbd">W/A/S/D</span> Window/Level '
+    + '<span class="mri-kbd">1-5</span> Layout '
+    + '<span class="mri-kbd">P</span> Screenshot'
+    + '</div>';
+}
+
+
+// ── Responsive viewer layout helpers ─────────────────────────────────────────
+
+/** Detect if the device is touch-capable. */
+function _isTouchDevice() {
+  return (('ontouchstart' in window) || (navigator.maxTouchPoints > 0));
+}
+
+/** Detect if the viewport is mobile-sized. */
+function _isMobileViewport() {
+  return window.innerWidth < 768;
+}
+
+/** Detect if the viewport is tablet-sized. */
+function _isTabletViewport() {
+  return window.innerWidth >= 768 && window.innerWidth < 1200;
+}
+
+/** Apply responsive layout adjustments to the viewer. */
+function _applyResponsiveViewerLayout() {
+  var container = document.querySelector('.ds-mri-progressive-viewer');
+  if (!container) return;
+
+  if (_isMobileViewport()) {
+    container.classList.add('ds-mri-viewer--mobile');
+    container.classList.remove('ds-mri-viewer--tablet', 'ds-mri-viewer--desktop');
+    // On mobile: use single-plane view for better readability
+    if (niivueInstance) {
+      niivueInstance.setSliceType(niivueInstance.sliceTypeAxial);
+    }
+  } else if (_isTabletViewport()) {
+    container.classList.add('ds-mri-viewer--tablet');
+    container.classList.remove('ds-mri-viewer--mobile', 'ds-mri-viewer--desktop');
+  } else {
+    container.classList.add('ds-mri-viewer--desktop');
+    container.classList.remove('ds-mri-viewer--mobile', 'ds-mri-viewer--tablet');
+  }
+}
+
+// ── Volume candidate helpers (preserved from original) ──────────────────────
 
 function _viewerVolumeCandidates(report, payload) {
   if (payload && payload.base_volume && payload.base_volume.url) {
@@ -707,12 +1492,14 @@ function _renderViewerFallback(el, opts, reason) {
   if (!el) return false;
   var firstTarget = opts && opts.targets && opts.targets[0] ? opts.targets[0] : null;
   var coords = firstTarget && Array.isArray(firstTarget.mni_xyz) ? firstTarget.mni_xyz.join(', ') : 'n/a';
+  var retryBtn = _renderRetryButton();
   el.innerHTML =
     '<div class="ds-mri-progressive-viewer__fallback">'
     + '<div class="ds-mri-progressive-viewer__badge">Viewer fallback</div>'
     + '<div class="ds-mri-progressive-viewer__title">' + esc(firstTarget && firstTarget.region_name || 'MRI target preview') + '</div>'
     + '<div class="ds-mri-progressive-viewer__meta">MNI ' + esc(coords) + '</div>'
     + '<p>' + esc(reason || 'Interactive viewer assets are not staged for this analysis.') + '</p>'
+    + retryBtn
     + '</div>';
   return false;
 }
@@ -725,6 +1512,8 @@ function _renderOverlayIframe(el, opts) {
   return true;
 }
 
+// ── Legacy NiiVue script loader (backward-compatible wrapper) ────────────────
+
 function _loadNiiVueScript() {
   if (typeof window === 'undefined') return Promise.reject(new Error('window unavailable'));
   if (window.niivue && window.niivue.Niivue) return Promise.resolve(window.niivue);
@@ -736,16 +1525,11 @@ function _loadNiiVueScript() {
       prior.addEventListener('error', function () { reject(new Error('NiiVue failed to load')); }, { once: true });
       return;
     }
-    var script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/niivue@0.64.0/dist/niivue.umd.js';
-    script.async = true;
-    script.dataset.niivueLoader = '1';
-    script.onload = function () {
-      if (window.niivue && window.niivue.Niivue) resolve(window.niivue);
-      else reject(new Error('NiiVue global missing'));
-    };
-    script.onerror = function () { reject(new Error('NiiVue failed to load')); };
-    document.head.appendChild(script);
+    // Use the new production loader with fallback
+    _loadNiiVue(8000).then(function (mod) {
+      if (mod) resolve(mod);
+      else reject(new Error('NiiVue failed to load from all CDNs'));
+    });
   }).catch(function (err) {
     _niivueLoaderPromise = null;
     throw err;
@@ -753,8 +1537,13 @@ function _loadNiiVueScript() {
   return _niivueLoaderPromise;
 }
 
+// ── Production-grade mountNiiVue (replaces original) ─────────────────────────
+
 export async function mountNiiVue(el, opts) {
   if (!el) return false;
+  _resetViewerState();
+  _transitionViewerState('load');
+
   var payload = null;
   try {
     if (opts && opts.analysisId && api.getMRIViewerPayload) {
@@ -765,64 +1554,106 @@ export async function mountNiiVue(el, opts) {
   }
   var volumes = _viewerVolumeCandidates(opts && opts.report, payload);
   if (!volumes.length) {
-    // iframe overlay URLs cannot carry Bearer auth — skip in demo preview.
     if (_isDemoMode()) {
       return _renderViewerFallback(
-        el,
-        opts,
+        el, opts,
         'Demo preview: interactive overlay requires a logged-in API session with staged volumes.',
       );
     }
     return _renderOverlayIframe(el, opts) || _renderViewerFallback(el, opts, 'No staged NIfTI volumes were found for this analysis.');
   }
-  try {
-    var niivueLib = await _loadNiiVueScript();
-    var canvas = document.createElement('canvas');
-    canvas.className = 'ds-mri-progressive-viewer__canvas';
-    el.innerHTML = '';
-    el.appendChild(canvas);
-    var nv = new niivueLib.Niivue({ show3Dcrosshair: true, backColor: [0.03, 0.07, 0.12, 1] });
-    if (typeof nv.attachToCanvas === 'function') nv.attachToCanvas(canvas);
-    if (typeof nv.setSliceType === 'function') nv.setSliceType(nv.sliceTypeMultiplanar || 4);
-    await nv.loadVolumes(volumes);
-    if (payload && payload.initial_view === 'render' && typeof nv.setSliceType === 'function') {
-      nv.setSliceType(nv.sliceTypeRender || nv.sliceTypeMultiplanar || 4);
-    }
-    if (payload && Array.isArray(payload.meshes) && payload.meshes.length && typeof nv.loadMeshes === 'function') {
-      try { await nv.loadMeshes(payload.meshes); } catch (_meshErr) {}
-    }
+
+  // Build the enhanced viewer container with toolbar + state indicator
+  var canvasId = 'ds-mri-niivue-canvas-' + Date.now();
+  el.innerHTML =
+    '<div class="ds-mri-progressive-viewer" style="display:flex;flex-direction:column">'
+    + _renderStateIndicator()
+    + _renderViewerToolbar()
+    + _renderAnnotationToolbar()
+    + '<div style="position:relative;flex:1;min-height:320px">'
+    + '<canvas id="' + canvasId + '" style="width:100%;height:100%;display:block"></canvas>'
+    + '<div id="viewer-coordinates" style="position:absolute;bottom:4px;left:4px;font-size:10px;color:var(--text-tertiary);background:rgba(0,0,0,0.6);padding:2px 6px;border-radius:3px;pointer-events:none;z-index:20">Voxel: --, --, --</div>'
+    + '<div id="viewer-window-level" style="position:absolute;bottom:4px;right:4px;font-size:10px;color:var(--text-tertiary);background:rgba(0,0,0,0.6);padding:2px 6px;border-radius:3px;pointer-events:none;z-index:20;opacity:0;transition:opacity 0.3s">W: -- L: --</div>'
+    + '</div>'
+    + '<div id="annotation-list" style="max-height:120px;overflow-y:auto;border-top:1px solid var(--border)"></div>'
+    + _renderKeyboardShortcutHelp()
+    + '</div>';
+
+  // Apply responsive layout
+  _applyResponsiveViewerLayout();
+  window.addEventListener('resize', _applyResponsiveViewerLayout);
+
+  var baseVol = volumes[0];
+  var overlays = volumes.slice(1).map(function (v) {
+    return { url: v.url, colormap: v.colormap || 'jet', opacity: v.opacity };
+  });
+
+  var result = await _initNiiVueViewer(canvasId, baseVol.url, overlays);
+
+  if (result.status === 'ready') {
+    // Restore saved layout preference
+    try {
+      var savedLayout = sessionStorage.getItem('ds_mri_viewer_layout');
+      if (savedLayout) _setLayout(savedLayout);
+    } catch (_) {}
+
+    // Initialize keyboard shortcuts
+    _initKeyboardShortcuts();
+
+    // Load saved annotations
+    _loadAnnotationsFromBackend();
+
+    // Handle legacy point overlays from payload
     if (payload && Array.isArray(payload.points) && payload.points.length) {
       payload.points.forEach(function (point) {
-        if (typeof nv.addPoint === 'function') {
+        if (niivueInstance && typeof niivueInstance.addPoint === 'function') {
           try {
-            nv.addPoint({
-              x: point.x,
-              y: point.y,
-              z: point.z,
-              label: point.label,
-              color: point.rgba,
-              radius: point.radius_mm,
+            niivueInstance.addPoint({
+              x: point.x, y: point.y, z: point.z,
+              label: point.label, color: point.rgba, radius: point.radius_mm,
             });
           } catch (_pointErr) {}
         }
       });
     }
-    return true;
-  } catch (_err) {
-    if (_isDemoMode()) {
-      return _renderViewerFallback(
-        el,
-        opts,
-        'Demo preview: NiiVue could not load. Use a local API session for full viewer + overlay.',
-      );
+    if (payload && Array.isArray(payload.meshes) && payload.meshes.length && niivueInstance && typeof niivueInstance.loadMeshes === 'function') {
+      try { niivueInstance.loadMeshes(payload.meshes); } catch (_meshErr) {}
     }
-    return _renderOverlayIframe(el, opts) || _renderViewerFallback(el, opts, 'The viewer library was unavailable, so the target overlay was loaded instead.');
+
+    _renderAnnotationList();
+    return true;
   }
+
+  // Fallback: try the legacy NiiVue loader
+  try {
+    var niivueLib = await _loadNiiVueScript();
+    var canvas = document.getElementById(canvasId);
+    if (canvas && niivueLib && niivueLib.Niivue) {
+      var nv = new niivueLib.Niivue({ show3Dcrosshair: true, backColor: [0.03, 0.07, 0.12, 1] });
+      if (typeof nv.attachToCanvas === 'function') nv.attachToCanvas(canvas);
+      if (typeof nv.setSliceType === 'function') nv.setSliceType(nv.sliceTypeMultiplanar || 4);
+      await nv.loadVolumes(volumes);
+      niivueInstance = nv;
+      _transitionViewerState('success');
+      _initKeyboardShortcuts();
+      return true;
+    }
+  } catch (_legacyErr) {}
+
+  // Final fallback
+  _transitionViewerState('failure');
+  if (_isDemoMode()) {
+    return _renderViewerFallback(el, opts, 'Demo preview: NiiVue could not load. Use a local API session for full viewer + overlay.');
+  }
+  return _renderOverlayIframe(el, opts) || _renderViewerFallback(el, opts, 'The viewer library was unavailable, so the target overlay was loaded instead.');
 }
+
+// ── mountBestMRIViewer (enhanced with state machine) ─────────────────────────
 
 async function mountBestMRIViewer(host, opts) {
   // Prefer Cornerstone3D MPR (tools + clinical-grade interaction),
   // fall back to NiiVue, then iframe overlay.
+  _transitionViewerState('load');
   try {
     var payload = null;
     if (opts && opts.analysisId && api.getMRIViewerPayload) {
@@ -831,18 +1662,24 @@ async function mountBestMRIViewer(host, opts) {
     var vols = _viewerVolumeCandidates(opts && opts.report, payload);
     var baseUrl = (vols && vols[0] && vols[0].url) ? vols[0].url : null;
     if (baseUrl) {
+      _transitionViewerState('loading_cs3d');
       var mountCornerstoneMPR = await _loadCornerstoneMPR();
       if (mountCornerstoneMPR) {
         var ok = await mountCornerstoneMPR(host, {
           analysisId: opts.analysisId,
           baseVolumeUrl: baseUrl,
         });
-        if (ok) return true;
+        if (ok) {
+          _transitionViewerState('success');
+          return true;
+        }
       }
     }
   } catch (_) {}
+  // Fall back to NiiVue production viewer
   return mountNiiVue(host, opts);
 }
+
 
 function _mountBrainAtlasViewer(report) {
   var planes = ['axial', 'coronal', 'sagittal'];
@@ -1258,7 +2095,37 @@ function _getAtlasImages() {
 
 // Keep old function name for backwards compat
 function _mountInlineMRIViewer(report) {
+  // Phase 2: Mount brain atlas viewer (canvas-based target overlay)
   _mountBrainAtlasViewer(report);
+
+  // Phase 2: Mount production NiiVue viewer in the progressive viewer container
+  // The viewer container is rendered by renderBrainAtlasViewer or added dynamically
+  var viewerHost = document.getElementById('ds-mri-progressive-viewer');
+  if (!viewerHost) {
+    // Create the viewer host if it doesn't exist (insert after atlas viewer)
+    var atlasSection = document.getElementById('ds-mri-section-spatial');
+    if (atlasSection) {
+      var viewerContainer = document.createElement('div');
+      viewerContainer.id = 'ds-mri-progressive-viewer';
+      viewerContainer.className = 'ds-mri-progressive-viewer-card';
+      viewerContainer.style.marginTop = '12px';
+      atlasSection.querySelector('.ds-mri-report-details__body')?.appendChild(viewerContainer);
+      viewerHost = viewerContainer;
+    }
+  }
+  if (viewerHost && report) {
+    var analysisId = report.analysis_id || _mriAnalysisId;
+    var patientId = report.patient && report.patient.patient_id;
+    var payload = null;
+    // Attempt to extract volume URLs from the report
+    mountBestMRIViewer(viewerHost, {
+      analysisId: analysisId,
+      report: report,
+      patientId: patientId,
+    }).catch(function (err) {
+      console.warn('Production viewer mount failed:', err);
+    });
+  }
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // DEMO_MRI_REPORT — verbatim copy of demo/sample_mri_report.json.  Demo mode
@@ -2703,6 +3570,248 @@ export function renderMRIPhiAudit(audit) {
     + '</div>';
 }
 
+// ── Phase 3 (Weeks 9-12): Biomarker Panel rendering ─────────────────────────
+
+/** Render the evidence-graded biomarker panel.
+ *
+ * Displays 47 biomarkers across 6 categories (structural, diffusion,
+ * white_matter, functional, composite) with z-scores, evidence grades
+ * (A-D), and abnormality flags.
+ */
+export function renderBiomarkerPanel(panelData) {
+  if (!panelData || !panelData.categories) {
+    return '<div class="ds-mri-panel ds-mri-panel--biomarkers ds-mri-panel--stub">'
+      + '<div class="ds-mri-panel__hd">Biomarker Panel</div>'
+      + '<div class="ds-mri-panel-empty">Biomarker panel data not loaded. '
+      + 'Run an MRI analysis to compute 47 evidence-graded biomarkers.</div></div>';
+  }
+
+  var abnormal = panelData.abnormal_count || 0;
+  var total = panelData.total_count || 0;
+  var summaryColor = abnormal > 0 ? '#f59e0b' : '#22c55e';
+  var cats = panelData.categories;
+  var catKeys = Object.keys(cats);
+
+  var summaryBar = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:8px 12px;border-radius:8px;background:'
+    + summaryColor + '15;border:1px solid ' + summaryColor + '40;">'
+    + '<span style="font-size:13px;font-weight:700;color:' + summaryColor + '">'
+    + abnormal + '/' + total + ' abnormal</span>'
+    + '<span style="font-size:11px;color:var(--text-tertiary)">Evidence-graded biomarkers (A=strongest, D=weakest)</span>'
+    + '</div>';
+
+  var categoryHtml = '';
+  for (var ci = 0; ci < catKeys.length; ci++) {
+    var catName = catKeys[ci];
+    var markers = cats[catName];
+    var markerKeys = Object.keys(markers);
+    var catAbnormal = 0;
+    var rows = '';
+    for (var mi = 0; mi < markerKeys.length; mi++) {
+      var m = markers[markerKeys[mi]];
+      if (m.is_abnormal) catAbnormal++;
+      var gradeColor = m.evidence_grade === 'A' ? '#22c55e' : m.evidence_grade === 'B' ? '#60a5fa'
+        : m.evidence_grade === 'C' ? '#f59e0b' : '#ef4444';
+      var statusColor = m.status === 'abnormal' ? '#ef4444' : m.status === 'missing_data' ? '#f59e0b' : '#22c55e';
+      var zDisplay = m.z_score != null ? 'z=' + m.z_score : 'N/A';
+      var valDisplay = m.value != null ? String(m.value).substring(0, 10) : 'N/A';
+      rows += '<tr style="border-bottom:1px solid var(--border)">'
+        + '<td style="padding:4px 6px;font-size:11.5px;white-space:nowrap">' + esc(m.name || markerKeys[mi]) + '</td>'
+        + '<td style="padding:4px 6px;font-size:11px;color:var(--text-tertiary)">' + esc(m.description || '') + '</td>'
+        + '<td style="padding:4px 6px;font-size:11.5px;text-align:right;font-variant-numeric:tabular-nums">' + esc(valDisplay) + '</td>'
+        + '<td style="padding:4px 6px;font-size:11.5px;text-align:right;font-variant-numeric:tabular-nums;color:' + (m.z_score != null && Math.abs(m.z_score) > 2.0 ? '#ef4444' : 'var(--text-secondary)') + '">' + esc(zDisplay) + '</td>'
+        + '<td style="padding:4px 6px;text-align:center"><span style="display:inline-block;padding:1px 6px;border-radius:4px;background:' + gradeColor + '20;color:' + gradeColor + ';font-size:10px;font-weight:700">' + esc(m.evidence_grade || 'D') + '</span></td>'
+        + '<td style="padding:4px 6px;text-align:center"><span style="font-size:11px;color:' + statusColor + '">' + esc(m.status || 'unknown') + '</span></td>'
+        + '</tr>';
+    }
+    var catColor = catAbnormal > 0 ? '#f59e0b' : 'var(--text-secondary)';
+    categoryHtml += '<div style="margin-bottom:10px;border:1px solid var(--border);border-radius:8px;overflow:hidden">'
+      + '<div style="padding:6px 10px;background:var(--input);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">'
+      + '<span style="font-size:12px;font-weight:600;text-transform:capitalize;color:' + catColor + '">' + esc(catName) + '</span>'
+      + '<span style="font-size:11px;color:var(--text-tertiary)">' + catAbnormal + '/' + markerKeys.length + ' abnormal</span>'
+      + '</div>'
+      + '<table style="width:100%;border-collapse:collapse">'
+      + '<thead><tr style="font-size:10.5px;color:var(--text-tertiary);text-align:left">'
+      + '<th style="padding:4px 6px">Marker</th><th style="padding:4px 6px">Description</th>'
+      + '<th style="padding:4px 6px;text-align:right">Value</th>'
+      + '<th style="padding:4px 6px;text-align:right">Z-score</th>'
+      + '<th style="padding:4px 6px;text-align:center">Grade</th>'
+      + '<th style="padding:4px 6px;text-align:center">Status</th>'
+      + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
+  var conditionsHtml = '';
+  var allConditions = {};
+  for (var cki = 0; cki < catKeys.length; cki++) {
+    var ckm = cats[catKeys[cki]];
+    var mks = Object.keys(ckm);
+    for (var mki = 0; mki < mks.length; mki++) {
+      var conds = ckm[mks[mki]].conditions;
+      if (Array.isArray(conds)) {
+        for (var ci2 = 0; ci2 < conds.length; ci2++) {
+          allConditions[conds[ci2]] = (allConditions[conds[ci2]] || 0) + 1;
+        }
+      }
+    }
+  }
+  var condList = Object.keys(allConditions).sort(function (a, b) { return allConditions[b] - allConditions[a]; });
+  if (condList.length > 0) {
+    conditionsHtml = '<div style="margin-top:8px;padding:8px 10px;border-radius:6px;background:rgba(37,99,235,0.05);border:1px solid rgba(37,99,235,0.15)">'
+      + '<div style="font-size:11px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Relevant conditions</div>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:4px">'
+      + condList.map(function (c) {
+        return '<span style="display:inline-block;padding:2px 8px;border-radius:4px;background:var(--input);font-size:10.5px;color:var(--text-secondary)">' + esc(c) + '</span>';
+      }).join('')
+      + '</div></div>';
+  }
+
+  return '<div class="ds-mri-panel ds-mri-panel--biomarkers">'
+    + '<div class="ds-mri-panel__hd">Biomarker Panel &mdash; Evidence-Graded</div>'
+    + summaryBar
+    + '<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">'
+    + '47 markers across 6 categories &middot; A=systematic review &middot; B=RCT/cohort &middot; C=small study &middot; D=expert opinion'
+    + '</div>'
+    + categoryHtml
+    + conditionsHtml
+    + '<div style="margin-top:10px;padding:6px 10px;border-radius:6px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);font-size:11px;color:#f59e0b">'
+    + '<strong>Decision support only.</strong> All biomarkers require clinical correlation. Not a diagnostic device.'
+    + '</div></div>';
+}
+
+// ── Phase 3 (Weeks 9-12): AI Abnormality Detection rendering ─────────────────
+
+/** Render AI-detected abnormalities with confidence scoring.
+ *
+ * Displays flagged regions sorted by confidence (high > moderate > low).
+ * All findings use hedged, radiologist-safe language.
+ */
+export function renderAIFindings(findingsData) {
+  if (!findingsData || !Array.isArray(findingsData.findings)) {
+    return '<div class="ds-mri-panel ds-mri-panel--ai-findings ds-mri-panel--stub">'
+      + '<div class="ds-mri-panel__hd">AI Abnormality Detection</div>'
+      + '<div class="ds-mri-panel-empty">AI findings not loaded. '
+      + 'Run an MRI analysis to detect abnormal regions with confidence scoring.</div></div>';
+  }
+
+  var findings = findingsData.findings;
+  var summary = findingsData.summary || {};
+  var total = summary.total_findings || findings.length;
+  var byConf = summary.by_confidence || {};
+
+  var headerColor = (byConf.high || 0) > 0 ? '#ef4444' : (byConf.moderate || 0) > 0 ? '#f59e0b' : '#22c55e';
+  var headerBar = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:8px 12px;border-radius:8px;background:'
+    + headerColor + '15;border:1px solid ' + headerColor + '40;">'
+    + '<span style="font-size:13px;font-weight:700;color:' + headerColor + '">' + total + ' finding(s)</span>'
+    + '<span style="font-size:11px;color:var(--text-tertiary)">'
+    + (byConf.high || 0) + ' high &middot; ' + (byConf.moderate || 0) + ' moderate &middot; ' + (byConf.low || 0) + ' low confidence'
+    + '</span></div>';
+
+  var rows = '';
+  for (var fi = 0; fi < findings.length; fi++) {
+    var f = findings[fi];
+    var confColor = f.confidence === 'high' ? '#ef4444' : f.confidence === 'moderate' ? '#f59e0b' : '#60a5fa';
+    var gradeColor = f.evidence_grade === 'A' ? '#22c55e' : f.evidence_grade === 'B' ? '#60a5fa'
+      : f.evidence_grade === 'C' ? '#f59e0b' : '#ef4444';
+    rows += '<div style="margin-bottom:8px;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--card)">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'
+      + '<span style="font-size:12px;font-weight:600;color:var(--text-primary)">' + esc(f.region_name || f.region_key || 'Unknown') + '</span>'
+      + '<div style="display:flex;gap:4px">'
+      + '<span style="display:inline-block;padding:1px 6px;border-radius:4px;background:' + confColor + '20;color:' + confColor + ';font-size:10px;font-weight:700">' + esc(f.confidence || 'low') + '</span>'
+      + '<span style="display:inline-block;padding:1px 6px;border-radius:4px;background:' + gradeColor + '20;color:' + gradeColor + ';font-size:10px;font-weight:700">Grade ' + esc(f.evidence_grade || 'D') + '</span>'
+      + '</div></div>'
+      + '<div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:4px">'
+      + 'z-score: <strong>' + (f.z_score != null ? f.z_score : 'N/A') + '</strong> &middot; '
+      + 'direction: ' + esc(f.direction || 'unknown') + ' &middot; '
+      + 'category: ' + esc(f.category || 'unknown')
+      + '</div>'
+      + '<div style="font-size:11px;color:var(--text-tertiary);padding:6px 8px;border-radius:4px;background:rgba(245,158,11,0.06);border-left:3px solid #f59e0b">'
+      + esc(f.safe_language || '')
+      + '</div></div>';
+  }
+
+  if (rows === '') {
+    rows = '<div style="padding:16px;text-align:center;font-size:12px;color:var(--text-tertiary)">'
+      + 'No abnormalities detected above threshold (z &gt; 2.5).'
+      + '</div>';
+  }
+
+  var dirSummary = summary.by_direction || {};
+  var dirHtml = '<div style="display:flex;gap:12px;margin-bottom:10px">'
+    + '<div style="flex:1;padding:6px 10px;border-radius:6px;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.15);text-align:center">'
+    + '<div style="font-size:16px;font-weight:700;color:#ef4444">' + (dirSummary.reduced || 0) + '</div>'
+    + '<div style="font-size:10px;color:var(--text-tertiary)">Reduced</div></div>'
+    + '<div style="flex:1;padding:6px 10px;border-radius:6px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);text-align:center">'
+    + '<div style="font-size:16px;font-weight:700;color:#22c55e">' + (dirSummary.elevated || 0) + '</div>'
+    + '<div style="font-size:10px;color:var(--text-tertiary)">Elevated</div></div>'
+    + '</div>';
+
+  return '<div class="ds-mri-panel ds-mri-panel--ai-findings">'
+    + '<div class="ds-mri-panel__hd">AI Abnormality Detection</div>'
+    + headerBar
+    + dirHtml
+    + rows
+    + '<div style="margin-top:10px;padding:6px 10px;border-radius:6px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);font-size:11px;color:#f59e0b">'
+    + '<strong>Decision support only.</strong> All AI findings require radiologist review. '
+    + 'Not a diagnostic device. Not a substitute for clinical judgment.'
+    + '</div></div>';
+}
+
+// ── Phase 3 (Weeks 9-12): Atlas Registration rendering ──────────────────────
+
+/** Render atlas registration status and QA metrics.
+ *
+ * Displays Dice coefficient, Jacobian range, mutual information,
+ * and pass/fail assessment for the spatial normalisation step.
+ */
+export function renderAtlasRegistration(regData) {
+  if (!regData || regData.error) {
+    return '<div class="ds-mri-panel ds-mri-panel--atlas-reg ds-mri-panel--stub">'
+      + '<div class="ds-mri-panel__hd">Atlas Registration</div>'
+      + '<div class="ds-mri-panel-empty">Atlas registration not performed. '
+      + 'Click "Register to Atlas" after running an analysis.</div></div>';
+  }
+
+  var qa = regData.qa_metrics || {};
+  var passed = regData.passed;
+  var passColor = passed ? '#22c55e' : '#ef4444';
+  var passText = passed ? 'PASSED' : 'FAILED';
+  var dice = qa.dice_coefficient != null ? qa.dice_coefficient : 'N/A';
+  var jac = qa.jacobian_det_range || ['N/A', 'N/A'];
+  var mi = qa.mutual_information != null ? qa.mutual_information : 'N/A';
+
+  var qaGrid = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">'
+    + '<div style="padding:8px;border-radius:8px;background:var(--input);text-align:center">'
+    + '<div style="font-size:10px;color:var(--text-tertiary)">Dice Coefficient</div>'
+    + '<div style="font-size:18px;font-weight:700;color:' + (dice >= 0.90 ? '#22c55e' : '#f59e0b') + '">' + dice + '</div>'
+    + '<div style="font-size:10px;color:var(--text-tertiary)">target &ge;0.90</div></div>'
+    + '<div style="padding:8px;border-radius:8px;background:var(--input);text-align:center">'
+    + '<div style="font-size:10px;color:var(--text-tertiary)">Jacobian Range</div>'
+    + '<div style="font-size:14px;font-weight:700;color:' + (Array.isArray(jac) && jac[0] >= 0.25 && jac[1] <= 4.0 ? '#22c55e' : '#ef4444') + '">[' + jac[0] + ', ' + jac[1] + ']</div>'
+    + '<div style="font-size:10px;color:var(--text-tertiary)">target [0.25, 4.0]</div></div>'
+    + '<div style="padding:8px;border-radius:8px;background:var(--input);text-align:center">'
+    + '<div style="font-size:10px;color:var(--text-tertiary)">Mutual Information</div>'
+    + '<div style="font-size:18px;font-weight:700;color:var(--text-primary)">' + mi + '</div>'
+    + '<div style="font-size:10px;color:var(--text-tertiary)">higher is better</div></div>'
+    + '</div>';
+
+  var details = '<div style="font-size:11.5px;color:var(--text-secondary)">'
+    + '<div><strong>Atlas:</strong> ' + esc(regData.atlas || 'unknown') + '</div>'
+    + '<div><strong>Method:</strong> ' + esc(regData.method || 'unknown') + '</div>'
+    + '<div><strong>Output space:</strong> ' + esc(regData.output_space || 'unknown') + '</div>'
+    + '</div>';
+
+  return '<div class="ds-mri-panel ds-mri-panel--atlas-reg">'
+    + '<div class="ds-mri-panel__hd">Atlas Registration &mdash; QA</div>'
+    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'
+    + '<span style="display:inline-block;padding:3px 12px;border-radius:12px;background:' + passColor + '20;color:' + passColor + ';font-size:12px;font-weight:700">' + passText + '</span>'
+    + '<span style="font-size:11px;color:var(--text-tertiary)">Spatial normalisation quality check</span>'
+    + '</div>'
+    + qaGrid
+    + details
+    + '<div style="margin-top:10px;padding:6px 10px;border-radius:6px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);font-size:11px;color:#f59e0b">'
+    + esc(regData.safety_note || 'Registration quality must be verified before clinical use.')
+    + '</div></div>';
+}
+
 // ── Bottom strip: actions ──────────────────────────────────────────────────
 function _canExport(report) {
   if (!report) return false;
@@ -2820,6 +3929,19 @@ export function renderFullView(state) {
         subtitle: 'Atlas + slice viewer',
         innerHtml: renderBrainAtlasViewer(report)
           + renderGlassBrain(report),
+      })
+      + renderMRIReportSection({
+        id: 'ds-mri-section-biomarkers',
+        title: 'Biomarkers',
+        subtitle: 'Evidence-graded panel (47 markers)',
+        innerHtml: renderBiomarkerPanel(_biomarkerPanelData)
+          + renderAtlasRegistration(_atlasRegistrationResult),
+      })
+      + renderMRIReportSection({
+        id: 'ds-mri-section-ai-findings',
+        title: 'AI Findings',
+        subtitle: 'Confidence-scored abnormality detection',
+        innerHtml: renderAIFindings(_aiFindingsData),
       })
       + renderMRIReportSection({
         id: 'ds-mri-section-medrag',
@@ -3208,6 +4330,7 @@ function _startPolling(navigate) {
               _report = await api.getMRIReport(analysisId);
               _mriAnalysisId = _report && _report.analysis_id;
               _workbenchSections = await _loadWorkbenchSections(analysisId); // Bug 3 fix
+              await _loadPhase3Intelligence(analysisId); // Phase 3: biomarkers + AI findings
             } catch (_e) { /* surfaced via toast on navigate */ }
           }
         }
@@ -3302,6 +4425,7 @@ async function _startJobWatch(navigate) {
               _report = await api.getMRIReport(analysisId);
               _mriAnalysisId = _report && _report.analysis_id;
               _workbenchSections = await _loadWorkbenchSections(analysisId); // Bug 3 fix
+              await _loadPhase3Intelligence(analysisId); // Phase 3: biomarkers + AI findings
             } catch (_e) {}
           }
           navigate('mri-analysis');
@@ -3897,6 +5021,7 @@ export var _INTERNALS = {
   setUploadId:       function (u) { _uploadId = u; },
   setJobId:          function (j) { _jobId = j; },
   mountNiiVue:       mountNiiVue,
+  mountBestMRIViewer: mountBestMRIViewer,
   getReport:         function () { return _report; },
   mniToPixel:        mniToPixel,
   pixelToMni:        pixelToMni,
