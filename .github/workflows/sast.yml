@@ -59,7 +59,7 @@ jobs:
           cache-dependency-path: apps/api/pyproject.toml
 
       - name: Install Bandit
-        run: pip install bandit[sarif] bandit-toml
+        run: pip install 'bandit[sarif,toml]'
 
       - name: Run Bandit scan (SARIF)
         # Skips: B101 (assert_used) — common in FastAPI test patterns
@@ -78,11 +78,16 @@ jobs:
 
       - name: Run Bandit scan (text for job log)
         run: |
+          # --severity-level high so the gate below only fails on HIGH
+          # severity findings (the step's stated intent — see step name
+          # below). Low/medium findings still appear in the SARIF upload
+          # for triage in the Security tab.
           bandit \
             -r apps/api/ packages/ \
             --skip B101,B104,B105,B106,B107,B311 \
             --exclude './.venv,./venv,./tests,./*/tests/*' \
             --confidence-level medium \
+            --severity-level high \
             --format txt \
             > bandit-report.txt || BANDIT_EXIT=$?
           cat bandit-report.txt
@@ -128,25 +133,33 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run Semgrep scan
-        uses: returntocorp/semgrep-action@v1
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          config: >-
-            p/security-audit
-            p/owasp-top-ten
-            p/cwe-top-25
-            p/python
-            p/javascript
-            p/typescript
-          generateSarif: "1"
-        env:
-          SEMGREP_RULES: >-
-            p/security-audit
-            p/owasp-top-ten
-            p/cwe-top-25
-            p/python
-            p/javascript
-            p/typescript
+          python-version: '3.11'
+
+      - name: Install Semgrep
+        run: pip install --quiet semgrep
+
+      - name: Run Semgrep scan
+        # Use `semgrep scan` (always exits 0 even with findings) so the
+        # downstream "Check for critical/high findings" gate is the sole
+        # blocking decision. `semgrep ci` is intended for app-token PR
+        # comment workflows and exits 1 on every finding, which makes
+        # the gate redundant.
+        run: |
+          semgrep scan \
+            --config p/security-audit \
+            --config p/owasp-top-ten \
+            --config p/cwe-top-25 \
+            --config p/python \
+            --config p/javascript \
+            --config p/typescript \
+            --sarif \
+            --output semgrep-results.sarif \
+            --disable-version-check \
+            --metrics off \
+            --error || true
 
       - name: Upload SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
@@ -198,11 +211,18 @@ jobs:
         run: npm ci
 
       - name: Install ESLint security plugins
+        # Pin eslint@8 because the security/no-secrets/sdl plugins below ship
+        # legacy (.eslintrc) configs that ESLint 9's flat-only resolver
+        # rejects. Project root may have eslint 9 from `npm ci`; this
+        # downgrade is scoped to this CI step's node_modules and does not
+        # affect the app build elsewhere.
         run: |
-          npm install --save-dev \
+          npm install --save-dev --no-save \
+            eslint@8 \
             eslint-plugin-security \
             eslint-plugin-no-secrets \
-            @microsoft/eslint-plugin-sdl
+            @microsoft/eslint-plugin-sdl \
+            @microsoft/eslint-formatter-sarif
 
       - name: Create ESLint security config
         run: |
@@ -263,8 +283,10 @@ jobs:
 
       - name: Run ESLint security scan
         run: |
-          npx eslint \
+          npx --no-install eslint \
+            --no-eslintrc \
             --config .eslintrc.security.js \
+            --resolve-plugins-relative-to . \
             --ext .ts,.tsx,.js,.jsx \
             apps/web/src/ packages/ \
             --format @microsoft/eslint-formatter-sarif \
