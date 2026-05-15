@@ -91,11 +91,18 @@ jobs:
         run: pip install pip-audit
 
       - name: Run pip-audit on API
+        # pip-audit's `--format` does NOT include sarif (only columns, json,
+        # cyclonedx-json, cyclonedx-xml, markdown). The workflow tried
+        # `--format sarif` and failed every run with:
+        #   pip-audit: error: argument -f/--format: invalid OutputFormatChoice
+        #   value: 'sarif'
+        # Use JSON; the gate below still keys off pip-audit's exit code so
+        # CRITICAL/HIGH-CVE blocking is unchanged.
         run: |
           pip-audit \
             --requirement apps/api/pyproject.toml \
-            --format sarif \
-            --output pip-audit-results.sarif \
+            --format json \
+            --output pip-audit-results.json \
             --desc \
             --ignore-vuln GHSA-9wx4-h78v-vm56 \
             || AUDIT_EXIT=$?
@@ -117,23 +124,18 @@ jobs:
 
       - name: Display pip-audit results
         run: |
-          if [ -f pip-audit-results.sarif ]; then
-            echo "=== pip-audit SARIF summary ==="
-            jq '.runs[].results | length' pip-audit-results.sarif || echo "0"
+          if [ -f pip-audit-results.json ]; then
+            echo "=== pip-audit (apps/api) summary ==="
+            jq '.dependencies | map(.vulns) | add | length' pip-audit-results.json 2>/dev/null \
+              || echo "0"
           fi
           for f in pip-audit-*.json; do
-            if [ -f "$f" ]; then
+            if [ -f "$f" ] && [ "$f" != "pip-audit-results.json" ]; then
               echo "=== $f ==="
-              cat "$f" | jq '.[] | {vuln_id, fix_versions}' 2>/dev/null || echo "(no issues or parse error)"
+              jq '.dependencies | map(select(.vulns | length > 0) | {name, version, vulns: [.vulns[] | {id, fix_versions}]})' "$f" 2>/dev/null \
+                || echo "(no issues or parse error)"
             fi
           done
-
-      - name: Upload SARIF to GitHub Security tab
-        if: always() && hashFiles('pip-audit-results.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: pip-audit-results.sarif
-          category: pip-audit
 
       - name: Upload pip-audit artifacts
         if: always()
@@ -141,7 +143,7 @@ jobs:
         with:
           name: pip-audit-reports
           path: |
-            pip-audit-results.sarif
+            pip-audit-results.json
             pip-audit-*.json
           retention-days: 30
 
@@ -150,7 +152,7 @@ jobs:
         run: |
           if [ "${{ env.pip_audit_exit }}" != "0" ] && [ "${{ env.pip_audit_exit }}" != "" ]; then
             echo "::error::pip-audit found CRITICAL/HIGH CVEs in Python dependencies."
-            echo "::error::Review SARIF output and update dependencies immediately."
+            echo "::error::Review the JSON report (pip-audit-reports artifact) and update dependencies immediately."
             echo "::error::Run 'pip-audit --fix' locally to auto-fix where possible."
             exit 1
           fi

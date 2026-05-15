@@ -18,6 +18,7 @@ from deepsynaps_text.schemas import (
     NeuromodulationParameters,
     NeuromodulationRiskProfile,
     NeuromodulationTherapyLine,
+    ResponseCategory,
 )
 
 EntityResult = Union[ClinicalEntityExtractionResult, CodedEntityExtractionResult]

@@ -200,6 +200,7 @@ from .clinical_data_platform import (
     AuditEventEntry,
     ConsentSummary,
     DataAssetSummary,
+    DataConsoleAuditLogResponse,
     DataRow,
     DataSourceInfo,
     DataSourcesResponse,

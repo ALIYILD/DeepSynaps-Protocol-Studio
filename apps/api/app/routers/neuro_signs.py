@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import cast, or_
 from sqlalchemy.types import String
 from typing import Optional, List
-from types import SimpleNamespace
 import uuid
 
 from app.auth import AuthenticatedActor, get_authenticated_actor

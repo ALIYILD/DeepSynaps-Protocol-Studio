@@ -14,7 +14,7 @@ Protocol suggestions are starting points for clinician judgment, not prescriptio
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Any, Iterable
 
 
 @dataclass(frozen=True)
