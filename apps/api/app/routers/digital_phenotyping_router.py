@@ -5,12 +5,6 @@ POST   /api/v1/digital-phenotyping/analyzer/patient/{patient_id}/recompute
 POST   /api/v1/digital-phenotyping/analyzer/patient/{patient_id}/consent
 POST   /api/v1/digital-phenotyping/analyzer/patient/{patient_id}/settings
 GET    /api/v1/digital-phenotyping/analyzer/patient/{patient_id}/audit
-
-Signal Ingest (real pipeline):
-POST   /api/v1/digital-phenotyping/signals/ingest
-POST   /api/v1/digital-phenotyping/signals/batch
-GET    /api/v1/digital-phenotyping/signals/patient/{patient_id}
-GET    /api/v1/digital-phenotyping/signals/patient/{patient_id}/quality
 """
 
 from __future__ import annotations
@@ -53,36 +47,12 @@ from app.services.digital_phenotyping import (
     merge_state_into_payload,
     _parse_domains_json,
 )
-from app.services.signal_ingest_pipeline import (
-    SignalSource,
-    SignalType,
-    ingest_signal,
-    ingest_batch,
-    get_signal_quality_summary,
-    list_signals_for_patient,
-)
-from app.services.consent_enforcement import (
-    require_ai_analysis_consent,
-    ConsentMissingError,
-)
 
 router = APIRouter(
     prefix="/api/v1/digital-phenotyping/analyzer",
     tags=["Digital Phenotyping"],
 )
 
-# ---------------------------------------------------------------------------
-# Separate router for signal-ingest endpoints (different prefix)
-# ---------------------------------------------------------------------------
-signals_router = APIRouter(
-    prefix="/api/v1/digital-phenotyping/signals",
-    tags=["Signal Ingest"],
-)
-
-
-# ===========================================================================
-# Request-body schemas
-# ===========================================================================
 
 # core-schema-exempt: minimal router-local request body; not reused outside this router
 class ConsentBody(BaseModel):
@@ -154,60 +124,6 @@ class ClinicSummaryResponse(BaseModel):
     captured_at: str | None = None
     patients: list[ClinicPatientSummaryOut] = Field(default_factory=list)
     total: int = 0
-
-
-# ---------------------------------------------------------------------------
-# Signal Ingest Request Schemas
-# ---------------------------------------------------------------------------
-
-class SignalIngestBody(BaseModel):
-    """Single passive signal ingest request."""
-
-    patient_id: str
-    clinic_id: str
-    signal_type: str
-    signal_source: str
-    value: float
-    unit: str = ""
-    timestamp: str  # ISO-8601
-    metadata: Optional[dict[str, Any]] = None
-    device_id: Optional[str] = None
-    quality_score: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-
-
-class SignalBatchItem(BaseModel):
-    """One item inside a batch ingest request."""
-
-    signal_type: str
-    signal_source: str
-    value: float
-    unit: str = ""
-    timestamp: str  # ISO-8601
-    metadata: Optional[dict[str, Any]] = None
-    device_id: Optional[str] = None
-    quality_score: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-
-
-class SignalBatchBody(BaseModel):
-    """Batch passive signal ingest request."""
-
-    patient_id: str
-    clinic_id: str
-    signals: list[SignalBatchItem]
-
-
-class SignalListQuery(BaseModel):
-    """Query params for listing patient signals."""
-
-    signal_type: Optional[str] = None
-    source: Optional[str] = None
-    days: int = Field(default=7, ge=1, le=90)
-    limit: int = Field(default=100, ge=1, le=500)
-
-
-# ===========================================================================
-# Helpers
-# ===========================================================================
 
 
 def _require_known_patient(db: Session, patient_id: str) -> None:
@@ -383,11 +299,6 @@ def _audit_ts_iso(dt: Any) -> str:
     return str(dt)
 
 
-# ===========================================================================
-# Routes — Analyzer (existing)
-# ===========================================================================
-
-
 @router.get("/patient/{patient_id}")
 def get_digital_phenotyping_analyzer(
     patient_id: str,
@@ -443,74 +354,24 @@ def recompute_digital_phenotyping(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ):
-    """Trigger signal processing pipeline recomputation.
-
-    Replaces the previous stub that returned a placeholder message.
-    Now enforces consent, validates patient ownership, runs quality checks,
-    and returns a real processing result.
-    """
+    """Trigger recomputation (stub — returns job id)."""
     require_minimum_role(actor, "clinician")
     _require_known_patient(db, patient_id)
     _gate_patient(actor, patient_id, db)
-
-    # --- Consent check ---
-    try:
-        require_ai_analysis_consent(db, patient_id, actor, ai_modality="digital_phenotyping")
-    except ConsentMissingError:
-        raise HTTPException(status_code=403, detail="ai_analysis consent required for digital phenotyping")
-
     job_id = str(uuid.uuid4())
 
-    # --- Build the processing window ---
-    now = datetime.now(timezone.utc)
-    window_start = None
-    window_end = None
-    if body and body.window:
-        try:
-            raw_start = body.window.get("start", "").strip()
-            raw_end = body.window.get("end", "").strip()
-            if raw_start:
-                window_start = datetime.fromisoformat(raw_start.replace("Z", "+00:00"))
-            if raw_end:
-                window_end = datetime.fromisoformat(raw_end.replace("Z", "+00:00"))
-        except (ValueError, AttributeError):
-            pass
-    if window_start is None:
-        window_start = now - timedelta(days=28)
-    if window_end is None:
-        window_end = now
-
-    # --- Get quality summary ---
-    quality = get_signal_quality_summary(patient_id, days=7)
-
-    # --- Audit the recompute ---
     _append_audit(
         db,
         patient_id=patient_id,
         action="recompute",
         actor_id=actor.actor_id,
-        summary="Signal pipeline recompute triggered",
-        extra={
-            "job_id": job_id,
-            "pipeline_version": "1.0.0",
-            "window": {"start": window_start.isoformat(), "end": window_end.isoformat()},
-            "force": body.force if body else False,
-            "coverage_percent": quality["coverage_percent"],
-        },
+        summary="Recompute requested — passive signal ingest pipeline is in preview",
+        extra={"job_id": job_id, "status": "preview"},
     )
 
     return {
-        "ok": True,
-        "job_id": job_id,
-        "pipeline_version": "1.0.0",
-        "status": "processing",
-        "estimated_ready_at": (now + timedelta(seconds=30)).isoformat(),
-        "window": {
-            "start": window_start.isoformat().replace("+00:00", "Z"),
-            "end": window_end.isoformat().replace("+00:00", "Z"),
-        },
-        "signal_quality": quality,
-        "message": "Signal pipeline recompute accepted. Results will be available shortly.",
+        "status": "preview",
+        "message": "Passive signal ingest pipeline is in preview. Live recompute not yet connected.",
     }
 
 
@@ -797,359 +658,210 @@ def get_digital_phenotyping_audit(
     return {"patient_id": patient_id, "events": events, "total": len(events)}
 
 
-# ===========================================================================
-# Routes — Signal Ingest (NEW real pipeline)
-# ===========================================================================
+# ── Behaviour sub-router (preview — full backend integration pending) ──────────
+
+_behaviour_router = APIRouter(
+    prefix="/api/v1/digital-phenotyping/behaviour",
+    tags=["Digital Phenotyping — Behaviour"],
+)
 
 
-@signals_router.post("/ingest")
-def signal_ingest_single(
-    body: SignalIngestBody,
+# core-schema-exempt: behaviour response shape; not reused outside this router
+class BehaviourProtocolOut(BaseModel):
+    type: str
+    label: str
+    status: str
+    notes: str | None = None
+    started_at: str | None = None
+
+
+# core-schema-exempt: behaviour response shape; not reused outside this router
+class BehaviourObservationOut(BaseModel):
+    recorded_at: str | None = None
+    category: str
+    note: str
+    recorded_by: str | None = None
+
+
+# core-schema-exempt: behaviour response shape; not reused outside this router
+class BehaviourOutcomeOut(BaseModel):
+    type: str
+    label: str
+    latest_value: float | None = None
+    previous_value: float | None = None
+    trend: str = "stable"
+    history: list[float] = Field(default_factory=list)
+
+
+# core-schema-exempt: behaviour response shape; not reused outside this router
+class BehaviourSafetyFlagOut(BaseModel):
+    level: str
+    category: str
+    description: str | None = None
+    raised_at: str | None = None
+    raised_by: str | None = None
+
+
+# core-schema-exempt: behaviour response shape; not reused outside this router
+class BehaviourPatientProfileOut(BaseModel):
+    patient_id: str
+    patient_name: str
+    protocols: list[BehaviourProtocolOut] = Field(default_factory=list)
+    observations: list[BehaviourObservationOut] = Field(default_factory=list)
+    outcomes: list[BehaviourOutcomeOut] = Field(default_factory=list)
+    safety_flags: list[BehaviourSafetyFlagOut] = Field(default_factory=list)
+    last_reviewed_at: str | None = None
+    reviewed_by: str | None = None
+
+
+# core-schema-exempt: behaviour response shape; not reused outside this router
+class BehaviourClinicPatientOut(BaseModel):
+    patient_id: str
+    patient_name: str
+    active_protocol_count: int = 0
+    flag_count: int = 0
+    last_observation_at: str | None = None
+    worst_flag: str | None = None
+
+
+# core-schema-exempt: behaviour response shape; not reused outside this router
+class BehaviourClinicSummaryOut(BaseModel):
+    patients: list[BehaviourClinicPatientOut] = Field(default_factory=list)
+    total_active_protocols: int = 0
+    total_flags: int = 0
+    captured_at: str | None = None
+    preview_note: str = "Preview workspace — full behavioural backend integration pending"
+
+
+def _check_behaviour_consent(db: Session, patient_id: str) -> bool:
+    """Check if patient has consented to behavioural data collection."""
+    state = _repo_load_or_create_state(
+        db,
+        patient_id=patient_id,
+        default_domains_enabled=DEFAULT_DOMAINS_ENABLED,
+    )
+    domains = _parse_domains_json(state.domains_enabled_json)
+    return domains.get("ema_active", False) or domains.get("device_engagement", False)
+
+
+def _minimal_behaviour_profile(patient_id: str, patient_name: str | None) -> BehaviourPatientProfileOut:
+    """Return a minimal honest profile when no behavioural backend is connected."""
+    return BehaviourPatientProfileOut(
+        patient_id=patient_id,
+        patient_name=patient_name or patient_id,
+        protocols=[],
+        observations=[],
+        outcomes=[],
+        safety_flags=[],
+        last_reviewed_at=None,
+        reviewed_by=None,
+    )
+
+
+def _minimal_behaviour_clinic_summary(clinic_id: str) -> BehaviourClinicSummaryOut:
+    """Return a minimal honest clinic summary when no behavioural backend is connected."""
+    return BehaviourClinicSummaryOut(
+        patients=[],
+        total_active_protocols=0,
+        total_flags=0,
+        captured_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        preview_note="Preview workspace — full behavioural backend integration pending",
+    )
+
+
+@_behaviour_router.get("/clinic-summary", response_model=BehaviourClinicSummaryOut)
+def get_behaviour_clinic_summary(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ):
-    """Ingest a single passive signal with quality validation.
-
-    Requires:
-    - clinician+ role
-    - patient ownership (same clinic)
-    - ai_analysis consent for digital_phenotyping
-    """
+    """Return clinic-scoped behavioural summary (preview — returns minimal data)."""
     require_minimum_role(actor, "clinician")
-    _require_known_patient(db, body.patient_id)
-    _gate_patient(actor, body.patient_id, db)
 
-    # --- Consent check ---
-    try:
-        require_ai_analysis_consent(
-            db, body.patient_id, actor, ai_modality="digital_phenotyping"
-        )
-    except ConsentMissingError:
-        raise HTTPException(
-            status_code=403,
-            detail="ai_analysis consent required for digital phenotyping signal ingest",
-        )
-
-    # --- Parse timestamp ---
-    try:
-        ts_raw = body.timestamp.strip().replace("Z", "+00:00")
-        ts = datetime.fromisoformat(ts_raw)
-        if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
-    except (ValueError, AttributeError):
-        raise HTTPException(status_code=422, detail="timestamp must be a valid ISO datetime")
-
-    # --- Validate enums ---
-    try:
-        sig_type = SignalType(body.signal_type)
-    except ValueError:
-        valid_types = [t.value for t in SignalType]
-        raise HTTPException(
-            status_code=422,
-            detail=f"Invalid signal_type. Valid: {valid_types}",
-        )
-    try:
-        sig_source = SignalSource(body.signal_source)
-    except ValueError:
-        valid_sources = [s.value for s in SignalSource]
-        raise HTTPException(
-            status_code=422,
-            detail=f"Invalid signal_source. Valid: {valid_sources}",
-        )
-
-    # --- Run ingest ---
-    result = ingest_signal(
-        patient_id=body.patient_id,
-        clinic_id=body.clinic_id,
-        signal_type=sig_type,
-        signal_source=sig_source,
-        value=body.value,
-        unit=body.unit,
-        timestamp=ts,
-        metadata=body.metadata,
-        device_id=body.device_id,
-        quality_score=body.quality_score,
-    )
-
-    # --- Audit ---
     _append_audit(
         db,
-        patient_id=body.patient_id,
-        action="signal_ingest",
+        patient_id=f"clinic-{actor.clinic_id}",
+        action="behaviour_clinic_summary",
         actor_id=actor.actor_id,
-        summary=f"Signal ingested: {sig_type.value} from {sig_source.value}",
-        extra={
-            "signal_id": result["signal_id"],
-            "status": result["status"],
-            "quality_score": result["quality_score"],
-            "value": body.value,
-            "unit": body.unit,
-        },
+        summary="Behaviour clinic summary requested (preview)",
+        extra={"clinic_id": actor.clinic_id, "status": "preview"},
     )
 
-    return result
-
-
-@signals_router.post("/batch")
-def signal_ingest_batch(
-    body: SignalBatchBody,
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-    db: Session = Depends(get_db_session),
-):
-    """Ingest a batch of passive signals.
-
-    Requires:
-    - clinician+ role
-    - patient ownership (same clinic)
-    - ai_analysis consent for digital_phenotyping
-    """
-    require_minimum_role(actor, "clinician")
-    _require_known_patient(db, body.patient_id)
-    _gate_patient(actor, body.patient_id, db)
-
-    # --- Consent check ---
-    try:
-        require_ai_analysis_consent(
-            db, body.patient_id, actor, ai_modality="digital_phenotyping"
-        )
-    except ConsentMissingError:
-        raise HTTPException(
-            status_code=403,
-            detail="ai_analysis consent required for digital phenotyping batch ingest",
-        )
-
-    # --- Convert Pydantic items to plain dicts for the pipeline ---
-    signal_dicts = []
-    for item in body.signals:
-        signal_dicts.append({
-            "signal_type": item.signal_type,
-            "signal_source": item.signal_source,
-            "value": item.value,
-            "unit": item.unit,
-            "timestamp": item.timestamp,
-            "metadata": item.metadata,
-            "device_id": item.device_id,
-            "quality_score": item.quality_score,
-        })
-
-    # --- Run batch ingest ---
-    result = ingest_batch(
-        patient_id=body.patient_id,
-        clinic_id=body.clinic_id,
-        signals=signal_dicts,
-    )
-
-    # --- Audit ---
-    _append_audit(
+    patients = _repo_list_clinic_patients(
         db,
-        patient_id=body.patient_id,
-        action="signal_ingest_batch",
-        actor_id=actor.actor_id,
-        summary=f"Batch ingest: {result['total']} signals ({result['accepted']} accepted, {result['degraded']} degraded, {result['rejected']} rejected)",
-        extra={
-            "batch_id": result["batch_id"],
-            "total": result["total"],
-            "accepted": result["accepted"],
-            "degraded": result["degraded"],
-            "rejected": result["rejected"],
-            "error_count": len(result["errors"]),
-        },
+        clinic_id=actor.clinic_id,
+        include_all=actor.role == "admin",
     )
 
-    return result
+    items: list[BehaviourClinicPatientOut] = []
+    for patient in patients:
+        pname = _patient_display_name(db, patient.id) or patient.id
+        items.append(BehaviourClinicPatientOut(
+            patient_id=patient.id,
+            patient_name=pname or patient.id,
+            active_protocol_count=0,
+            flag_count=0,
+            last_observation_at=None,
+            worst_flag=None,
+        ))
+
+    return BehaviourClinicSummaryOut(
+        patients=items,
+        total_active_protocols=0,
+        total_flags=0,
+        captured_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        preview_note="Preview workspace — full behavioural backend integration pending",
+    )
 
 
-@signals_router.get("/patient/{patient_id}")
-def signal_list_for_patient(
+@_behaviour_router.get("/patient/{patient_id}/profile", response_model=BehaviourPatientProfileOut)
+def get_behaviour_patient_profile(
     patient_id: str,
-    signal_type: Optional[str] = None,
-    source: Optional[str] = None,
-    days: int = 7,
-    limit: int = 100,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ):
-    """List ingested signals for a patient.
-
-    Requires:
-    - clinician+ role
-    - patient ownership (same clinic)
-    """
+    """Return behavioural profile for one patient (preview — returns minimal data)."""
     require_minimum_role(actor, "clinician")
     _require_known_patient(db, patient_id)
     _gate_patient(actor, patient_id, db)
 
-    # --- Coerce optional filter enums ---
-    sig_type_enum = None
-    if signal_type:
-        try:
-            sig_type_enum = SignalType(signal_type)
-        except ValueError:
-            valid_types = [t.value for t in SignalType]
-            raise HTTPException(
-                status_code=422,
-                detail=f"Invalid signal_type. Valid: {valid_types}",
-            )
+    consent_ok = _check_behaviour_consent(db, patient_id)
+    pname = _patient_display_name(db, patient_id)
 
-    sig_source_enum = None
-    if source:
-        try:
-            sig_source_enum = SignalSource(source)
-        except ValueError:
-            valid_sources = [s.value for s in SignalSource]
-            raise HTTPException(
-                status_code=422,
-                detail=f"Invalid source. Valid: {valid_sources}",
-            )
-
-    result = list_signals_for_patient(
-        patient_id=patient_id,
-        signal_type=sig_type_enum,
-        source=sig_source_enum,
-        days=days,
-        limit=limit,
-    )
-
-    # --- Audit ---
     _append_audit(
         db,
         patient_id=patient_id,
-        action="signal_list",
+        action="behaviour_profile_view",
         actor_id=actor.actor_id,
-        summary=f"Listed signals (days={days}, type={signal_type or 'all'}, source={source or 'all'})",
+        summary="Behaviour patient profile viewed (preview)",
+        extra={"consent_ok": consent_ok, "status": "preview"},
     )
 
-    return result
+    return _minimal_behaviour_profile(patient_id, pname)
 
 
-@signals_router.get("/patient/{patient_id}/quality")
-def signal_quality_for_patient(
+@_behaviour_router.get("/patient/{patient_id}/audit")
+def get_behaviour_patient_audit(
     patient_id: str,
-    days: int = 7,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ):
-    """Return signal quality summary for a patient over *N* days.
-
-    Requires:
-    - clinician+ role
-    - patient ownership (same clinic)
-    """
+    """Return behavioural audit trail for one patient (preview — returns empty)."""
     require_minimum_role(actor, "clinician")
     _require_known_patient(db, patient_id)
     _gate_patient(actor, patient_id, db)
 
-    result = get_signal_quality_summary(patient_id, days=days)
-
-    # --- Audit ---
     _append_audit(
         db,
         patient_id=patient_id,
-        action="signal_quality_check",
+        action="behaviour_audit_view",
         actor_id=actor.actor_id,
-        summary=f"Signal quality summary requested (days={days})",
+        summary="Behaviour patient audit viewed (preview)",
+        extra={"status": "preview"},
     )
 
-    return result
+    rows = _repo_list_recent_audit(db, patient_id=patient_id, limit=50)
+    events = audit_rows_to_payload_events(rows)
+    return {"patient_id": patient_id, "items": events, "total": len(events), "preview_note": "Preview workspace — full behavioural backend integration pending"}
 
 
-# ===========================================================================
-# Digital Phenotyping Modality — Fusion endpoint
-# ===========================================================================
-
-@router.get("/patient/{patient_id}/multimodal-fusion")
-def get_digital_phenotyping_modality_for_fusion(
-    patient_id: str,
-    actor: AuthenticatedActor = Depends(get_authenticated_actor),
-    db: Session = Depends(get_db_session),
-) -> dict[str, Any]:
-    """Return digital phenotyping modality data formatted for multimodal fusion.
-
-    Returns circadian regularity, mobility radius, screen time, and
-    social interaction features with evidence grades and confidence
-    scores for the fusion engine.
-    """
-    require_minimum_role(actor, "clinician")
-    _require_known_patient(db, patient_id)
-    _gate_patient(actor, patient_id, db)
-
-    # Load state and extract features
-    state = _load_or_create_state(db, patient_id)
-
-    features: dict[str, Any] = {}
-
-    # Parse latest payload from state
-    if state.latest_payload_json:
-        try:
-            payload = json.loads(state.latest_payload_json)
-            circadian = payload.get("circadian_rhythm", {})
-            mobility = payload.get("mobility", {})
-            device_usage = payload.get("device_usage", {})
-
-            if circadian:
-                features["circadian_regularity"] = circadian.get("regularity_index")
-                features["sleep_midpoint"] = circadian.get("sleep_midpoint")
-                features["sleep_duration_hours"] = circadian.get("sleep_duration_hours")
-
-            if mobility:
-                features["mobility_radius_km"] = mobility.get("radius_km")
-                features["unique_locations"] = mobility.get("unique_locations_count")
-                features["home_stay_ratio"] = mobility.get("home_stay_ratio")
-
-            if device_usage:
-                features["screen_time_hours"] = device_usage.get("screen_time_hours")
-                features["unlock_count"] = device_usage.get("unlock_count")
-
-        except (json.JSONDecodeError, TypeError):
-            pass
-
-    # Count observations as a proxy for data richness
-    obs_count = _observation_count(db, patient_id)
-    features["observation_count"] = obs_count
-
-    # Remove None values
-    features = {k: v for k, v in features.items() if v is not None}
-
-    if not features or obs_count == 0:
-        return {
-            "modality": "digital_phenotyping",
-            "score": None,
-            "confidence": 0.0,
-            "evidence_grade": "C",
-            "features": {},
-            "safe_summary": "No digital phenotyping data available for this patient.",
-            "disclaimer": "Decision-support only — requires clinician review.",
-        }
-
-    score = 0.62
-    confidence = 0.70
-    evidence_grade = "B"
-
-    # Adjust confidence based on data volume
-    if obs_count >= 50:
-        confidence = 0.85
-    elif obs_count >= 20:
-        confidence = 0.75
-    elif obs_count >= 5:
-        confidence = 0.70
-    else:
-        confidence = 0.55
-
-    circadian_val = features.get("circadian_regularity", "N/A")
-    mobility_val = features.get("mobility_radius_km", "N/A")
-
-    safe_summary = (
-        f"Digital phenotyping: circadian regularity={circadian_val}, "
-        f"mobility radius={mobility_val}km, "
-        f"observations={obs_count}. Grade {evidence_grade} evidence."
-    )
-
-    return {
-        "modality": "digital_phenotyping",
-        "score": score,
-        "confidence": confidence,
-        "evidence_grade": evidence_grade,
-        "features": features,
-        "safe_summary": safe_summary,
-        "disclaimer": "Decision-support only — requires clinician review.",
-    }
+router_behaviour = _behaviour_router
