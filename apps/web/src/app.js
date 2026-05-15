@@ -147,6 +147,7 @@ let _modAgents    = null;
 let _modRegistries = null;
 let _modHandbooks  = null;
 let _modProtocols  = null;
+let _modRehab = null, _modWellness = null, _modComplementary = null;
 let _modVirtualCare   = null;
 let _modConditions    = null;
 let _modClinicalTools = null;
@@ -188,7 +189,7 @@ async function loadDigitalPhenotypingAnalyzer() {
 let _modMedicationAnalyzer = null;
 async function loadMedicationAnalyzer() { return (_modMedicationAnalyzer ??= await import('./pages-medication-analyzer.js')); }
 let _modTreatmentSessionsAnalyzer = null;
-async function loadTreatmentSessionsAnalyzer() { return (_modTreatmentSessionsAnalyzer ??= await import('./pages-treatment-sessions-analyzer.js')); }
+async function loadTreatmentSessionsAnalyzer() { return (_modTreatmentSessionsAnalyzer ??= await import('./pages-intervention-analyzer.js')); }
 let _modBioDatabase = null;
 async function loadBioDatabase() { return (_modBioDatabase ??= await import('./pages-bio-database.js')); }
 let _modPhenotypeAnalyzer = null;
@@ -205,9 +206,16 @@ async function loadPractice()   { return (_modPractice  ??= await import('./page
 async function loadCourses()    { return (_modCourses   ??= await import('./pages-courses.js')); }
 async function loadOnboarding() { return (_modOnboarding ??= await import('./pages-onboarding.js')); }
 async function loadAgents()     { return (_modAgents    ??= await import('./pages-agents.js')); }
+let _modGeneticAnalyzer = null;
+async function loadGeneticAnalyzer() { return (_modGeneticAnalyzer ??= await import('./pages-genetic-analyzer.js')); }
 async function loadRegistries() { return (_modRegistries ??= await import('./pages-registries.js')); }
 async function loadHandbooks()  { return (_modHandbooks  ??= await import('./pages-handbooks.js')); }
 async function loadProtocols()   { return (_modProtocols   ??= await import('./pages-protocols.js')); }
+let _modCRM = null;
+async function loadCRM()         { return (_modCRM         ??= await import('./pages-crm.js')); }
+async function loadRehab()       { return (_modRehab       ??= await import('./pages-rehab.js')); }
+async function loadWellness()    { return (_modWellness    ??= await import('./pages-wellness.js')); }
+async function loadComplementary() { return (_modComplementary ??= await import('./pages-complementary.js')); }
 async function loadVirtualCare()  { return (_modVirtualCare  ??= await import('./pages-virtualcare.js')); }
 async function loadConditions()   { return (_modConditions   ??= await import('./pages-conditions.js')); }
 let _modResearch = null;
@@ -238,6 +246,54 @@ let _modPatientTimeline = null;
 async function loadPatientTimeline() { return (_modPatientTimeline ??= await import('./pages-patient-timeline.js')); }
 let _modMonitoring = null;
 async function loadMonitoring() { return (_modMonitoring ??= await import('./pages-monitoring.js')); }
+let _modCognitiveAnalyzer = null;
+async function loadCognitiveAnalyzer() { return (_modCognitiveAnalyzer ??= await import('./pages-cognitive-analyzer.js')); }
+let _modFNIRSAnalyzer = null;
+async function loadFNIRSAnalyzer() { return (_modFNIRSAnalyzer ??= await import('./pages-fnirs-analyzer.js')); }
+let _modNeurophysiologyAnalyzer = null;
+async function loadNeurophysiologyAnalyzer() { return (_modNeurophysiologyAnalyzer ??= await import('./pages-neurophysiology-analyzer.js')); }
+let _modPETAnalyzer = null;
+async function loadPETAnalyzer() { return (_modPETAnalyzer ??= await import('./pages-pet-analyzer.js')); }
+let _modSleepAnalyzer = null;
+async function loadSleepAnalyzer() { return (_modSleepAnalyzer ??= await import('./pages-sleep-analyzer.js')); }
+let _modDeeptwinInsights = null;
+async function loadDeeptwinInsights() { return (_modDeeptwinInsights ??= await import('./pages-deeptwin-insights.js')); }
+let _modForecastSimulation = null;
+async function loadForecastSimulation() { return (_modForecastSimulation ??= await import('./pages-forecast-simulation.js')); }
+let _modKnowledgeGraph = null;
+async function loadKnowledgeGraph() { return (_modKnowledgeGraph ??= await import('./pages-knowledge-graph.js')); }
+let _modLongitudinalInsights = null;
+async function loadLongitudinalInsights() { return (_modLongitudinalInsights ??= await import('./pages-longitudinal-insights.js')); }
+let _modMultimodalCorrelations = null;
+async function loadMultimodalCorrelations() { return (_modMultimodalCorrelations ??= await import('./pages-multimodal-correlations.js')); }
+let _modAdminResearchDatasets = null;
+async function loadAdminResearchDatasets() { return (_modAdminResearchDatasets ??= await import('./pages-admin-research-datasets.js')); }
+let _modUserClinicManagement = null;
+async function loadUserClinicManagement() { return (_modUserClinicManagement ??= await import('./pages-user-clinic-management.js')); }
+let _modAuditTrail = null;
+async function loadAuditTrail() { return (_modAuditTrail ??= await import('./pages-audit-trail.js')); }
+let _modConsentGovernance = null;
+async function loadConsentGovernance() { return (_modConsentGovernance ??= await import('./pages-consent-governance.js')); }
+let _modGroupTherapy = null;
+async function loadGroupTherapy() { return (_modGroupTherapy ??= await import('./pages-group-therapy.js')); }
+let _modHomeProgram = null;
+async function loadHomeProgram() { return (_modHomeProgram ??= await import('./pages-home-program.js')); }
+let _modOutcomeMeasures = null;
+async function loadOutcomeMeasures() { return (_modOutcomeMeasures ??= await import('./pages-outcome-measures.js')); }
+let _modPatientGoals = null;
+async function loadPatientGoals() { return (_modPatientGoals ??= await import('./pages-patient-goals.js')); }
+let _modDevicePlanning = null;
+async function loadDevicePlanning() { return (_modDevicePlanning ??= await import('./pages-device-planning.js')); }
+let _modSessionPlanning = null;
+async function loadSessionPlanning() { return (_modSessionPlanning ??= await import('./pages-session-planning.js')); }
+let _modStimulationTargets = null;
+async function loadStimulationTargets() { return (_modStimulationTargets ??= await import('./pages-stimulation-targets.js')); }
+let _modSurgicalPlanning = null;
+async function loadSurgicalPlanning() { return (_modSurgicalPlanning ??= await import('./pages-surgical-planning.js')); }
+let _modEvidenceResearch = null;
+async function loadEvidenceResearch() { return (_modEvidenceResearch ??= await import('./pages-evidence-research.js')); }
+let _modQuickActions = null;
+async function loadQuickActions() { return (_modQuickActions ??= await import('./pages-quick-actions.js')); }
 
 // ── Helpers that delegate to the clinical module once loaded ──────────────────
 // Called synchronously in navigate() before renderPage(); safe to no-op until
@@ -1571,6 +1627,10 @@ async function renderPage() {
       await m.pgProtocolBuilderV2(setTopbar, navigate);
       break;
     }
+    // ── Intervention Platforms ───────────────────────────────────────────
+    case 'rehab':           { const m = await loadRehab();       m.renderRehabPage('rehab', el, { setActiveSidebarTab: (tab) => { /* sidebar handled by sidebar nav */ }, user: currentUser }); break; }
+    case 'wellness':        { const m = await loadWellness();    m.renderPageWellness({ container: el, actor: currentUser }); break; }
+    case 'complementary':   { const m = await loadComplementary(); el.innerHTML = ''; const result = m.renderPage({ user: currentUser, _complementaryTab: 'dashboard' }, 'complementary-interventions'); if (result) el.appendChild(result); break; }
     case 'condition-backlog': {
       const m = await loadConditions();
       await m.pgConditionBacklog(setTopbar, navigate);
@@ -1999,7 +2059,25 @@ async function renderPage() {
     case 'behaviour': { const m = await loadBehaviour(); await m.pgBehaviour(setTopbar, navigate); break; }
     case 'medication-analyzer': { const m = await loadMedicationAnalyzer(); await m.pgMedicationAnalyzer(setTopbar, navigate); break; }
     case 'bio-database':       { const m = await loadBioDatabase(); await m.pgBioDatabase(setTopbar, navigate); break; }
-    case 'treatment-sessions-analyzer': { const m = await loadTreatmentSessionsAnalyzer(); await m.pgTreatmentSessionsAnalyzer(setTopbar, navigate); break; }
+    case 'treatment-sessions-analyzer': { const m = await loadTreatmentSessionsAnalyzer(); await m.pgInterventionAnalyzer(setTopbar, navigate); break; }
+    case 'genomic-analyzer':
+    case 'genetic-analyzer': {
+      const m = await loadGeneticAnalyzer();
+      const el = document.getElementById('main');
+      el.innerHTML = '';
+      const result = m.renderPage({ route: '/analyzers/genomic', params: {}, query: {}, ctx: { user: currentUser }, api: API });
+      if (result) el.appendChild(result);
+      break;
+    }
+    case 'crm':
+    case 'admin-crm': {
+      const m = await loadCRM();
+      const el = document.getElementById('main');
+      el.innerHTML = '';
+      const result = m.renderPage({ route: '/crm', params: {}, query: {}, ctx: { user: currentUser }, api: API });
+      if (result) el.appendChild(result);
+      break;
+    }
     case 'phenotype-analyzer': { const m = await loadPhenotypeAnalyzer(); await m.pgPhenotypeAnalyzer(setTopbar, navigate); break; }
     case 'movement-analyzer':  { const m = await loadMovementAnalyzer(); await m.pgMovementAnalyzer(setTopbar, navigate); break; }
     case 'labs-analyzer':      { const m = await loadLabsAnalyzer(); await m.pgLabsAnalyzer(setTopbar, navigate); break; }
@@ -2055,6 +2133,173 @@ async function renderPage() {
         break;
       }
       const m = await loadResearchDatasets(); await m.pgResearchDatasets(setTopbar, navigate); break;
+    }
+    // ── Additional Analyzers ────────────────────────────────────────────
+    case 'cognitive-analyzer':
+    case 'cognition':
+    case 'neuropsych': {
+      const m = await loadCognitiveAnalyzer();
+      await m.pgCognitiveAnalyzer(setTopbar, navigate);
+      break;
+    }
+    case 'fnirs-analyzer':
+    case 'fnirs':
+    case 'nirs': {
+      const m = await loadFNIRSAnalyzer();
+      await m.pgFNIRSAnalyzer(setTopbar, navigate);
+      break;
+    }
+    case 'neurophysiology-analyzer':
+    case 'neurophysiology':
+    case 'ephys': {
+      const m = await loadNeurophysiologyAnalyzer();
+      await m.pgNeurophysiologyAnalyzer(setTopbar, navigate);
+      break;
+    }
+    case 'pet-analyzer':
+    case 'pet':
+    case 'positron': {
+      const m = await loadPETAnalyzer();
+      await m.pgPETAnalyzer(setTopbar, navigate);
+      break;
+    }
+    case 'sleep-analyzer':
+    case 'sleep':
+    case 'polysomnography': {
+      const m = await loadSleepAnalyzer();
+      await m.pgSleepAnalyzer(setTopbar, navigate);
+      break;
+    }
+    // ── Intelligence Hub ────────────────────────────────────────────────
+    case 'deeptwin-insights':
+    case 'twin-analyzer': {
+      const m = await loadDeeptwinInsights();
+      await m.pgDeeptwinInsights(setTopbar, navigate);
+      break;
+    }
+    case 'forecast-simulation':
+    case 'prediction':
+    case 'simulation': {
+      const m = await loadForecastSimulation();
+      await m.pgForecastSimulation(setTopbar, navigate);
+      break;
+    }
+    case 'knowledge-graph':
+    case 'kg':
+    case 'ontology-graph': {
+      const m = await loadKnowledgeGraph();
+      await m.pgKnowledgeGraph(setTopbar, navigate);
+      break;
+    }
+    case 'longitudinal-insights':
+    case 'trajectory':
+    case 'progress': {
+      const m = await loadLongitudinalInsights();
+      await m.pgLongitudinalInsights(setTopbar, navigate);
+      break;
+    }
+    case 'multimodal-correlations':
+    case 'correlation':
+    case 'fusion': {
+      const m = await loadMultimodalCorrelations();
+      await m.pgMultimodalCorrelations(setTopbar, navigate);
+      break;
+    }
+    // ── Admin ───────────────────────────────────────────────────────────
+    case 'admin-research-datasets':
+    case 'admin-datasets': {
+      const m = await loadAdminResearchDatasets();
+      await m.pgAdminResearchDatasets(setTopbar, navigate);
+      break;
+    }
+    case 'user-clinic-management':
+    case 'users':
+    case 'staff': {
+      const m = await loadUserClinicManagement();
+      await m.pgUserClinicManagement(setTopbar, navigate);
+      break;
+    }
+    case 'audit-trail':
+    case 'audit':
+    case 'logs': {
+      const m = await loadAuditTrail();
+      await m.pgAuditTrail(setTopbar, navigate);
+      break;
+    }
+    // ── Patient Care ────────────────────────────────────────────────────
+    case 'consent-governance':
+    case 'consent':
+    case 'governance':
+    case 'irb': {
+      const m = await loadConsentGovernance();
+      await m.pgConsentGovernance(setTopbar, navigate);
+      break;
+    }
+    case 'group-therapy':
+    case 'groups':
+    case 'cohort-sessions': {
+      const m = await loadGroupTherapy();
+      await m.pgGroupTherapy(setTopbar, navigate);
+      break;
+    }
+    case 'home-program':
+    case 'home-tasks':
+    case 'remote-program': {
+      const m = await loadHomeProgram();
+      await m.pgHomeProgram(setTopbar, navigate);
+      break;
+    }
+    case 'outcome-measures':
+    case 'outcomes':
+    case 'measures': {
+      const m = await loadOutcomeMeasures();
+      await m.pgOutcomeMeasures(setTopbar, navigate);
+      break;
+    }
+    case 'patient-goals':
+    case 'goals':
+    case 'care-plan': {
+      const m = await loadPatientGoals();
+      await m.pgPatientGoals(setTopbar, navigate);
+      break;
+    }
+    // ── Intervention Planning ───────────────────────────────────────────
+    case 'device-planning': {
+      const m = await loadDevicePlanning();
+      await m.pgDevicePlanning(setTopbar, navigate);
+      break;
+    }
+    case 'session-planning': {
+      const m = await loadSessionPlanning();
+      await m.pgSessionPlanning(setTopbar, navigate);
+      break;
+    }
+    case 'stimulation-targets': {
+      const m = await loadStimulationTargets();
+      await m.pgStimulationTargets(setTopbar, navigate);
+      break;
+    }
+    case 'surgical-planning':
+    case 'surgery':
+    case 'operative': {
+      const m = await loadSurgicalPlanning();
+      await m.pgSurgicalPlanning(setTopbar, navigate);
+      break;
+    }
+    // ── Ecosystem ───────────────────────────────────────────────────────
+    case 'evidence-research':
+    case 'evidence-search':
+    case 'literature-review': {
+      const m = await loadEvidenceResearch();
+      await m.pgEvidenceResearch(setTopbar, navigate);
+      break;
+    }
+    case 'quick-actions':
+    case 'actions':
+    case 'shortcuts': {
+      const m = await loadQuickActions();
+      await m.pgQuickActions(setTopbar, navigate);
+      break;
     }
     default:
       el.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-tertiary)">Page not found.</div>`;
