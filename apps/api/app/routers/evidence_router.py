@@ -84,6 +84,7 @@ from app.services.neuromodulation_research import (
     build_adjunct_condition_review_tables,
     build_adjunct_evidence_summary,
     build_research_summary,
+    bundle_root_or_none,
     dataset_keys,
     dataset_path,
     get_condition_knowledge as get_research_condition_knowledge,
@@ -1964,13 +1965,22 @@ def create_research_bundle_export(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> ResearchExportRequestOut:
     """BUG-FIX-002: Return 'unsupported' status instead of fake 'queued'. Bundle exports
-    require a background job that is not yet implemented."""
+    require a background job that is not yet implemented.
+
+    The honest-status semantics MUST work whether or not the CSV bundle is
+    installed on disk — the response says "this endpoint is unimplemented",
+    not "I went looking for the bundle and could not find it". Use
+    `bundle_root_or_none()` so a missing bundle yields `bundle_root: null`
+    in the summary instead of raising HTTP 503 from `dataset_path("master")`
+    via `require_bundle_root()`.
+    """
     require_minimum_role(actor, "clinician")
     export_id = str(uuid.uuid4())
     requested_at = datetime.now(timezone.utc).isoformat()
+    bundle_root = bundle_root_or_none()
     summary = {
         "datasets": len(list_research_datasets()),
-        "bundle_root": str(dataset_path("master")),
+        "bundle_root": str(bundle_root) if bundle_root is not None else None,
     }
     _audit("research.export.bundle", actor, export_id=export_id, datasets=summary["datasets"], status="unsupported")
     return ResearchExportRequestOut(
