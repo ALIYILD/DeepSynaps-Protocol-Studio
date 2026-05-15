@@ -37,6 +37,13 @@ async function _loadCornerstoneMPR() {
 
 const FUSION_TOKEN_KEY = 'ds_access_token';
 
+// Bug 4 fix — MRI clinical role gate (was missing entirely)
+const MRI_CLINICAL_ROLES = new Set(['clinician', 'admin', 'clinic-admin', 'supervisor']);
+
+function canUseMRIAnalyzer(role) {
+  return MRI_CLINICAL_ROLES.has(role);
+}
+
 // ── Module state ────────────────────────────────────────────────────────────
 var _mriAnalysisId = null;
 var _uploadId      = null;
@@ -52,6 +59,7 @@ var _selectedCondition = 'mdd';
 var _fusionSummary = null;
 var _mriSavedEvidenceCitations = [];
 var _mriCapabilities = null;  // { features: [...], status: 'active'|'fallback'|'unavailable' }
+var _workbenchSections = null;  // Bug 3 fix — workbench sections cache
 
 function _getMRIReportEvidenceContext() {
   return {
@@ -442,6 +450,27 @@ function renderMRIEvidenceCitations(citations) {
       }).join('')
       : '<div class="ds-mri-panel-empty">No citations saved yet. Open the evidence drawer from target chips and pin papers to this report.</div>')
     + '</div>';
+}
+
+// Bug 3 fix — fetch workbench sections from the backend
+async function _loadWorkbenchSections(analysisId) {
+  if (!analysisId || analysisId === 'demo') return {};
+  var sections = {};
+  try {
+    var results = await Promise.all([
+      api.get('/mri/safety-cockpit/' + analysisId).catch(function () { return null; }),
+      api.get('/mri/registration-qa/' + analysisId).catch(function () { return null; }),
+      api.get('/mri/phi-audit/' + analysisId).catch(function () { return null; }),
+      api.get('/mri/report-findings/' + analysisId).catch(function () { return null; }),
+    ]);
+    sections.safety_cockpit = results[0];
+    sections.registration_qa = results[1];
+    sections.phi_audit = results[2];
+    sections.findings = results[3];
+  } catch (e) {
+    console.warn('Workbench sections unavailable:', e);
+  }
+  return sections;
 }
 
 async function _fetchFusionSummary(patientId) {
@@ -3178,6 +3207,7 @@ function _startPolling(navigate) {
             try {
               _report = await api.getMRIReport(analysisId);
               _mriAnalysisId = _report && _report.analysis_id;
+              _workbenchSections = await _loadWorkbenchSections(analysisId); // Bug 3 fix
             } catch (_e) { /* surfaced via toast on navigate */ }
           }
         }
@@ -3271,6 +3301,7 @@ async function _startJobWatch(navigate) {
             try {
               _report = await api.getMRIReport(analysisId);
               _mriAnalysisId = _report && _report.analysis_id;
+              _workbenchSections = await _loadWorkbenchSections(analysisId); // Bug 3 fix
             } catch (_e) {}
           }
           navigate('mri-analysis');
@@ -3644,6 +3675,20 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
   if (typeof setTopbar === 'function') setTopbar('MRI analysis workspace', '');
   _registerPageCleanup();
 
+  // Bug 4 fix — role gate: resolve actor role and enforce clinical access
+  var actorRole = null;
+  try {
+    var me = await api.me();
+    actorRole = me && (me.role || (me.user && me.user.role)) || null;
+  } catch (_) { actorRole = null; }
+  if (!canUseMRIAnalyzer(actorRole) && !_isDemoMode()) {
+    var elDeny = (typeof document !== 'undefined') ? document.getElementById('content') : null;
+    if (elDeny) {
+      elDeny.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-secondary)">MRI Analyzer requires clinician access. Contact your administrator.</div>';
+    }
+    return;
+  }
+
   var flagOn = _mriFeatureFlagEnabled();
   var el = (typeof document !== 'undefined') ? document.getElementById('content') : null;
 
@@ -3668,6 +3713,13 @@ export async function pgMRIAnalysis(setTopbar, navigate) {
     _mriAnalysisId = DEMO_MRI_REPORT.analysis_id;
     _jobStatus     = { stage: 'targeting', state: 'SUCCESS' };
     _patientMeta   = _patientMeta || DEMO_MRI_REPORT.patient;
+  }
+
+  // Bug 3 fix — load workbench sections when we have a real analysis
+  if (_mriAnalysisId && _mriAnalysisId !== 'demo' && !_workbenchSections) {
+    _loadWorkbenchSections(_mriAnalysisId).then(function (secs) {
+      _workbenchSections = secs;
+    }).catch(function () { _workbenchSections = {}; });
   }
 
   // Fetch MedRAG rows when we have a real analysis id; demo falls back to
