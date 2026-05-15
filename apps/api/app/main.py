@@ -176,12 +176,9 @@ from app.routers.reviewer_sla_calibration_threshold_tuning_router import (
 )
 from app.routers.digital_phenotyping_router import router as digital_phenotyping_router
 from app.routers.labs_analyzer_router import router as labs_analyzer_router
+from app.routers.genetic_analyzer_router import router as genetic_analyzer_router
 from app.routers.medication_analyzer_router import router as medication_analyzer_router
-# Movement analyzer router depends on `MovementBiomarkerTrend` (ORM class +
-# `movement_biomarker_trends` table) that does not yet exist in
-# `app.persistence.models` or in any Alembic migration. Gate the import +
-# inclusion behind a feature flag so production boots cleanly until the
-# backing model + migration land. Default off. See PR #947.
+from app.routers.movement_analyzer_router import router as movement_analyzer_router
 from app.routers.nutrition_analyzer_router import router as nutrition_analyzer_router
 from app.routers.qeeg_annotation_outcome_tracker_router import (
     router as qeeg_annotation_outcome_tracker_router,
@@ -203,6 +200,7 @@ from app.routers.qeeg_viz_router import router as qeeg_viz_router
 from app.routers.qeeg_capabilities_router import router as qeeg_capabilities_router
 from app.routers.mri_analysis_router import router as mri_analysis_router
 from app.routers.mri_capabilities_router import router as mri_capabilities_router
+from app.routers.neuro_signs import router as neuro_signs_router
 from app.routers.medical_images_router import router as medical_images_router
 from app.routers.fusion_router import router as fusion_router
 from app.routers.patient_summary_router import router as patient_summary_router
@@ -262,6 +260,7 @@ from app.routers.qeeg_report_annotations_router import (
     router as qeeg_report_annotations_router,
 )
 from app.routers.quality_assurance_router import router as quality_assurance_router
+from app.routers.crm_router import router as crm_router
 from app.routers.rotation_policy_advisor_outcome_tracker_router import (
     router as rotation_policy_advisor_outcome_tracker_router,
 )
@@ -272,6 +271,15 @@ from app.routers.rotation_policy_advisor_threshold_tuning_router import (
     router as rotation_policy_advisor_threshold_tuning_router,
 )
 from app.routers.treatment_sessions_router import router as treatment_sessions_router
+from app.routers.rehab_router import router as rehab_router
+from app.routers.wellness_router import router as wellness_router
+from app.routers.complementary_router import router as complementary_router
+from app.routers.analyzer_v2_router import router as analyzer_v2_router
+from app.routers.intelligence_hub_router import router as intelligence_hub_router
+from app.routers.admin_governance_router import router as admin_governance_router
+from app.routers.patient_care_router import router as patient_care_router
+from app.routers.intervention_planning_router import router as intervention_planning_router
+from app.routers.ecosystem_router import router as ecosystem_router
 from app.monitoring.middleware import MetricsMiddleware, register_metrics_endpoint
 from app.sentry_setup import init_sentry
 from app.settings import get_settings
@@ -302,6 +310,7 @@ from app.services.agent_skills_seed import seed_default_agent_skills
 from app.services.clinical_data import HandbookGenerateAPIResponse, seed_clinical_dataset
 from app.services.demo_clinic_seed import (
     demo_seed_enabled,
+    seed_demo_clinic,
     seed_demo_clinic_data,
 )
 from app.services.devices import list_devices
@@ -488,14 +497,11 @@ app.include_router(marketplace_seller_router)
 app.include_router(virtual_care_router)
 app.include_router(forms_router)
 app.include_router(medications_router)
+app.include_router(genetic_analyzer_router)
 app.include_router(medication_analyzer_router)
 app.include_router(labs_analyzer_router)
 app.include_router(digital_phenotyping_router)
-if os.getenv("DEEPSYNAPS_ENABLE_MOVEMENT_ANALYZER") == "1":
-    from app.routers.movement_analyzer_router import (
-        router as movement_analyzer_router,
-    )
-    app.include_router(movement_analyzer_router)
+app.include_router(movement_analyzer_router)
 app.include_router(nutrition_analyzer_router)
 app.include_router(consent_management_router)
 # Patient Home Program Tasks (Homework) launch-audit (2026-05-01).
@@ -751,6 +757,20 @@ app.include_router(rotation_policy_advisor_threshold_tuning_router)
 app.include_router(treatment_sessions_router)
 app.include_router(audit_trail_router)
 app.include_router(biometrics_router)
+# DeepSynaps CRM — internal super-admin only. Cross-clinic platform operations.
+app.include_router(crm_router)
+# Intervention Platform Routers — Rehab, Wellness, Complementary
+# (2026-05-15) Three new intervention platforms for physical rehabilitation,
+# wellness coaching, and complementary therapy management.
+app.include_router(rehab_router)
+app.include_router(wellness_router)
+app.include_router(complementary_router)
+app.include_router(analyzer_v2_router)
+app.include_router(intelligence_hub_router)
+app.include_router(admin_governance_router)
+app.include_router(patient_care_router)
+app.include_router(intervention_planning_router)
+app.include_router(ecosystem_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
