@@ -817,14 +817,20 @@ function _demoSyntheticResponse(path, method, body) {
   // so the generic `{ items: [], demo: true }` fallback below trips its
   // "Invalid response" guards.
   if (path === '/api/v1/data-console/sources' && (!method || method === 'GET')) {
+    // BUG-FIX-004: Demo synthetic now returns DataSourceInfo schema fields
+    // (name, description, row_count, sample_fields) matching the backend contract.
     return {
       sources: [
-        { table: 'clinical_notes',     columns: ['id', 'patient_id', 'author_id', 'created_at', 'body'],                row_count_estimate: 248 },
-        { table: 'assessments',         columns: ['id', 'patient_id', 'instrument', 'score', 'completed_at'],            row_count_estimate: 112 },
-        { table: 'medications',         columns: ['id', 'patient_id', 'rxnorm_cui', 'dose', 'started_at', 'stopped_at'], row_count_estimate: 64 },
-        { table: 'adverse_events',      columns: ['id', 'patient_id', 'severity', 'reported_at', 'reporter_id'],         row_count_estimate: 9 },
-        { table: 'home_program_tasks',  columns: ['id', 'patient_id', 'task_type', 'status', 'due_at'],                  row_count_estimate: 38 },
+        { name: 'patients',               description: 'Patient demographics and enrollment data',       row_count: 12,  sample_fields: ['id', 'first_name', 'last_name', 'dob', 'created_at'] },
+        { name: 'patient_data_assets',    description: 'Uploaded files and data assets',                 row_count: 48,  sample_fields: ['id', 'asset_type', 'filename', 'mime_type', 'size_bytes'] },
+        { name: 'ai_analysis_runs',       description: 'AI/ML analysis execution records',               row_count: 24,  sample_fields: ['id', 'analysis_type', 'model_name', 'status'] },
+        { name: 'safety_flags',           description: 'Clinical safety flags and alerts',               row_count: 7,   sample_fields: ['id', 'flag_type', 'severity', 'message', 'status'] },
+        { name: 'audit_event_records',    description: 'Audit trail of system access and actions',       row_count: 156, sample_fields: ['id', 'action', 'result', 'created_at'] },
+        { name: 'consent_records',        description: 'Patient consent and authorization records',      row_count: 18,  sample_fields: ['id', 'consent_type', 'status', 'created_at'] },
       ],
+      patient_id: '',
+      clinic_id: 'clinic-demo-default',
+      total_sources: 6,
       read_only: true,
       phi_masked: true,
       generated_at: new Date().toISOString(),
@@ -833,15 +839,19 @@ function _demoSyntheticResponse(path, method, body) {
   }
   const _dcRowsMatch = path.match(/^\/api\/v1\/data-console\/patients\/([^/]+)\/tables\/([^/?]+)\/rows/);
   if (_dcRowsMatch && (!method || method === 'GET')) {
+    // BUG-FIX-004: Demo synthetic now returns DataRow schema: {id, data, masked_fields}
+    // matching the backend PatientRowsResponse contract.
     return {
       patient_id: decodeURIComponent(_dcRowsMatch[1]),
-      table_name: decodeURIComponent(_dcRowsMatch[2]),
+      clinic_id: 'clinic-demo-default',
+      source_name: decodeURIComponent(_dcRowsMatch[2]),
       rows: [
-        { id: 'demo-row-1', patient_id: '***MASKED***', created_at: new Date(Date.now() - 86400000).toISOString(),  body: '***MASKED***' },
-        { id: 'demo-row-2', patient_id: '***MASKED***', created_at: new Date(Date.now() - 172800000).toISOString(), body: '***MASKED***' },
+        { id: 'demo-row-1', data: { id: 'demo-row-1', patient_id: '***MASKED***', created_at: new Date(Date.now() - 86400000).toISOString(), body: '***MASKED***' }, masked_fields: ['patient_id', 'body'] },
+        { id: 'demo-row-2', data: { id: 'demo-row-2', patient_id: '***MASKED***', created_at: new Date(Date.now() - 172800000).toISOString(), body: '***MASKED***' }, masked_fields: ['patient_id', 'body'] },
       ],
-      limit: 50,
-      offset: 0,
+      total_rows: 2,
+      page: 1,
+      page_size: 50,
       read_only: true,
       phi_masked: true,
       is_demo_synthetic: true,
@@ -866,14 +876,16 @@ function _demoSyntheticResponse(path, method, body) {
   // endpoint is deliberately NOT shimmed — streaming a fake file would be
   // misleading. The page hides the Download button in demo sessions.
   if (path.match(/^\/api\/v1\/data-console\/clinic\/summary(\?|$)/) && (!method || method === 'GET')) {
+    // BUG-FIX-004: Demo synthetic now uses SAFE_TABLES table names matching the backend.
     return {
       clinic_id: 'clinic-demo-default',
       table_summaries: {
-        clinical_notes:    248,
-        assessments:       112,
-        medications:        64,
-        adverse_events:      9,
-        home_program_tasks: 38,
+        patients:              12,
+        patient_data_assets:   48,
+        ai_analysis_runs:      24,
+        safety_flags:           7,
+        audit_event_records:  156,
+        consent_records:       18,
       },
       generated_at: new Date().toISOString(),
       read_only: true,
