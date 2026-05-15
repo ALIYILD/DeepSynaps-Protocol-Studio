@@ -34,7 +34,7 @@ def _seed_patient(db, patient_id: str = "pt-tc-001") -> str:
     return patient_id
 
 
-def _insert_course(db, *, patient_id: str = "pt-tc-001") -> "TreatmentCourse":
+def _insert_course(db, *, patient_id: str = "pt-tc-001"):
     from app.repositories.treatment_courses import insert_treatment_course
     return insert_treatment_course(
         db,
