@@ -187,7 +187,36 @@ def _iso(value: Any) -> Optional[str]:
         if value.tzinfo is None:
             value = value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc).isoformat()
-    return str(value)
+
+
+def _verify_export_governance(analysis: MriAnalysis) -> None:
+    """Verify report is approved and signed-off before export (Bug 2 fix)."""
+    report_state = analysis.report_state or "MRI_DRAFT_AI"
+
+    if report_state not in ("MRI_APPROVED", "MRI_REVIEWED_WITH_AMENDMENTS"):
+        raise ApiServiceError(
+            code="export_not_approved",
+            message=f"Report must be approved before export. Current state: {report_state}",
+            status_code=409,
+        )
+
+    if not analysis.signed_by:
+        raise ApiServiceError(
+            code="export_not_signed",
+            message="Report must be signed-off before export.",
+            status_code=409,
+        )
+
+    # Check for unresolved red flags
+    cockpit = _load(analysis.safety_cockpit_json) or {}
+    red_flags = cockpit.get("red_flags") or []
+    unresolved = [f for f in red_flags if not f.get("resolved")]
+    if unresolved:
+        raise ApiServiceError(
+            code="export_unresolved_red_flags",
+            message=f"Cannot export: {len(unresolved)} unresolved red flag(s).",
+            status_code=409,
+        )
 
 
 def _timeline_sort_key(item: dict[str, Any]) -> str:
@@ -429,6 +458,18 @@ def _report_from_row(row: MriAnalysis) -> dict[str, Any]:
         "saved_evidence_citations": [],
         "disclaimer": _DISCLAIMER,
         "demo_mode": bool(row.demo_mode),
+        # Report governance fields (Bug 1 fix — were missing from report JSON!)
+        "report_state": row.report_state or "MRI_DRAFT_AI",
+        "signed_by": row.signed_by,
+        "signed_at": _iso(row.signed_at),
+        "reviewer_id": row.reviewer_id,
+        "reviewed_at": _iso(row.reviewed_at),
+        "report_version": row.report_version,
+        "interpretability_status": row.interpretability_status,
+        "red_flags": _load(row.red_flags_json),
+        "safety_cockpit": _load(row.safety_cockpit_json),
+        "atlas_metadata": _load(row.atlas_metadata_json),
+        "claim_governance": _load(row.claim_governance_json),
     }
 
 
@@ -466,6 +507,18 @@ def _status_payload_from_row(row: MriAnalysis, job_id: str) -> dict[str, Any]:
         "state": row.state,
         "info": info,
         "demo_mode": bool(row.demo_mode),
+        # Report governance fields (Bug 1 fix — were missing!)
+        "report_state": row.report_state or "MRI_DRAFT_AI",
+        "signed_by": row.signed_by,
+        "signed_at": _iso(row.signed_at),
+        "reviewer_id": row.reviewer_id,
+        "reviewed_at": _iso(row.reviewed_at),
+        "report_version": row.report_version,
+        "interpretability_status": row.interpretability_status,
+        "red_flags": _load(row.red_flags_json),
+        "safety_cockpit": _load(row.safety_cockpit_json),
+        "atlas_metadata": _load(row.atlas_metadata_json),
+        "claim_governance": _load(row.claim_governance_json),
     }
     if failure:
         payload["error"] = failure
@@ -1694,6 +1747,7 @@ def export_mri_bids_package(
     if not analysis:
         raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
     _gate_patient_access(actor, analysis.patient_id, db)
+    _verify_export_governance(analysis)  # Bug 2 fix — was missing!
 
     from app.services.mri_bids_export import build_bids_package
 
@@ -1865,6 +1919,7 @@ def export_mri_package(
     if not analysis:
         raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
     _gate_patient_access(actor, analysis.patient_id, db)
+    _verify_export_governance(analysis)  # Bug 2 fix — was missing!
 
     from app.services.mri_bids_export import build_bids_package
 
