@@ -101,7 +101,7 @@ def _run_and_persist(
     input_recording_ref: Optional[str] = None,
     attach_evidence: bool = True,
 ) -> dict[str, Any]:
-    fn = getattr(audio_facade, "run_voice_pipeline_from_paths")
+    fn = audio_facade.run_voice_pipeline_from_paths
     try:
         run = fn(
             audio_path=resolved_audio_path,
