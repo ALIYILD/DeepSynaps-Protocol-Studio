@@ -63,6 +63,44 @@ def _gate_patient_access(
     if exists:
         require_patient_owner(actor, clinic_id)
 
+
+def _verify_qeeg_export_governance(db: Session, analysis_id: str) -> QEEGAIReport:
+    """Verify the latest report for *analysis_id* is approved and signed.
+
+    Returns the report row on success so callers can reuse it.
+    Raises ApiServiceError(409) when the report is not exportable.
+    """
+    from app.services.qeeg_clinician_review import can_export
+
+    report = (
+        db.query(QEEGAIReport)
+        .filter_by(analysis_id=analysis_id)
+        .order_by(QEEGAIReport.created_at.desc())
+        .first()
+    )
+    if report is None or not can_export(report):
+        report_state = getattr(report, "report_state", None) or "MISSING"
+        signed_by = getattr(report, "signed_by", None)
+        _log.warning(
+            "qeeg_export_governance_denied",
+            extra={
+                "event": "qeeg_export_governance_denied",
+                "analysis_id": analysis_id,
+                "report_id": getattr(report, "id", None),
+                "report_state": report_state,
+                "signed_by": signed_by is not None,
+            },
+        )
+        raise ApiServiceError(
+            code="export_not_allowed",
+            message=(
+                f"Report must be approved and signed before export. "
+                f"Current state: {report_state}; signed: {bool(signed_by)}"
+            ),
+            status_code=409,
+        )
+    return report
+
 # New local recommender (qeeg-pipeline package).
 try:  # optional import guard for older deployments
     from deepsynaps_qeeg.recommender import recommend_protocols, summarize_for_recommender
@@ -2180,6 +2218,9 @@ def amend_report(
     if body.reviewed:
         report.clinician_reviewed = True
         report.reviewed_at = datetime.now(timezone.utc)
+        # Unify with canonical state machine
+        if not report.report_state or report.report_state == "DRAFT_AI":
+            report.report_state = "NEEDS_REVIEW"
 
     if body.clinician_amendments is not None:
         report.clinician_amendments = body.clinician_amendments
@@ -4245,7 +4286,10 @@ def export_qeeg_fhir(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> Response:
-    """Export a qEEG analysis as a FHIR R4 Bundle document."""
+    """Export a qEEG analysis as a FHIR R4 Bundle document.
+
+    Gated: requires approved and signed-off report.
+    """
     require_minimum_role(actor, "clinician")
 
     from app.services import fhir_export
@@ -4255,6 +4299,17 @@ def export_qeeg_fhir(
         raise ApiServiceError(
             code="not_found", message="Analysis not found", status_code=404,
         )
+    _gate_patient_access(actor, row.patient_id, db)
+    _verify_qeeg_export_governance(db, analysis_id)
+    _record_qeeg_backend_audit_event(
+        db,
+        actor=actor,
+        analysis_id=analysis_id,
+        patient_id=row.patient_id,
+        event="fhir_export",
+        note="FHIR R4 Bundle export initiated",
+    )
+
     bundle = fhir_export.qeeg_to_fhir_bundle(row)
     return Response(
         content=json.dumps(bundle, indent=2),
@@ -4584,6 +4639,15 @@ def export_bids_package(
     if not analysis:
         raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
     _gate_patient_access(actor, analysis.patient_id, db)
+    _verify_qeeg_export_governance(db, analysis_id)
+    _record_qeeg_backend_audit_event(
+        db,
+        actor=actor,
+        analysis_id=analysis_id,
+        patient_id=analysis.patient_id,
+        event="bids_export",
+        note="BIDS-style zip package export initiated",
+    )
 
     from app.services.qeeg_bids_export import build_bids_package
 
