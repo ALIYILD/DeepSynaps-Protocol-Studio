@@ -43,6 +43,11 @@ try {
 
 globalThis.window    = _dom.window;
 globalThis.document  = _dom.window.document;
+Object.defineProperty(globalThis, 'navigator', {
+  value: _dom.window.navigator,
+  configurable: true,
+  writable: true,
+});
 globalThis.Event     = _dom.window.Event;
 globalThis.HTMLElement = _dom.window.HTMLElement;
 globalThis.Node      = _dom.window.Node;

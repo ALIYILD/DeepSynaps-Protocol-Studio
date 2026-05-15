@@ -26,6 +26,13 @@ test('apps/web/src JS must not reintroduce stale corpus count marketing tokens',
 
   const skip = new Set([
     join(__dirname, 'evidence-corpus-wording-regressions.test.js'),
+    // pages-research-evidence.evidence.test.js intentionally references
+    // the literal "87k" token in its own test name + helper variables
+    // (it asserts that pages-research-evidence.js does NOT contain
+    // fake "87k papers" marketing). Stripping the digit pair from that
+    // test would obscure its purpose, so we exempt it from this
+    // file-level scan rather than rewriting the literal there.
+    join(__dirname, 'pages-research-evidence.evidence.test.js'),
   ]);
 
   for (const abs of walkJs(__dirname)) {

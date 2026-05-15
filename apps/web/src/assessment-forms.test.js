@@ -128,9 +128,9 @@ describe('PCL-5 severity bands', () => {
     assert.strictEqual(r.label, 'Below threshold');
     assert.strictEqual(r.color, 'var(--green)');
   });
-  it('score 33 → Probable PTSD, #ff6b6b', () => {
+  it('score 33 → Above PTSD threshold — clinician evaluation required, #ff6b6b', () => {
     const r = fn(33);
-    assert.strictEqual(r.label, 'Probable PTSD');
+    assert.strictEqual(r.label, 'Above PTSD threshold — clinician evaluation required');
     assert.strictEqual(r.color, '#ff6b6b');
   });
 });

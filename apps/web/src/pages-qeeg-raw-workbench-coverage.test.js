@@ -12,8 +12,10 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 // ── DOM polyfill ────────────────────────────────────────────────────────────
 class CovElement {
@@ -339,13 +341,21 @@ function installCovDom(opts = {}) {
 // import goes through the real file path so c8 attributes coverage to it.
 const HERE = fileURLToPath(new URL('./pages-qeeg-raw-workbench.js', import.meta.url));
 const SRC = readFileSync(HERE, 'utf8');
+const LEARNING_REF_URL = new URL('./learning-eeg-reference.js', import.meta.url).href;
+const EVIDENCE_DATASET_URL = new URL('./evidence-dataset.js', import.meta.url).href;
 
 globalThis.__qwbcov_api = buildFakeApi();
 const { root, byId } = installCovDom({ demo: true });
-// Import the real module so coverage attributes to the actual file path.
-// In demo mode the workbench never calls api.* so the unpatched ./api.js
-// import is fine (pages-qeeg-analysis-* tests use the same approach).
-const mod = await import('./pages-qeeg-raw-workbench.js');
+const TMP = join(tmpdir(), `qwb-cov-${process.pid}`);
+mkdirSync(TMP, { recursive: true });
+writeFileSync(join(TMP, 'api.js'), `export const api = globalThis.__qwbcov_api;`);
+const PATCHED = SRC
+  .replace(/from\s+['"]\.\/api\.js['"];?/, `from '${join(TMP, 'api.js')}';`)
+  .replace(/from\s+['"]\.\/learning-eeg-reference\.js['"];?/, `from '${LEARNING_REF_URL}';`)
+  .replace(/from\s+['"]\.\/evidence-dataset\.js['"];?/, `from '${EVIDENCE_DATASET_URL}';`);
+const MODPATH = join(TMP, 'pages-qeeg-raw-workbench.js');
+writeFileSync(MODPATH, PATCHED);
+const mod = await import(MODPATH);
 
 // Mount the workbench once. All subsequent tests use the live state via
 // re-renders + click simulations.
@@ -1428,3 +1438,4 @@ test('overlay root retained the qwb-clinical class after all interactions', () =
 test('teardown global is wired up so router cleanup works', () => {
   assert.equal(typeof window._qeegRawWorkbenchTeardown, 'function');
 });
+

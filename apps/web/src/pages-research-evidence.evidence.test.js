@@ -1,5 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const _readSrc = (rel) => fs.readFileSync(path.join(__dirname, rel), 'utf8');
 
 function makeNode(id = '') {
   return {
@@ -67,9 +73,7 @@ function installDom() {
 
 installDom();
 
-const src = await import('fs').then(fs => 
-  fs.readFileSync('./apps/web/src/pages-research-evidence.js', 'utf-8')
-);
+const src = _readSrc('./pages-research-evidence.js');
 
 test('pages-research-evidence.js contains clinical disclaimer banner function', () => {
   assert.match(src, /_resClinicalDisclaimerBanner/);
@@ -121,10 +125,8 @@ test('pages-research-evidence.js does not make autonomous clinical claims', () =
   assert.strictEqual(foundPositiveClaims, false, 'Found positive autonomous clinical claims');
 });
 
-test('pages-research-evidence.js references api.evidencePaperDetail in api.js', async () => {
-  const apiSrc = await import('fs').then(fs =>
-    fs.readFileSync('./apps/web/src/api.js', 'utf-8')
-  );
+test('pages-research-evidence.js references api.evidencePaperDetail in api.js', () => {
+  const apiSrc = _readSrc('./api.js');
   assert.match(apiSrc, /evidencePaperDetail/);
 });
 

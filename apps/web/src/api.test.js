@@ -9,15 +9,21 @@ import assert from 'node:assert';
 
 // ── Minimal DOM / browser stubs ───────────────────────────────────────────────
 // api.js needs localStorage, URL, Response, FormData at import time.
-if (typeof globalThis.localStorage === 'undefined') {
-  const _store = {};
-  globalThis.localStorage = {
-    getItem: (k) => Object.prototype.hasOwnProperty.call(_store, k) ? _store[k] : null,
-    setItem: (k, v) => { _store[k] = String(v); },
-    removeItem: (k) => { delete _store[k]; },
-    clear: () => { Object.keys(_store).forEach(k => delete _store[k]); },
-  };
-}
+const _store = {};
+const _localStorageShim = {
+  getItem: (k) => Object.prototype.hasOwnProperty.call(_store, k) ? _store[k] : null,
+  setItem: (k, v) => { _store[k] = String(v); },
+  removeItem: (k) => { delete _store[k]; },
+  clear: () => { Object.keys(_store).forEach(k => delete _store[k]); },
+};
+globalThis.localStorage = {
+  ..._localStorageShim,
+  ...(globalThis.localStorage || {}),
+  getItem: _localStorageShim.getItem,
+  setItem: _localStorageShim.setItem,
+  removeItem: _localStorageShim.removeItem,
+  clear: _localStorageShim.clear,
+};
 if (typeof globalThis.URL === 'undefined') {
   const { URL } = await import('node:url');
   globalThis.URL = URL;

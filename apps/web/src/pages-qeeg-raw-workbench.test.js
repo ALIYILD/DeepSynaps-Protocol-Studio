@@ -10,11 +10,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 const WORKBENCH_PATH = fileURLToPath(new URL('./pages-qeeg-raw-workbench.js', import.meta.url));
 const LEARNING_REF_PATH = fileURLToPath(new URL('./learning-eeg-reference.js', import.meta.url));
+const LEARNING_REF_URL = new URL('./learning-eeg-reference.js', import.meta.url).href;
+const EVIDENCE_DATASET_URL = new URL('./evidence-dataset.js', import.meta.url).href;
 
 class FakeClassList {
   constructor(host) { this._set = new Set(); this._host = host; }
@@ -107,7 +111,26 @@ function installDom() {
 }
 
 installDom();
-const mod = await import('./pages-qeeg-raw-workbench.js');
+globalThis.__qwbtest_api = {
+  getQEEGWorkbenchMetadata: async () => null,
+  getQEEGCapabilities: async () => null,
+  listQEEGCleaningVersions: async () => ({ items: [] }),
+  getQEEGICAComponents: async () => ({ components: [] }),
+  getQEEGWorkbenchReferenceLibrary: async () => null,
+  getQEEGManualAnalysisChecklist: async () => ({ items: [] }),
+  getQEEGCopilotAssistBundle: async () => null,
+  listQEEGCleaningAnnotations: async () => ({ items: [] }),
+};
+const TMP = join(tmpdir(), `qwb-smoke-${process.pid}`);
+mkdirSync(TMP, { recursive: true });
+writeFileSync(join(TMP, 'api.js'), `export const api = globalThis.__qwbtest_api;`);
+const PATCHED = readFileSync(WORKBENCH_PATH, 'utf8')
+  .replace(/from\s+['"]\.\/api\.js['"];?/, `from '${join(TMP, 'api.js')}';`)
+  .replace(/from\s+['"]\.\/learning-eeg-reference\.js['"];?/, `from '${LEARNING_REF_URL}';`)
+  .replace(/from\s+['"]\.\/evidence-dataset\.js['"];?/, `from '${EVIDENCE_DATASET_URL}';`);
+const MODPATH = join(TMP, 'pages-qeeg-raw-workbench.js');
+writeFileSync(MODPATH, PATCHED);
+const mod = await import(MODPATH);
 await mod.pgQEEGRawWorkbench(() => {}, () => {});
 // The workbench mounts into #qwb-overlay (an appended overlay div).
 // The mock getElementById auto-creates it, so read from there.
@@ -702,3 +725,4 @@ test('seeded state.events render inline on the trace with paper-tone labels', ()
   assert.ok(inner.includes('Photic 6 Hz'), '"Photic 6 Hz" label also rendered');
   assert.ok(inner.includes('qwb-trace-event-line'), 'each event has a vertical dashed line');
 });
+
