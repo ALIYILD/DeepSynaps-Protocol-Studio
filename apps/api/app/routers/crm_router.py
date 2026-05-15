@@ -62,6 +62,7 @@ from app.persistence.models import (
     AgentHire,
     AgentRunAudit,
     AgentSubscription,
+    AiSummaryAudit,
     AssessmentRecord,
     AuditEventRecord,
     Clinic,
@@ -84,6 +85,17 @@ from app.persistence.models import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/crm", tags=["crm"])
+
+
+# Module-level package pricing (was duplicated as three local copies — one of
+# which was referenced from a function where the local never existed and
+# would 500 with NameError). Single source of truth keeps the three call
+# sites in sync.
+_PACKAGE_PRICES: dict[str, float] = {
+    "explorer": 0.0,
+    "clinician_pro": 79.0,
+    "enterprise": 299.0,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -463,13 +475,8 @@ async def get_executive_dashboard(
         .group_by(Subscription.package_id)
         .all()
     )
-    package_prices: dict[str, float] = {
-        "explorer": 0.0,
-        "clinician_pro": 79.0,
-        "enterprise": 299.0,
-    }
     mrr = sum(
-        package_prices.get(row.package_id, 49.0) * row.cnt for row in mrr_rows
+        _PACKAGE_PRICES.get(row.package_id, 49.0) * row.cnt for row in mrr_rows
     )
     arr = mrr * 12.0
 
@@ -619,7 +626,7 @@ async def list_clinics(
                 status=status_val,
                 patient_count=patient_count,
                 clinician_count=clinician_count,
-                mrr=round(package_prices.get(plan_val, 49.0), 2),
+                mrr=round(_PACKAGE_PRICES.get(plan_val, 49.0), 2),
                 health_score=100,  # Placeholder — would derive from SLA + AE rates
                 created_at=_iso(c.created_at),
                 updated_at=_iso(c.updated_at),
@@ -1528,18 +1535,13 @@ async def get_finance_dashboard(
     )
 
     # MRR
-    package_prices_local: dict[str, float] = {
-        "explorer": 0.0,
-        "clinician_pro": 79.0,
-        "enterprise": 299.0,
-    }
     sub_rows = (
         session.query(Subscription.package_id, func.count(Subscription.id).label("cnt"))
         .filter(Subscription.status == "active")
         .group_by(Subscription.package_id)
         .all()
     )
-    mrr = sum(package_prices_local.get(row.package_id, 49.0) * row.cnt for row in sub_rows)
+    mrr = sum(_PACKAGE_PRICES.get(row.package_id, 49.0) * row.cnt for row in sub_rows)
     arr = mrr * 12
 
     # Failed payments — invoices with status overdue
