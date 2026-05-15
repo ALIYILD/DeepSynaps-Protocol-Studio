@@ -111,3 +111,5 @@ apps/api/app/routers/wearables_workbench_router.py
 apps/api/app/routers/wellness_hub_router.py
 apps/api/app/routers/founder_dash_router.py
 apps/api/app/routers/video_assessment_router.py
+apps/api/app/routers/biomarker_router.py
+apps/api/app/routers/movement_analyzer_router.py
