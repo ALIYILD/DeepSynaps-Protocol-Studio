@@ -449,7 +449,7 @@ function _formatReportVersionLabel(report, index, total) {
   if (mode === 'rag_draft') mode = 'evidence-grounded draft';
   var raw = report.generated_at || report.created_at || report.updated_at || null;
   var dateText = raw ? new Date(raw).toLocaleString() : 'Undated';
-  var reviewText = report.clinician_reviewed ? 'Reviewed' : 'Draft';
+  var reviewText = (report.report_state && report.report_state !== 'DRAFT_AI') ? 'Reviewed' : 'Draft';
   return 'v' + (total - index) + ' · ' + mode + ' · ' + reviewText + ' · ' + dateText;
 }
 
@@ -3193,9 +3193,10 @@ function _renderComprehensiveReport(report, analysis, savedEvidenceCitations) {
   }
 
   // ── Section 13: Clinician Review ────────────────────────────────────────
+  var _reportState = report.report_state || 'DRAFT_AI';
   html += card('Clinician Review',
     '<div style="padding:8px">'
-    + (report.clinician_reviewed
+    + (_reportState !== 'DRAFT_AI'
       ? '<div style="margin-bottom:8px">' + badge('Reviewed', 'var(--green)') + '</div>'
       : '<div style="margin-bottom:8px">' + badge('Pending Review', 'var(--amber)') + '</div>')
     + '<textarea id="qeeg-amendments" class="form-control" rows="3" placeholder="Add clinical amendments or notes...">'
@@ -4223,6 +4224,7 @@ var DEMO_QEEG_REPORT = {
     { protocol: 'Neurofeedback — SMR/theta draft idea', rationale: 'Illustrative training concept only. SMR up-training with theta inhibition is discussed in neurofeedback research; not a prescribed protocol here.' },
   ],
   clinician_reviewed: false,
+  report_state: 'DRAFT_AI',
   clinician_amendments: '',
 
   // ── MNE pipeline AI shape (CONTRACT.md §5.4) ───────────────────────────────
