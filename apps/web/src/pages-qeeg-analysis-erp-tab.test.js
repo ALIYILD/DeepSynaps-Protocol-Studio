@@ -1,5 +1,5 @@
 // ERP tab wiring on qEEG Analyzer — mirrors launch-audit test bootstrap.
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -134,4 +134,16 @@ test('session upload wins over persisted analysis when analysis ids match', () =
   const bm = erpResolveBidsUploadMeta(analysisId, mockAnalysis, session);
   assert.equal(bm.row_count, 1);
   assert.deepEqual(bm.trial_types, ['live']);
+});
+
+// ── File-scope cleanup ────────────────────────────────────────────────────────
+// This file installs localStorage/sessionStorage stubs and may set
+// globalThis.window = globalThis. Clean up so Node-20 --test-force-exit drains.
+after(() => {
+  // Remove the storage stubs this file installed via installStorageStub.
+  for (const k of ['localStorage', 'sessionStorage']) {
+    try { delete globalThis[k]; } catch {}
+  }
+  // If globalThis.window was pointed at globalThis itself, undo it.
+  try { if (globalThis.window === globalThis) delete globalThis.window; } catch {}
 });

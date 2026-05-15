@@ -17,7 +17,7 @@
 //   - Each test has a meaningful assertion.
 //   - Skipped paths are commented; never silently swallowed.
 
-import { before, beforeEach, describe, it } from 'node:test';
+import { after, before, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
@@ -2726,4 +2726,16 @@ describe('pages-qeeg-analysis.js — window helpers (source-pinned)', () => {
         `window helper ${fn} must be declared`);
     }
   });
+});
+
+// ── File-scope JSDOM cleanup ──────────────────────────────────────────────────
+// Closes the _dom window so that any setInterval / setTimeout handles it owns
+// are drained and Node-20 --test-force-exit can reclaim the process cleanly.
+// Must run after all describes so concurrent workers don't clobber each other's
+// globalThis.window reference during cleanup.
+after(() => {
+  try { _dom.window.close(); } catch {}
+  for (const k of ['window', 'document', 'navigator', 'HTMLElement', 'Event', 'Node', 'Blob', 'FormData', 'URL', 'URLSearchParams', 'MutationObserver', 'IntersectionObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'localStorage', 'sessionStorage']) {
+    try { delete globalThis[k]; } catch {}
+  }
 });

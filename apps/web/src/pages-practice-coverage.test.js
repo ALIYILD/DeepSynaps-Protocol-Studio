@@ -21,7 +21,7 @@
 //   - Realistic DOM fixtures.
 //   - Each test has a meaningful assertion.
 
-import { before, beforeEach, describe, it } from 'node:test';
+import { after, before, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
@@ -1270,4 +1270,14 @@ describe('pages-practice.js — _mqFetch helper', () => {
     assert.ok(SRC.includes('res.status === 204'),
       '_mqFetch must handle 204 explicitly');
   });
+});
+
+// ── File-scope JSDOM cleanup ──────────────────────────────────────────────────
+// Closes the _dom window and deletes globalThis overrides so Node-20
+// --test-force-exit can drain the event loop cleanly after the suite exits.
+after(() => {
+  try { _dom.window.close(); } catch {}
+  for (const k of ['window', 'document', 'navigator', 'HTMLElement', 'Event', 'Node', 'URLSearchParams', 'MutationObserver', 'IntersectionObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'localStorage']) {
+    try { delete globalThis[k]; } catch {}
+  }
 });
