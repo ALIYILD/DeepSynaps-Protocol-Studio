@@ -63,6 +63,11 @@ const ROUTE_ALIASES = {
   'literature-review': 'evidence-research',
   'actions': 'quick-actions',
   'shortcuts': 'quick-actions',
+  'patient-dashboard': 'patient-portal',
+  'patient-home': 'patient-portal',
+  'patient-portal': 'patient-portal',
+  'my-dashboard': 'patient-portal',
+  'my-care': 'patient-portal',
 };
 
 export function normalizeRouteId(id) {
