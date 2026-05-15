@@ -174,10 +174,7 @@ from app.routers.resolver_coaching_self_review_digest_router import (
 from app.routers.reviewer_sla_calibration_threshold_tuning_router import (
     router as reviewer_sla_calibration_threshold_tuning_router,
 )
-from app.routers.digital_phenotyping_router import (
-    router as digital_phenotyping_router,
-    signals_router as digital_phenotyping_signals_router,
-)
+from app.routers.digital_phenotyping_router import router as digital_phenotyping_router
 from app.routers.labs_analyzer_router import router as labs_analyzer_router
 from app.routers.medication_analyzer_router import router as medication_analyzer_router
 from app.routers.movement_analyzer_router import router as movement_analyzer_router
@@ -205,7 +202,6 @@ from app.routers.mri_capabilities_router import router as mri_capabilities_route
 from app.routers.neuro_signs import router as neuro_signs_router
 from app.routers.medical_images_router import router as medical_images_router
 from app.routers.fusion_router import router as fusion_router
-from app.routers.multimodal_fusion_router import router as multimodal_fusion_router
 from app.routers.patient_summary_router import router as patient_summary_router
 from app.routers.patient_timeline_router import router as patient_timeline_router
 from app.routers.clinical_text_router import router as clinical_text_router
@@ -493,7 +489,6 @@ app.include_router(medications_router)
 app.include_router(medication_analyzer_router)
 app.include_router(labs_analyzer_router)
 app.include_router(digital_phenotyping_router)
-app.include_router(digital_phenotyping_signals_router)
 app.include_router(movement_analyzer_router)
 app.include_router(nutrition_analyzer_router)
 app.include_router(consent_management_router)
@@ -698,7 +693,6 @@ app.include_router(mri_capabilities_router)
 app.include_router(neuro_signs_router)
 app.include_router(medical_images_router)
 app.include_router(fusion_router)
-app.include_router(multimodal_fusion_router)
 app.include_router(monitor_router)
 app.include_router(deeptwin_router)
 app.include_router(deeptwin_neuroai_lab_router)
