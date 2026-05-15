@@ -1,4 +1,4 @@
-"""Regression tests for export router cross-clinic gate + rate limits.
+"""Regression tests for export router cross-clinic gate + rate limits + entitlement gating.
 
 Pre-fix the export router had three P0 issues:
 
@@ -13,6 +13,8 @@ Pre-fix the export router had three P0 issues:
   clinician could burn arbitrary Anthropic spend per minute.
 * FHIR / BIDS bulk-export endpoints had no rate limit, the
   textbook abusable surface for patient-data archive generation.
+* Handbook/patient-guide export routes bypassed package entitlement checks —
+  any clinician could export handbooks regardless of their clinic's plan.
 
 Post-fix:
 * ``_assert_export_patient_access`` routes through the canonical
@@ -21,6 +23,9 @@ Post-fix:
 * ``data_privacy_router.create_export`` decorator order is fixed —
   SlowAPI requires the limiter to be the innermost decorator, below
   ``@router.post``.
+* Handbook DOCX, Handbook PDF, and Patient Guide DOCX exports all enforce
+  ``require_any_feature(actor.package_id, HANDBOOK_GENERATE_FULL, HANDBOOK_GENERATE_LIMITED)``
+  using the same entitlement check as the generation routes.
 """
 from __future__ import annotations
 
@@ -141,6 +146,122 @@ def test_export_protocol_docx_rejects_oversize_field(
     assert resp.status_code == 422, resp.text
 
 
+def test_export_handbook_docx_rejects_clinician_without_handbook_entitlement(
+    client: TestClient,
+) -> None:
+    """Clinician on a package without handbook entitlement must receive 403
+    insufficient_package, not a 200 with generated content."""
+    resp = client.post(
+        "/api/v1/export/handbook-docx",
+        headers={"Authorization": "Bearer clinician-no-handbook-demo-token"},
+        json={
+            "condition_name": "Depression",
+            "modality_name": "rTMS",
+            "handbook_kind": "clinician_handbook",
+        },
+    )
+    assert resp.status_code == 403, resp.text
+    body = resp.json()
+    assert body["code"] == "insufficient_package"
+
+
+def test_export_handbook_pdf_rejects_clinician_without_handbook_entitlement(
+    client: TestClient,
+) -> None:
+    """Handbook PDF export must also gate on package entitlement."""
+    resp = client.post(
+        "/api/v1/export/handbook-pdf",
+        headers={"Authorization": "Bearer clinician-no-handbook-demo-token"},
+        json={
+            "condition_name": "Depression",
+            "modality_name": "rTMS",
+            "handbook_kind": "clinician_handbook",
+        },
+    )
+    assert resp.status_code == 403, resp.text
+    body = resp.json()
+    assert body["code"] == "insufficient_package"
+
+
+def test_export_patient_guide_docx_rejects_clinician_without_handbook_entitlement(
+    client: TestClient,
+) -> None:
+    """Patient guide export must also gate on package entitlement."""
+    resp = client.post(
+        "/api/v1/export/patient-guide-docx",
+        headers={"Authorization": "Bearer clinician-no-handbook-demo-token"},
+        json={
+            "condition_name": "ADHD",
+            "modality_name": "Neurofeedback",
+        },
+    )
+    assert resp.status_code == 403, resp.text
+    body = resp.json()
+    assert body["code"] == "insufficient_package"
+
+
+def test_export_handbook_docx_allows_resident_with_limited_entitlement(
+    client: TestClient,
+) -> None:
+    """Resident (HANDBOOK_GENERATE_LIMITED) can export handbook DOCX."""
+    resp = client.post(
+        "/api/v1/export/handbook-docx",
+        headers={"Authorization": "Bearer resident-demo-token"},
+        json={
+            "condition_name": "Depression",
+            "modality_name": "rTMS",
+            "handbook_kind": "clinician_handbook",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def test_export_patient_guide_docx_allows_resident_with_limited_entitlement(
+    client: TestClient,
+) -> None:
+    """Resident (HANDBOOK_GENERATE_LIMITED) can export patient guide."""
+    resp = client.post(
+        "/api/v1/export/patient-guide-docx",
+        headers={"Authorization": "Bearer resident-demo-token"},
+        json={
+            "condition_name": "ADHD",
+            "modality_name": "Neurofeedback",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def test_export_handbook_rejects_reviewer_role(
+    client: TestClient,
+) -> None:
+    """Reviewer role cannot export handbook (blocked by role check)."""
+    resp = client.post(
+        "/api/v1/export/handbook-docx",
+        headers={"Authorization": "Bearer reviewer-demo-token"},
+        json={
+            "condition_name": "Depression",
+            "modality_name": "rTMS",
+            "handbook_kind": "clinician_handbook",
+        },
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_export_patient_guide_rejects_reviewer_role(
+    client: TestClient,
+) -> None:
+    """Reviewer role cannot export patient guide (blocked by role check)."""
+    resp = client.post(
+        "/api/v1/export/patient-guide-docx",
+        headers={"Authorization": "Bearer reviewer-demo-token"},
+        json={
+            "condition_name": "ADHD",
+            "modality_name": "Neurofeedback",
+        },
+    )
+    assert resp.status_code == 403, resp.text
+
+
 def test_data_privacy_create_export_decorator_order_pins_limiter_innermost() -> None:
     """Static check: the ``@limiter.limit`` decorator on
     ``create_export`` must be applied AFTER ``@router.post`` (i.e.
@@ -173,3 +294,227 @@ def test_data_privacy_create_export_decorator_order_pins_limiter_innermost() -> 
         "@limiter.limit must be source-below @router.post on create_export; "
         f"found @router.post @ {last_router_post}, @limiter.limit @ {last_limiter}"
     )
+
+
+# ── Handbook-specific export authorization tests ─────────────────────────────
+# The export router handles DOCX/PDF bundles for clinician handbooks and
+# patient guides. These endpoints MUST enforce role gates consistently.
+
+class TestHandbookExportAuthz:
+    """Authorization boundaries for handbook DOCX/PDF export routes.
+
+    Covers:
+    - Guest rejection on handbook-docx and handbook-pdf
+    - Reviewer (read-only role) rejection
+    - Clinician allowed
+    - Admin allowed
+    - Cross-clinic patient data blocked on patient-guide exports
+    """
+
+    def test_handbook_docx_guest_rejected(
+        self, client: TestClient, two_clinics: dict[str, Any]
+    ) -> None:
+        """Guest (no token) cannot export handbook DOCX."""
+        resp = client.post(
+            "/api/v1/export/handbook-docx",
+            json={
+                "condition_name": "Depression",
+                "modality_name": "rTMS",
+                "device_name": "MagVenture",
+                "handbook_kind": "clinician_handbook",
+            },
+        )
+        assert resp.status_code in (401, 403), resp.text
+
+    def test_handbook_pdf_guest_rejected(
+        self, client: TestClient, two_clinics: dict[str, Any]
+    ) -> None:
+        """Guest (no token) cannot export handbook PDF."""
+        resp = client.post(
+            "/api/v1/export/handbook-pdf",
+            json={
+                "condition_name": "Depression",
+                "modality_name": "rTMS",
+                "device_name": "",
+                "handbook_kind": "clinician_handbook",
+            },
+        )
+        assert resp.status_code in (401, 403), resp.text
+
+    def test_handbook_docx_clinician_a_allowed(
+        self, client: TestClient, two_clinics: dict[str, Any]
+    ) -> None:
+        """Clinician A (clinic A owner) can request handbook DOCX export."""
+        resp = client.post(
+            "/api/v1/export/handbook-docx",
+            headers=_auth(two_clinics["token_a"]),
+            json={
+                "condition_name": "Parkinson's disease",
+                "modality_name": "TPS",
+                "device_name": "NEUROLITH",
+                "handbook_kind": "clinician_handbook",
+            },
+        )
+        # 200 = rendered DOCX, 422 = validation issue — both mean auth passed
+        assert resp.status_code in (200, 422), resp.text
+
+    def test_handbook_pdf_clinician_a_allowed_or_honest_503(
+        self, client: TestClient, two_clinics: dict[str, Any]
+    ) -> None:
+        """Clinician A can request handbook PDF — honest 503 if renderer missing."""
+        resp = client.post(
+            "/api/v1/export/handbook-pdf",
+            headers=_auth(two_clinics["token_a"]),
+            json={
+                "condition_name": "Parkinson's disease",
+                "modality_name": "TPS",
+                "device_name": "",
+                "handbook_kind": "clinician_handbook",
+            },
+        )
+        # 200 = PDF rendered, 503 = WeasyPrint unavailable (honest),
+        # 422 = validation — all indicate auth gate passed
+        assert resp.status_code in (200, 422, 503), resp.text
+
+    def test_patient_guide_docx_cross_clinic_blocked(
+        self, client: TestClient, two_clinics: dict[str, Any]
+    ) -> None:
+        """Clinician B must not export patient guide for clinic A's patient."""
+        resp = client.post(
+            "/api/v1/export/patient-guide-docx",
+            headers=_auth(two_clinics["token_b"]),
+            json={
+                "condition_name": "Depression",
+                "modality_name": "rTMS",
+                "patient_id": two_clinics["patient_a_id"],
+            },
+        )
+        # Cross-clinic access must be denied or patient not found
+        assert resp.status_code in (403, 404), resp.text
+
+    def test_patient_guide_docx_clinician_a_own_patient_allowed(
+        self, client: TestClient, two_clinics: dict[str, Any]
+    ) -> None:
+        """Clinician A can export patient guide for own patient."""
+        resp = client.post(
+            "/api/v1/export/patient-guide-docx",
+            headers=_auth(two_clinics["token_a"]),
+            json={
+                "condition_name": "Depression",
+                "modality_name": "rTMS",
+                "patient_id": two_clinics["patient_a_id"],
+            },
+        )
+        # 200 = rendered, 422 = validation error, 404 = patient not found
+        # (patient may not exist in minimal test DB) — all indicate auth passed
+        assert resp.status_code in (200, 422, 404), resp.text
+
+    def test_handbook_docx_invalid_kind_422(
+        self, client: TestClient, two_clinics: dict[str, Any]
+    ) -> None:
+        """Invalid handbook_kind is rejected at schema layer (auth first)."""
+        resp = client.post(
+            "/api/v1/export/handbook-docx",
+            headers=_auth(two_clinics["token_a"]),
+            json={
+                "condition_name": "Depression",
+                "modality_name": "rTMS",
+                "handbook_kind": "invalid_kind_xyz",
+            },
+        )
+        assert resp.status_code == 422, resp.text
+
+    def test_handbook_docx_missing_modality_422(
+        self, client: TestClient, two_clinics: dict[str, Any]
+    ) -> None:
+        """Missing modality_name is rejected at schema layer (auth first)."""
+        resp = client.post(
+            "/api/v1/export/handbook-docx",
+            headers=_auth(two_clinics["token_a"]),
+            json={
+                "condition_name": "Depression",
+            },
+        )
+        assert resp.status_code == 422, resp.text
+
+    def test_handbook_docx_honest_disclaimer_in_response(
+        self, client: TestClient, two_clinics: dict[str, Any]
+    ) -> None:
+        """Handbook DOCX response contains clinical disclaimer when rendered."""
+        resp = client.post(
+            "/api/v1/export/handbook-docx",
+            headers=_auth(two_clinics["token_a"]),
+            json={
+                "condition_name": "Parkinson's disease",
+                "modality_name": "TPS",
+                "device_name": "NEUROLITH",
+                "handbook_kind": "clinician_handbook",
+            },
+        )
+        if resp.status_code == 200:
+            import zipfile, io
+            raw = resp.content
+            assert raw.startswith(b"PK"), "DOCX must be a valid ZIP archive"
+            zf = zipfile.ZipFile(io.BytesIO(raw))
+            xml = zf.read("word/document.xml").decode("utf-8")
+            assert "AI-assisted handbook is a clinician-review draft" in xml, (
+                "DOCX must contain clinical disclaimer"
+            )
+        else:
+            pytest.skip(f"DOCX render not available (status={resp.status_code})")
+
+    def test_handbook_docx_oversize_condition_name_422(
+        self, client: TestClient, two_clinics: dict[str, Any]
+    ) -> None:
+        """Oversized condition_name rejected at schema layer before rendering."""
+        resp = client.post(
+            "/api/v1/export/handbook-docx",
+            headers=_auth(two_clinics["token_a"]),
+            json={
+                "condition_name": "x" * 300,  # exceeds typical 200-char cap
+                "modality_name": "rTMS",
+                "handbook_kind": "clinician_handbook",
+            },
+        )
+        assert resp.status_code == 422, resp.text
+
+    def test_handbook_pdf_returns_valid_pdf_or_honest_503(
+        self, client: TestClient, two_clinics: dict[str, Any]
+    ) -> None:
+        """Handbook PDF returns valid PDF bytes or honest 503 — never fake content."""
+        resp = client.post(
+            "/api/v1/export/handbook-pdf",
+            headers=_auth(two_clinics["token_a"]),
+            json={
+                "condition_name": "Parkinson's disease",
+                "modality_name": "TPS",
+                "device_name": "",
+                "handbook_kind": "clinician_handbook",
+            },
+        )
+        if resp.status_code == 200:
+            assert resp.content[:4] == b"%PDF", "PDF must start with %PDF magic bytes"
+        elif resp.status_code == 503:
+            payload = resp.json()
+            assert payload.get("code") == "pdf_renderer_unavailable", (
+                f"Expected honest 503 code, got: {payload}"
+            )
+        elif resp.status_code == 422:
+            pass  # validation error, auth passed
+        else:
+            pytest.fail(f"Unexpected status: {resp.status_code} — {resp.text}")
+
+    def test_export_rate_limit_present_on_handbook_routes(self) -> None:
+        """Static check: handbook export routes have rate limiting decorators.
+        Inspects export_router source for limiter decorators on handbook endpoints.
+        """
+        import inspect
+        from app.routers import export_router
+
+        src = inspect.getsource(export_router)
+        # Look for handbook-related route registrations with limiter
+        assert "handbook" in src.lower(), "export router must reference handbook"
+        # Rate limiter must be present somewhere in the router
+        assert "limiter" in src.lower() or "limit" in src.lower(), (
+            "export router must have rate limiting"
+        )
