@@ -2131,5 +2131,23 @@ ${pw.map(d => `- ${d.domain}: ${d.score}/100`).join('\n')}
 `;
 }
 
+// ── Multimodal Integration Panel ─────────────────────────────────────────
+
+function _renderWellnessIntegrationPanel(patientId) {
+  return `<div class="ch-card">
+    <div class="ch-card-title">Multimodal Integration</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;">
+      <a href="#/biomarkers?patient=${patientId}" class="ch-link">Biomarkers</a>
+      <a href="#/biometrics?patient=${patientId}" class="ch-link">Biometrics</a>
+      <a href="#/nutrition-analyzer?patient=${patientId}" class="ch-link">Nutrition</a>
+      <a href="#/medication-analyzer?patient=${patientId}" class="ch-link">Medications</a>
+      <a href="#/genetic-analyzer?patient=${patientId}" class="ch-link">Genetic Analysis</a>
+      <a href="#/qeeg-analysis?patient=${patientId}" class="ch-link">qEEG</a>
+      <a href="#/intervention-analyzer?patient=${patientId}" class="ch-link">Interventions</a>
+      <a href="#/deeptwin?patient=${patientId}" class="ch-link">DeepTwin</a>
+    </div>
+  </div>`;
+}
+
 // Default export for dynamic import compatibility
 export default { renderPageWellness, wellnessAllowsRole, __wellnessTestApi__, WELLNESS_PROTOCOLS };
