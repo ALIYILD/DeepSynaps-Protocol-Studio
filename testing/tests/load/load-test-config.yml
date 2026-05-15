@@ -1,0 +1,190 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# DeepSynaps Protocol Studio — Load Test Configuration
+# ──────────────────────────────────────────────────────────────────────────────
+# This file is consumed by Locust's --config option. It defines the
+# default shape, user counts, and SLO thresholds for all load-test profiles.
+#
+# Usage:
+#   locust -f tests/load/locustfile.py --config tests/load/load-test-config.yml
+#
+# Profiles available:
+#   - gradual-ramp      : Warm-up → sustained → ramp-down (default)
+#   - sustained-load    : Steady-state baseline measurement
+#   - spike-test        : Sudden traffic spike for resilience testing
+#   - endurance         : Extended 4-hour soak test
+#   - stress            : Gradual increase until degradation
+#
+# SLO Targets:
+#   P95 latency    < 200 ms
+#   Error rate     < 0.1 %
+#   Throughput     > 500 req/s (sustained profile)
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Base Locust settings
+# ═══════════════════════════════════════════════════════════════════════════════
+locustfile: tests/load/locustfile.py
+host: "https://staging-api.deepsynaps.io"
+headless: true
+
+# ── Run-time defaults (overridden per profile below) ──────────────────────────
+users: 50
+spawn-rate: 5
+run-time: 10m
+
+# ── Output ────────────────────────────────────────────────────────────────────
+csv: load-results/staging
+html: load-results/report.html
+print-stats: true
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Load Shape Profiles
+# ═══════════════════════════════════════════════════════════════════════════════
+# Each profile can be selected via environment variable:
+#   LOAD_PROFILE=gradual-ramp  locust -f ... --config ...
+# If no profile is specified, the gradual-ramp default is used.
+#
+# NOTE: The profile name is read by locustfile.py to adjust the User weight
+# distribution and spawn rate. These are Locust-native shape classes.
+
+shape-classes:
+  # ── Profile: gradual-ramp ────────────────────────────────────────────────
+  # 3-phase test: warm-up → sustained peak → cool-down.
+  # Used for: weekly baseline checks, regression validation.
+  GradualRampShape:
+    description: |
+      Phase 1 (0–2 min)  :  0 →  25 users  (warm-up)
+      Phase 2 (2–5 min)  : 25 →  75 users  (ramp-up)
+      Phase 3 (5–8 min)  : 75 users steady (sustained)
+      Phase 4 (8–10 min) : 75 →  0 users  (ramp-down)
+    users: 75
+    spawn-rate: 3
+    run-time: 10m
+    env:
+      LOAD_PROFILE: gradual-ramp
+      RAMP_START_USERS: "0"
+      RAMP_PEAK_USERS: "75"
+      RAMP_WARMUP_MIN: "2"
+      RAMP_RAMP_MIN: "3"
+      RAMP_SUSTAIN_MIN: "3"
+      RAMP_COOLDOWN_MIN: "2"
+
+  # ── Profile: sustained-load ──────────────────────────────────────────────
+  # Flat user count for an extended period.
+  # Used for: measuring steady-state throughput, memory-leak detection.
+  SustainedLoadShape:
+    description: |
+      Phase 1 (0–2 min)  :  0 → 100 users  (ramp-up)
+      Phase 2 (2–30 min) : 100 users steady (sustained)
+      Phase 3 (30–32 min): 100 → 0 users  (ramp-down)
+    users: 100
+    spawn-rate: 10
+    run-time: 32m
+    env:
+      LOAD_PROFILE: sustained-load
+      RAMP_START_USERS: "0"
+      RAMP_PEAK_USERS: "100"
+      RAMP_WARMUP_MIN: "2"
+      RAMP_SUSTAIN_MIN: "28"
+      RAMP_COOLDOWN_MIN: "2"
+
+  # ── Profile: spike-test ──────────────────────────────────────────────────
+  # Sudden burst of traffic to test auto-scaling and circuit breakers.
+  # Used for: infrastructure resilience validation.
+  SpikeTestShape:
+    description: |
+      Phase 1 (0–1 min)  :   0 →  20 users  (baseline)
+      Phase 2 (1–2 min)  :  20 → 300 users  (spike!)
+      Phase 3 (2–4 min)  : 300 users steady (hold)
+      Phase 4 (4–5 min)  : 300 → 20 users  (recover)
+      Phase 5 (5–6 min)  :  20 → 0 users  (cool-down)
+    users: 300
+    spawn-rate: 50
+    run-time: 6m
+    env:
+      LOAD_PROFILE: spike-test
+      SPIKE_BASELINE_USERS: "20"
+      SPIKE_PEAK_USERS: "300"
+      SPIKE_RAMP_SECONDS: "60"
+      SPIKE_HOLD_SECONDS: "120"
+      SPIKE_RECOVER_SECONDS: "60"
+
+  # ── Profile: endurance ───────────────────────────────────────────────────
+  # Extended soak test to detect memory leaks and connection pool exhaustion.
+  # Used for: release-candidate validation, monthly infrastructure review.
+  EnduranceShape:
+    description: |
+      Phase 1 (0–5 min)  :   0 →  50 users  (warm-up)
+      Phase 2 (5–235 min):  50 users steady (soak)
+      Phase 3 (235–240 min): 50 → 0 users  (cool-down)
+    users: 50
+    spawn-rate: 2
+    run-time: 240m
+    env:
+      LOAD_PROFILE: endurance
+      RAMP_PEAK_USERS: "50"
+      RAMP_WARMUP_MIN: "5"
+      RAMP_SUSTAIN_MIN: "230"
+      RAMP_COOLDOWN_MIN: "5"
+
+  # ── Profile: stress ──────────────────────────────────────────────────────
+  # Gradual increase until response-time degradation or errors appear.
+  # Used for: finding the breaking point before production launch.
+  StressShape:
+    description: |
+      Starting at 10 users, increase by 10 every 60 s until failure.
+      Target: identify degradation threshold.
+    users: 500
+    spawn-rate: 10
+    run-time: 60m
+    env:
+      LOAD_PROFILE: stress
+      STRESS_START_USERS: "10"
+      STRESS_INCREMENT: "10"
+      STRESS_STEP_SECONDS: "60"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SLO Thresholds (enforced by locustfile.py and CI)
+# ═══════════════════════════════════════════════════════════════════════════════
+slo:
+  p95_latency_ms: 200
+  p99_latency_ms: 500
+  error_rate_percent: 0.1
+  min_throughput_rps: 500
+
+  # Per-endpoint relaxed thresholds (optional)
+  endpoint_overrides:
+    # Protocol creation involves DB writes + evidence scoring
+    "POST /protocols (create)":
+      p95_latency_ms: 500
+      error_rate_percent: 1.0
+    # Full-text search can be slower
+    "GET /evidence/search":
+      p95_latency_ms: 1000
+      error_rate_percent: 0.5
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Environment overrides
+# ═══════════════════════════════════════════════════════════════════════════════
+env:
+  # Staging API base (override for local testing)
+  DEEPSYNAPS_API_HOST: staging-api.deepsynaps.io
+  DEEPSYNAPS_API_PORT: "443"
+  DEEPSYNAPS_APP_ENV: staging
+
+  # Logging
+  LOG_LEVEL: INFO
+
+  # Synthetic test-data seed (deterministic across runs)
+  TEST_DATA_SEED: "42"
+
+  # Request timeout (ms) — Locust-level; keep below SLO
+  REQUEST_TIMEOUT_MS: "30000"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Notifications (used by CI workflow to post results)
+# ═══════════════════════════════════════════════════════════════════════════════
+notifications:
+  slack_webhook_url: "${SLACK_LOAD_TEST_WEBHOOK}"   # set in CI secrets
+  on_slo_breach: true
+  on_completion: true
