@@ -21,6 +21,9 @@ Buckets:
   - ``qeeg.py`` — 16 classes
   - ``research.py`` — 20 classes
   - ``wellness.py`` — 2 classes
+  - ``rehab_models.py`` — 5 classes
+  - ``wellness_models.py`` — 4 classes
+  - ``complementary_models.py`` — 4 classes
 """
 from __future__ import annotations
 
@@ -283,6 +286,25 @@ from .wellness import (
     SymptomJournalEntry,
     WellnessCheckin,
 )
+from .rehab_models import (
+    RehabPatient,
+    RehabAssessment,
+    RehabExercise,
+    RehabProtocol,
+    RehabSession,
+)
+from .wellness_models import (
+    WellnessPatient,
+    SleepDiaryEntry,
+    WellnessAssessment,
+    WellnessProtocol,
+)
+from .complementary_models import (
+    ComplementaryPatient,
+    ComplementarySession,
+    ComplementaryProtocol,
+    TherapyLibraryEntry,
+)
 
 # Slice C scaffold — ResearchDataset lives outside the persistence/models
 # package on disk (in ``app.models.research_dataset``) so the research
@@ -485,6 +507,22 @@ __all__ = [
     "WearableDailySummary",
     "WearableObservation",
     "WellnessCheckin",
+    # Rehab models
+    "RehabPatient",
+    "RehabAssessment",
+    "RehabExercise",
+    "RehabProtocol",
+    "RehabSession",
+    # Wellness models
+    "WellnessPatient",
+    "SleepDiaryEntry",
+    "WellnessAssessment",
+    "WellnessProtocol",
+    # Complementary models
+    "ComplementaryPatient",
+    "ComplementarySession",
+    "ComplementaryProtocol",
+    "TherapyLibraryEntry",
 ]
 
 
