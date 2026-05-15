@@ -397,11 +397,12 @@ jobs:
         run: |
           echo "=== Running git-secrets pattern scan ==="
 
-          # Register common healthcare/clinical patterns
-          git secrets --add --global 'password\s*=\s*["'\''"'\'''][^"'\''"'\''']{4,}' 2>/dev/null || true
-          git secrets --add --global 'secret\s*=\s*["'\''"'\'''][^"'\''"'\''']{8,}' 2>/dev/null || true
-          git secrets --add --global 'api[_-]?key\s*=\s*["'\''"'\'''][^"'\''"'\''']{8,}' 2>/dev/null || true
-          git secrets --add --global '-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----' 2>/dev/null || true
+          # Register common healthcare/clinical patterns.
+          # Double-quote outer so the `["']` character class is bash-safe.
+          git secrets --add --global "password\s*=\s*[\"'][^\"']{4,}" 2>/dev/null || true
+          git secrets --add --global "secret\s*=\s*[\"'][^\"']{8,}" 2>/dev/null || true
+          git secrets --add --global "api[_-]?key\s*=\s*[\"'][^\"']{8,}" 2>/dev/null || true
+          git secrets --add --global "-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----" 2>/dev/null || true
 
           # Scan the repository
           if git secrets --scan-history 2>&1; then
