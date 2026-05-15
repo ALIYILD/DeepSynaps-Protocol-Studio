@@ -1,0 +1,288 @@
+# DeepSynaps Protocol Studio — AlertManager Configuration
+#
+# Routing:
+#   - Critical clinical alerts  → PagerDuty + Slack #clinical-alerts
+#   - Critical system alerts    → PagerDuty + Slack #infra-alerts
+#   - Warning alerts            → Slack only (non-paging)
+#   - Info / low severity       → Slack #monitoring (no noise)
+#
+# Features:
+#   - Grouping by alert group and environment
+#   - Inhibition: critical alerts silence related warnings
+#   - Repeat interval: 4h (not too noisy)
+#   - Every alert includes a runbook_url annotation
+
+global:
+  smtp_smarthost: 'localhost:587'
+  smtp_from: 'alerts@deepsynaps.io'
+  smtp_require_tls: true
+  slack_api_url_file: '/etc/alertmanager/slack_api_url.txt'
+  pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+  resolve_timeout: 5m
+
+# ---------------------------------------------------------------------------
+# Inhibition rules: suppress warning/info alerts when a critical is firing
+# for the same resource.
+# ---------------------------------------------------------------------------
+inhibit_rules:
+  # Critical clinical errors inhibit warning-level clinical alerts on same endpoint
+  - source_matchers:
+      - 'severity = critical'
+      - 'alertgroup = clinical'
+    target_matchers:
+      - 'severity = warning'
+      - 'alertgroup = clinical'
+    equal:
+      - 'endpoint'
+      - 'env'
+
+  # Critical system alerts inhibit warning-level system alerts on same instance
+  - source_matchers:
+      - 'severity = critical'
+      - 'alertgroup = system'
+    target_matchers:
+      - 'severity = warning'
+      - 'alertgroup = system'
+    equal:
+      - 'instance'
+      - 'env'
+
+  # High security events inhibit medium security events of the same type
+  - source_matchers:
+      - 'severity = critical'
+      - 'alertgroup = security'
+    target_matchers:
+      - 'severity = warning'
+      - 'alertgroup = security'
+    equal:
+      - 'event_type'
+      - 'env'
+
+# ---------------------------------------------------------------------------
+# Routing tree
+# ---------------------------------------------------------------------------
+route:
+  group_by:
+    - 'alertgroup'
+    - 'env'
+    - 'severity'
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'slack-monitoring'  # default fallback
+
+  routes:
+    # === Clinical critical alerts → PagerDuty + Slack ===
+    - matchers:
+        - 'severity = critical'
+        - 'alertgroup = clinical'
+      receiver: 'pagerduty-clinical-critical'
+      group_wait: 0s
+      group_by:
+        - 'alertname'
+        - 'env'
+        - 'endpoint'
+      continue: true
+
+    # === System critical alerts → PagerDuty + Slack ===
+    - matchers:
+        - 'severity = critical'
+        - 'alertgroup = system'
+      receiver: 'pagerduty-system-critical'
+      group_wait: 0s
+      group_by:
+        - 'alertname'
+        - 'env'
+        - 'instance'
+      continue: true
+
+    # === Security critical alerts → PagerDuty + Slack ===
+    - matchers:
+        - 'severity = critical'
+        - 'alertgroup = security'
+      receiver: 'pagerduty-security-critical'
+      group_wait: 0s
+      group_by:
+        - 'alertname'
+        - 'env'
+      continue: true
+
+    # === Clinical warnings → Slack #clinical-alerts ===
+    - matchers:
+        - 'severity = warning'
+        - 'alertgroup = clinical'
+      receiver: 'slack-clinical-alerts'
+      group_by:
+        - 'alertname'
+        - 'env'
+      continue: false
+
+    # === System warnings → Slack #infra-alerts ===
+    - matchers:
+        - 'severity = warning'
+        - 'alertgroup = system'
+      receiver: 'slack-infra-alerts'
+      group_by:
+        - 'alertname'
+        - 'env'
+        - 'instance'
+      continue: false
+
+    # === Info / low severity → Slack #monitoring (quiet) ===
+    - matchers:
+        - 'severity = info'
+      receiver: 'slack-monitoring'
+      group_by:
+        - 'alertname'
+        - 'env'
+      group_wait: 2m
+      repeat_interval: 24h
+      continue: false
+
+# ---------------------------------------------------------------------------
+# Receivers
+# ---------------------------------------------------------------------------
+receivers:
+  # --- PagerDuty: Clinical Critical ---
+  - name: 'pagerduty-clinical-critical'
+    pagerduty_configs:
+      - service_key_file: '/etc/alertmanager/pagerduty_clinical_key.txt'
+        description: '{{ .GroupLabels.alertname }}: {{ .CommonAnnotations.summary }}'
+        severity: 'critical'
+        details:
+          runbook_url: '{{ .CommonAnnotations.runbook_url }}'
+          endpoint: '{{ .CommonLabels.endpoint }}'
+          environment: '{{ .CommonLabels.env }}'
+        links:
+          - href: '{{ .CommonAnnotations.dashboard_url }}'
+            text: 'Dashboard'
+          - href: '{{ .CommonAnnotations.runbook_url }}'
+            text: 'Runbook'
+    slack_configs:
+      - channel: '#clinical-alerts'
+        title: 'CRITICAL: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Summary:* {{ .Annotations.summary }}
+          *Endpoint:* {{ .Labels.endpoint }}
+          *Environment:* {{ .Labels.env }}
+          *Runbook:* {{ .Annotations.runbook_url }}
+          *Dashboard:* {{ .Annotations.dashboard_url }}
+          {{ end }}
+        send_resolved: true
+
+  # --- PagerDuty: System Critical ---
+  - name: 'pagerduty-system-critical'
+    pagerduty_configs:
+      - service_key_file: '/etc/alertmanager/pagerduty_system_key.txt'
+        description: '{{ .GroupLabels.alertname }}: {{ .CommonAnnotations.summary }}'
+        severity: 'critical'
+        details:
+          runbook_url: '{{ .CommonAnnotations.runbook_url }}'
+          instance: '{{ .CommonLabels.instance }}'
+          environment: '{{ .CommonLabels.env }}'
+        links:
+          - href: '{{ .CommonAnnotations.dashboard_url }}'
+            text: 'Dashboard'
+          - href: '{{ .CommonAnnotations.runbook_url }}'
+            text: 'Runbook'
+    slack_configs:
+      - channel: '#infra-alerts'
+        title: 'CRITICAL: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Summary:* {{ .Annotations.summary }}
+          *Instance:* {{ .Labels.instance }}
+          *Environment:* {{ .Labels.env }}
+          *Runbook:* {{ .Annotations.runbook_url }}
+          *Dashboard:* {{ .Annotations.dashboard_url }}
+          {{ end }}
+        send_resolved: true
+
+  # --- PagerDuty: Security Critical ---
+  - name: 'pagerduty-security-critical'
+    pagerduty_configs:
+      - service_key_file: '/etc/alertmanager/pagerduty_security_key.txt'
+        description: '{{ .GroupLabels.alertname }}: {{ .CommonAnnotations.summary }}'
+        severity: 'critical'
+        details:
+          runbook_url: '{{ .CommonAnnotations.runbook_url }}'
+          event_type: '{{ .CommonLabels.event_type }}'
+        links:
+          - href: '{{ .CommonAnnotations.runbook_url }}'
+            text: 'Runbook'
+    slack_configs:
+      - channel: '#security-alerts'
+        title: 'SECURITY CRITICAL: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Summary:* {{ .Annotations.summary }}
+          *Event Type:* {{ .Labels.event_type }}
+          *Severity:* {{ .Labels.severity }}
+          *Runbook:* {{ .Annotations.runbook_url }}
+          {{ end }}
+        send_resolved: true
+
+  # --- Slack: Clinical Alerts (warning) ---
+  - name: 'slack-clinical-alerts'
+    slack_configs:
+      - channel: '#clinical-alerts'
+        title: 'WARNING: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Endpoint:* {{ .Labels.endpoint }}
+          *Environment:* {{ .Labels.env }}
+          *Runbook:* {{ .Annotations.runbook_url }}
+          {{ end }}
+        send_resolved: true
+
+  # --- Slack: Infra Alerts (warning) ---
+  - name: 'slack-infra-alerts'
+    slack_configs:
+      - channel: '#infra-alerts'
+        title: 'WARNING: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Instance:* {{ .Labels.instance }}
+          *Environment:* {{ .Labels.env }}
+          *Runbook:* {{ .Annotations.runbook_url }}
+          {{ end }}
+        send_resolved: true
+
+  # --- Slack: Monitoring (info/fallback) ---
+  - name: 'slack-monitoring'
+    slack_configs:
+      - channel: '#monitoring'
+        title: '{{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+        send_resolved: true
+
+# ---------------------------------------------------------------------------
+# Time intervals (for silencing / mute timing)
+# ---------------------------------------------------------------------------
+time_intervals:
+  - name: 'business-hours'
+    time_intervals:
+      - times:
+          - start_time: '09:00'
+            end_time: '18:00'
+        weekdays:
+          - 'monday:friday'
+        location: 'Europe/London'
+
+  - name: 'maintenance-window'
+    time_intervals:
+      # Example: weekly maintenance Sundays 02:00-04:00 UTC
+      - times:
+          - start_time: '02:00'
+            end_time: '04:00'
+        weekdays:
+          - 'sunday'
