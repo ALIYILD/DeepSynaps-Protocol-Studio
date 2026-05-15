@@ -1284,8 +1284,6 @@ function _auditQs(filters = {}) {
   return out.join('&');
 }
 
-export { apiFetch };
-
 export const api = {
   getToken, setToken, clearToken,
   getRefreshToken, setRefreshToken, clearRefreshToken,
@@ -3893,6 +3891,51 @@ export const api = {
     }),
   medicationAnalyzerAudit: (patientId) =>
     apiFetch(`/api/v1/medications/analyzer/patient/${encodeURIComponent(patientId)}/audit`),
+
+  // ── Genetic Medication Analyzer (pharmacogenomics) ───────────────────────
+  geneticAnalyzerListProfiles: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/genetic-analyzer/profiles${q ? '?' + q : ''}`);
+  },
+  geneticAnalyzerGetProfile: (profileId) =>
+    apiFetch(`/api/v1/genetic-analyzer/profiles/${encodeURIComponent(profileId)}`),
+  geneticAnalyzerCreateProfile: (body) =>
+    apiFetch('/api/v1/genetic-analyzer/profiles', { method: 'POST', body: JSON.stringify(body) }),
+  geneticAnalyzerDeleteProfile: (profileId) =>
+    apiFetch(`/api/v1/genetic-analyzer/profiles/${encodeURIComponent(profileId)}`, { method: 'DELETE' }),
+  geneticAnalyzerUploadVcf: (formData) =>
+    apiFetch('/api/v1/genetic-analyzer/upload-vcf', { method: 'POST', body: formData }),
+  geneticAnalyzerAddGenotype: (profileId, body) =>
+    apiFetch(`/api/v1/genetic-analyzer/profiles/${encodeURIComponent(profileId)}/genotype`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  geneticAnalyzerGetVariants: (profileId) =>
+    apiFetch(`/api/v1/genetic-analyzer/profiles/${encodeURIComponent(profileId)}/variants`),
+  geneticAnalyzerGetMetabolizers: (profileId) =>
+    apiFetch(`/api/v1/genetic-analyzer/profiles/${encodeURIComponent(profileId)}/metabolizers`),
+  geneticAnalyzerGetInteractions: (profileId, params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString();
+    return apiFetch(`/api/v1/genetic-analyzer/profiles/${encodeURIComponent(profileId)}/interactions${q ? '?' + q : ''}`);
+  },
+  geneticAnalyzerGenerateReport: (body) =>
+    apiFetch('/api/v1/genetic-analyzer/reports', { method: 'POST', body: JSON.stringify(body) }),
+  geneticAnalyzerGetReports: (profileId) =>
+    apiFetch(`/api/v1/genetic-analyzer/profiles/${encodeURIComponent(profileId)}/reports`),
+  geneticAnalyzerDownloadReport: (reportId, format = 'pdf') =>
+    apiFetch(`/api/v1/genetic-analyzer/reports/${encodeURIComponent(reportId)}/download?format=${encodeURIComponent(format)}`),
+  geneticAnalyzerGetNeuromodGenetics: (profileId) =>
+    apiFetch(`/api/v1/genetic-analyzer/profiles/${encodeURIComponent(profileId)}/neuromodulation`),
+  geneticAnalyzerGetNutritionGenetics: (profileId) =>
+    apiFetch(`/api/v1/genetic-analyzer/profiles/${encodeURIComponent(profileId)}/nutrition`),
+  geneticAnalyzerGetAuditLog: (profileId) =>
+    apiFetch(`/api/v1/genetic-analyzer/profiles/${encodeURIComponent(profileId)}/audit`),
+  geneticAnalyzerDashboardSummary: () =>
+    apiFetch('/api/v1/genetic-analyzer/dashboard'),
 
   // ── Bio Database ─────────────────────────────────────────────────────────
   listBioCatalog: (params = {}) => {
@@ -7035,6 +7078,63 @@ export const api = {
       body: JSON.stringify({ reason: reason || null }),
     }),
 
+  // ── Rehab / Physiotherapy ────────────────────────────────────────────────
+  getRehabPatients: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/rehab/patients${q ? '?' + q : ''}`);
+  },
+  getRehabPatient: (patientId) => apiFetchWithRetry(`/api/v1/rehab/patients/${encodeURIComponent(patientId)}`),
+  submitRehabAssessment: (data) => apiFetchWithRetry('/api/v1/rehab/assessments', { method: 'POST', body: JSON.stringify(data) }),
+  getRehabAssessments: (patientId) => apiFetchWithRetry(`/api/v1/rehab/assessments/${encodeURIComponent(patientId)}`),
+  getRehabExercises: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/rehab/exercises${q ? '?' + q : ''}`);
+  },
+  createRehabProtocol: (data) => apiFetchWithRetry('/api/v1/rehab/protocols', { method: 'POST', body: JSON.stringify(data) }),
+  getRehabProtocols: (patientId) => apiFetchWithRetry(`/api/v1/rehab/protocols/${encodeURIComponent(patientId)}`),
+  logRehabSession: (data) => apiFetchWithRetry('/api/v1/rehab/sessions', { method: 'POST', body: JSON.stringify(data) }),
+  getRehabSessions: (patientId) => apiFetchWithRetry(`/api/v1/rehab/sessions/${encodeURIComponent(patientId)}`),
+  getRehabProgress: (patientId) => apiFetchWithRetry(`/api/v1/rehab/progress/${encodeURIComponent(patientId)}`),
+  setRehabGoals: (data) => apiFetchWithRetry('/api/v1/rehab/goals', { method: 'POST', body: JSON.stringify(data) }),
+
+  // ── Wellness & Lifestyle ─────────────────────────────────────────────────
+  getWellnessPatients: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/wellness/patients${q ? '?' + q : ''}`);
+  },
+  getWellnessPatient: (patientId) => apiFetchWithRetry(`/api/v1/wellness/patients/${encodeURIComponent(patientId)}`),
+  submitSleepDiary: (data) => apiFetchWithRetry('/api/v1/wellness/sleep-diary', { method: 'POST', body: JSON.stringify(data) }),
+  getSleepHistory: (patientId) => apiFetchWithRetry(`/api/v1/wellness/sleep/${encodeURIComponent(patientId)}`),
+  submitStressAssessment: (data) => apiFetchWithRetry('/api/v1/wellness/stress-assessment', { method: 'POST', body: JSON.stringify(data) }),
+  logWellnessExercise: (data) => apiFetchWithRetry('/api/v1/wellness/exercise', { method: 'POST', body: JSON.stringify(data) }),
+  submitWellnessAssessment: (data) => apiFetchWithRetry('/api/v1/wellness/assessments', { method: 'POST', body: JSON.stringify(data) }),
+  createWellnessProtocol: (data) => apiFetchWithRetry('/api/v1/wellness/protocols', { method: 'POST', body: JSON.stringify(data) }),
+  getWellnessProtocols: (patientId) => apiFetchWithRetry(`/api/v1/wellness/protocols/${encodeURIComponent(patientId)}`),
+  getWellnessProgress: (patientId) => apiFetchWithRetry(`/api/v1/wellness/progress/${encodeURIComponent(patientId)}`),
+  getWellnessWheel: (patientId) => apiFetchWithRetry(`/api/v1/wellness/wheel/${encodeURIComponent(patientId)}`),
+
+  // ── Complementary Interventions ──────────────────────────────────────────
+  getComplementaryPatients: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/complementary/patients${q ? '?' + q : ''}`);
+  },
+  getComplementaryPatient: (patientId) => apiFetchWithRetry(`/api/v1/complementary/patients/${encodeURIComponent(patientId)}`),
+  logAcupuncture: (data) => apiFetchWithRetry('/api/v1/complementary/acupuncture', { method: 'POST', body: JSON.stringify(data) }),
+  logNeurofeedback: (data) => apiFetchWithRetry('/api/v1/complementary/neurofeedback', { method: 'POST', body: JSON.stringify(data) }),
+  logCES: (data) => apiFetchWithRetry('/api/v1/complementary/ces', { method: 'POST', body: JSON.stringify(data) }),
+  logPBM: (data) => apiFetchWithRetry('/api/v1/complementary/pbm', { method: 'POST', body: JSON.stringify(data) }),
+  logMindBody: (data) => apiFetchWithRetry('/api/v1/complementary/mindbody', { method: 'POST', body: JSON.stringify(data) }),
+  logMassage: (data) => apiFetchWithRetry('/api/v1/complementary/massage', { method: 'POST', body: JSON.stringify(data) }),
+  logMusicArt: (data) => apiFetchWithRetry('/api/v1/complementary/music-art', { method: 'POST', body: JSON.stringify(data) }),
+  getTherapyLibrary: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/complementary/therapy-library${q ? '?' + q : ''}`);
+  },
+  createComplementaryProtocol: (data) => apiFetchWithRetry('/api/v1/complementary/protocols', { method: 'POST', body: JSON.stringify(data) }),
+  safetyCheck: (data) => apiFetchWithRetry('/api/v1/complementary/safety-check', { method: 'POST', body: JSON.stringify(data) }),
+  getComplementaryEvidence: (therapyType) => apiFetchWithRetry(`/api/v1/complementary/evidence/${encodeURIComponent(therapyType)}`),
+  getComplementaryProgress: (patientId) => apiFetchWithRetry(`/api/v1/complementary/progress/${encodeURIComponent(patientId)}`),
+
   // ── Research datasets (Slice C scaffold — feature-flagged OFF) ─────────────
   // Every call returns 403 unless ``RESEARCH_EXPORT_ENABLED=true`` is set on
   // the API. ``listResearchDatasets`` swallows that 403 and resolves to ``[]``
@@ -7052,6 +7152,183 @@ export const api = {
       throw err;
     }
   },
+
+
+  // ── Analyzer V2 ─────────────────────────────────────────────────────────
+  // Backs the 24 new pages in DeepSynaps Protocol Studio. All endpoints
+  // are auth-gated; demo sessions fall back to seeded synthetic data.
+  // Router prefix: /api/v1/analyzers/v2
+  getCognitiveAssessments: (clinicId, opts = {}) => {
+    const q = new URLSearchParams(Object.entries({ clinic_id: clinicId, ...opts }).filter(([, v]) => v != null && v !== '')).toString();
+    return apiFetchWithRetry(`/api/v1/analyzers/v2/cognitive/list${q ? '?' + q : ''}`);
+  },
+  getFNIRSRecordings: (clinicId, opts = {}) => {
+    const q = new URLSearchParams(Object.entries({ clinic_id: clinicId, ...opts }).filter(([, v]) => v != null && v !== '')).toString();
+    return apiFetchWithRetry(`/api/v1/analyzers/v2/fnirs/list${q ? '?' + q : ''}`);
+  },
+  getNeurophysiology: (clinicId, type = 'all', opts = {}) => {
+    const q = new URLSearchParams(Object.entries({ clinic_id: clinicId, ...(type !== 'all' ? { type } : {}), ...opts }).filter(([, v]) => v != null && v !== '')).toString();
+    return apiFetchWithRetry(`/api/v1/analyzers/v2/neurophysiology/list${q ? '?' + q : ''}`);
+  },
+  getPETScans: (clinicId, opts = {}) => {
+    const q = new URLSearchParams(Object.entries({ clinic_id: clinicId, ...opts }).filter(([, v]) => v != null && v !== '')).toString();
+    return apiFetchWithRetry(`/api/v1/analyzers/v2/pet/list${q ? '?' + q : ''}`);
+  },
+  getSleepStudies: (clinicId, severity = 'all', opts = {}) => {
+    const q = new URLSearchParams(Object.entries({ clinic_id: clinicId, ...(severity !== 'all' ? { severity } : {}), ...opts }).filter(([, v]) => v != null && v !== '')).toString();
+    return apiFetchWithRetry(`/api/v1/analyzers/v2/sleep/list${q ? '?' + q : ''}`);
+  },
+
+  // ── Intelligence Hub ────────────────────────────────────────────────────
+  // Router prefix: /api/v1/intelligence
+  getDeeptwinCorrelations: (clinicId, patientId) =>
+    apiFetchWithRetry(`/api/v1/intelligence/deeptwin/correlations?clinic_id=${encodeURIComponent(clinicId)}${patientId ? '&patient_id=' + encodeURIComponent(patientId) : ''}`),
+  getDeeptwinHypotheses: (clinicId) =>
+    apiFetchWithRetry(`/api/v1/intelligence/deeptwin/hypotheses?clinic_id=${encodeURIComponent(clinicId)}`),
+  getDeeptwinSummary: (clinicId) =>
+    apiFetchWithRetry(`/api/v1/intelligence/deeptwin/summary?clinic_id=${encodeURIComponent(clinicId)}`),
+  getForecastPredictions: (clinicId, patientId) =>
+    apiFetchWithRetry(`/api/v1/intelligence/forecast/predictions?clinic_id=${encodeURIComponent(clinicId)}${patientId ? '&patient_id=' + encodeURIComponent(patientId) : ''}`),
+  searchKnowledgeGraph: (query, limit = 20) =>
+    apiFetchWithRetry(`/api/v1/intelligence/knowledge-graph/search?q=${encodeURIComponent(query)}&limit=${encodeURIComponent(limit)}`),
+  getLongitudinalTrajectories: (clinicId) =>
+    apiFetchWithRetry(`/api/v1/intelligence/longitudinal/trajectories?clinic_id=${encodeURIComponent(clinicId)}`),
+  getMultimodalCorrelations: (clinicId, modalities) => {
+    const mods = Array.isArray(modalities) ? modalities.join(',') : modalities;
+    return apiFetchWithRetry(`/api/v1/intelligence/multimodal/correlations?clinic_id=${encodeURIComponent(clinicId)}${mods ? '&modalities=' + encodeURIComponent(mods) : ''}`);
+  },
+  runForecastSimulation: (request) =>
+    apiFetch('/api/v1/intelligence/forecast/simulate', { method: 'POST', body: JSON.stringify(request || {}) }),
+  runMultimodalFusion: (request) =>
+    apiFetch('/api/v1/intelligence/multimodal/fusion', { method: 'POST', body: JSON.stringify(request || {}) }),
+
+  // ── Admin Governance ────────────────────────────────────────────────────
+  // Router prefix: /api/v1/admin
+  getAdminResearchDatasets: (clinicId, opts = {}) => {
+    const q = new URLSearchParams(Object.entries({ clinic_id: clinicId, ...opts }).filter(([, v]) => v != null && v !== '')).toString();
+    return apiFetchWithRetry(`/api/v1/admin/research-datasets${q ? '?' + q : ''}`);
+  },
+  getClinicUsers: (clinicId, role = 'all', opts = {}) => {
+    const q = new URLSearchParams(Object.entries({ clinic_id: clinicId, ...(role !== 'all' ? { role } : {}), ...opts }).filter(([, v]) => v != null && v !== '')).toString();
+    return apiFetchWithRetry(`/api/v1/admin/users/list${q ? '?' + q : ''}`);
+  },
+  updateUserRole: (userId, role) =>
+    apiFetch(`/api/v1/admin/users/${encodeURIComponent(userId)}/role`, { method: 'PATCH', body: JSON.stringify({ role }) }),
+  getAuditTrail: (clinicId, actionType = 'all', opts = {}) => {
+    const q = new URLSearchParams(Object.entries({ clinic_id: clinicId, ...(actionType !== 'all' ? { action_type: actionType } : {}), ...opts }).filter(([, v]) => v != null && v !== '')).toString();
+    return apiFetchWithRetry(`/api/v1/admin/audit-trail${q ? '?' + q : ''}`);
+  },
+
+  // ── Patient Care ────────────────────────────────────────────────────────
+  // Router prefix: /api/v1/patient-care
+  getConsents: (clinicId, status = 'all') => {
+    const q = new URLSearchParams(Object.entries({ clinic_id: clinicId, ...(status !== 'all' ? { status } : {}) }).filter(([, v]) => v != null && v !== '')).toString();
+    return apiFetchWithRetry(`/api/v1/patient-care/consents${q ? '?' + q : ''}`);
+  },
+  renewConsent: (consentId) =>
+    apiFetch(`/api/v1/patient-care/consents/${encodeURIComponent(consentId)}/renew`, { method: 'POST' }),
+  getGroups: (clinicId, status = 'all') => {
+    const q = new URLSearchParams(Object.entries({ clinic_id: clinicId, ...(status !== 'all' ? { status } : {}) }).filter(([, v]) => v != null && v !== '')).toString();
+    return apiFetchWithRetry(`/api/v1/patient-care/groups${q ? '?' + q : ''}`);
+  },
+  getGroupParticipants: (groupId) =>
+    apiFetchWithRetry(`/api/v1/patient-care/groups/${encodeURIComponent(groupId)}/participants`),
+  getHomePrograms: (clinicId) =>
+    apiFetchWithRetry(`/api/v1/patient-care/home-programs?clinic_id=${encodeURIComponent(clinicId)}`),
+  getProgramTasks: (programId) =>
+    apiFetchWithRetry(`/api/v1/patient-care/home-programs/${encodeURIComponent(programId)}/tasks`),
+  getOutcomeMeasures: (clinicId, type = 'all') => {
+    const q = new URLSearchParams(Object.entries({ clinic_id: clinicId, ...(type !== 'all' ? { type } : {}) }).filter(([, v]) => v != null && v !== '')).toString();
+    return apiFetchWithRetry(`/api/v1/patient-care/outcomes${q ? '?' + q : ''}`);
+  },
+  getPatientGoals: (clinicId, status = 'all') => {
+    const q = new URLSearchParams(Object.entries({ clinic_id: clinicId, ...(status !== 'all' ? { status } : {}) }).filter(([, v]) => v != null && v !== '')).toString();
+    return apiFetchWithRetry(`/api/v1/patient-care/goals${q ? '?' + q : ''}`);
+  },
+  updateGoalProgress: (goalId, progress) =>
+    apiFetch(`/api/v1/patient-care/goals/${encodeURIComponent(goalId)}/progress`, { method: 'PATCH', body: JSON.stringify({ progress }) }),
+
+  // ── Intervention Planning ───────────────────────────────────────────────
+  // Router prefix: /api/v1/intervention-planning
+  getDeviceProtocols: (clinicId, device = 'all') => {
+    const q = new URLSearchParams(Object.entries({ clinic_id: clinicId, ...(device !== 'all' ? { device } : {}) }).filter(([, v]) => v != null && v !== '')).toString();
+    return apiFetchWithRetry(`/api/v1/intervention-planning/devices/protocols${q ? '?' + q : ''}`);
+  },
+  createDeviceProtocol: (protocol) =>
+    apiFetch('/api/v1/intervention-planning/devices/protocols', { method: 'POST', body: JSON.stringify(protocol || {}) }),
+  getSessions: (clinicId, dateFrom, dateTo) => {
+    const q = new URLSearchParams(Object.entries({ clinic_id: clinicId, ...(dateFrom ? { date_from: dateFrom } : {}), ...(dateTo ? { date_to: dateTo } : {}) }).filter(([, v]) => v != null && v !== '')).toString();
+    return apiFetchWithRetry(`/api/v1/intervention-planning/sessions${q ? '?' + q : ''}`);
+  },
+  scheduleSession: (session) =>
+    apiFetch('/api/v1/intervention-planning/sessions/schedule', { method: 'POST', body: JSON.stringify(session || {}) }),
+  getStimulationTargets: (region = 'all') =>
+    apiFetchWithRetry(`/api/v1/intervention-planning/targets${region !== 'all' ? '?region=' + encodeURIComponent(region) : ''}`),
+  getTargetProtocols: (targetId) =>
+    apiFetchWithRetry(`/api/v1/intervention-planning/targets/${encodeURIComponent(targetId)}/protocols`),
+  getSurgicalCases: (clinicId, status = 'all') => {
+    const q = new URLSearchParams(Object.entries({ clinic_id: clinicId, ...(status !== 'all' ? { status } : {}) }).filter(([, v]) => v != null && v !== '')).toString();
+    return apiFetchWithRetry(`/api/v1/intervention-planning/surgical/cases${q ? '?' + q : ''}`);
+  },
+  getSurgicalChecklist: (caseId) =>
+    apiFetchWithRetry(`/api/v1/intervention-planning/surgical/cases/${encodeURIComponent(caseId)}/checklist`),
+
+  // ── Ecosystem ───────────────────────────────────────────────────────────
+  // Router prefix: /api/v1/ecosystem
+  searchEvidence: (query, filters = {}) => {
+    const q = new URLSearchParams(Object.entries({ q: query, ...filters }).filter(([, v]) => v != null && v !== '')).toString();
+    return apiFetchWithRetry(`/api/v1/ecosystem/evidence/search${q ? '?' + q : ''}`);
+  },
+  getQuickActions: (role) =>
+    apiFetchWithRetry(`/api/v1/ecosystem/quick-actions${role ? '?role=' + encodeURIComponent(role) : ''}`),
+
+  // ── CRM (Super-Admin) ───────────────────────────────────────────────────
+  // Router prefix: /api/v1/crm
+  // All endpoints return 403 for non-admin/supervisor roles.
+  // Demo sessions: these routes are NOT shimmed — the page provides its own
+  // demo-data fallback so super-admin UI can still be reviewed in preview.
+  adminCRMOverview: (clinicId) => {
+    const q = new URLSearchParams(Object.entries({ clinic_id: clinicId }).filter(([, v]) => v != null && v !== '')).toString();
+    return apiFetch(`/api/v1/crm/dashboard${q ? '?' + q : ''}`);
+  },
+  adminCRMClinics: (opts = {}) => {
+    const q = new URLSearchParams(Object.entries(opts).filter(([, v]) => v != null && v !== '')).toString();
+    return apiFetch(`/api/v1/crm/clinics${q ? '?' + q : ''}`);
+  },
+  adminCRMClinicDetail: (clinicId) =>
+    apiFetch(`/api/v1/crm/clinics/${encodeURIComponent(clinicId)}`),
+  adminCRMAIOps: (clinicId) => {
+    const q = new URLSearchParams(Object.entries({ clinic_id: clinicId }).filter(([, v]) => v != null && v !== '')).toString();
+    return apiFetch(`/api/v1/crm/ai-ops/dashboard${q ? '?' + q : ''}`);
+  },
+  adminCRMSupportTickets: (clinicId, status = 'all') => {
+    const params = Object.entries({ clinic_id: clinicId }).filter(([, v]) => v != null && v !== '');
+    if (status !== 'all') params.push(['status', status]);
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/crm/support/tickets${q ? '?' + q : ''}`);
+  },
+  adminCRMPlatformStatus: () => apiFetch('/api/v1/crm/ops/infrastructure'),
+  adminCRMCompliance: (clinicId) => {
+    const q = new URLSearchParams(Object.entries({ clinic_id: clinicId }).filter(([, v]) => v != null && v !== '')).toString();
+    return apiFetch(`/api/v1/crm/compliance/phi-access${q ? '?' + q : ''}`);
+  },
+  adminCRMFinance: (clinicId) => {
+    const q = new URLSearchParams(Object.entries({ clinic_id: clinicId }).filter(([, v]) => v != null && v !== '')).toString();
+    return apiFetch(`/api/v1/crm/finance/dashboard${q ? '?' + q : ''}`);
+  },
+  adminCRMResearch: (clinicId) => {
+    const q = new URLSearchParams(Object.entries({ clinic_id: clinicId }).filter(([, v]) => v != null && v !== '')).toString();
+    return apiFetch(`/api/v1/crm/research/datasets${q ? '?' + q : ''}`);
+  },
+  adminCRMActivity: (clinicId, limit = 50) => {
+    const params = Object.entries({ clinic_id: clinicId }).filter(([, v]) => v != null && v !== '');
+    params.push(['limit', String(limit)]);
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/crm/activity${q ? '?' + q : ''}`);
+  },
+
+  // ── All new page API methods defined above (lines 7207-7282) ──────────────
+
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).
