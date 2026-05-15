@@ -59,7 +59,7 @@ jobs:
           cache-dependency-path: apps/api/pyproject.toml
 
       - name: Install Bandit
-        run: pip install bandit[sarif] bandit-toml
+        run: pip install 'bandit[sarif,toml]'
 
       - name: Run Bandit scan (SARIF)
         # Skips: B101 (assert_used) — common in FastAPI test patterns
@@ -147,6 +147,13 @@ jobs:
             p/python
             p/javascript
             p/typescript
+
+      - name: Normalize Semgrep SARIF filename
+        if: always()
+        run: |
+          if [ -f semgrep.sarif ] && [ ! -f semgrep-results.sarif ]; then
+            mv semgrep.sarif semgrep-results.sarif
+          fi
 
       - name: Upload SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
@@ -262,6 +269,8 @@ jobs:
           EOF
 
       - name: Run ESLint security scan
+        env:
+          ESLINT_USE_FLAT_CONFIG: 'false'
         run: |
           npx eslint \
             --config .eslintrc.security.js \
