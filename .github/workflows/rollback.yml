@@ -202,26 +202,47 @@ jobs:
 
           echo "=== Detecting current deployment state ==="
 
+          # Validate JSON before piping to jq. flyctl occasionally emits a
+          # human-readable "Fatal: …" line on stdout even when invoked with
+          # --json (e.g. when the app does not exist or auth fails), and an
+          # unguarded `| jq` then crashes the whole step with
+          # `parse error: Invalid numeric literal at line 1, column 6`. The
+          # `jq -e . >/dev/null` round-trip below normalizes to `{}` whenever
+          # flyctl gave us anything that is not valid JSON.
+          safe_json() {
+            local raw="$1"
+            if [ -n "$raw" ] && printf '%s' "$raw" | jq -e . >/dev/null 2>&1; then
+              printf '%s' "$raw"
+            else
+              printf '{}'
+            fi
+          }
+
           # Get blue app status
           echo "--- Blue app ($APP_BLUE) ---"
-          BLUE_STATUS=$(flyctl status --app "$APP_BLUE" --json 2>/dev/null || echo '{}')
+          BLUE_STATUS=$(safe_json "$(flyctl status --app "$APP_BLUE" --json 2>/dev/null || true)")
           BLUE_IMAGE=$(echo "$BLUE_STATUS" | jq -r '.Machines[0].ImageRef // "unknown"')
-          BLUE_MACHINES=$(echo "$BLUE_STATUS" | jq '.Machines | length')
+          BLUE_MACHINES=$(echo "$BLUE_STATUS" | jq '.Machines | length // 0')
           echo "Blue image    : $BLUE_IMAGE"
           echo "Blue machines : $BLUE_MACHINES"
 
           # Get green app status
           echo "--- Green app ($APP_GREEN) ---"
-          GREEN_STATUS=$(flyctl status --app "$APP_GREEN" --json 2>/dev/null || echo '{}')
+          GREEN_STATUS=$(safe_json "$(flyctl status --app "$APP_GREEN" --json 2>/dev/null || true)")
           GREEN_IMAGE=$(echo "$GREEN_STATUS" | jq -r '.Machines[0].ImageRef // "unknown"')
-          GREEN_MACHINES=$(echo "$GREEN_STATUS" | jq '.Machines | length')
+          GREEN_MACHINES=$(echo "$GREEN_STATUS" | jq '.Machines | length // 0')
           echo "Green image    : $GREEN_IMAGE"
           echo "Green machines : $GREEN_MACHINES"
 
           # Get image history for rollback targets
           echo "--- Recent deployments ---"
-          flyctl releases list --app "$APP_BLUE" --json 2>/dev/null | \
-            jq -r '.[:5] | .[] | "\(.Stable) \(.Version) \(.Reason // "deploy")"' || echo "No release history"
+          RELEASES=$(safe_json "$(flyctl releases list --app "$APP_BLUE" --json 2>/dev/null || true)")
+          if [ "$RELEASES" != "{}" ]; then
+            echo "$RELEASES" | jq -r '.[:5] | .[] | "\(.Stable) \(.Version) \(.Reason // "deploy")"' \
+              || echo "No release history"
+          else
+            echo "No release history"
+          fi
 
           # Determine which app is active (has machines running)
           if [ "$BLUE_MACHINES" -gt 0 ] && [ "$GREEN_MACHINES" -gt 0 ]; then
@@ -241,9 +262,18 @@ jobs:
           echo "blue_image=$BLUE_IMAGE" >> "$GITHUB_OUTPUT"
           echo "green_image=$GREEN_IMAGE" >> "$GITHUB_OUTPUT"
 
-          # List previous images for potential rollback
-          PREVIOUS=$(flyctl releases list --app "$APP_BLUE" --json 2>/dev/null | \
-            jq -c '[.[].ImageRef | select(. != null) | select(. != "'$BLUE_IMAGE'")] | unique | .[:3]')
+          # List previous images for potential rollback. Same JSON-guard
+          # pattern as above so a malformed flyctl response yields `[]`
+          # instead of crashing the step.
+          PREVIOUS_RAW=$(safe_json "$(flyctl releases list --app "$APP_BLUE" --json 2>/dev/null || true)")
+          if [ "$PREVIOUS_RAW" != "{}" ]; then
+            PREVIOUS=$(echo "$PREVIOUS_RAW" \
+              | jq -c --arg current "$BLUE_IMAGE" \
+                  '[.[].ImageRef | select(. != null) | select(. != $current)] | unique | .[:3]' \
+              || echo '[]')
+          else
+            PREVIOUS='[]'
+          fi
           echo "previous_images=$PREVIOUS" >> "$GITHUB_OUTPUT"
 
   # ===========================================================================
