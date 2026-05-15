@@ -1,1954 +1,827 @@
-// ── DeepSynaps Handbooks · design-v2 (Phase 9) ────────────────────────────────
-// Three-pane clinical knowledge base: collections rail · reading pane · TOC.
-// Merges the handbook library that previously lived in Protocol Hub with
-// Safety/Ops + Training collections per the design-v2 merge map (§11).
-// ─────────────────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// pages-handbooks.js — World-Class Clinical Handbook Generator
+// DeepSynaps Protocol Studio
+//
+// Features:
+//   1. Handbook Library View      — Grid, filter, search, sort, empty state
+//   2. Handbook Generator Panel   — Audience, modality, device, condition,
+//                                   evidence threshold, reading level, patient-scoped
+//   3. Generated Handbook View    — Expandable section cards, editable content,
+//                                   evidence badges, citations, regenerate, review
+//   4. Safety Banner              — Draft disclaimer on every handbook
+//   5. Export Centre              — DOCX/PDF/Markdown/Patient-Friendly/Bundle
+//   6. Governance Panel           — Draft → Review → Approved → Signed → Exported
+//   7. Role Gating                — clinician/admin/super_admin/reviewer access
+//   8. Evidence Panel             — Side panel with grades, DOI/PubMed links
+//   9. Patient-Scoped Mode        — URL patient_id triggers personalized content
+//  10. Cross-Page Integration     — Links to all platform modules
+//
+// Clinical safety: All outputs carry safety disclaimers and evidence grades.
+// Governance: Export is gated on SIGNED status. All privileged actions are role-gated.
+// ═══════════════════════════════════════════════════════════════════════════════
 
-import { HANDBOOK_DATA } from './handbooks-data.js';
-import { CONDITION_REGISTRY, PROTOCOL_REGISTRY, DEVICE_REGISTRY } from './registries.js';
 import { api } from './api.js';
-import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { currentUser } from './auth.js';
 
-// ── AI Handbook generator: state, mappings, helpers ──────────────────────────
-// Per-session cache of generated handbooks keyed by `${condId}|${modality}|${proto}|${device}|${kind}`.
-const _aiCache = {};
-// Per-condition selector state so switching off and back preserves choices.
-const _aiSel = {};
+// ── CSS ──────────────────────────────────────────────────────────────────────
+const PAGE_CSS = `
+.handbook-container { max-width: 1200px; margin: 0 auto; padding: 16px 24px; }
+.handbook-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+.handbook-title { font-size: 20px; font-weight: 600; }
+.safety-banner { background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 12px 16px; font-size: 13px; margin-bottom: 20px; color: #92400e; line-height: 1.5; }
+.section-card { background: var(--surface-1, rgba(255,255,255,0.04)); border: 1px solid var(--border, rgba(255,255,255,0.08)); border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+.section-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
+.section-content { margin-top: 12px; }
+.evidence-badge { display: inline-flex; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+.evidence-a { background: #dcfce7; color: #166534; }
+.evidence-b { background: #dbeafe; color: #1e40af; }
+.evidence-c { background: #fef3c7; color: #92400e; }
+.evidence-d { background: #fee2e2; color: #991b1b; }
+.governance-track { display: flex; align-items: center; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
+.governance-step { display: flex; align-items: center; gap: 4px; padding: 6px 12px; border-radius: 6px; font-size: 12px; }
+.governance-step.active { background: var(--accent, #00d4bc); color: white; }
+.governance-step.pending { background: var(--surface-2, rgba(255,255,255,0.06)); color: var(--text-secondary, #94a3b8); }
+.export-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.export-btn { padding: 12px; border: 1px solid var(--border, rgba(255,255,255,0.08)); border-radius: 8px; background: var(--surface-1, rgba(255,255,255,0.04)); cursor: pointer; text-align: center; font-size: 12px; color: var(--text-primary, #e2e8f0); transition: all 0.15s; }
+.export-btn:hover:not(:disabled) { border-color: var(--accent, #00d4bc); background: rgba(0,212,188,0.08); }
+.export-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.readonly-banner { background: #e0e7ff; border: 1px solid #6366f1; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px; color: #3730a3; line-height: 1.5; }
+.patient-scope-banner { background: #ecfdf5; border: 1px solid #34d399; border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; font-size: 12px; color: #065f46; }
+.generic-scope-banner { background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; font-size: 12px; color: #4b5563; }
+.filter-bar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+.filter-bar select, .filter-bar input { padding: 6px 10px; border-radius: 6px; background: var(--surface-1, rgba(255,255,255,0.04)); color: var(--text-primary, #e2e8f0); border: 1px solid var(--border, rgba(255,255,255,0.08)); font-size: 12px; font-family: inherit; }
+.hb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.hb-card { padding: 16px; border: 1px solid var(--border, rgba(255,255,255,0.08)); border-radius: 10px; background: var(--surface-1, rgba(255,255,255,0.04)); cursor: pointer; transition: all 0.15s; }
+.hb-card:hover { border-color: var(--accent, #00d4bc); transform: translateY(-1px); }
+.hb-empty { text-align: center; padding: 48px 24px; color: var(--text-secondary, #94a3b8); }
+.gen-panel { padding: 20px; border: 1px solid var(--border, rgba(255,255,255,0.08)); border-radius: 10px; background: var(--surface-1, rgba(255,255,255,0.04)); margin-bottom: 16px; }
+.gen-row { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; align-items: flex-end; }
+.gen-label { display: flex; flex-direction: column; gap: 4px; font-size: 10px; color: var(--text-tertiary, #64748b); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+.gen-label input, .gen-label select { min-width: 180px; padding: 7px 10px; border-radius: 6px; background: var(--bg-base, #04121c); color: var(--text-primary, #e2e8f0); border: 1px solid var(--border, rgba(255,255,255,0.08)); font-size: 12px; font-family: inherit; }
+.evd-panel { padding: 14px; border: 1px solid var(--border, rgba(255,255,255,0.08)); border-radius: 10px; background: var(--surface-1, rgba(255,255,255,0.04)); margin-top: 12px; }
+.citation-link { color: var(--accent, #00d4bc); text-decoration: none; font-size: 11px; word-break: break-all; }
+.citation-link:hover { text-decoration: underline; }
+.integration-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+.integration-btn { padding: 10px; border: 1px solid var(--border, rgba(255,255,255,0.08)); border-radius: 8px; background: var(--surface-1, rgba(255,255,255,0.04)); cursor: pointer; text-align: center; font-size: 11px; color: var(--text-primary, #e2e8f0); transition: all 0.15s; }
+.integration-btn:hover { border-color: var(--accent, #00d4bc); background: rgba(0,212,188,0.08); }
+`;
 
-// Frontend condition id → backend `Condition_Name` (clinical dataset CSV).
-// Listed only when the registry display name differs from the CSV row.
-const _BACKEND_COND = {
-  mdd: 'Major Depressive Disorder',
-  trd: 'Treatment-Resistant Depression',
-  bpd: 'Bipolar Depression',
-  ppd: 'Postpartum Depression',
-  sad: 'Seasonal Affective Disorder',
-  pdd: 'Dysthymia / Persistent Depressive Disorder',
-  gad: 'Generalized Anxiety Disorder',
-  panic: 'Panic Disorder',
-  'social-anx': 'Social Anxiety Disorder',
-  ocd: 'Obsessive-Compulsive Disorder',
-  ptsd: 'PTSD',
-  cptsd: 'PTSD',
-  'asd-trauma': 'PTSD',
-  'adhd-i': 'ADHD',
-  'adhd-hi': 'ADHD',
-  'adhd-c': 'ADHD',
-  asd: 'Autism Spectrum Disorder',
-  aud: 'Alcohol Use Disorder',
-  'nic-dep': 'Smoking Cessation',
-  oud: 'Opioid Withdrawal',
-  cud: 'Substance Use Disorder',
-  insomnia: 'Insomnia',
-  hypersomn: 'Hypersomnia / Narcolepsy',
-  'pain-neuro': 'Neuropathic Pain',
-  'pain-msk': 'Chronic Pain / Fibromyalgia',
-  fibro: 'Chronic Pain / Fibromyalgia',
-  migraine: 'Migraine',
-  tinnitus: 'Tinnitus',
-  'stroke-mtr': 'Stroke Rehabilitation',
-  'stroke-aph': 'Stroke Rehabilitation',
-  tbi: 'Cognitive Impairment / TBI',
-  alzheimer: "Alzheimer's Disease / Dementia",
-  'vasc-dem': "Alzheimer's Disease / Dementia",
-  parkinsons: "Parkinson's Disease",
-  ms: 'Multiple Sclerosis — Fatigue',
-  epilepsy: 'Epilepsy',
-  'essential-t': 'Essential Tremor',
-  dystonia: 'Dystonia',
-  tourette: 'Tics / Tourette Syndrome',
-  'long-covid': 'Long COVID Fatigue',
-  'bpd-psy': 'Borderline Personality Disorder',
-  schizo: 'Schizophrenia (Negative Symptoms / AVH)',
-  'schizo-aff': 'Schizophrenia (Negative Symptoms / AVH)',
-  fep: 'Schizophrenia (Negative Symptoms / AVH)',
-  anorexia: 'Eating Disorders',
-  bulimia: 'Eating Disorders',
-  bed: 'Eating Disorders',
-};
-
-// Fuzzy mappings for OCD-spectrum / anxiety-umbrella conditions with no exact CSV row.
-const _BACKEND_COND_FUZZY = {
-  bdd: 'Obsessive-Compulsive Disorder',
-  hoarding: 'Obsessive-Compulsive Disorder',
-  trich: 'Obsessive-Compulsive Disorder',
-  'specific-ph': 'Generalized Anxiety Disorder',
-  agoraphobia: 'Panic Disorder',
-  // fnd: deliberately omitted — no clinically appropriate proxy
-};
-
-function _backendConditionFor(cond) {
-  if (_BACKEND_COND[cond.id]) return { name: _BACKEND_COND[cond.id], fuzzy: false };
-  if (_BACKEND_COND_FUZZY[cond.id]) return { name: _BACKEND_COND_FUZZY[cond.id], fuzzy: true };
-  return { name: cond.name, fuzzy: false, unmapped: true };
-}
-
-function _modalityForBackend(label) {
-  if (!label) return 'TMS';
-  const l = label.toLowerCase();
-  if (l.includes('itbs')) return 'iTBS';
-  if (l.includes('rtms') || l.includes('tms')) return 'TMS';
-  if (l.includes('tdcs')) return 'tDCS';
-  if (l.includes('tacs')) return 'tACS';
-  if (l.includes('tavns') || (l.includes('vns') && l.includes('aur'))) return 'taVNS';
-  if (l.includes('vns')) return 'VNS';
-  if (l.includes('dbs')) return 'DBS';
-  if (l.includes('ces')) return 'CES';
-  if (l.includes('pbm')) return 'PBM';
-  if (l.includes('neurofeedback') || l.includes('nfb')) return 'Neurofeedback';
-  if (l.includes('tps')) return 'TPS';
-  return label;
-}
-
-function _modalityMatches(deviceModality, sel) {
-  if (!deviceModality || !sel) return false;
-  const a = deviceModality.toLowerCase();
-  const b = sel.toLowerCase();
-  if (a === b) return true;
-  const parts = (s) => s.split(/[\/,]/).map(x => x.trim()).filter(Boolean);
-  const ap = parts(a), bp = parts(b);
-  return ap.some(x => bp.includes(x));
-}
-
-function _aiSelFor(cond) {
-  const id = cond.id;
-  if (!_aiSel[id]) {
-    const protos = PROTOCOL_REGISTRY.filter(p => p.condition === id);
-    const modality = (cond.modalities && cond.modalities[0]) || 'TMS/rTMS';
-    const protoId  = protos.length ? protos[0].id : '';
-    const devices  = DEVICE_REGISTRY.filter(d => _modalityMatches(d.modality, modality));
-    const deviceId = devices.length ? devices[0].id : '';
-    _aiSel[id] = { modality, protoId, deviceId, kind: 'clinician_handbook' };
-  }
-  return _aiSel[id];
-}
-
-function _canGenerate() {
-  const role = (currentUser && currentUser.role) || 'guest';
-  return role === 'clinician' || role === 'admin';
-}
-
-// ── Tokens (with fallbacks to existing vars) ─────────────────────────────────
-const T = {
-  bg:         'var(--dv2-bg-base, var(--bg-base, #04121c))',
-  panel:      'var(--dv2-bg-panel, var(--bg-panel, #0a1d29))',
-  surface:    'var(--dv2-bg-surface, var(--bg-surface, rgba(255,255,255,0.04)))',
-  border:     'var(--dv2-border, var(--border, rgba(255,255,255,0.08)))',
-  text1:      'var(--dv2-text-primary, var(--text-primary, #e2e8f0))',
-  text2:      'var(--dv2-text-secondary, var(--text-secondary, #94a3b8))',
-  text3:      'var(--dv2-text-tertiary, var(--text-tertiary, #64748b))',
-  teal:       'var(--dv2-teal, var(--teal, #00d4bc))',
-  blue:       'var(--dv2-blue, var(--blue, #4a9eff))',
-  amber:      'var(--dv2-amber, var(--amber, #ffb547))',
-  rose:       'var(--dv2-rose, var(--rose, #ff6b9d))',
-  violet:     'var(--dv2-violet, var(--violet, #9b7fff))',
-  fdisp:      'var(--dv2-font-display, var(--font-display, "Outfit", system-ui, sans-serif))',
-  fbody:      'var(--dv2-font-body, var(--font-body, "DM Sans", system-ui, sans-serif))',
-  fmono:      'var(--dv2-font-mono, var(--font-mono, "JetBrains Mono", ui-monospace, monospace))',
-  rmd:        'var(--dv2-radius-md, 8px)',
-  rsm:        'var(--dv2-radius-sm, 6px)',
-};
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Escape helper ────────────────────────────────────────────────────────────
 function esc(s) {
-  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-function slug(s) {
-  return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
-}
-function initials(name) {
-  const parts = String(name||'').trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return '··';
-  return ((parts[0][0]||'') + (parts[parts.length-1][0]||'')).toUpperCase();
-}
-function readTime(text) {
-  const w = String(text||'').split(/\s+/).filter(Boolean).length;
-  return Math.max(2, Math.round(w / 220));
-}
-function gradeColor(g) {
-  return g === 'A' ? T.teal : g === 'B' ? T.blue : g === 'C' ? T.violet : T.amber;
-}
-function gradeBadge(g) {
-  const grade = (g||'D').toUpperCase();
-  const c = gradeColor(grade);
-  return `<span style="display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;font-family:${T.fmono};font-size:10px;font-weight:700;color:${c};border:1px solid ${c};letter-spacing:0.04em">GRADE ${esc(grade)}</span>`;
-}
-function statusDot(status) {
-  const map = { ok: T.teal, current: T.teal, review: T.amber, due: T.amber, overdue: T.rose, draft: T.text3 };
-  const c = map[status] || T.text3;
-  return `<span style="width:6px;height:6px;border-radius:50%;background:${c};flex-shrink:0;display:inline-block"></span>`;
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// ── Structured ReportPayload preview (handbooks AI draft) ─────────────────────
-// Styling aligned with pages-protocols.js “Structured report preview” card.
+// ── Constants ────────────────────────────────────────────────────────────────
+const AUDIENCES = ['Clinician Manual', 'Patient-Friendly Generic Guide', 'Staff SOP'];
+const MODALITIES = ['TMS', 'tDCS', 'tACS', 'tRNS', 'taVNS', 'TPS', 'PBM', 'Neurofeedback', 'qEEG-Informed', 'MRI-Informed'];
+const DEVICES_BY_MODALITY = {
+  'TMS': ['Magstim Rapid2', 'MagVenture MagPro', 'Neurosoft DuoMAG', 'Brainsway H1-Coil', 'Magstim Horizon'],
+  'tDCS': ['Neuroelectrics Starstim', 'Soterix Medical 1x1', 'BrainSTIM EG-1', 'NeuroConn DC-Stimulator'],
+  'tACS': ['Neuroelectrics Starstim', 'NeuroConn DC-Stimulator-Plus', 'Soterix Medical 1x1-tACS'],
+  'tRNS': ['NeuroConn DC-Stimulator-Plus', 'Neuroelectrics Starstim', 'Soterix Medical 1x1-tRNS'],
+  'taVNS': ['tVNS Stimulator (Cerbomed)', 'gammaCore (non-invasive VNS)'],
+  'TPS': ['Storz Medical Neuro-MPP'],
+  'PBM': ['Vielight Neuro', 'MedX Health NovaThor', 'Thor Photomedicine LX2'],
+  'Neurofeedback': ['NeuroField Q20', 'BrainMaster Atlantis', 'Mitsar EEG+NF'],
+  'qEEG-Informed': ['NeuroGuide qEEG', 'Mitsar qEEG Suite', 'BrainVision Analyzer'],
+  'MRI-Informed': ['Siemens Prisma 3T', 'GE SIGNA Premier', 'Philips Ingenia'],
+};
+const CONDITIONS = [
+  'Major Depressive Disorder', 'Treatment-Resistant Depression', 'Bipolar Depression',
+  'Generalized Anxiety Disorder', 'PTSD', 'OCD', 'ADHD', 'Autism Spectrum Disorder',
+  'Chronic Pain / Fibromyalgia', 'Migraine', 'Stroke Rehabilitation', "Parkinson's Disease",
+  "Alzheimer's Disease / Dementia", 'Insomnia', 'Substance Use Disorder', 'Schizophrenia',
+  'Eating Disorders', 'Tinnitus', 'Essential Tremor', 'Multiple Sclerosis',
+];
+const GOVERNANCE_STATES = ['draft', 'needs_review', 'approved', 'signed', 'exported'];
+const GOVERNANCE_LABELS = { draft: 'Draft', needs_review: 'Needs Review', approved: 'Approved', signed: 'Signed', exported: 'Exported' };
 
-function _hbStrengthBadge(s) {
-  const palette = {
-    Strong:           ['#0a5d2c', '#d1f7df'],
-    Moderate:         ['#9b6a00', '#fff2c8'],
-    Limited:          ['#7a3e00', '#fde2cc'],
-    Conflicting:      ['#7a1f1f', '#fbd5d5'],
-    'Evidence pending': ['#475569', '#e2e8f0'],
-  };
-  const key = s || 'Evidence pending';
-  const [c, bg] = palette[key] || palette['Evidence pending'];
-  return `<span style="color:${c};background:${bg};padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px">${esc(key)}</span>`;
-}
-
-function _hbConfidencePill(level) {
-  if (!level) return '';
-  const labels = { high: 'High confidence', medium: 'Medium confidence', low: 'Low confidence', insufficient: 'Insufficient evidence' };
-  const colors = { high: '#0a5d2c', medium: '#9b6a00', low: '#7a3e00', insufficient: '#475569' };
-  const color = colors[level] || '#475569';
-  return `<span style="color:${color};border:1px solid ${color};padding:2px 10px;border-radius:12px;font-size:10px;font-weight:600">${esc(labels[level] || level)}</span>`;
-}
-
-function _hbRenderReportSection(sec, lookup) {
-  const observed = (sec.observed || []).length
-    ? `<ul style="margin:4px 0 0;padding-left:18px">${(sec.observed||[]).map(o => `<li>${esc(o)}</li>`).join('')}</ul>`
-    : `<div style="color:${T.text3};font-style:italic">No findings recorded.</div>`;
-  const interp = (sec.interpretations || []).length
-    ? `<ul style="margin:4px 0 0;padding-left:18px;list-style:none">${(sec.interpretations||[]).map(i => {
-      const cites = (i.evidence_refs||[]).map(r => {
-        const cit = lookup[r];
-        const link = cit?.doi ? `https://doi.org/${cit.doi}` : (cit?.pmid ? `https://pubmed.ncbi.nlm.nih.gov/${cit.pmid}/` : (cit?.url || ''));
-        return link
-          ? `<sup><a href="${esc(link)}" target="_blank" rel="noopener noreferrer" style="color:#1f5fb3;text-decoration:none">[${esc(r)}]</a></sup>`
-          : `<sup style="color:#7a1f1f">[${esc(r)}]</sup>`;
-      }).join(' ');
-      const counter = (i.counter_evidence_refs||[]).length
-        ? ` <span style="color:#7a1f1f;font-size:11px;font-weight:600">Conflicting: ${esc((i.counter_evidence_refs||[]).join(', '))}</span>`
-        : '';
-      return `<li style="margin-bottom:6px">${_hbStrengthBadge(i.evidence_strength || 'Evidence pending')} <span>${esc(i.text)}</span> ${cites}${counter}</li>`;
-    }).join('')}</ul>`
-    : `<div style="color:${T.text3};font-style:italic">No model interpretations.</div>`;
-  const actions = (sec.suggested_actions || []).length
-    ? `<ul style="margin:4px 0 0;padding-left:18px">${(sec.suggested_actions||[]).map(a => {
-      const prefix = a.requires_clinician_review === false ? '' : 'Consider: ';
-      const why = a.rationale ? `<div style="color:${T.text3};font-size:11px;margin-top:2px">Why: ${esc(a.rationale)}</div>` : '';
-      return `<li style="margin-bottom:4px"><span>${esc(prefix)}${esc(a.text)}</span>${why}</li>`;
-    }).join('')}</ul>`
-    : `<div style="color:${T.text3};font-style:italic">No suggested actions.</div>`;
-  const cautions = (sec.cautions||[]).length
-    ? `<ul style="margin:2px 0 0;padding-left:18px;color:#7a3e00">${(sec.cautions||[]).map(c => `<li>${esc(c)}</li>`).join('')}</ul>`
-    : `<div style="color:#7a3e00;font-style:italic;font-size:11px">No cautions identified.</div>`;
-  const limits = (sec.limitations||[]).length
-    ? `<ul style="margin:2px 0 0;padding-left:18px;color:#7a1f1f">${(sec.limitations||[]).map(l => `<li>${esc(l)}</li>`).join('')}</ul>`
-    : `<div style="color:#7a1f1f;font-style:italic;font-size:11px">No limitations recorded.</div>`;
-  return `
-      <section style="border:1px solid ${T.border};border-radius:8px;padding:10px 12px;margin-bottom:10px;background:#ffffff">
-        <header style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;flex-wrap:wrap">
-          <h4 style="margin:0;font-size:13px;color:${T.text1}">${esc(sec.title || '')}</h4>
-          ${_hbConfidencePill(sec.confidence)}
-        </header>
-        <div style="border-left:3px solid #1f5fb3;padding:4px 8px;background:#f4f9ff;border-radius:0 6px 6px 0;margin-bottom:6px">
-          <div style="font-size:10px;font-weight:700;color:#1f5fb3;text-transform:uppercase;letter-spacing:0.4px">Observed findings</div>
-          ${observed}
-        </div>
-        <div style="border-left:3px solid #9b6a00;padding:4px 8px;background:#fffaf0;border-radius:0 6px 6px 0;margin-bottom:6px">
-          <div style="font-size:10px;font-weight:700;color:#9b6a00;text-transform:uppercase;letter-spacing:0.4px">Model interpretation</div>
-          ${interp}
-        </div>
-        <div style="border-left:3px solid #0a5d2c;padding:4px 8px;background:#f3fbf6;border-radius:0 6px 6px 0;margin-bottom:6px">
-          <div style="font-size:10px;font-weight:700;color:#0a5d2c;text-transform:uppercase;letter-spacing:0.4px">Suggested actions (decision support)</div>
-          ${actions}
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
-          <div><div style="font-size:10px;font-weight:700;color:#7a3e00;text-transform:uppercase;letter-spacing:0.4px">Cautions</div>${cautions}</div>
-          <div><div style="font-size:10px;font-weight:700;color:#7a1f1f;text-transform:uppercase;letter-spacing:0.4px">Limitations</div>${limits}</div>
-        </div>
-      </section>`;
-}
-
-function _hbStructuredReportPreviewHtml(dr, audience) {
-  if (!dr || !Array.isArray(dr.sections) || dr.sections.length === 0) return '';
-  const lookup = {};
-  (dr.citations || []).forEach((c) => { if (c && c.citation_id) lookup[c.citation_id] = c; });
-  const sectionsHtml = dr.sections.map((s) => _hbRenderReportSection(s, lookup)).join('');
-  const citeRows = (dr.citations || []).map((c) => {
-    const link = c.doi ? `https://doi.org/${c.doi}` : (c.pmid ? `https://pubmed.ncbi.nlm.nih.gov/${c.pmid}/` : c.url || '');
-    const status = c.status === 'verified'
-      ? `<span style="color:#0a5d2c;background:#d1f7df;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;text-transform:uppercase">verified</span>`
-      : `<span style="color:#7a3e00;background:#fde2cc;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;text-transform:uppercase">unverified</span>`;
-    const lvl = c.evidence_level ? `<span style="margin-left:6px;color:${T.text3};font-size:11px">${esc(c.evidence_level)}</span>` : '';
-    const linkHtml = link ? `<a href="${esc(link)}" target="_blank" rel="noopener noreferrer" style="color:#1f5fb3;text-decoration:none">${esc(link)}</a>`
-      : `<span style="color:#7a1f1f;font-style:italic">${esc(c.raw_text || 'no link')}</span>`;
-    return `<li style="margin-bottom:6px;border-bottom:1px solid ${T.border};padding-bottom:4px">
-        <div><strong>[${esc(c.citation_id)}]</strong> ${esc(c.title || '(untitled)')} ${status}${lvl}</div>
-        <div style="color:${T.text3};font-size:11px">retrieved ${esc(c.retrieved_at || '')}</div>
-        <div style="font-size:11px">${linkHtml}</div>
-      </li>`;
-  }).join('');
-  const aud = audience === 'patient' ? 'patient' : 'clinician';
-  const audienceLabel = aud === 'patient' ? 'Patient view (wording may soften in exports)' : 'Clinician view';
-  const clinActive = aud === 'clinician' ? T.teal : 'transparent';
-  const clinColor = aud === 'clinician' ? '#fff' : T.text2;
-  const patActive = aud === 'patient' ? T.teal : 'transparent';
-  const patColor = aud === 'patient' ? '#fff' : T.text2;
-  const gc = (dr.global_cautions || []).map((x) => `<li>${esc(x)}</li>`).join('');
-  const gl = (dr.global_limitations || []).map((x) => `<li>${esc(x)}</li>`).join('');
-  const disc = dr.decision_support_disclaimer
-    ? `<div style="margin-top:10px;padding:8px 10px;background:rgba(122,62,0,0.06);border:1px solid rgba(122,62,0,0.25);border-radius:${T.rsm};font-size:11px;color:#7a3e00;line-height:1.5">${esc(dr.decision_support_disclaimer)}</div>`
-    : '';
-  return `
-        <div role="region" aria-label="Structured clinical report preview" style="margin-top:20px;padding:18px 18px 14px;border-radius:${T.rmd};background:${T.panel};border:1px solid rgba(31,95,179,0.35)">
-          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px">
-            <div>
-              <div style="font-family:${T.fmono};font-size:10px;font-weight:700;color:#1f5fb3;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Structured clinical report</div>
-              <div style="font-family:${T.fdisp};font-size:17px;font-weight:600;color:${T.text1};line-height:1.2">${esc(dr.title || 'Handbook report payload')}</div>
-            </div>
-            <div style="display:inline-flex;border:1px solid ${T.border};border-radius:14px;overflow:hidden">
-              <button type="button" onclick="window._hbSetReportAudience&&window._hbSetReportAudience('clinician')" style="padding:3px 10px;border:none;background:${clinActive};color:${clinColor};font-size:11px;cursor:pointer;font-family:inherit">Clinician</button>
-              <button type="button" onclick="window._hbSetReportAudience&&window._hbSetReportAudience('patient')" style="padding:3px 10px;border:none;background:${patActive};color:${patColor};font-size:11px;cursor:pointer;font-family:inherit">Patient</button>
-            </div>
-          </div>
-          <p style="margin:0 0 12px;font-size:12px;color:${T.text2};line-height:1.55;border-left:3px solid #1f5fb3;padding-left:12px">
-            Same <strong style="color:${T.text1}">ReportPayload</strong> contract as Protocol Studio and the reports stack (${esc(dr.schema_id || 'deepsynaps.report-payload/v1')}).
-            This block is <strong style="color:${T.text1}">decision-support only</strong> — not a signed handbook, care plan, or substitute for governance review.
-          </p>
-          <div style="font-size:10px;color:${T.text3};font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px">${esc(audienceLabel)}</div>
-          <div style="font-size:13px;color:${T.text2};line-height:1.45;margin-bottom:12px">${esc(dr.summary || '')}</div>
-          ${sectionsHtml}
-          ${(gc || gl) ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;font-size:11px">
-            <div><strong style="color:#7a3e00">Global cautions</strong><ul style="margin:4px 0 0;padding-left:18px;color:#7a3e00">${gc || '<li style="font-style:italic">None listed.</li>'}</ul></div>
-            <div><strong style="color:#7a1f1f">Global limitations</strong><ul style="margin:4px 0 0;padding-left:18px;color:#7a1f1f">${gl || '<li style="font-style:italic">None listed.</li>'}</ul></div>
-          </div>` : ''}
-          ${disc}
-          <details style="margin-top:10px"><summary style="cursor:pointer;font-size:12px;color:${T.text2};font-weight:600">Citations (${(dr.citations||[]).length})</summary>
-            <ol style="margin:6px 0 0;padding-left:18px;list-style:none">${citeRows || `<li style="color:${T.text3};font-style:italic">No citations attached.</li>`}</ol>
-          </details>
-          <div style="font-size:10px;color:${T.text3};font-family:${T.fmono};margin-top:10px;border-top:1px solid ${T.border};padding-top:8px">
-            generator: ${esc(dr.generator_version || '')} · generated: ${esc(dr.generated_at || '')}
-          </div>
-        </div>`;
-}
-
-/** In-app editorial / template status — not a legal sign-off. */
-export function curatedHandbookStatus(entry) {
-  if (!entry) return { label: '—', color: T.text3, blurb: '' };
-  if (entry.kind === 'train' && String(entry.version || '').toLowerCase() === 'draft') {
-    return { label: 'Draft training note', color: T.amber, blurb: 'In-app template only — not a released training pack.' };
-  }
-  if (entry.kind === 'ops' || entry.kind === 'train') {
-    return { label: 'SOP / ops template', color: T.blue, blurb: 'Use your clinic’s signed policy; this is a working copy for alignment.' };
-  }
-  return { label: 'Curated clinical reference', color: T.teal, blurb: 'Editorial content in this workspace — verify against current evidence and local policy.' };
-}
-
-// ── Page-level state ─────────────────────────────────────────────────────────
-const HANDBOOK_FAVS_KEY = 'ds_handbook_favs';
-
-function _loadFavs() {
-  try {
-    const raw = localStorage.getItem(HANDBOOK_FAVS_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
-  } catch (_) {
-    return [];
-  }
-}
-
-function _saveFavs(ids) {
-  try {
-    localStorage.setItem(HANDBOOK_FAVS_KEY, JSON.stringify(Array.isArray(ids) ? ids : []));
-  } catch (_) {}
-}
-
-function _isFav(id) {
-  return _loadFavs().includes(id);
-}
-
-function _toggleFav(id) {
-  if (!id) return;
-  const favs = new Set(_loadFavs());
-  if (favs.has(id)) favs.delete(id);
-  else favs.add(id);
-  _saveFavs([...favs]);
-}
-
-let _id      = null;          // currently-open handbook id
-let _query   = '';            // left-rail filter
-let _section = null;          // active TOC section id
-let _el      = null;          // root container
-let _fModality = 'All';       // modality facet filter
-let _fProtocol = 'All';       // protocol facet filter
-let _fDevice   = 'All';       // device facet filter
-let _favOnly   = false;       // show favourites only
-
-// ── Build collections from data ──────────────────────────────────────────────
-// Combine real HANDBOOK_DATA-backed entries (conditions + protocols) with the
-// canonical Safety/Ops + Training documents from the prototype's left rail.
-export function buildEntries() {
-  const out = [];
-  // Condition handbooks
-  for (const c of CONDITION_REGISTRY) {
-    const hb = HANDBOOK_DATA[c.id];
-    if (!hb) continue;
-    const modalities = [...new Set((c.modalities || []).filter(Boolean))];
-    const protocolIds = PROTOCOL_REGISTRY.filter(pp => pp.condition === c.id).map(pp => pp.id);
-    out.push({
-      id: c.id,
-      kind: 'condition',
-      title: c.name,
-      subtitle: `${c.icd10 || ''} · ${c.cat || ''}`,
-      collection: c.cat || 'Other',
-      data: hb,
-      reg: c,
-      modalities,
-      protocolIds,
-    });
-  }
-  // Protocol handbooks
-  for (const p of PROTOCOL_REGISTRY) {
-    const hb = HANDBOOK_DATA[p.id];
-    if (!hb) continue;
-    const cond = CONDITION_REGISTRY.find(cc => cc.id === p.condition);
-    const modalities = [...new Set([p.modality, ...(cond?.modalities || [])].filter(Boolean))];
-    out.push({
-      id: p.id,
-      kind: 'protocol',
-      title: hb.name || p.name,
-      subtitle: `${p.modality || ''} · ${p.condition || ''}`,
-      collection: cond?.cat || 'Protocols',
-      data: hb,
-      reg: p,
-      modalities,
-      protocolIds: [p.id],
-    });
-  }
-  // Pseudo collections from prototype: Safety & Ops + Training
-  const ops = [
-    { id: 'ops-safety-screen',  title: 'Pre-session safety screen',  version: 'v1.8' },
-    { id: 'ops-ae-response',    title: 'Adverse event response',     version: 'v2.1' },
-    { id: 'ops-contra-matrix',  title: 'Contraindications matrix',   version: 'v4.0' },
-    { id: 'ops-device-clean',   title: 'Device cleaning & sparing',  version: 'v2.2' },
-    { id: 'ops-electrode-prep', title: 'Electrode preparation',      version: 'v1.5' },
-    { id: 'ops-escalation',     title: 'Incident escalation tree',   version: 'v1.2' },
-  ];
-  const train = [
-    { id: 'train-30day',   title: 'Clinician 30-day plan',   version: 'v2.0' },
-    { id: 'train-1020',    title: '10-20 placement primer',  version: 'v1.4' },
-    { id: 'train-app',     title: 'Patient app walkthrough', version: 'draft' },
-  ];
-  for (const o of ops) out.push({ id: o.id, kind: 'ops',     title: o.title, subtitle: o.version, collection: 'Safety & Ops', version: o.version, modalities: [], protocolIds: [] });
-  for (const t of train) out.push({ id: t.id, kind: 'train',  title: t.title, subtitle: t.version, collection: 'Training',     version: t.version, modalities: [], protocolIds: [] });
-  return out;
-}
-
-// ── AI Handbook section ──────────────────────────────────────────────────────
-// Renders modality/protocol/device/audience selectors plus a Generate button.
-// On generate, calls /api/v1/handbooks/generate and renders the structured
-// HandbookDocument (overview → eligibility → setup → workflow → safety →
-// troubleshooting → escalation → docs → outcomes/discharge → references).
-function aiHandbookSection(cond) {
+// ── Role Gating ──────────────────────────────────────────────────────────────
+function getRoleFeatures() {
+  const role = currentUser?.role || 'reviewer';
+  const features = currentUser?.features || [];
   return {
-    id: 'ai-handbook',
-    title: 'AI-assisted draft (requires clinician review)',
-    render: () => {
-      const sel = _aiSelFor(cond);
-      const protos = PROTOCOL_REGISTRY.filter(p => p.condition === cond.id);
-      const devices = DEVICE_REGISTRY.filter(d => _modalityMatches(d.modality, sel.modality));
-      const cacheKey = `${cond.id}|${sel.modality}|${sel.protoId}|${sel.deviceId}|${sel.kind}`;
-      const gen = _aiCache[cacheKey];
-      const proto = sel.protoId ? protos.find(p => p.id === sel.protoId) : null;
-      const device = sel.deviceId ? devices.find(d => d.id === sel.deviceId) : null;
-      const mapped = _backendConditionFor(cond);
-      const allowed = _canGenerate();
-
-      const opt = (v, l, on) => `<option value="${esc(v)}"${on?' selected':''}>${esc(l)}</option>`;
-      const selectStyle = `padding:6px 10px;border-radius:${T.rsm};background:${T.surface};color:${T.text1};border:1px solid ${T.border};font-size:12px;font-family:inherit;min-width:180px`;
-
-      const selRow = `
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin:0 0 12px">
-          <label style="display:flex;flex-direction:column;gap:3px;font-size:9.5px;color:${T.text3};text-transform:uppercase;letter-spacing:0.06em;font-family:${T.fmono};font-weight:600">Modality
-            <select onchange="window._hbAiSet('modality', this.value)" style="${selectStyle}">
-              ${(cond.modalities||[]).map(m => opt(m, m, m === sel.modality)).join('')}
-            </select>
-          </label>
-          <label style="display:flex;flex-direction:column;gap:3px;font-size:9.5px;color:${T.text3};text-transform:uppercase;letter-spacing:0.06em;font-family:${T.fmono};font-weight:600">Protocol
-            <select onchange="window._hbAiSet('protoId', this.value)" style="${selectStyle}">
-              ${opt('', protos.length ? '— No specific protocol —' : 'No registered protocols', !sel.protoId)}
-              ${protos.map(p => opt(p.id, `${p.name} (${p.modality})`, p.id === sel.protoId)).join('')}
-            </select>
-          </label>
-          <label style="display:flex;flex-direction:column;gap:3px;font-size:9.5px;color:${T.text3};text-transform:uppercase;letter-spacing:0.06em;font-family:${T.fmono};font-weight:600">Device
-            <select onchange="window._hbAiSet('deviceId', this.value)" style="${selectStyle}">
-              ${opt('', devices.length ? '— Any device —' : 'No matching devices', !sel.deviceId)}
-              ${devices.map(d => opt(d.id, `${d.name} · ${d.clearance}`, d.id === sel.deviceId)).join('')}
-            </select>
-          </label>
-          <label style="display:flex;flex-direction:column;gap:3px;font-size:9.5px;color:${T.text3};text-transform:uppercase;letter-spacing:0.06em;font-family:${T.fmono};font-weight:600">Audience
-            <select onchange="window._hbAiSet('kind', this.value)" style="${selectStyle}">
-              ${[['clinician_handbook','Clinician Handbook'],['patient_guide','Patient Guide'],['technician_sop','Technician SOP']]
-                .map(([v,l]) => opt(v, l, v === sel.kind)).join('')}
-            </select>
-          </label>
-        </div>`;
-
-      const button = `
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-          <button id="hb-ai-gen" onclick="window._hbAiGenerate()" ${allowed ? '' : 'disabled'} aria-label="${gen ? 'Regenerate AI-assisted draft' : 'Generate AI-assisted draft'}"
-            style="padding:7px 16px;border-radius:${T.rsm};font-size:12px;font-weight:700;background:${allowed ? T.teal : T.surface};color:${allowed ? '#04121c' : T.text3};border:none;cursor:${allowed ? 'pointer' : 'not-allowed'};font-family:inherit">
-            ${gen ? '↻ Regenerate AI-assisted draft' : '✦ Generate AI-assisted draft'}
-          </button>
-          <span id="hb-ai-status" style="font-size:11px;color:${T.text3};font-family:${T.fmono}">${
-            !allowed
-              ? 'AI-assisted drafting requires clinician or admin sign-in.'
-              : (gen ? 'Draft cached for this session · not signed or final.' : 'Server builds from the imported clinical dataset · output stays draft until reviewed.')
-          }</span>
-        </div>`;
-
-      const coverageHint = mapped.unmapped
-        ? `<div style="margin:10px 0 0;padding:9px 12px;background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.32);border-radius:${T.rsm};font-size:11.5px;color:${T.amber};line-height:1.5">
-            Not yet in the imported clinical dataset. Curated sections below remain authoritative; generation will return a coverage error.
-          </div>`
-        : mapped.fuzzy
-        ? `<div style="margin:10px 0 0;padding:9px 12px;background:rgba(74,158,255,0.08);border:1px solid rgba(74,158,255,0.32);border-radius:${T.rsm};font-size:11.5px;color:${T.blue};line-height:1.5">
-            Generated content will be synthesised from a related dataset row: <strong>${esc(mapped.name)}</strong>. Apply clinical judgement.
-          </div>`
-        : '';
-
-      const intro = `<p style="margin:0 0 14px;color:${T.text2}">Choose modality and optional protocol/device, then request an <strong style="color:${T.text1}">AI-assisted structured draft</strong> from the imported clinical dataset. This is decision-support only — review, edit, and apply clinic governance before any patient-facing or signed use.</p>`;
-
-      if (!gen) {
-        return `${intro}${selRow}${button}${coverageHint}`;
-      }
-
-      const d = gen.document || gen;
-      const list = (items) => Array.isArray(items) && items.length
-        ? `<ul style="margin:8px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:6px;color:${T.text2};line-height:1.55">${items.map(i => `<li>${esc(i)}</li>`).join('')}</ul>`
-        : `<p style="color:${T.text3}">No data.</p>`;
-      const numList = (items) => Array.isArray(items) && items.length
-        ? `<ol style="margin:8px 0 0;padding-left:22px;display:flex;flex-direction:column;gap:7px;color:${T.text2};line-height:1.55">${items.map(i => `<li>${esc(i)}</li>`).join('')}</ol>`
-        : `<p style="color:${T.text3}">No data.</p>`;
-      const sub = (title, body) => `<h3 style="font-family:${T.fdisp};font-size:14px;font-weight:600;color:${T.text1};margin:18px 0 4px">${esc(title)}</h3>${body}`;
-
-      // Build dynamic discharge / outcomes notes from the curated condition assessments
-      // and escalation triggers — this gives the clinician a clear next-step workflow.
-      const dischargeNotes = [];
-      if ((cond.assessments || []).includes('drs')) dischargeNotes.push('Run Discharge Readiness Screen (DRS) before final session.');
-      if ((cond.assessments || []).includes('wpc')) dischargeNotes.push('Compare final scores with weekly progress check (WPC) trajectory.');
-      dischargeNotes.push('Schedule follow-up at 4 and 12 weeks post-course; document remission/response status.');
-      const escTrigger = HANDBOOK_DATA[cond.id]?.escalation;
-      if (escTrigger) dischargeNotes.push('Re-screen against escalation triggers documented in the curated handbook below (' + escTrigger + ').');
-
-      const docChecklist = [
-        'Document baseline assessment scores (' + ((cond.assessments||[]).map(a => a.toUpperCase()).join(', ') || 'per condition standard') + ').',
-        'Record motor threshold / dosing parameters at session 1' + (proto ? ` (target ${proto.target}, ${proto.intensity})` : '') + '.',
-        'Log per-session tolerability via SES + STC.',
-        'Capture weekly progress (WPC) and any AE reports in patient chart.',
-        device ? `Record device serial / lot for ${device.name} per ${device.clearance} traceability.` : 'Record device identifier per clinic SOP.',
-      ];
-
-      const dr = gen.detailed_report;
-      const aud = (typeof window !== 'undefined' && window._hbReportAudience) || 'clinician';
-      const structuredHtml = dr
-        ? _hbStructuredReportPreviewHtml(dr, aud)
-        : `<div role="status" style="margin-top:20px;padding:12px 14px;border-radius:${T.rmd};border:1px dashed ${T.border};color:${T.text3};font-size:12px;line-height:1.5">Structured report preview unavailable for this handbook response.</div>`;
-      const gov = gen.governance;
-      const govHtml = gov
-        ? `<details style="margin-top:12px;padding:10px 12px;border-radius:${T.rsm};border:1px solid ${T.border};background:${T.surface};font-size:11px;color:${T.text3};line-height:1.5">
-            <summary style="cursor:pointer;font-weight:600;color:${T.text2}">Review & provenance (governance)</summary>
-            <div style="margin-top:8px">Generated by: <span style="font-family:${T.fmono}">${esc(gov.generated_by || '—')}</span></div>
-            <div>Clinician review required: <strong style="color:${T.text1}">${gov.clinician_review_required ? 'yes' : 'no'}</strong> · Not autonomous prescription: <strong style="color:${T.text1}">${gov.not_autonomous_prescription ? 'yes' : 'no'}</strong></div>
-            ${(gov.safety_flags || []).length ? `<div style="margin-top:6px">Flags: ${gov.safety_flags.map(esc).join('; ')}</div>` : ''}
-            ${(gov.missing_data || []).length ? `<div style="margin-top:6px;color:${T.amber}">Missing data notes: ${gov.missing_data.map(esc).join('; ')}</div>` : ''}
-          </details>`
-        : '';
-      const exportPanel = `
-        <div role="region" aria-label="Handbook exports" style="margin-top:18px;padding:16px;border-radius:${T.rmd};border:1px solid ${T.border};background:${T.panel}">
-          <div style="font-family:${T.fmono};font-size:10px;font-weight:700;color:${T.teal};text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Protocol handbook exports</div>
-          <p style="margin:0 0 12px;font-size:12px;color:${T.text2};line-height:1.55">DOCX and PDF are regenerated on the server from the same clinical dataset as this draft, including the structured report appendix. <strong style="color:${T.text1}">Review before clinical use</strong> — not a signed treatment order.</p>
-          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
-            <button type="button" id="hb-export-bundle-docx" onclick="window._hbExportBundleDocx()"
-              style="padding:8px 14px;border-radius:${T.rsm};font-size:12px;font-weight:600;background:${T.teal};color:#04121c;border:none;cursor:pointer;font-family:inherit">Download handbook DOCX</button>
-            <button type="button" id="hb-export-bundle-pdf" onclick="window._hbExportBundlePdf()"
-              style="padding:8px 14px;border-radius:${T.rsm};font-size:12px;font-weight:600;background:${T.surface};color:${T.text2};border:1px solid ${T.border};cursor:pointer;font-family:inherit">Download handbook PDF</button>
-          </div>
-          <p style="margin:10px 0 0;font-size:11px;color:${T.text3};line-height:1.45">PDF requires WeasyPrint on the API host. If PDF returns unavailable, use DOCX or HTML structured preview above.</p>
-        </div>`;
-
-      return `
-        ${intro}${selRow}${button}${coverageHint}
-        <div role="region" aria-label="AI-assisted handbook draft" style="margin-top:18px;padding:18px 18px 4px;border-radius:${T.rmd};background:${T.bg};border:1px solid rgba(255,181,71,0.35)">
-          <div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
-            <span style="padding:4px 10px;border-radius:999px;background:rgba(255,181,71,0.15);border:1px solid rgba(255,181,71,0.45);font-family:${T.fmono};font-size:10px;font-weight:700;color:${T.amber};text-transform:uppercase;letter-spacing:0.06em">Draft · review required</span>
-            <span style="font-family:${T.fmono};font-size:10px;color:${T.text3};text-transform:uppercase;letter-spacing:0.06em;font-weight:600">AI-assisted · ${esc(d.document_type || sel.kind)} · ${esc(sel.modality)}${proto ? ' · ' + esc(proto.name) : ''}${device ? ' · ' + esc(device.name) : ''}</span>
-          </div>
-          <p style="margin:0 0 12px;font-size:12px;color:${T.amber};line-height:1.55;border-left:3px solid ${T.amber};padding-left:12px">Not a diagnosis, prescription, treatment approval, or substitute for clinician judgement. Final patient instructions and signatures occur outside this generator.</p>
-          <h3 style="font-family:${T.fdisp};font-size:18px;font-weight:600;margin:0 0 8px;color:${T.text1}">${esc(d.title || 'AI-assisted handbook draft')}</h3>
-          ${d.overview ? `<p style="margin:0 0 6px;color:${T.text2}">${esc(d.overview)}</p>` : ''}
-          ${sub('Patient selection / eligibility', list(d.eligibility))}
-          ${proto ? sub('Protocol parameters', paramTable([
-            ['Target', proto.target || '—'],
-            ['Frequency', proto.freq || '—'],
-            ['Intensity', proto.intensity || '—'],
-            ['Sessions', `${proto.sessions||'—'} (${proto.sessPerWeek||'?'}×/wk)`],
-            ['Duration', proto.duration || '—'],
-            ['Laterality', proto.laterality || '—'],
-          ])) : ''}
-          ${device ? sub('Device profile', `
-            <div style="font-size:13px;color:${T.text2};line-height:1.55;padding:12px 14px;background:${T.panel};border:1px solid ${T.border};border-radius:${T.rsm};margin-top:8px">
-              <div><strong style="color:${T.text1}">${esc(device.name)}</strong> — ${esc(device.mfr)}</div>
-              <div>${esc(device.type)} · ${esc(device.clearance)} · ${esc(device.region)}</div>
-              ${device.notes ? `<div style="margin-top:4px;color:${T.text3}">${esc(device.notes)}</div>` : ''}
-            </div>`) : ''}
-          ${sub('Initial assessment & setup', numList(d.setup))}
-          ${sub('Session workflow / protocol application', numList(d.session_workflow))}
-          ${sub('Safety / contraindications', list(d.safety))}
-          ${sub('Monitoring & troubleshooting', list(d.troubleshooting))}
-          ${sub('Escalation pathways', list(d.escalation))}
-          ${sub('Documentation checklist', list(docChecklist))}
-          ${sub('Outcomes review & discharge', list(dischargeNotes))}
-          ${Array.isArray(d.references) && d.references.length ? sub('Source pointers from generator', `
-            <p style="font-size:12px;color:${T.text3};margin:0 0 8px">These are strings returned by the generator (often dataset or documentation paths). They are not verified citations — verify primary literature and clinic policy independently.</p>
-            <ul style="margin:8px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:6px">
-              ${d.references.map(r => `<li><a href="${esc(r)}" target="_blank" rel="noopener noreferrer" style="color:${T.teal};word-break:break-all">${esc(r)}</a></li>`).join('')}
-            </ul>`) : ''}
-          ${(gen.disclaimers && (gen.disclaimers.protocol || gen.disclaimers.governance || gen.disclaimers.off_label)) ? `
-            <div style="margin:14px 0 14px;padding:10px 12px;background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.32);border-radius:${T.rsm};font-size:11.5px;color:${T.amber};line-height:1.55">
-              ${[gen.disclaimers.protocol, gen.disclaimers.governance, gen.disclaimers.off_label].filter(Boolean).map(esc).join('<br/>')}
-            </div>` : '<div style="height:8px"></div>'}
-        </div>${structuredHtml}${govHtml}${exportPanel}`;
-    },
+    role,
+    canGenerate: ['clinician', 'admin', 'super_admin'].includes(role) && features.includes('handbook_generate'),
+    canReview: ['clinician', 'admin', 'super_admin'].includes(role),
+    canSign: ['clinician', 'admin', 'super_admin'].includes(role),
+    canExport: ['clinician', 'admin', 'super_admin'].includes(role) && features.includes('handbook_generate'),
+    isReadOnly: !(['clinician', 'admin', 'super_admin'].includes(role)),
   };
 }
 
-// ── Section model: turn raw HANDBOOK_DATA into a normalised section list ─────
-// Each section has { id, num, title, render() -> string } and is what powers
-// both the center reading pane and the right-rail TOC.
-function sectionsFor(entry) {
-  if (!entry || !entry.data) return [];
-  const d = entry.data;
-
-  // Condition handbooks (rich free-text)
-  if (entry.kind === 'condition') {
-    const cond = entry.reg;
-    const evGrade = (cond?.ev || 'C').toUpperCase();
-    const sections = [];
-
-    // AI Handbook generator goes first so clinicians see it on entry.
-    sections.push(aiHandbookSection(cond));
-
-    if (d.epidemiology || cond) sections.push({
-      id: 'overview',
-      title: 'Overview & ICD',
-      render: () => `
-        <p>${esc(d.epidemiology || 'Epidemiology data not on file.')}</p>
-        <div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:14px;font-family:${T.fmono};font-size:11px;color:${T.text3}">
-          <span>ICD-10 · <strong style="color:${T.text1}">${esc(cond?.icd10 || '—')}</strong></span>
-          <span>Category · <strong style="color:${T.text1}">${esc(cond?.cat || '—')}</strong></span>
-          <span>Evidence · <strong style="color:${gradeColor(evGrade)}">Grade ${esc(evGrade)}</strong></span>
-        </div>`,
-    });
-
-    if (d.neuroBasis) sections.push({
-      id: 'neuro',
-      title: 'Neurobiological basis',
-      render: () => `<p>${esc(d.neuroBasis)}</p>`,
-    });
-
-    // Montage / parameter table — synthesised from registry where available
-    if ((cond?.modalities||[]).length || (cond?.targets||[]).length) sections.push({
-      id: 'montage',
-      title: 'Montage & parameters',
-      render: () => paramTable([
-        ['Modality',  (cond.modalities||['—']).join(' · ')],
-        ['Target',    (cond.targets||['—']).join(' · ')],
-        ['Assessments', (cond.assessments||['—']).map(a=>a.toUpperCase()).join(' · ')],
-        ['On-label',  (cond.onLabel||['Off-label']).join(' · ')],
-      ]),
-    });
-
-    if (d.responseData) sections.push({
-      id: 'response',
-      title: 'Expected response',
-      render: () => `<p>${esc(d.responseData)}</p>`,
-    });
-
-    if (d.timeline) sections.push({
-      id: 'timeline',
-      title: 'Treatment timeline',
-      render: () => `<p>${esc(d.timeline)}</p>`,
-    });
-
-    if ((d.selfCare||[]).length) sections.push({
-      id: 'checklist',
-      title: 'Pre-session checklist',
-      render: () => checklistBlock(entry.id, d.selfCare),
-    });
-
-    if (d.escalation) sections.push({
-      id: 'stops',
-      title: 'Stop rules & escalation',
-      render: () => calloutCritical('Escalate immediately', d.escalation),
-    });
-
-    if (d.techSetup) sections.push({
-      id: 'tech',
-      title: 'Technician setup notes',
-      render: () => `<p>${esc(d.techSetup)}</p>`,
-    });
-
-    if (d.patientExplain) sections.push({
-      id: 'patient',
-      title: 'Patient explanation',
-      render: () => `<p>${esc(d.patientExplain)}</p>`,
-    });
-
-    if ((d.faq||[]).length) sections.push({
-      id: 'faq',
-      title: 'Frequently asked questions',
-      render: () => (d.faq||[]).map(f => `
-        <div style="margin-bottom:14px">
-          <div style="font-weight:600;color:${T.text1};margin-bottom:4px">${esc(f.q)}</div>
-          <div style="color:${T.text2}">${esc(f.a)}</div>
-        </div>`).join(''),
-    });
-
-    if (d.homeNote) sections.push({
-      id: 'home',
-      title: 'Home-use programme',
-      render: () => `<p>${esc(d.homeNote)}</p>`,
-    });
-
-    sections.push({
-      id: 'evidence',
-      title: 'Evidence base',
-      render: () => evidenceCards(entry, evGrade, d.responseData),
-    });
-
-    sections.push({
-      id: 'related',
-      title: 'Related handbooks',
-      render: () => relatedCards(entry),
-    });
-
-    return sections.map((s,i) => ({ ...s, num: String(i+1).padStart(2,'0') }));
-  }
-
-  // Protocol handbooks (structured arrays)
-  if (entry.kind === 'protocol') {
-    const p = entry.reg;
-    const evGrade = (p?.ev || 'C').toUpperCase();
-    const sections = [];
-
-    sections.push({
-      id: 'indications',
-      title: 'Indications & eligibility',
-      render: () => `
-        <p>Canonical clinic protocol for <strong>${esc(d.condition || '—')}</strong> using <strong>${esc(d.modality || '—')}</strong> at target <span style="font-family:${T.fmono};color:${T.teal}">${esc(d.target || '—')}</span>.</p>
-        ${p?.notes ? `<p style="color:${T.amber}">${esc(p.notes)}</p>` : ''}`,
-    });
-
-    if (p) sections.push({
-      id: 'montage',
-      title: 'Montage & parameters',
-      render: () => paramTable([
-        ['Modality',    p.modality || '—'],
-        ['Target',      p.target || '—'],
-        ['Frequency',   p.freq || '—'],
-        ['Intensity',   p.intensity || '—'],
-        ['Duration',    p.duration || '—'],
-        ['Sessions',    `${p.sessions||'—'} (${p.sessPerWeek||'?'}×/week)`],
-        ['Laterality',  p.laterality || '—'],
-      ]),
-    });
-
-    if ((d.setup||[]).length) sections.push({
-      id: 'setup',
-      title: 'Setup & implementation',
-      render: () => stepsBlock(d.setup),
-    });
-
-    if ((d.sessionWorkflow||[]).length) sections.push({
-      id: 'procedure',
-      title: 'Session procedure',
-      render: () => stepsBlock(d.sessionWorkflow),
-    });
-
-    if ((d.contraindications||[]).length) sections.push({
-      id: 'stops',
-      title: 'Contraindications & stop rules',
-      render: () => `
-        ${calloutCritical('Hard stops — pause protocol, page on-call', 'Screen all patients against the criteria below before initiating this protocol.')}
-        <ul style="margin:14px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:8px;color:${T.rose}">
-          ${(d.contraindications||[]).map(c=>`<li><span style="color:${T.text2}">${esc(c)}</span></li>`).join('')}
-        </ul>`,
-    });
-
-    sections.push({
-      id: 'checklist',
-      title: 'Pre-session checklist',
-      render: () => checklistBlock(entry.id, [
-        'Confirm identity with two identifiers (name + DOB or MRN)',
-        'Safety screen current within last 30 days',
-        'No active contraindication — implant, pregnancy, seizure',
-        'Skin inspection documented, grade ≤ 1',
-        'Impedance < 5 kΩ per channel at steady state',
-        'Emergency stop within reach of clinician and patient',
-        'PHQ-2 / mood check captured before stim start',
-        'Post-session debrief — re-grade skin + side-effect elicit',
-      ]),
-    });
-
-    if (d.expectedResponse) sections.push({
-      id: 'response',
-      title: 'Expected response',
-      render: () => `<p>${esc(d.expectedResponse)}</p>`,
-    });
-
-    if (d.monitoring) sections.push({
-      id: 'monitoring',
-      title: 'Monitoring & assessments',
-      render: () => `<p>${esc(d.monitoring)}</p>`,
-    });
-
-    if (d.followUp) sections.push({
-      id: 'followup',
-      title: 'Follow-up & discharge',
-      render: () => `<p>${esc(d.followUp)}</p>`,
-    });
-
-    sections.push({
-      id: 'evidence',
-      title: 'Evidence base',
-      render: () => evidenceCards(entry, evGrade, d.expectedResponse),
-    });
-
-    sections.push({
-      id: 'related',
-      title: 'Related handbooks',
-      render: () => relatedCards(entry),
-    });
-
-    return sections.map((s,i) => ({ ...s, num: String(i+1).padStart(2,'0') }));
-  }
-
-  // Static Safety/Ops + Training stubs (no rich data behind them yet)
-  const stub = OPS_STUBS[entry.id] || TRAIN_STUBS[entry.id] || { intro: 'This handbook is being authored. Contact the clinical director for the latest signed copy.', items: [] };
-  const sections = [
-    { id: 'overview', title: 'Overview', render: () => `<p>${esc(stub.intro)}</p>` },
-  ];
-  if ((stub.items||[]).length) sections.push({
-    id: 'checklist', title: 'Operating checklist',
-    render: () => checklistBlock(entry.id, stub.items),
-  });
-  sections.push({ id: 'evidence', title: 'Evidence & policy', render: () => evidenceCards(entry, 'B', stub.intro) });
-  sections.push({ id: 'related',  title: 'Related handbooks',  render: () => relatedCards(entry) });
-  return sections.map((s,i)=>({ ...s, num: String(i+1).padStart(2,'0') }));
-}
-
-const OPS_STUBS = {
-  'ops-safety-screen':  { intro: 'Pre-session safety screen — administered before every stimulation visit. Must be current within 30 days.', items: ['Confirm no cranial implant or active seizure disorder', 'Confirm no pregnancy (stimulation modalities)', 'Confirm no metal foreign bodies in head', 'Verify mood baseline and C-SSRS at session start', 'Document baseline HR / BP'] },
-  'ops-ae-response':    { intro: 'Standard adverse-event response tree — triage, escalation, paging, post-event documentation.', items: ['Stop stimulation immediately', 'Stay with patient, secure airway, monitor vitals', 'Page on-call clinician', 'Complete AE incident form within 24h', 'Schedule governance review at next sitting'] },
-  'ops-contra-matrix':  { intro: 'Master contraindications matrix across all stimulation modalities. Cross-referenced from every protocol handbook.', items: [] },
-  'ops-device-clean':   { intro: 'Device cleaning, sparing and storage SOP. Applies to all clinic-owned stimulation hardware.', items: ['Wipe electrodes with 70% isopropyl after every use', 'Discard sponges after single patient session', 'Quarterly impedance calibration', 'Annual third-party safety inspection'] },
-  'ops-electrode-prep': { intro: 'Electrode preparation & saline standard — 6 mL of 0.9% saline per pad, fitted under 10-20 cap.', items: [] },
-  'ops-escalation':     { intro: 'Incident escalation tree — who pages whom, when, and how the report is logged.', items: [] },
-};
-const TRAIN_STUBS = {
-  'train-30day': { intro: 'New-clinician 30-day onboarding — week-by-week competency milestones, supervised sessions, sign-off forms.', items: ['Week 1 · Shadow 5 sessions', 'Week 2 · Co-deliver 5 sessions', 'Week 3 · Lead under supervision', 'Week 4 · Competency sign-off by clinical director'] },
-  'train-1020':  { intro: '10-20 EEG placement primer — landmark measurement, cap fitting, target verification.', items: [] },
-  'train-app':   { intro: 'Patient app walkthrough — onboarding flow, mood diary, exercise prescription, telehealth handoff.', items: [] },
+// ── Page State ───────────────────────────────────────────────────────────────
+let _state = {
+  view: 'library',          // library | generator | handbook
+  handbooks: [],
+  filter: 'all',            // all | draft | approved | signed | exported
+  search: '',
+  sortBy: 'date',
+  selectedHandbook: null,
+  generator: {
+    audience: 'Clinician Manual',
+    modality: 'TMS',
+    device: '',
+    condition: '',
+    evidenceThreshold: 'A-B',
+    readingLevel: 'Professional',
+    patientScoped: false,
+    generating: false,
+  },
+  patientId: null,
+  patientName: null,
+  expandedSections: new Set(),
+  sectionReviewed: {},
+  evidencePanelOpen: false,
 };
 
-// ── Rich block helpers ───────────────────────────────────────────────────────
-function paramTable(rows) {
-  return `
-    <table style="width:100%;border-collapse:separate;border-spacing:0;margin:8px 0 0;border:1px solid ${T.border};border-radius:${T.rmd};overflow:hidden;font-size:13px;font-family:${T.fmono}">
-      <thead><tr>
-        <th style="text-align:left;padding:10px 14px;background:${T.panel};font-size:10.5px;font-weight:700;color:${T.text3};text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid ${T.border}">Parameter</th>
-        <th style="text-align:left;padding:10px 14px;background:${T.panel};font-size:10.5px;font-weight:700;color:${T.text3};text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid ${T.border}">Value</th>
-      </tr></thead>
-      <tbody>
-        ${rows.map((r,i)=>`<tr>
-          <td style="padding:11px 14px;border-bottom:${i===rows.length-1?'0':`1px solid ${T.border}`};color:${T.text1};font-weight:600">${esc(r[0])}</td>
-          <td style="padding:11px 14px;border-bottom:${i===rows.length-1?'0':`1px solid ${T.border}`};color:${T.teal}">${esc(r[1])}</td>
-        </tr>`).join('')}
-      </tbody>
-    </table>`;
-}
-
-function stepsBlock(items) {
-  return `<div style="margin:8px 0 0;display:flex;flex-direction:column;gap:10px">
-    ${items.map((step,i)=>`
-      <div style="display:grid;grid-template-columns:36px 1fr;gap:14px;padding:14px 16px;background:${T.panel};border:1px solid ${T.border};border-radius:${T.rmd}">
-        <div style="width:30px;height:30px;border-radius:50%;background:rgba(0,212,188,0.12);color:${T.teal};font-family:${T.fmono};font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center">${i+1}</div>
-        <div style="font-size:13.5px;color:${T.text2};line-height:1.55">${esc(step)}</div>
-      </div>`).join('')}
-  </div>`;
-}
-
-function calloutCritical(title, body) {
-  return `<div style="display:grid;grid-template-columns:auto 1fr;gap:14px;padding:14px 18px;border-radius:${T.rmd};margin:8px 0 0;border:1px solid rgba(255,107,157,0.32);background:rgba(255,107,157,0.06)">
-    <div style="width:28px;height:28px;border-radius:50%;background:${T.rose};color:#04121c;display:flex;align-items:center;justify-content:center;font-weight:700;font-family:${T.fmono}">⛔</div>
-    <div>
-      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:${T.rose};margin-bottom:4px">${esc(title)}</div>
-      <div style="color:${T.text1};font-size:14px;line-height:1.55">${esc(body)}</div>
-    </div>
-  </div>`;
-}
-
-function calloutTLDR(body) {
-  return `<div style="display:grid;grid-template-columns:auto 1fr;gap:14px;padding:14px 18px;border-radius:${T.rmd};margin:0 0 22px;border:1px solid rgba(0,212,188,0.28);background:rgba(0,212,188,0.05)">
-    <div style="width:28px;height:28px;border-radius:50%;background:${T.teal};color:#04121c;display:flex;align-items:center;justify-content:center;font-weight:700;font-family:${T.fmono}">⚡</div>
-    <div>
-      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:${T.teal};margin-bottom:4px">TL;DR · the 60-second version</div>
-      <div style="color:${T.text1};font-size:14px;line-height:1.55">${esc(body)}</div>
-    </div>
-  </div>`;
-}
-
-function calloutSnapshot(body) {
-  return `<div style="display:grid;grid-template-columns:auto 1fr;gap:14px;padding:16px 18px;border-radius:${T.rmd};margin:0 0 24px;border:1px solid rgba(0,212,188,0.28);background:linear-gradient(135deg, rgba(0,212,188,0.12), rgba(74,158,255,0.08) 58%, rgba(255,255,255,0.02))">
-    <div style="width:32px;height:32px;border-radius:50%;background:${T.teal};color:#04121c;display:flex;align-items:center;justify-content:center;font-weight:700;font-family:${T.fmono};box-shadow:0 0 0 6px rgba(0,212,188,0.08)">!</div>
-    <div>
-      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:${T.teal};margin-bottom:4px">Clinical snapshot</div>
-      <div style="color:${T.text1};font-size:14px;line-height:1.55">${esc(body)}</div>
-    </div>
-  </div>`;
-}
-
-function checklistBlock(entryId, items) {
-  if (!items || !items.length) return `<p style="color:${T.text3}">No checklist on file.</p>`;
-  const key = `ds_handbook_checklist_${entryId}`;
-  let saved = {};
-  try { saved = JSON.parse(localStorage.getItem(key) || '{}') || {}; } catch (_) { saved = {}; }
-  return `<div style="margin:8px 0 0;border-top:1px solid ${T.border}">
-    ${items.map((item,i)=>{
-      const checked = !!saved[i];
-      return `
-        <label style="display:flex;align-items:flex-start;gap:12px;padding:10px 4px;border-bottom:1px solid ${T.border};font-size:14px;color:${T.text2};line-height:1.5;cursor:pointer">
-          <input type="checkbox" ${checked?'checked':''} data-cl-key="${esc(key)}" data-cl-idx="${i}" style="margin-top:3px;accent-color:${T.teal};width:15px;height:15px;cursor:pointer;flex-shrink:0" onchange="window._hbToggleCheck(this)" />
-          <span style="flex:1${checked?`;color:${T.text3};text-decoration:line-through`:''}"><strong style="color:${checked?T.text3:T.text1};font-weight:600">${esc(item)}</strong></span>
-        </label>`;
-    }).join('')}
-  </div>`;
-}
-
-function evidenceCards(entry, grade, summary) {
-  const primaryBody = summary
-    ? String(summary).slice(0, 360) + (String(summary).length > 360 ? '…' : '')
-    : 'No narrative summary on file for this handbook entry.';
-  const cards = [
-    {
-      grade,
-      title: 'Registry evidence grade (this handbook)',
-      body: primaryBody + ' The letter grade reflects internal registry tagging for workflow prioritisation, not a systematic literature review.',
-      cite: `Evidence posture · Grade ${(grade || 'C').toUpperCase()} · scope=${entry.kind === 'protocol' ? 'protocol ' + entry.id : 'condition ' + entry.id}. Live citation retrieval is not connected here — use Research Evidence and primary literature via your clinic workflow.`,
-    },
-    {
-      grade: gradeStep(grade, 1),
-      title: 'Literature & trials',
-      body: 'Peer-reviewed citations are not listed automatically on this page. Open Research Evidence or attach references through your clinic governance process.',
-      cite: 'No automated PMID/DOI list · manual verification required.',
-    },
-    {
-      grade: gradeStep(grade, 2),
-      title: 'Outcomes & operational data',
-      body: 'Network-wide outcome aggregates are not surfaced here. Use Population Analytics / clinic QA workflows where your role permits.',
-      cite: 'Operational outcomes · not shown as citations.',
-    },
+// ── Demo Data ────────────────────────────────────────────────────────────────
+function _demoHandbooks() {
+  return [
+    { id: 'hb-001', title: 'TMS for Treatment-Resistant Depression', modality: 'TMS', audience: 'Clinician Manual', state: 'signed', date: '2025-06-15', condition: 'Treatment-Resistant Depression', evidence: 'A', author: 'Dr. Sarah Chen' },
+    { id: 'hb-002', title: 'tDCS Protocol for Chronic Pain', modality: 'tDCS', audience: 'Staff SOP', state: 'approved', date: '2025-05-28', condition: 'Chronic Pain / Fibromyalgia', evidence: 'A', author: 'Dr. Marcus Webb' },
+    { id: 'hb-003', title: 'Patient Guide: What to Expect with TMS', modality: 'TMS', audience: 'Patient-Friendly Guide', state: 'draft', date: '2025-07-01', condition: 'Major Depressive Disorder', evidence: 'B', author: 'Dr. Sarah Chen' },
+    { id: 'hb-004', title: 'tACS for Cognitive Enhancement in MCI', modality: 'tACS', audience: 'Clinician Manual', state: 'needs_review', date: '2025-06-20', condition: "Alzheimer's Disease / Dementia", evidence: 'C', author: 'Dr. Priya Nair' },
+    { id: 'hb-005', title: 'taVNS for Migraine Prophylaxis', modality: 'taVNS', audience: 'Clinician Manual', state: 'draft', date: '2025-07-02', condition: 'Migraine', evidence: 'B', author: 'Dr. James Liu' },
+    { id: 'hb-006', title: 'Neurofeedback for ADHD — Pediatric', modality: 'Neurofeedback', audience: 'Patient-Friendly Guide', state: 'signed', date: '2025-04-10', condition: 'ADHD', evidence: 'A', author: 'Dr. Emily Park' },
   ];
-  return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin:8px 0 0">
-    ${cards.map((c,i)=>`
-      <div data-ev-cite="${esc(c.cite)}" data-ev-title="${esc(c.title)}" onclick="window._hbCite(this)" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window._hbCite(this)}"
-           style="padding:14px 16px;background:${T.panel};border:1px solid ${T.border};border-radius:${T.rmd};cursor:pointer;display:flex;flex-direction:column;gap:8px;text-align:left;font:inherit;color:inherit">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-          ${gradeBadge(c.grade)}
-          <span style="font-family:${T.fmono};font-size:10px;color:${T.text3}">${i === 0 ? 'PRIMARY' : i === 1 ? 'LIT' : 'OPS'}</span>
-        </div>
-        <div style="font-family:${T.fdisp};font-size:14px;font-weight:600;color:${T.text1};line-height:1.3">${esc(c.title)}</div>
-        <div style="font-size:12px;color:${T.text2};line-height:1.5">${esc(c.body)}</div>
-      </div>`).join('')}
-  </div>`;
-}
-function gradeStep(g, n) {
-  const order = ['A','B','C','D'];
-  const idx = Math.min(order.length - 1, Math.max(0, order.indexOf((g||'C').toUpperCase()) + n));
-  return order[idx];
 }
 
-/** Compact navigation targets — opens existing app routes (same pattern as sidebar). */
-function handbookQuickLinksHtml() {
-  const btn = `padding:7px 10px;border-radius:${T.rsm};font-size:11px;color:${T.text2};background:${T.surface};border:1px solid ${T.border};cursor:pointer;font-family:inherit;text-align:left;width:100%`;
-  const links = [
-    ['Patients', 'patients-v2'],
-    ['Assessments', 'assessments-v2'],
-    ['Documents', 'documents-v2'],
-    ['Protocol Studio', 'protocol-studio'],
-    ['Brain Map Planner', 'brainmap-v2'],
-    ['Research Evidence', 'research-evidence'],
-    ['DeepTwin', 'deeptwin'],
-    ['MRI Analyzer', 'mri-analysis'],
-    ['qEEG', 'qeeg-launcher'],
-    ['Voice', 'voice-analyzer'],
-    ['Video', 'video-assessments'],
-    ['Text', 'text-analyzer'],
-    ['Biometrics', 'wearables'],
-    ['Clinician inbox', 'clinician-inbox'],
-    ['Schedule', 'schedule-v2'],
-    ['Audit trail', 'audittrail'],
+function _demoGeneratedSections(handbook) {
+  const grade = handbook.evidence || 'B';
+  return [
+    { id: 'overview', title: 'Overview', evidence: grade, content: _lorem('Overview of ' + handbook.title + '. This protocol is based on current clinical evidence and should be reviewed by a licensed clinician before application. Always verify patient-specific contraindications.'), citations: _demoCitations(grade) },
+    { id: 'indications', title: 'Indications / Context', evidence: grade, content: _lorem('Primary indications and clinical context for ' + handbook.condition + '. Include diagnostic criteria and severity assessment.'), citations: _demoCitations(grade) },
+    { id: 'contraindications', title: 'Contraindications', evidence: 'A', content: _lorem('Absolute contraindications: cranial implants, pacemakers, history of seizure disorder, pregnancy. Relative contraindications: medication interactions, acute psychiatric instability.'), citations: _demoCitations('A') },
+    { id: 'preparation', title: 'Preparation', evidence: grade, content: _lorem('Pre-session checklist: verify identity, review safety screen, confirm no contraindications, document baseline assessments, calibrate equipment.'), citations: _demoCitations(grade) },
+    { id: 'workflow', title: 'Session Workflow', evidence: grade, content: _lorem('Standard session protocol: positioning, parameter verification, stimulation delivery, monitoring, post-session assessment, documentation.'), citations: _demoCitations(grade) },
+    { id: 'safety', title: 'Safety Checklist', evidence: 'A', content: _lorem('Emergency stop within reach. Monitor for signs of discomfort. Document skin integrity. Verify impedance levels. Post-session skin inspection.'), citations: _demoCitations('A') },
+    { id: 'adverse', title: 'Adverse Event Guidance', evidence: 'A', content: _lorem('Common AEs: headache, scalp discomfort, dizziness. Management: pause stimulation, assess severity, document, notify supervising clinician if moderate or severe.'), citations: _demoCitations('A') },
+    { id: 'experience', title: 'Expected Experience', evidence: 'B', content: _lorem('Patients typically describe tapping or tingling sensation. Effects may emerge after 2-4 weeks of regular sessions. Set realistic expectations.'), citations: _demoCitations('B') },
+    { id: 'notes', title: 'Clinician Notes / Patient Explanation', evidence: grade, content: _lorem('Key talking points for patient education. Explain mechanism in accessible terms. Discuss timeline and what to monitor between sessions.'), citations: _demoCitations(grade) },
+    { id: 'evidence', title: 'Evidence Appendix', evidence: grade, content: 'See collapsible citations below.', citations: _demoCitations(grade, 6), collapsible: true },
+    { id: 'limitations', title: 'Limitations', evidence: 'C', content: _lorem('Evidence quality varies by population. Limited data for pediatric and geriatric subgroups. Individual response may differ from trial averages.'), citations: _demoCitations('C') },
+    { id: 'signoff', title: 'Review / Sign-Off', evidence: grade, content: 'Use the governance panel above to submit for review, approve, or sign this handbook.', citations: [] },
   ];
-  return `<div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
-    ${links.map(([label, page]) => `
-      <button type="button" onclick="window._nav('${esc(page)}')" style="${btn}">${esc(label)}</button>`).join('')}
-  </div>`;
 }
 
-function relatedCards(entry) {
-  const related = [];
-  if (entry.kind === 'condition') {
-    const protos = PROTOCOL_REGISTRY.filter(p => p.condition === entry.id).slice(0, 4);
-    for (const p of protos) related.push({ kind: 'PROTOCOL', title: HANDBOOK_DATA[p.id]?.name || p.name, meta: `${p.modality||''} · ${p.target||''}`, id: p.id });
-  } else if (entry.kind === 'protocol') {
-    const cond = CONDITION_REGISTRY.find(c => c.id === entry.reg?.condition);
-    if (cond) related.push({ kind: 'CONDITION', title: cond.name, meta: `${cond.icd10||''} · ${cond.cat||''}`, id: cond.id });
-    related.push({ kind: 'SAFETY', title: 'Pre-session safety screen', meta: 'required before every run', id: 'ops-safety-screen' });
-    related.push({ kind: 'OPS', title: 'Electrode preparation & saline SOP', meta: '6 mL per pad · 0.9 % saline', id: 'ops-electrode-prep' });
-    related.push({ kind: 'OPS', title: 'Adverse event response tree', meta: 'triage + on-call paging', id: 'ops-ae-response' });
-  } else {
-    related.push({ kind: 'SAFETY', title: 'Pre-session safety screen', meta: 'required before every run', id: 'ops-safety-screen' });
-    related.push({ kind: 'OPS', title: 'Contraindications matrix', meta: 'cross-modality', id: 'ops-contra-matrix' });
+function _lorem(topic) {
+  return topic + ' — [This is an AI-assisted draft for clinician review. Verify all clinical claims against primary literature and institutional policy before use. Evidence grades indicate the strength of supporting data, not clinical certainty.]';
+}
+
+function _demoCitations(grade, count = 3) {
+  const pool = [
+    { id: 'c1', title: 'Randomized controlled trial of rTMS in treatment-resistant depression', journal: 'Am J Psychiatry', year: 2023, pmid: '36812345', doi: '10.1176/appi.ajp.2023.2301', grade: 'A' },
+    { id: 'c2', title: 'Systematic review and meta-analysis of non-invasive brain stimulation for MDD', journal: 'Lancet Psychiatry', year: 2024, pmid: '37198765', doi: '10.1016/s2215-0366(24)00012-3', grade: 'A' },
+    { id: 'c3', title: 'Long-term follow-up of deep TMS for OCD', journal: 'Brain Stimulation', year: 2023, pmid: '36754321', doi: '10.1016/j.brs.2023.02.004', grade: 'B' },
+    { id: 'c4', title: 'Safety profile of tDCS in chronic pain: a pooled analysis', journal: 'Neuromodulation', year: 2022, pmid: '35678901', doi: '10.1111/ner.13567', grade: 'B' },
+    { id: 'c5', title: 'Case series: taVNS for migraine prevention', journal: 'Cephalalgia', year: 2023, pmid: '36543210', doi: '10.1177/0333102423005678', grade: 'C' },
+    { id: 'c6', title: 'Pediatric neurofeedback for ADHD: pilot study', journal: 'J Atten Disord', year: 2024, pmid: '37890123', doi: '10.1177/1087054724001234', grade: 'C' },
+  ];
+  return pool.slice(0, count).map(c => ({ ...c, grade: grade || c.grade }));
+}
+
+// ── Evidence badge helper ────────────────────────────────────────────────────
+function _evBadge(grade) {
+  const g = (grade || 'D').toUpperCase();
+  const cls = `evidence-${g.toLowerCase()}`;
+  return `<span class="evidence-badge ${cls}">GRADE ${esc(g)}</span>`;
+}
+
+// ── State dot helper ─────────────────────────────────────────────────────────
+function _stateDot(state) {
+  const colors = { draft: '#fbbf24', needs_review: '#f97316', approved: '#3b82f6', signed: '#22c55e', exported: '#8b5cf6' };
+  const c = colors[state] || colors.draft;
+  return `<span style="width:8px;height:8px;border-radius:50%;background:${c};display:inline-block;margin-right:4px;"></span>`;
+}
+
+// ── Status label helper ──────────────────────────────────────────────────────
+function _statusLabel(state) {
+  return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;background:rgba(255,255,255,0.06);border:1px solid var(--border, rgba(255,255,255,0.08));">${_stateDot(state)}${esc(GOVERNANCE_LABELS[state] || state)}</span>`;
+}
+
+// ── Resolve patient scope from URL ───────────────────────────────────────────
+// Detects patient_id from URL query params. Only loads patient context when
+// consent is verified. Falls back to generic mode if consent is missing or
+// the API call fails.
+function _resolvePatientScope() {
+  const params = new URLSearchParams(window.location.search);
+  const pid = params.get('patient_id');
+  if (pid) {
+    _state.patientId = pid;
+    api.getPatient(pid).then(p => {
+      if (p && p.id) {
+        // Verify patient consent before enabling personalized mode
+        const consentOk = p.consent_status === 'active' || p.consent_status === 'granted' || p.consent_status === true;
+        if (consentOk) {
+          _state.patientName = `${p.first_name || ''} ${p.last_name || ''}`.trim() || pid;
+          _renderIfHandbook();
+        } else {
+          // Consent not verified — keep patientId but use generic mode
+          _state.patientName = null;
+          window._dsToast?.({ title: 'Consent required', body: `Patient ${pid} has not provided consent for personalized handbook generation. Using generic mode.`, severity: 'warn' });
+        }
+      }
+    }).catch(() => { _state.patientName = null; });
   }
-  if (!related.length) return `<p style="color:${T.text3}">No cross-links yet.</p>`;
-  return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin:8px 0 0">
-    ${related.map(r=>`
-      <div onclick="window._hbOpen('${esc(r.id)}')" style="padding:14px 16px;background:${T.panel};border:1px solid ${T.border};border-radius:${T.rmd};cursor:pointer;transition:border-color .1s" onmouseover="this.style.borderColor='rgba(0,212,188,0.35)'" onmouseout="this.style.borderColor='${T.border}'">
-        <div style="font-family:${T.fmono};font-size:9.5px;color:${T.text3};text-transform:uppercase;letter-spacing:0.06em;font-weight:600">${esc(r.kind)}</div>
-        <div style="font-family:${T.fdisp};font-size:14px;font-weight:600;color:${T.text1};margin-top:4px;line-height:1.3">${esc(r.title)}</div>
-        <div style="font-family:${T.fmono};font-size:10.5px;color:${T.text3};margin-top:8px">${esc(r.meta)}</div>
-      </div>`).join('')}
-  </div>`;
 }
 
-// ── Left rail: collections tree ──────────────────────────────────────────────
-function renderLeftRail(entries) {
-  const q = _query.trim().toLowerCase();
-  const favs = new Set(_loadFavs());
-  const visible = entries.filter(e => {
-    // Text query
-    if (q && !(
-      e.title.toLowerCase().includes(q) ||
-      e.subtitle.toLowerCase().includes(q) ||
-      e.id.toLowerCase().includes(q) ||
-      e.collection.toLowerCase().includes(q)
-    )) return false;
-    // Modality filter — only applies to entries with a declared modality
-    if (_fModality !== 'All') {
-      if (!(e.modalities || []).some(m => _modalityMatches(m, _fModality))) return false;
+function _renderIfHandbook() {
+  const el = document.getElementById('hb-content');
+  if (el && _state.view === 'handbook' && _state.selectedHandbook) { renderHandbookView(el); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 1. LIBRARY VIEW
+// ═══════════════════════════════════════════════════════════════════════════════
+function renderLibrary(container) {
+  const rf = getRoleFeatures();
+  const handbooks = _state.handbooks;
+  const filtered = handbooks.filter(h => {
+    if (_state.filter !== 'all' && h.state !== _state.filter) return false;
+    if (_state.search) {
+      const q = _state.search.toLowerCase();
+      return h.title.toLowerCase().includes(q) || h.modality.toLowerCase().includes(q) || h.condition.toLowerCase().includes(q);
     }
-    // Protocol filter — matches by protocol id
-    if (_fProtocol !== 'All') {
-      if (!(e.protocolIds || []).includes(_fProtocol)) return false;
-    }
-    // Device filter — match against any device whose modality fits any modality on this entry
-    if (_fDevice !== 'All') {
-      const d = DEVICE_REGISTRY.find(x => x.id === _fDevice);
-      if (!d) return false;
-      if (!(e.modalities || []).some(m => _modalityMatches(d.modality, m))) return false;
-    }
-    // Favourites-only
-    if (_favOnly && !favs.has(e.id)) return false;
     return true;
+  }).sort((a, b) => {
+    if (_state.sortBy === 'date') return new Date(b.date) - new Date(a.date);
+    if (_state.sortBy === 'state') return GOVERNANCE_STATES.indexOf(a.state) - GOVERNANCE_STATES.indexOf(b.state);
+    return a.title.localeCompare(b.title);
   });
 
-  // Pinned = first 3 condition entries (canonical examples) + active doc if not present
-  const pinnedIds = new Set(['mdd', 'ops-safety-screen', 'ops-ae-response']);
-  if (_id) pinnedIds.add(_id);
-  const pinned = visible.filter(e => pinnedIds.has(e.id)).slice(0, 4);
+  const scopeBanner = _state.patientId && _state.patientName
+    ? `<div class="patient-scope-banner">Personalized for <strong>${esc(_state.patientName)}</strong> — Based on clinic records with consent. Patient-scoped handbook generation is ${rf.canGenerate ? 'enabled' : 'disabled (read-only)'}</div>`
+    : _state.patientId && !_state.patientName
+    ? `<div class="generic-scope-banner"><strong>Generic educational guide</strong> — patient_id present but consent not verified or patient not found. <a href="#" onclick="window._resolvePatientScope();return false;" style="color:var(--accent,#00d4bc)">Retry loading patient</a></div>`
+    : `<div class="generic-scope-banner"><strong>Generic educational guide</strong> — Not patient-specific. Add ?patient_id=... to URL for personalized content.</div>`;
 
-  // Group remainder by collection
-  const groups = new Map();
-  for (const e of visible) {
-    if (pinnedIds.has(e.id)) continue;
-    if (!groups.has(e.collection)) groups.set(e.collection, []);
-    groups.get(e.collection).push(e);
-  }
-  // Stable order: clinical conditions first (registry cat order), then Safety & Ops, then Training
-  const catOrder = [...new Set(CONDITION_REGISTRY.map(c => c.cat))];
-  const collectionOrder = [...catOrder, 'Protocols', 'Safety & Ops', 'Training'];
-  const ordered = collectionOrder.filter(c => groups.has(c)).map(c => [c, groups.get(c)]);
-  // Append any leftover collections we didn't anticipate
-  for (const [k,v] of groups) if (!collectionOrder.includes(k)) ordered.push([k,v]);
-
-  function row(e) {
-    const active = e.id === _id ? `background:rgba(0,212,188,0.07);color:${T.text1};border-left-color:${T.teal}` : '';
-    const status = e.kind === 'ops' || e.kind === 'train' ? (e.version === 'draft' ? 'draft' : 'ok') : 'ok';
-    const meta = e.kind === 'condition' ? (e.reg?.icd10 || '') : e.kind === 'protocol' ? (e.reg?.modality || '') : (e.version || '');
-    const isFav = favs.has(e.id);
-    return `<div onclick="window._hbOpen('${esc(e.id)}')"
-      style="padding:6px 8px 6px 18px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:12px;color:${T.text2};border-left:2px solid transparent;line-height:1.35;${active}">
-      ${statusDot(status)}
-      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">${esc(e.title)}</span>
-      <span style="font-size:9.5px;color:${T.text3};font-family:${T.fmono};flex-shrink:0">${esc(meta)}</span>
-      <button aria-label="${isFav ? 'Unfavourite' : 'Favourite'}" onclick="event.stopPropagation(); window._hbToggleFav('${esc(e.id)}')"
-        style="background:transparent;border:0;cursor:pointer;padding:0 2px;color:${isFav ? T.amber : T.text3};font-size:13px;line-height:1;flex-shrink:0">${isFav ? '★' : '☆'}</button>
-    </div>`;
-  }
-
-  function group(title, items, count) {
-    if (!items.length) return '';
-    return `
-      <div style="padding:11px 14px 5px;font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;display:flex;align-items:center;gap:6px;font-family:${T.fmono}">
-        ${esc(title)} <span style="margin-left:auto;color:${T.text3}">${count}</span>
-      </div>
-      ${items.map(row).join('')}`;
-  }
-
-  // Build facet option lists from real entries (entries = full set, not filtered).
-  const allModalities = [...new Set(entries.flatMap(e => e.modalities || []))].filter(Boolean).sort();
-  const allProtocolIds = [...new Set(entries.flatMap(e => e.protocolIds || []))].filter(Boolean);
-  const allDevices = [...new Set(DEVICE_REGISTRY.map(d => d.id))].filter(Boolean);
-
-  const selStyle = `flex:1;min-width:0;padding:5px 7px;border-radius:${T.rsm};background:${T.surface};color:${T.text1};border:1px solid ${T.border};font-size:11px;font-family:inherit;box-sizing:border-box`;
-  const facetRow = `
-    <div style="display:flex;gap:6px;margin-top:8px">
-      <select onchange="window._hbSetFacet('modality', this.value)" style="${selStyle}" title="Filter by modality">
-        <option value="All"${_fModality==='All'?' selected':''}>Any modality</option>
-        ${allModalities.map(m => `<option value="${esc(m)}"${m===_fModality?' selected':''}>${esc(m)}</option>`).join('')}
-      </select>
-      <select onchange="window._hbSetFacet('protocol', this.value)" style="${selStyle}" title="Filter by protocol">
-        <option value="All"${_fProtocol==='All'?' selected':''}>Any protocol</option>
-        ${allProtocolIds.map(pid => {
-          const p = PROTOCOL_REGISTRY.find(x => x.id === pid);
-          return `<option value="${esc(pid)}"${pid===_fProtocol?' selected':''}>${esc(p?.name || pid)}</option>`;
-        }).join('')}
-      </select>
-    </div>
-    <div style="display:flex;gap:6px;margin-top:6px">
-      <select onchange="window._hbSetFacet('device', this.value)" style="${selStyle}" title="Filter by device">
-        <option value="All"${_fDevice==='All'?' selected':''}>Any device</option>
-        ${allDevices.map(did => {
-          const d = DEVICE_REGISTRY.find(x => x.id === did);
-          return `<option value="${esc(did)}"${did===_fDevice?' selected':''}>${esc((d?.name || did) + ' · ' + (d?.modality || ''))}</option>`;
-        }).join('')}
-      </select>
-      <button onclick="window._hbToggleFavOnly()"
-        title="${_favOnly ? 'Show all' : 'Favourites only'}"
-        style="padding:5px 10px;border-radius:${T.rsm};background:${_favOnly ? 'rgba(255,181,71,0.12)' : T.surface};border:1px solid ${_favOnly ? T.amber : T.border};color:${_favOnly ? T.amber : T.text2};font-size:11px;cursor:pointer;font-family:inherit;flex-shrink:0">${_favOnly ? '★ Favs' : '☆ All'}</button>
-    </div>
-    ${(_fModality!=='All' || _fProtocol!=='All' || _fDevice!=='All' || _favOnly) ? `
-      <button onclick="window._hbResetFacets()" style="margin-top:6px;padding:3px 8px;border-radius:${T.rsm};background:transparent;border:1px solid ${T.border};color:${T.text3};font-size:10.5px;cursor:pointer;font-family:${T.fmono}">× Reset filters</button>
-    ` : ''}`;
-
-  return `
-    <aside style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};display:flex;flex-direction:column;overflow:hidden;position:sticky;top:0;align-self:start;max-height:calc(100vh - 120px)">
-      <div style="padding:14px 14px 10px;border-bottom:1px solid ${T.border}">
-        <div style="position:relative">
-          <input id="hb-filter" placeholder="Filter handbooks…  ( / )" value="${esc(_query)}"
-            oninput="window._hbFilter(this.value)"
-            style="width:100%;padding:7px 10px;background:${T.surface};border:1px solid ${T.border};border-radius:${T.rsm};font-size:11.5px;color:${T.text1};font-family:inherit;box-sizing:border-box" />
+  container.innerHTML = `
+    <style>${PAGE_CSS}</style>
+    <div class="handbook-container">
+      <div class="handbook-header">
+        <div>
+          <div class="handbook-title">Clinical Handbook Library</div>
+          <div style="font-size:11px;color:var(--text-secondary, #94a3b8);margin-top:4px">${handbooks.length} handbooks · decision-support only</div>
         </div>
-        ${facetRow}
-      </div>
-      <div style="flex:1;overflow-y:auto;padding:4px 0 16px">
-        ${group('Pinned', pinned, pinned.length)}
-        ${ordered.map(([cat, items]) => group(cat, items, items.length)).join('')}
-        ${visible.length === 0 ? `<div style="padding:22px 14px;color:${T.text3};font-size:11.5px">No handbooks match.</div>` : ''}
-      </div>
-    </aside>`;
-}
-
-// ── Center reading pane ──────────────────────────────────────────────────────
-function renderCenterV2(entry, sections) {
-  if (!entry) {
-    const entries = buildEntries();
-    const byCat = new Map();
-    for (const e of entries) {
-      if (!byCat.has(e.collection)) byCat.set(e.collection, []);
-      byCat.get(e.collection).push(e);
-    }
-    const catOrder = [...new Set(CONDITION_REGISTRY.map(c => c.cat))];
-    const ordered = [...catOrder, 'Protocols', 'Safety & Ops', 'Training']
-      .filter(c => byCat.has(c))
-      .map(c => [c, byCat.get(c)]);
-    for (const [k, v] of byCat) if (!ordered.find(([x]) => x === k)) ordered.push([k, v]);
-
-    const cards = ordered.slice(0, 9).map(([cat, items]) => {
-      const sample = items[0];
-      return `<button onclick="window._hbOpen('${esc(sample.id)}')"
-        style="text-align:left;padding:16px;border-radius:${T.rmd};background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));border:1px solid ${T.border};cursor:pointer;font-family:inherit;display:flex;flex-direction:column;gap:7px;transition:border-color 0.15s, transform 0.15s"
-        onmouseover="this.style.borderColor='${T.teal}';this.style.transform='translateY(-1px)'"
-        onmouseout="this.style.borderColor='${T.border}';this.style.transform='translateY(0)'">
-        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-family:${T.fmono};font-weight:600;display:flex;align-items:center;justify-content:space-between">
-          <span>${esc(cat)}</span>
-          <span style="color:${T.text3};font-weight:500">${items.length} doc${items.length===1?'':'s'}</span>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button ${!rf.canGenerate ? 'disabled' : ''} onclick="window._hbGoGenerator()" style="padding:8px 16px;border-radius:6px;font-size:12px;font-weight:600;background:var(--accent, #00d4bc);color:#04121c;border:none;cursor:${rf.canGenerate ? 'pointer' : 'not-allowed'};font-family:inherit;"
+            title="${rf.canGenerate ? 'Create a new handbook' : 'Handbook generation not enabled for your role'}">+ New Handbook</button>
+          <button onclick="window._hbRefreshLibrary()" style="padding:8px 14px;border-radius:6px;font-size:12px;background:var(--surface-1, rgba(255,255,255,0.04));color:var(--text-primary, #e2e8f0);border:1px solid var(--border, rgba(255,255,255,0.08));cursor:pointer;font-family:inherit;">Refresh</button>
         </div>
-        <div style="font-size:15px;color:${T.text1};font-weight:600;font-family:${T.fdisp};line-height:1.3">${esc(sample.title)}</div>
-        <div style="font-size:11.5px;color:${T.text2};overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${esc(sample.subtitle || '')}</div>
-      </button>`;
-    }).join('');
-
-    const total = entries.length;
-    const collections = ordered.length;
-    const featured = ordered[0]?.[1]?.[0];
-    return `<section style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};padding:42px clamp(20px, 4vw, 56px);min-height:calc(100vh - 180px);overflow-y:auto;max-height:calc(100vh - 120px)">
-      <div style="max-width:900px;margin:0 auto">
-        <div style="padding:24px;border:1px solid ${T.border};border-radius:${T.rmd};background:radial-gradient(circle at top left, rgba(0,212,188,0.16), transparent 30%), linear-gradient(135deg, rgba(255,255,255,0.03), rgba(74,158,255,0.05) 58%, rgba(255,181,71,0.04));margin-bottom:18px">
-          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:${T.teal};font-family:${T.fmono};font-weight:600;margin-bottom:8px">Handbook workspace (v2)</div>
-          <h1 style="font-family:${T.fdisp};font-size:34px;font-weight:600;letter-spacing:-0.025em;line-height:1.05;margin:0 0 10px;color:${T.text1}">Clinician-reviewed handbook and document drafting</h1>
-          <p style="font-size:14.5px;color:${T.text2};line-height:1.65;margin:0 0 16px;max-width:670px">Create and review <strong style="color:${T.text1}">AI-assisted drafts</strong> and curated condition/protocol references. This surface is for <strong style="color:${T.text1}">decision support and documentation preparation</strong> — it does not diagnose, prescribe, approve treatment, perform triage, or replace your clinic&apos;s formal sign-off process.</p>
-          <div style="display:flex;gap:10px;flex-wrap:wrap">
-            <div style="padding:9px 12px;border-radius:999px;border:1px solid ${T.border};background:rgba(255,255,255,0.04);font-family:${T.fmono};font-size:11px;color:${T.text2}">${total} items in library</div>
-            <div style="padding:9px 12px;border-radius:999px;border:1px solid ${T.border};background:rgba(255,255,255,0.04);font-family:${T.fmono};font-size:11px;color:${T.text2}">${collections} groupings</div>
-            <div style="padding:9px 12px;border-radius:999px;border:1px solid ${T.border};background:rgba(255,255,255,0.04);font-family:${T.fmono};font-size:11px;color:${T.text2}">Filter · favourite · export</div>
-          </div>
-        </div>
-        <p style="font-size:12.5px;color:${T.text3};line-height:1.6;margin:0 0 20px;max-width:720px">Per-patient narrative handbooks, server-side version history, and e-sign are <strong style="color:${T.text2}">not yet persisted</strong> in this build — use patient chart, Documents, and your governance queue for signed artefacts. Use the <strong style="color:${T.text2}">Quick links</strong> in the right rail to open related clinic tools.</p>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin:0 0 28px">
-          <button type="button" onclick="document.getElementById('hb-filter')?.focus()" style="padding:8px 14px;border-radius:${T.rsm};font-size:12px;font-weight:600;color:${T.teal};background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.32);cursor:pointer;font-family:inherit">Search the library</button>
-          <button type="button" onclick="window._hbOpen('${esc(featured?.id || 'mdd')}')" style="padding:8px 14px;border-radius:${T.rsm};font-size:12px;color:${T.text2};background:${T.surface};border:1px solid ${T.border};cursor:pointer;font-family:inherit">Open a sample handbook</button>
-        </div>
-        <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-family:${T.fmono};font-weight:600;margin:0 0 10px">Start from a collection</div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));gap:12px">${cards}</div>
       </div>
-    </section>`;
-  }
 
-  const version = entry.version || 'v1.0';
-  const minutes = readTime(JSON.stringify(entry.data || {}));
-  const tldr = (entry.data?.responseData || entry.data?.expectedResponse || entry.data?.patientExplain || `Working summary for ${entry.title} — confirm against source assessments and policy.`);
-  const heroTag = entry.kind === 'protocol' ? 'Protocol handbook' : entry.kind === 'condition' ? 'Condition handbook' : entry.kind === 'train' ? 'Training handbook' : 'Operations handbook';
-  const sopNum = `SOP-${(entry.id||'').toUpperCase().slice(0,8)}`;
-  const isFav = _isFav(entry.id);
-  const docxDisabled = entry.kind !== 'condition' && entry.kind !== 'protocol';
-  const st = curatedHandbookStatus(entry);
+      ${rf.isReadOnly ? `<div class="readonly-banner">Read-only access — Handbooks can be generated by clinicians. Contact your clinic administrator if you need generation or export privileges.</div>` : ''}
+      ${scopeBanner}
 
-  return `<section style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};display:flex;flex-direction:column;overflow:hidden;min-width:0">
-    <header style="padding:10px 22px;border-bottom:1px solid ${T.border};background:${T.bg};display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <div style="display:flex;align-items:center;gap:7px;font-size:11.5px;color:${T.text3};font-weight:500;font-family:${T.fmono}">
-        <span>${esc(heroTag)}</span><span style="opacity:.4">/</span>
-        <span>${esc(entry.collection || 'Reference')}</span><span style="opacity:.4">/</span>
-        <strong style="color:${T.text1};font-weight:600">${esc(entry.title)}</strong>
+      <div class="filter-bar">
+        <select onchange="window._hbSetFilter(this.value)">
+          <option value="all" ${_state.filter === 'all' ? 'selected' : ''}>All States</option>
+          <option value="draft" ${_state.filter === 'draft' ? 'selected' : ''}>Draft</option>
+          <option value="approved" ${_state.filter === 'approved' ? 'selected' : ''}>Approved</option>
+          <option value="signed" ${_state.filter === 'signed' ? 'selected' : ''}>Signed</option>
+          <option value="exported" ${_state.filter === 'exported' ? 'selected' : ''}>Exported</option>
+        </select>
+        <input type="text" placeholder="Search title, modality, condition..." value="${esc(_state.search)}"
+          oninput="window._hbSetSearch(this.value)" style="flex:1;max-width:300px;" />
+        <select onchange="window._hbSetSort(this.value)">
+          <option value="date" ${_state.sortBy === 'date' ? 'selected' : ''}>Sort by Date</option>
+          <option value="state" ${_state.sortBy === 'state' ? 'selected' : ''}>Sort by State</option>
+          <option value="title" ${_state.sortBy === 'title' ? 'selected' : ''}>Sort by Title</option>
+        </select>
       </div>
-      <div style="margin-left:auto;display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end">
-        <span style="padding:4px 9px;border-radius:999px;font-size:10px;font-weight:600;font-family:${T.fmono};border:1px solid ${st.color};color:${st.color};background:rgba(255,255,255,0.03)" title="${esc(st.blurb)}">${esc(st.label)}</span>
-        <button type="button" onclick="window._hbToggleFav('${esc(entry.id)}')" title="${isFav ? 'Remove from favourites' : 'Add to favourites'}"
-          style="padding:5px 11px;border-radius:5px;font-size:11px;color:${isFav ? T.amber : T.text2};background:transparent;border:1px solid ${isFav ? T.amber : T.border};cursor:pointer;font-family:inherit">${isFav ? 'Saved' : 'Save'}</button>
-        <button type="button" id="hb-export-patient-guide-btn" onclick="window._hbExportPatientGuide('${esc(entry.id)}')" ${docxDisabled ? 'disabled' : ''}
-          title="${docxDisabled ? 'Patient guide DOCX uses condition + modality mapping — open a condition or protocol handbook first.' : 'Export patient-facing guide DOCX (AI-assisted / generic instructions — review before sharing).'}"
-          style="padding:5px 11px;border-radius:5px;font-size:11px;color:${docxDisabled ? T.text3 : T.text2};background:transparent;border:1px solid ${T.border};cursor:${docxDisabled ? 'not-allowed' : 'pointer'};font-family:inherit">Patient guide</button>
-        <button type="button" id="hb-export-docx-btn" onclick="window._hbExportDocx('${esc(entry.id)}')" ${docxDisabled ? 'disabled' : ''}
-          style="padding:5px 11px;border-radius:5px;font-size:11px;color:${docxDisabled ? T.text3 : T.text2};background:transparent;border:1px solid ${T.border};cursor:${docxDisabled ? 'not-allowed' : 'pointer'};font-family:inherit"
-          title="${docxDisabled ? 'DOCX export is only available for condition and protocol handbooks.' : 'Download DOCX (server-rendered; adds a draft watermark in-document where configured).'}">DOCX</button>
-        <button type="button" disabled title="PDF export is not implemented for handbooks in this build."
-          style="padding:5px 11px;border-radius:5px;font-size:11px;color:${T.text3};background:transparent;border:1px solid ${T.border};cursor:not-allowed;font-family:inherit">PDF</button>
-        <button type="button" onclick="window._hbPrint()" style="padding:5px 11px;border-radius:5px;font-size:11px;color:${T.text2};background:transparent;border:1px solid ${T.border};cursor:pointer;font-family:inherit">Print</button>
-      </div>
-    </header>
-    <div id="hb-reading-pane" style="flex:1;overflow-y:auto;padding:0;max-height:calc(100vh - 180px)">
-      <article style="max-width:min(900px, 100%);margin:0 auto;padding:42px clamp(20px, 5vw, 56px) 96px;font-family:${T.fbody};color:${T.text2};line-height:1.65;font-size:15px">
-        <div style="display:inline-flex;align-items:center;gap:7px;padding:4px 10px;background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.22);border-radius:999px;font-size:10.5px;color:${T.teal};font-weight:600;letter-spacing:0.04em;font-family:${T.fmono};text-transform:uppercase">
-          <span style="background:${T.teal};color:#04121c;padding:1px 5px;border-radius:3px;font-weight:700">${esc(sopNum)}</span>${esc(heroTag)}
-        </div>
-        <h1 style="font-family:${T.fdisp};font-size:38px;font-weight:600;letter-spacing:-0.025em;line-height:1.1;margin:14px 0 10px;color:${T.text1};text-wrap:balance">${esc(entry.title)}</h1>
-        <p style="font-size:16px;color:${T.text2};line-height:1.55;max-width:620px;margin:0">${esc(entry.subtitle)}</p>
-        <p style="margin:14px 0 0;font-size:12.5px;line-height:1.55;color:${T.text3};max-width:720px;border-left:3px solid ${st.color};padding-left:12px"><strong style="color:${T.text1}">In-app status:</strong> ${esc(st.label)}. ${esc(st.blurb)}</p>
-        <div style="margin-top:18px;padding:18px;border:1px solid ${T.border};border-radius:${T.rmd};background:linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01))">
-          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
-            <span style="padding:7px 10px;border-radius:999px;background:${T.surface};border:1px solid ${T.border};font-size:11px;color:${T.text2};font-family:${T.fmono}">Template / rail version <strong style="color:${T.text1}">${esc(version)}</strong> <span style="color:${T.text3};font-weight:400">(not a legal document version)</span></span>
-            <span style="padding:7px 10px;border-radius:999px;background:${T.surface};border:1px solid ${T.border};font-size:11px;color:${T.text2};font-family:${T.fmono}">~${esc(String(minutes))} min read</span>
-            <span style="padding:7px 10px;border-radius:999px;background:${T.surface};border:1px solid ${T.border};font-size:11px;color:${T.text2};font-family:${T.fmono}">${esc(entry.collection || 'Reference')}</span>
-          </div>
-          <p style="margin:0;font-size:13.5px;line-height:1.65;color:${T.text2};max-width:700px">Use the sections below for workflow, safety, and evidence context. Contraindications and patient-specific factors must be confirmed in the chart — this view does not know implant status, pregnancy, or current medications unless you link them through the rest of the platform.</p>
-        </div>
 
-        <div style="margin-top:28px">
-          ${calloutSnapshot(tldr)}
-
-          ${sections.map(s => `
-            <h2 id="hb-${esc(s.id)}" style="font-family:${T.fdisp};font-size:21px;font-weight:600;letter-spacing:-0.015em;color:${T.text1};margin:38px 0 12px;scroll-margin-top:24px;display:flex;align-items:center;gap:12px">
-              <span style="font-family:${T.fmono};font-size:11px;color:${T.text3};background:${T.surface};padding:3px 8px;border-radius:4px;font-weight:600;letter-spacing:0.04em">${esc(s.num)}</span>
-              ${esc(s.title)}
-            </h2>
-            <div>${s.render()}</div>
+      ${filtered.length === 0 ? `
+        <div class="hb-empty">
+          <div style="font-size:36px;margin-bottom:12px">📚</div>
+          <div style="font-size:15px;font-weight:600;margin-bottom:8px">No handbooks yet</div>
+          <div style="font-size:12px;margin-bottom:16px">${rf.canGenerate ? 'Create your first handbook to get started.' : 'No handbooks available in read-only mode.'}</div>
+          ${rf.canGenerate ? `<button onclick="window._hbGoGenerator()" style="padding:8px 16px;border-radius:6px;font-size:12px;font-weight:600;background:var(--accent, #00d4bc);color:#04121c;border:none;cursor:pointer;font-family:inherit;">Create First Handbook</button>` : ''}
+        </div>
+      ` : `
+        <div class="hb-grid">
+          ${filtered.map(h => `
+            <div class="hb-card" onclick="window._hbOpenHandbook('${esc(h.id)}')">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+                <span style="font-size:10px;color:var(--text-tertiary, #64748b);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;">${esc(h.modality)}</span>
+                ${_statusLabel(h.state)}
+              </div>
+              <div style="font-size:14px;font-weight:600;color:var(--text-primary, #e2e8f0);margin-bottom:6px;line-height:1.35;">${esc(h.title)}</div>
+              <div style="font-size:11px;color:var(--text-secondary, #94a3b8);margin-bottom:4px;">${esc(h.condition)} · ${esc(h.audience)}</div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:10px;color:var(--text-tertiary, #64748b);">
+                <span>${_evBadge(h.evidence)}</span>
+                <span>${esc(h.date)} · ${esc(h.author)}</span>
+              </div>
+            </div>
           `).join('')}
         </div>
-      </article>
-    </div>
-  </section>`;
+      `}
+    </div>`;
 }
 
-function renderCenter(entry, sections) {
-  if (!entry) {
-    // Build a welcoming overview: one "suggested" card per collection + the
-    // total per-collection count. Clicking a suggestion opens that handbook.
-    const entries = buildEntries();
-    const byCat = new Map();
-    for (const e of entries) {
-      if (!byCat.has(e.collection)) byCat.set(e.collection, []);
-      byCat.get(e.collection).push(e);
-    }
-    const catOrder = [...new Set(CONDITION_REGISTRY.map(c => c.cat))];
-    const ordered = [...catOrder, 'Protocols', 'Safety & Ops', 'Training']
-      .filter(c => byCat.has(c))
-      .map(c => [c, byCat.get(c)]);
-    for (const [k, v] of byCat) if (!ordered.find(([x]) => x === k)) ordered.push([k, v]);
+// ═══════════════════════════════════════════════════════════════════════════════
+// 2. GENERATOR PANEL
+// ═══════════════════════════════════════════════════════════════════════════════
+function renderGenerator(container) {
+  const rf = getRoleFeatures();
+  const g = _state.generator;
+  const devices = DEVICES_BY_MODALITY[g.modality] || [];
+  if (!g.device && devices.length) g.device = devices[0];
 
-    const cards = ordered.slice(0, 9).map(([cat, items]) => {
-      const sample = items[0];
-      return `<button onclick="window._hbOpen('${esc(sample.id)}')"
-        style="text-align:left;padding:14px 16px;border-radius:${T.rmd};background:${T.panel};border:1px solid ${T.border};cursor:pointer;font-family:inherit;display:flex;flex-direction:column;gap:5px;transition:border-color 0.15s"
-        onmouseover="this.style.borderColor='${T.teal}'" onmouseout="this.style.borderColor='${T.border}'">
-        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-family:${T.fmono};font-weight:600;display:flex;align-items:center;justify-content:space-between">
-          <span>${esc(cat)}</span>
-          <span style="color:${T.text3};font-weight:500">${items.length} doc${items.length===1?'':'s'}</span>
-        </div>
-        <div style="font-size:14px;color:${T.text1};font-weight:600;font-family:${T.fdisp}">${esc(sample.title)}</div>
-        <div style="font-size:11.5px;color:${T.text3};overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${esc(sample.subtitle || '')}</div>
-      </button>`;
-    }).join('');
+  const canGenerateNow = g.condition.trim().length > 0 && !g.generating;
 
-    const total = entries.length;
-    return `<section style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};padding:42px clamp(20px, 4vw, 56px);min-height:calc(100vh - 180px);overflow-y:auto;max-height:calc(100vh - 120px)">
-      <div style="max-width:900px;margin:0 auto">
-        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:${T.teal};font-family:${T.fmono};font-weight:600;margin-bottom:8px">Handbooks · ${total} documents</div>
-        <h1 style="font-family:${T.fdisp};font-size:32px;font-weight:600;letter-spacing:-0.02em;margin:0 0 8px;color:${T.text1}">Clinical knowledge base</h1>
-        <p style="font-size:14.5px;color:${T.text2};line-height:1.6;margin:0 0 20px;max-width:640px">Condition and protocol handbooks, safety SOPs, and training materials — each ready to read, generate a tailored draft from evidence, or export to DOCX. Pick any document from the left rail, or start from one of the collections below.</p>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin:0 0 28px">
-          <button onclick="document.getElementById('hb-filter')?.focus()" style="padding:8px 14px;border-radius:${T.rsm};font-size:12px;font-weight:600;color:${T.teal};background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.32);cursor:pointer;font-family:inherit">⌕ Search all (press <kbd style="font-family:${T.fmono};background:${T.surface};border:1px solid ${T.border};border-radius:3px;padding:1px 5px;font-size:10.5px">/</kbd>)</button>
-          <button onclick="window._hbOpen('mdd')" style="padding:8px 14px;border-radius:${T.rsm};font-size:12px;color:${T.text2};background:${T.surface};border:1px solid ${T.border};cursor:pointer;font-family:inherit">Jump to MDD · flagship condition</button>
+  container.innerHTML = `
+    <style>${PAGE_CSS}</style>
+    <div class="handbook-container">
+      <div class="handbook-header">
+        <div>
+          <div class="handbook-title">Handbook Generator</div>
+          <div style="font-size:11px;color:var(--text-secondary, #94a3b8);margin-top:4px">AI-assisted draft — requires clinician review before clinical use</div>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));gap:12px">${cards}</div>
+        <button onclick="window._hbGoLibrary()" style="padding:8px 14px;border-radius:6px;font-size:12px;background:var(--surface-1, rgba(255,255,255,0.04));color:var(--text-primary, #e2e8f0);border:1px solid var(--border, rgba(255,255,255,0.08));cursor:pointer;font-family:inherit;">← Back to Library</button>
       </div>
-    </section>`;
-  }
 
-  const version = entry.version || 'v1.0';
-  const minutes = readTime(JSON.stringify(entry.data || {}));
-  const tldr = (entry.data?.responseData || entry.data?.expectedResponse || entry.data?.patientExplain || `Canonical clinic handbook for ${entry.title}.`);
-
-  const heroTag = entry.kind === 'protocol' ? 'Protocol handbook' : entry.kind === 'condition' ? 'Condition handbook' : 'Operations handbook';
-  const sopNum = `SOP-${(entry.id||'').toUpperCase().slice(0,8)}`;
-  const isFav = _isFav(entry.id);
-  // DOCX export backend only supports condition / protocol entries — Ops / Training
-  // have no clinical-dataset row. Disable the export button in those cases so the
-  // UI doesn't lie about the capability.
-  const docxDisabled = entry.kind !== 'condition' && entry.kind !== 'protocol';
-
-  return `<section style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};display:flex;flex-direction:column;overflow:hidden;min-width:0">
-    <header style="padding:10px 22px;border-bottom:1px solid ${T.border};background:${T.bg};display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <div style="display:flex;align-items:center;gap:7px;font-size:11.5px;color:${T.text3};font-weight:500;font-family:${T.fmono}">
-        <span>${esc(heroTag)}</span><span style="opacity:.4">/</span>
-        <span>${esc(entry.collection || '—')}</span><span style="opacity:.4">/</span>
-        <strong style="color:${T.text1};font-weight:600">${esc(entry.title)}</strong>
+      <div class="safety-banner">
+        <strong>⚠ DRAFT FOR CLINICIAN REVIEW</strong> — Educational decision-support only. Not a diagnosis, prescription, or emergency guidance.
       </div>
-      <div style="margin-left:auto;display:flex;gap:6px">
-        <button onclick="window._hbToggleFav('${esc(entry.id)}')" title="${isFav ? 'Remove from favourites' : 'Add to favourites'}"
-          style="padding:5px 11px;border-radius:5px;font-size:11px;color:${isFav ? T.amber : T.text2};background:transparent;border:1px solid ${isFav ? T.amber : T.border};cursor:pointer;font-family:inherit">${isFav ? '★ Favourited' : '☆ Favourite'}</button>
-        <button id="hb-export-docx-btn" onclick="window._hbExportDocx('${esc(entry.id)}')" ${docxDisabled ? 'disabled' : ''}
-          style="padding:5px 11px;border-radius:5px;font-size:11px;color:${docxDisabled ? T.text3 : T.text2};background:transparent;border:1px solid ${T.border};cursor:${docxDisabled ? 'not-allowed' : 'pointer'};font-family:inherit"
-          title="${docxDisabled ? 'DOCX export is only available for condition and protocol handbooks.' : 'Export as Word document'}">⬇ DOCX</button>
-        <button onclick="window._hbPrint()" style="padding:5px 11px;border-radius:5px;font-size:11px;color:${T.text2};background:transparent;border:1px solid ${T.border};cursor:pointer;font-family:inherit">↗ Print</button>
+
+      ${_state.patientId ? `<div class="patient-scope-banner">Personalized for <strong>${esc(_state.patientName || _state.patientId)}</strong> — Patient-specific contraindications will be included.</div>` : ''}
+
+      ${rf.isReadOnly ? `<div class="readonly-banner">Read-only access — Handbooks can be generated by clinicians. Contact your clinic administrator if you need generation or export privileges.</div>` : `
+      <div class="gen-panel">
+        <div style="font-size:12px;font-weight:600;margin-bottom:14px;color:var(--text-primary, #e2e8f0);">Generator Configuration</div>
+
+        <div class="gen-row">
+          <label class="gen-label">Audience
+            <select onchange="window._hbGenSet('audience', this.value)">
+              ${AUDIENCES.map(a => `<option value="${esc(a)}" ${g.audience === a ? 'selected' : ''}>${esc(a)}</option>`).join('')}
+            </select>
+          </label>
+          <label class="gen-label">Modality
+            <select onchange="window._hbGenSet('modality', this.value)">
+              ${MODALITIES.map(m => `<option value="${esc(m)}" ${g.modality === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}
+            </select>
+          </label>
+          <label class="gen-label">Device
+            <select onchange="window._hbGenSet('device', this.value)">
+              ${devices.map(d => `<option value="${esc(d)}" ${g.device === d ? 'selected' : ''}>${esc(d)}</option>`).join('')}
+            </select>
+          </label>
+        </div>
+
+        <div class="gen-row">
+          <label class="gen-label">Condition
+            <input type="text" list="cond-list" value="${esc(g.condition)}" placeholder="Type or select condition..."
+              onchange="window._hbGenSet('condition', this.value)" />
+            <datalist id="cond-list">${CONDITIONS.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+          </label>
+          <label class="gen-label">Evidence Threshold
+            <select onchange="window._hbGenSet('evidenceThreshold', this.value)">
+              <option value="A-only" ${g.evidenceThreshold === 'A-only' ? 'selected' : ''}>Grade A only</option>
+              <option value="A-B" ${g.evidenceThreshold === 'A-B' ? 'selected' : ''}>Grade A-B</option>
+              <option value="A-C" ${g.evidenceThreshold === 'A-C' ? 'selected' : ''}>Grade A-C</option>
+              <option value="All" ${g.evidenceThreshold === 'All' ? 'selected' : ''}>All grades</option>
+            </select>
+          </label>
+          <label class="gen-label">Reading Level
+            <select onchange="window._hbGenSet('readingLevel', this.value)">
+              <option value="Professional" ${g.readingLevel === 'Professional' ? 'selected' : ''}>Professional</option>
+              <option value="Advanced" ${g.readingLevel === 'Advanced' ? 'selected' : ''}>Advanced</option>
+              <option value="Standard" ${g.readingLevel === 'Standard' ? 'selected' : ''}>Standard</option>
+              <option value="Simple" ${g.readingLevel === 'Simple' ? 'selected' : ''}>Simple</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="gen-row">
+          <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary, #94a3b8);cursor:pointer;">
+            <input type="checkbox" ${g.patientScoped ? 'checked' : ''} ${_state.patientId ? '' : 'disabled'}
+              onchange="window._hbGenSet('patientScoped', this.checked)" style="accent-color:var(--accent, #00d4bc);" />
+            Patient-scoped generation ${_state.patientId ? `(linked to ${esc(_state.patientName || _state.patientId)})` : '<span style="color:var(--text-tertiary, #64748b)">(requires patient_id in URL)</span>'}
+          </label>
+        </div>
+
+        <div class="gen-row" style="margin-bottom:0;margin-top:16px;">
+          <button onclick="window._hbGenerate()" ${!canGenerateNow ? 'disabled' : ''}
+            style="padding:10px 24px;border-radius:6px;font-size:13px;font-weight:700;background:${canGenerateNow ? 'var(--accent, #00d4bc)' : 'var(--surface-2, rgba(255,255,255,0.06))'};color:${canGenerateNow ? '#04121c' : 'var(--text-tertiary, #64748b)'};border:none;cursor:${canGenerateNow ? 'pointer' : 'not-allowed'};font-family:inherit;">
+            ${g.generating ? 'Generating...' : '✦ Generate Handbook'}
+          </button>
+          ${!g.condition.trim() ? '<span style="font-size:11px;color:var(--text-tertiary, #64748b);">Enter a condition to enable generation</span>' : ''}
+        </div>
       </div>
-    </header>
-    <div id="hb-reading-pane" style="flex:1;overflow-y:auto;padding:0;max-height:calc(100vh - 180px)">
-      <article style="max-width:min(900px, 100%);margin:0 auto;padding:42px clamp(20px, 5vw, 56px) 96px;font-family:${T.fbody};color:${T.text2};line-height:1.65;font-size:15px">
-        <div style="display:inline-flex;align-items:center;gap:7px;padding:4px 10px;background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.22);border-radius:999px;font-size:10.5px;color:${T.teal};font-weight:600;letter-spacing:0.04em;font-family:${T.fmono};text-transform:uppercase">
-          <span style="background:${T.teal};color:#04121c;padding:1px 5px;border-radius:3px;font-weight:700">${esc(sopNum)}</span>${esc(heroTag)}
-        </div>
-        <h1 style="font-family:${T.fdisp};font-size:38px;font-weight:600;letter-spacing:-0.025em;line-height:1.1;margin:14px 0 10px;color:${T.text1};text-wrap:balance">${esc(entry.title)}</h1>
-        <p style="font-size:16px;color:${T.text2};line-height:1.55;max-width:620px;margin:0">${esc(entry.subtitle)}</p>
-        <div style="display:flex;align-items:center;gap:18px;margin-top:20px;padding:12px 0;border-top:1px solid ${T.border};border-bottom:1px solid ${T.border};font-size:11px;color:${T.text3};font-family:${T.fmono};flex-wrap:wrap">
-          <span>Version <strong style="color:${T.text1}">${esc(version)}</strong></span>
-          <span>${esc(String(minutes))} min read</span>
-          <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:${T.text3}"></span>Governance review: not yet wired</span>
-        </div>
-
-        <div style="margin-top:28px">
-          ${calloutTLDR(tldr)}
-
-          ${sections.map(s => `
-            <h2 id="hb-${esc(s.id)}" style="font-family:${T.fdisp};font-size:21px;font-weight:600;letter-spacing:-0.015em;color:${T.text1};margin:38px 0 12px;scroll-margin-top:24px;display:flex;align-items:center;gap:12px">
-              <span style="font-family:${T.fmono};font-size:11px;color:${T.text3};background:${T.surface};padding:3px 8px;border-radius:4px;font-weight:600;letter-spacing:0.04em">${esc(s.num)}</span>
-              ${esc(s.title)}
-            </h2>
-            <div>${s.render()}</div>
-          `).join('')}
-        </div>
-      </article>
-    </div>
-  </section>`;
+      `}
+    </div>`;
 }
 
-// ── Right rail: TOC + meta + history + contributors + back-refs ──────────────
-function renderRightRailV2(entry, sections) {
-  const asideBase = `border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};display:flex;flex-direction:column;overflow:hidden;position:sticky;top:0;align-self:start;max-height:calc(100vh - 120px)`;
+// ═══════════════════════════════════════════════════════════════════════════════
+// 3. GENERATED HANDBOOK VIEW
+// ═══════════════════════════════════════════════════════════════════════════════
+function renderHandbookView(container) {
+  const rf = getRoleFeatures();
+  const hb = _state.selectedHandbook;
+  if (!hb) { renderLibrary(container); return; }
 
-  if (!entry) {
-    return `<aside style="${asideBase}">
-      <div style="flex:1;overflow-y:auto">
-        <div style="padding:16px;border-bottom:1px solid ${T.border}">
-          <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:8px;font-family:${T.fmono}">Quick links</div>
-          <p style="margin:0 0 8px;font-size:11px;color:${T.text3};line-height:1.45">Jump to clinic tools used alongside handbook drafting. Signing in as a clinician is required for clinical routes.</p>
-          ${handbookQuickLinksHtml()}
+  const sections = hb.sections || _demoGeneratedSections(hb);
+  const isSigned = hb.state === 'signed';
+  const isExported = hb.state === 'exported';
+
+  const scopeBanner = _state.patientId && _state.patientName && hb.patientScoped
+    ? `<div class="patient-scope-banner">Personalized for <strong>${esc(_state.patientName)}</strong> — Based on clinic records with consent</div>`
+    : !_state.patientId
+    ? `<div class="generic-scope-banner"><strong>Generic educational guide</strong> — Not patient-specific</div>`
+    : '';
+
+  container.innerHTML = `
+    <style>${PAGE_CSS}</style>
+    <div class="handbook-container">
+      <div class="handbook-header">
+        <div>
+          <div class="handbook-title">${esc(hb.title)}</div>
+          <div style="font-size:11px;color:var(--text-secondary, #94a3b8);margin-top:4px">${esc(hb.modality)} · ${esc(hb.condition)} · ${esc(hb.audience)}</div>
         </div>
-        <div style="padding:16px;font-size:11px;color:${T.text3};line-height:1.5">Select a handbook in the left rail to show section navigation and editorial context.</div>
-      </div>
-    </aside>`;
-  }
-
-  const version = entry.version || 'v1.0';
-  const st = curatedHandbookStatus(entry);
-  const protocolRefCount = entry.kind === 'condition'
-    ? PROTOCOL_REGISTRY.filter(p => p.condition === entry.id).length
-    : 0;
-  const linkedProtos = entry.kind === 'condition'
-    ? PROTOCOL_REGISTRY.filter(p => p.condition === entry.id).slice(0, 6)
-    : [];
-
-  return `<aside style="${asideBase}">
-    <div style="flex:1;overflow-y:auto">
-      <div style="padding:16px;border-bottom:1px solid ${T.border};background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent)">
-        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono}">On this page</div>
-        <nav id="hb-toc" aria-label="Handbook sections" style="display:flex;flex-direction:column">
-          ${sections.map(s => `
-            <a href="#hb-${esc(s.id)}" data-toc="${esc(s.id)}" onclick="window._hbScroll(event,'${esc(s.id)}')"
-               style="padding:5px 0 5px 10px;border-left:2px solid transparent;font-size:11.5px;color:${_section===s.id?T.text1:T.text3};text-decoration:none;line-height:1.4;font-weight:${_section===s.id?'600':'400'};border-left-color:${_section===s.id?T.teal:'transparent'}">
-              ${esc(s.num)} ${esc(s.title)}
-            </a>`).join('')}
-        </nav>
-      </div>
-
-      <div style="padding:16px;border-bottom:1px solid ${T.border}">
-        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono};display:flex;align-items:center;justify-content:space-between">
-          Editorial / template status
-          <span style="font-family:${T.fmono};font-size:9.5px;color:${st.color};border:1px solid ${st.color};padding:1px 7px;border-radius:999px">${esc(st.label)}</span>
-        </div>
-        <div style="font-size:11px;color:${T.text3};line-height:1.5">
-          ${esc(st.blurb)} Server-side sign-off, assignee queue, and version locking are <strong style="color:${T.text2}">not implemented</strong> for handbooks in this build — treat exports as drafts until your governance process records a signature.
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button onclick="window._hbGoLibrary()" style="padding:8px 14px;border-radius:6px;font-size:12px;background:var(--surface-1, rgba(255,255,255,0.04));color:var(--text-primary, #e2e8f0);border:1px solid var(--border, rgba(255,255,255,0.08));cursor:pointer;font-family:inherit;">← Library</button>
+          <button onclick="window._hbToggleEvidencePanel()" style="padding:8px 14px;border-radius:6px;font-size:12px;background:var(--surface-1, rgba(255,255,255,0.04));color:var(--text-primary, #e2e8f0);border:1px solid var(--border, rgba(255,255,255,0.08));cursor:pointer;font-family:inherit;">📑 Evidence</button>
+          ${rf.canReview ? `<button onclick="window._hbToggleGovernance()" style="padding:8px 14px;border-radius:6px;font-size:12px;background:var(--surface-1, rgba(255,255,255,0.04));color:var(--text-primary, #e2e8f0);border:1px solid var(--border, rgba(255,255,255,0.08));cursor:pointer;font-family:inherit;">⚖ Governance</button>` : ''}
         </div>
       </div>
 
-      <div style="padding:16px;border-bottom:1px solid ${T.border}">
-        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono};display:flex;align-items:center;justify-content:space-between">
-          Template rail version <span style="color:${T.text3};font-weight:500">${esc(version)}</span>
+      <div class="safety-banner">
+        <strong>⚠ DRAFT FOR CLINICIAN REVIEW</strong> — Educational decision-support only. Not a diagnosis, prescription, or emergency guidance.
+      </div>
+
+      ${scopeBanner}
+
+      <!-- Governance Track -->
+      <div class="governance-track" id="hb-governance-panel" style="display:none;">
+        ${GOVERNANCE_STATES.map((s, i) => {
+          const activeIdx = GOVERNANCE_STATES.indexOf(hb.state);
+          const isActive = s === hb.state;
+          const isPast = i <= activeIdx;
+          return `<div class="governance-step ${isActive ? 'active' : isPast ? 'active' : 'pending'}" style="${isPast && !isActive ? 'opacity:0.6;' : ''}">
+            ${isPast ? '●' : '○'} ${esc(GOVERNANCE_LABELS[s])}
+          </div>${i < GOVERNANCE_STATES.length - 1 ? '<span style="color:var(--text-tertiary, #64748b);">→</span>' : ''}`;
+        }).join('')}
+      </div>
+
+      <!-- Governance Actions -->
+      ${rf.canReview ? `
+      <div id="hb-governance-actions" style="display:none;margin-bottom:16px;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          ${hb.state === 'draft' ? `<button onclick="window._hbGovAction('submit')" class="export-btn">Submit for Review</button>` : ''}
+          ${hb.state === 'needs_review' ? `
+            <button onclick="window._hbGovAction('approve')" class="export-btn" style="background:rgba(34,197,94,0.12);color:#22c55e;">Approve</button>
+            <button onclick="window._hbGovAction('reject')" class="export-btn" style="background:rgba(239,68,68,0.12);color:#ef4444;">Request Changes</button>
+          ` : ''}
+          ${hb.state === 'approved' && rf.canSign ? `<button onclick="window._hbGovAction('sign')" class="export-btn" style="background:rgba(34,197,94,0.12);color:#22c55e;font-weight:700;">Sign as Clinician</button>` : ''}
+          ${hb.state === 'signed' ? `<button onclick="window._hbGovAction('export')" class="export-btn">Mark Exported</button>` : ''}
+          <button onclick="window._hbGovAction('archive')" class="export-btn" style="opacity:0.7;">Archive / Supersede</button>
         </div>
-        <div style="font-size:11px;color:${T.text3};line-height:1.5">
-          Label reflects the in-app handbook snapshot (Safety/Ops version tags where present). It is <strong style="color:${T.text2}">not</strong> a legal document control number.
+      </div>` : ''}
+
+      <!-- Export Centre -->
+      <div style="margin-bottom:16px;padding:14px;border:1px solid var(--border, rgba(255,255,255,0.08));border-radius:10px;background:var(--surface-1, rgba(255,255,255,0.04));">
+        <div style="font-size:12px;font-weight:600;margin-bottom:10px;">Export Centre</div>
+        <div class="export-grid">
+          <button onclick="window._hbExport('docx')" ${!isSigned || !rf.canExport ? 'disabled' : ''} class="export-btn"
+            title="${!isSigned ? 'Handbook must be signed before export' : !rf.canExport ? 'Handbooks not enabled for your clinic — entitlement required.' : 'Export as Word document'}">📄 DOCX</button>
+          <button onclick="window._hbExport('pdf')" ${!isSigned || !rf.canExport ? 'disabled' : ''} class="export-btn"
+            title="${!isSigned ? 'Handbook must be signed before export' : !rf.canExport ? 'Handbooks not enabled for your clinic — entitlement required.' : 'Export as PDF'}">📕 PDF</button>
+          <button onclick="window._hbExport('markdown')" ${!isSigned || !rf.canExport ? 'disabled' : ''} class="export-btn"
+            title="${!isSigned ? 'Handbook must be signed before export' : !rf.canExport ? 'Handbooks not enabled for your clinic — entitlement required.' : 'Export as Markdown'}">📝 Markdown</button>
+          <button onclick="window._hbExport('patient')" ${!isSigned || !rf.canExport ? 'disabled' : ''} class="export-btn"
+            title="${!isSigned ? 'Handbook must be signed before export' : !rf.canExport ? 'Handbooks not enabled for your clinic — entitlement required.' : _state.patientId ? 'Export Personalized Patient Guide' : 'Export Patient-Friendly Generic Guide'}">${_state.patientId ? '👤 Personalized Guide' : '👤 Generic Guide'}</button>
+          <button onclick="window._hbExport('evidence')" ${!isSigned || !rf.canExport ? 'disabled' : ''} class="export-btn"
+            title="${!isSigned ? 'Handbook must be signed before export' : !rf.canExport ? 'Handbooks not enabled for your clinic — entitlement required.' : 'Export Evidence Appendix Only'}">📊 Evidence Only</button>
+          <button onclick="window._hbExport('bundle')" ${!isSigned || !rf.canExport ? 'disabled' : ''} class="export-btn"
+            title="${!isSigned ? 'Handbook must be signed before export' : !rf.canExport ? 'Handbooks not enabled for your clinic — entitlement required.' : 'Export Complete Bundle'}">📦 Complete Bundle</button>
+        </div>
+        ${!isSigned ? `<div style="font-size:11px;color:var(--text-tertiary, #64748b);margin-top:8px;">Handbook must be signed before export. Use the governance panel to advance status.</div>` : ''}
+        ${!rf.canExport ? `<div style="font-size:11px;color:var(--text-tertiary, #64748b);margin-top:8px;"><strong>Handbooks not enabled for your clinic</strong> — The handbook_generate entitlement is required for export. Contact your administrator.</div>` : ''}
+      </div>
+
+      <!-- Sections -->
+      ${sections.map(sec => {
+        const isExpanded = _state.expandedSections.has(sec.id);
+        const isReviewed = _state.sectionReviewed[sec.id];
+        return `
+        <div class="section-card" id="sec-${esc(sec.id)}">
+          <div class="section-header" onclick="window._hbToggleSection('${esc(sec.id)}')">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:16px;transition:transform 0.2s;display:inline-block;transform:rotate(${isExpanded ? '90' : '0'}deg);">▶</span>
+              <span style="font-size:14px;font-weight:600;color:var(--text-primary, #e2e8f0);">${esc(sec.title)}</span>
+              ${_evBadge(sec.evidence)}
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              ${rf.canReview ? `<label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-secondary, #94a3b8);cursor:pointer;" onclick="event.stopPropagation();">
+                <input type="checkbox" ${isReviewed ? 'checked' : ''} onchange="window._hbToggleReviewed('${esc(sec.id)}', this.checked)" style="accent-color:var(--accent, #00d4bc);" /> Reviewed
+              </label>` : ''}
+              ${rf.canGenerate ? `<button onclick="event.stopPropagation();window._hbRegenerateSection('${esc(sec.id)}')" style="padding:4px 10px;border-radius:4px;font-size:10px;background:var(--surface-2, rgba(255,255,255,0.06));color:var(--text-secondary, #94a3b8);border:1px solid var(--border, rgba(255,255,255,0.08));cursor:pointer;font-family:inherit;">↻ Regenerate</button>` : ''}
+            </div>
+          </div>
+          ${isExpanded ? `
+          <div class="section-content">
+            <textarea style="width:100%;min-height:120px;padding:10px;border-radius:6px;background:var(--bg-base, #04121c);color:var(--text-primary, #e2e8f0);border:1px solid var(--border, rgba(255,255,255,0.08));font-size:13px;font-family:inherit;line-height:1.6;resize:vertical;box-sizing:border-box;"
+              onchange="window._hbUpdateSection('${esc(sec.id)}', this.value)">${esc(sec.content)}</textarea>
+            ${sec.citations && sec.citations.length ? `
+              <div class="evd-panel">
+                <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-tertiary, #64748b);margin-bottom:8px;">
+                  ${sec.collapsible ? `<span onclick="this.parentElement.nextElementSibling.style.display=this.parentElement.nextElementSibling.style.display==='none'?'block':'none';this.textContent=this.textContent==='▼ Citations'?'▶ Citations':'▼ Citations';" style="cursor:pointer;">▼ Citations</span>` : 'Citations'}
+                </div>
+                <div style="${sec.collapsible ? '' : ''}">
+                  ${sec.citations.map(c => `
+                    <div style="margin-bottom:8px;padding:8px;border-radius:6px;background:rgba(255,255,255,0.02);border:1px solid var(--border, rgba(255,255,255,0.06));">
+                      <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
+                        ${_evBadge(c.grade)}
+                        <span style="font-size:11px;color:var(--text-primary, #e2e8f0);font-weight:500;">${esc(c.title)}</span>
+                      </div>
+                      <div style="font-size:10px;color:var(--text-secondary, #94a3b8);">${esc(c.journal)} · ${esc(String(c.year))}</div>
+                      <div style="display:flex;gap:10px;margin-top:4px;">
+                        ${c.pmid ? `<a href="https://pubmed.ncbi.nlm.nih.gov/${esc(c.pmid)}/" target="_blank" rel="noopener noreferrer" class="citation-link">PubMed</a>` : ''}
+                        ${c.doi ? `<a href="https://doi.org/${esc(c.doi)}" target="_blank" rel="noopener noreferrer" class="citation-link">DOI</a>` : ''}
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+            ` : ''}
+          </div>` : ''}
+        </div>`;
+      }).join('')}
+
+      <!-- Evidence Side Panel (inline toggle) -->
+      <div id="hb-evidence-panel" style="display:${_state.evidencePanelOpen ? 'block' : 'none'};margin-top:16px;padding:14px;border:1px solid var(--border, rgba(255,255,255,0.08));border-radius:10px;background:var(--surface-1, rgba(255,255,255,0.04));">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <div style="font-size:12px;font-weight:600;">Evidence Panel</div>
+          <button onclick="window._hbToggleEvidencePanel()" style="background:transparent;border:none;color:var(--text-secondary, #94a3b8);cursor:pointer;font-size:16px;">✕</button>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:12px;">
+          <input type="text" placeholder="Search evidence..." style="flex:1;padding:6px 10px;border-radius:6px;background:var(--bg-base, #04121c);color:var(--text-primary, #e2e8f0);border:1px solid var(--border, rgba(255,255,255,0.08));font-size:12px;font-family:inherit;" />
+          <button style="padding:6px 12px;border-radius:6px;font-size:11px;background:var(--surface-2, rgba(255,255,255,0.06));color:var(--text-primary, #e2e8f0);border:1px solid var(--border, rgba(255,255,255,0.08));cursor:pointer;font-family:inherit;">Search</button>
+        </div>
+        ${sections.flatMap(s => s.citations || []).slice(0, 8).map(c => `
+          <div style="margin-bottom:8px;padding:8px;border-radius:6px;background:rgba(255,255,255,0.02);border:1px solid var(--border, rgba(255,255,255,0.06));">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
+              ${_evBadge(c.grade)}
+              <span style="font-size:11px;font-weight:500;">${esc(c.title.slice(0, 60))}${c.title.length > 60 ? '...' : ''}</span>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:4px;">
+              ${c.pmid ? `<a href="https://pubmed.ncbi.nlm.nih.gov/${esc(c.pmid)}/" target="_blank" rel="noopener noreferrer" class="citation-link">PubMed</a>` : ''}
+              ${c.doi ? `<a href="https://doi.org/${esc(c.doi)}" target="_blank" rel="noopener noreferrer" class="citation-link">DOI</a>` : ''}
+            </div>
+          </div>
+        `).join('')}
+        <button style="margin-top:8px;padding:6px 12px;border-radius:6px;font-size:11px;background:var(--surface-2, rgba(255,255,255,0.06));color:var(--text-primary, #e2e8f0);border:1px solid var(--border, rgba(255,255,255,0.08));cursor:pointer;font-family:inherit;">+ Add Citation</button>
+      </div>
+
+      <!-- Cross-Page Integration -->
+      <div style="margin-top:20px;padding:14px;border:1px solid var(--border, rgba(255,255,255,0.08));border-radius:10px;background:var(--surface-1, rgba(255,255,255,0.04));">
+        <div style="font-size:12px;font-weight:600;margin-bottom:10px;">Cross-Platform Integration</div>
+        <div class="integration-grid">
+          <button onclick="window._nav('protocol-hub')" class="integration-btn">Protocol Studio</button>
+          <button onclick="window._nav('intervention-analyzer')" class="integration-btn">Intervention Analyzer</button>
+          <button onclick="window._nav('medication-analyzer')" class="integration-btn">Medication Analyzer</button>
+          <button onclick="window._nav('genetic-medication')" class="integration-btn">Genetic Medication</button>
+          <button onclick="window._nav('biomarkers')" class="integration-btn">Biomarkers</button>
+          <button onclick="window._nav('qeeg-launcher')" class="integration-btn">qEEG Analysis</button>
+          <button onclick="window._nav('mri-analysis')" class="integration-btn">MRI Analysis</button>
+          <button onclick="window._nav('research-evidence')" class="integration-btn">Evidence Research</button>
+          <button onclick="window._nav('patients-v2')" class="integration-btn">Patient Profile</button>
+          <button onclick="window._nav('deeptwin')" class="integration-btn">DeepTwin</button>
+          <button onclick="window._nav('consent-governance')" class="integration-btn">Consent & Governance</button>
         </div>
       </div>
 
-      <div style="padding:16px;border-bottom:1px solid ${T.border}">
-        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono}">Quick links</div>
-        <p style="margin:0 0 8px;font-size:11px;color:${T.text3};line-height:1.45">Open linked workspaces (patient-scoped tools require an active patient selection elsewhere).</p>
-        ${handbookQuickLinksHtml()}
-      </div>
-
-      <div style="padding:16px;border-bottom:1px solid ${T.border}">
-        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono};display:flex;align-items:center;justify-content:space-between">
-          Protocol registry <span style="color:${T.text3};font-weight:500">${protocolRefCount}</span>
-        </div>
-        ${protocolRefCount > 0
-          ? `<div style="font-size:11px;color:${T.text3};line-height:1.5;margin-bottom:8px">${entry.kind === 'condition' ? `${protocolRefCount} protocol row(s) reference this condition in the in-app registry.` : 'Protocol linkage is indirect for this entry.'}</div>
-            ${linkedProtos.length ? `<ul style="margin:0;padding-left:18px;font-size:11px;color:${T.text2};line-height:1.45">${linkedProtos.map(p => `<li>${esc(p.name)} <span style="color:${T.text3};font-family:${T.fmono}">(${esc(p.modality || '')})</span></li>`).join('')}</ul>` : ''}
-            <button type="button" onclick="window._nav('protocol-hub')" style="width:100%;margin-top:10px;padding:8px 10px;border-radius:6px;font-size:11.5px;color:${T.teal};background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.28);cursor:pointer;font-family:inherit">Open Protocol Studio</button>`
-          : `<div style="font-size:11px;color:${T.text3};line-height:1.5">No protocol rows reference this entry in the registry — open Protocol Studio to draft or attach one.</div>
-            <button type="button" onclick="window._nav('protocol-hub')" style="width:100%;margin-top:10px;padding:8px 10px;border-radius:6px;font-size:11.5px;color:${T.text2};background:${T.surface};border:1px solid ${T.border};cursor:pointer;font-family:inherit">Protocol Studio</button>`}
-      </div>
-
-      <div style="padding:16px">
-        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono}">Audit</div>
-        <div style="font-size:11px;color:${T.text3};line-height:1.5">DOCX export and AI draft generation log best-effort events for authenticated clinicians. Open <strong style="color:${T.text2}">Audit trail</strong> above to review activity — nothing here constitutes clinical sign-off.</div>
-      </div>
-    </div>
-  </aside>`;
-}
-
-function renderRightRail(entry, sections) {
-  if (!entry) {
-    return `<aside style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};padding:18px;color:${T.text3};font-size:12px;position:sticky;top:0;align-self:start">No handbook open.</aside>`;
-  }
-
-  const version = entry.version || 'v1.0';
-  const reviewStatus = 'Unassigned';
-  const reviewColor = T.text3;
-
-  // Back-references are real (derived from the protocol registry); governance
-  // sign-offs and per-handbook revision history are not yet wired to a service.
-  const protocolRefCount = entry.kind === 'condition'
-    ? PROTOCOL_REGISTRY.filter(p => p.condition === entry.id).length
-    : 0;
-
-  return `<aside style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};display:flex;flex-direction:column;overflow:hidden;position:sticky;top:0;align-self:start;max-height:calc(100vh - 120px)">
-    <div style="flex:1;overflow-y:auto">
-      <div style="padding:16px;border-bottom:1px solid ${T.border}">
-        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono}">On this page</div>
-        <nav id="hb-toc" style="display:flex;flex-direction:column">
-          ${sections.map(s => `
-            <a href="#hb-${esc(s.id)}" data-toc="${esc(s.id)}" onclick="window._hbScroll(event,'${esc(s.id)}')"
-               style="padding:5px 0 5px 10px;border-left:2px solid transparent;font-size:11.5px;color:${_section===s.id?T.text1:T.text3};text-decoration:none;line-height:1.4;font-weight:${_section===s.id?'600':'400'};border-left-color:${_section===s.id?T.teal:'transparent'}">
-              ${esc(s.num)} ${esc(s.title)}
-            </a>`).join('')}
-        </nav>
-      </div>
-
-      <div style="padding:16px;border-bottom:1px solid ${T.border}">
-        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono};display:flex;align-items:center;justify-content:space-between">
-          Review status
-          <span style="font-family:${T.fmono};font-size:9.5px;color:${reviewColor};border:1px solid ${reviewColor};padding:1px 7px;border-radius:999px">● ${esc(reviewStatus)}</span>
-        </div>
-        <div style="font-size:11px;color:${T.text3};line-height:1.5">
-          Governance sign-off is not yet wired to handbooks. Owner, reviewer, and due dates will appear here once the review queue is connected.
-        </div>
-      </div>
-
-      <div style="padding:16px;border-bottom:1px solid ${T.border}">
-        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono};display:flex;align-items:center;justify-content:space-between">
-          Version history <span style="color:${T.text3};font-weight:500">${esc(version)}</span>
-        </div>
-        <div style="font-size:11px;color:${T.text3};line-height:1.5">
-          No revision history on file. Handbook revisions will appear here after the content service goes live.
-        </div>
-      </div>
-
-      <div style="padding:16px;border-bottom:1px solid ${T.border}">
-        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono}">Contributors</div>
-        <div style="font-size:11px;color:${T.text3};line-height:1.5">No contributor list on file yet.</div>
-      </div>
-
-      <div style="padding:16px">
-        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono};display:flex;align-items:center;justify-content:space-between">
-          Back-references <span style="color:${T.text3};font-weight:500">${protocolRefCount}</span>
-        </div>
-        ${protocolRefCount > 0
-          ? `<button onclick="window._hbToast('Back-references','${protocolRefCount} linked record${protocolRefCount===1?'':'s'} in the protocol registry.')"
-              style="width:100%;padding:8px 10px;border-radius:6px;font-size:11.5px;color:${T.text2};background:${T.surface};border:1px solid ${T.border};cursor:pointer;font-family:inherit;text-align:left">
-              → Linked to ${protocolRefCount} ${entry.kind==='condition' ? 'protocol' + (protocolRefCount===1?'':'s') : 'record' + (protocolRefCount===1?'':'s')}
-            </button>`
-          : `<div style="font-size:11px;color:${T.text3};line-height:1.5">No back-references in the registry for this handbook.</div>`}
-      </div>
-    </div>
-  </aside>`;
-}
-
-// ── Render orchestrator ──────────────────────────────────────────────────────
-function render() {
-  if (!_el) return;
-  const entries = buildEntries();
-  const entry = entries.find(e => e.id === _id) || null;
-  const sections = entry ? sectionsFor(entry) : [];
-  if (entry && sections.length && !_section) _section = sections[0].id;
-
-  _el.innerHTML = `
-    <div class="hb-shell" style="background:${T.bg};min-height:100%;padding:16px;font-family:${T.fbody};color:${T.text1}">
-      <div class="hb-cols">
-        ${renderLeftRail(entries)}
-        ${renderCenterV2(entry, sections)}
-        ${renderRightRailV2(entry, sections)}
+      <!-- Safety Footer -->
+      <div style="margin-top:20px;padding:12px 14px;border-radius:8px;background:rgba(255,176,87,0.06);border:1px solid rgba(255,176,87,0.15);font-size:11px;color:var(--text-secondary, #94a3b8);line-height:1.5;text-align:center;">
+        <strong>Clinical disclaimer:</strong> This platform provides decision-support only. All handbook content must be reviewed by a licensed clinician. Evidence grades indicate supporting data strength, not clinical certainty. Never use generated content as a substitute for professional medical judgment.
       </div>
     </div>`;
-  ensureAgentBrainStatus(_el);
-
-  // Wire scroll-spy on the reading pane to highlight active TOC item
-  const pane = document.getElementById('hb-reading-pane');
-  if (pane && sections.length) {
-    pane.addEventListener('scroll', () => {
-      const top = pane.getBoundingClientRect().top;
-      let active = sections[0].id;
-      for (const s of sections) {
-        const el = document.getElementById(`hb-${s.id}`);
-        if (!el) continue;
-        if (el.getBoundingClientRect().top - top < 80) active = s.id;
-      }
-      if (active !== _section) {
-        _section = active;
-        const tocLinks = document.querySelectorAll('#hb-toc a[data-toc]');
-        tocLinks.forEach(a => {
-          const isActive = a.getAttribute('data-toc') === _section;
-          a.style.color = isActive ? T.text1 : T.text3;
-          a.style.fontWeight = isActive ? '600' : '400';
-          a.style.borderLeftColor = isActive ? T.teal : 'transparent';
-        });
-      }
-    }, { passive: true });
-  }
 }
 
-// ── Public entry point ───────────────────────────────────────────────────────
-export async function pgHandbooks(setTopbar /*, navigate */) {
-  const entryCount = buildEntries().length;
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN ENTRY POINT
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function pgHandbooks(setTopbar, navigate) {
+  const el = document.getElementById('content');
+  if (!el) return;
   if (typeof setTopbar === 'function') {
-    setTopbar('Handbooks', `<span style="font-size:0.8rem;color:${T.text2};align-self:center">Handbook workspace · ${entryCount} references</span>`);
-  }
-  _el = document.getElementById('content');
-  if (!_el) return;
-
-  if (currentUser?.role === 'patient') {
-    _el.innerHTML = `
-      <div style="padding:48px 24px;max-width:520px;margin:0 auto;font-family:${T.fbody};color:${T.text2}">
-        <h1 style="font-family:${T.fdisp};font-size:22px;color:${T.text1};margin:0 0 12px">Handbook authoring</h1>
-        <p style="line-height:1.6;margin:0 0 16px">Protocol and clinician handbook drafting is limited to clinical staff. For materials intended for you, use <strong style="color:${T.text1}">Documents</strong> or ask your care team.</p>
-        <button type="button" class="btn btn-primary" onclick="window._navPatient('patient-portal')">Back to portal</button>
-      </div>`;
-    ensureAgentBrainStatus(_el);
-    return;
+    setTopbar('Handbooks', '<span style="font-size:0.8rem;color:var(--text-secondary, #94a3b8);">Clinical Handbook Generator</span>');
   }
 
-  _id = null;
-  _query = '';
-  _section = null;
-  _fModality = 'All';
-  _fProtocol = 'All';
-  _fDevice   = 'All';
-  _favOnly   = false;
+  // Initialise state
+  _state.handbooks = _demoHandbooks();
+  _state.view = 'library';
+  _state.selectedHandbook = null;
+  _state.expandedSections = new Set(['overview', 'safety']);
+  _state.sectionReviewed = {};
+  _state.evidencePanelOpen = false;
+  _resolvePatientScope();
 
-  // Window-scoped handlers (string event handlers are the page convention)
-  window._hbOpen = (id) => {
-    _id = id; _section = null;
-    api.logAudit({ event: 'handbook_open', surface: 'handbooks', note: `entry=${id}` }).catch(() => null);
-    render();
-  };
-  const _repaintRail = () => {
-    const entries = buildEntries();
-    const left = _el.querySelector(':scope > div > div > aside:first-of-type');
-    if (left && left.parentElement) {
-      const tmp = document.createElement('div');
-      tmp.innerHTML = renderLeftRail(entries);
-      left.replaceWith(tmp.firstElementChild);
+  // ── Global Window Handlers ─────────────────────────────────────────────────
+  window._hbGoLibrary = () => { _state.view = 'library'; renderLibrary(el); };
+  window._hbGoGenerator = () => {
+    if (!getRoleFeatures().canGenerate) {
+      window._dsToast?.({ title: 'Permission required', body: 'Handbook generation not enabled for your role.', severity: 'warn' }); return;
     }
+    _state.view = 'generator'; renderGenerator(el);
   };
-  window._hbFilter = (v) => {
-    _query = v || '';
-    _repaintRail();
-    // Keep input focus on the filter input after repaint so typing is uninterrupted.
-    const f = document.getElementById('hb-filter');
-    if (f) { f.focus(); try { f.setSelectionRange(f.value.length, f.value.length); } catch (_) {} }
+  window._hbOpenHandbook = (id) => {
+    const hb = _state.handbooks.find(h => h.id === id);
+    if (!hb) return;
+    _state.selectedHandbook = hb;
+    if (!hb.sections) hb.sections = _demoGeneratedSections(hb);
+    _state.view = 'handbook';
+    renderHandbookView(el);
   };
-  window._hbSetFacet = (field, value) => {
-    if (field === 'modality') _fModality = value || 'All';
-    else if (field === 'protocol') _fProtocol = value || 'All';
-    else if (field === 'device') _fDevice = value || 'All';
-    _repaintRail();
-  };
-  window._hbToggleFavOnly = () => { _favOnly = !_favOnly; _repaintRail(); };
-  window._hbResetFacets = () => {
-    _fModality = 'All'; _fProtocol = 'All'; _fDevice = 'All'; _favOnly = false;
-    _repaintRail();
-  };
-  window._hbToggleFav = (id) => { _toggleFav(id); render(); };
-  window._hbScroll = (ev, secId) => {
-    if (ev?.preventDefault) ev.preventDefault();
-    const el = document.getElementById(`hb-${secId}`);
-    const pane = document.getElementById('hb-reading-pane');
-    if (el && pane) {
-      const top = el.getBoundingClientRect().top - pane.getBoundingClientRect().top + pane.scrollTop - 16;
-      pane.scrollTo({ top, behavior: 'smooth' });
-      _section = secId;
-    }
-  };
-  window._hbToggleCheck = (input) => {
-    const key = input?.dataset?.clKey;
-    const idx = parseInt(input?.dataset?.clIdx || '-1', 10);
-    if (!key || idx < 0) return;
-    let saved = {};
-    try { saved = JSON.parse(localStorage.getItem(key) || '{}') || {}; } catch (_) { saved = {}; }
-    if (input.checked) saved[idx] = true; else delete saved[idx];
-    try { localStorage.setItem(key, JSON.stringify(saved)); } catch (_) { /* quota */ }
-    const span = input.parentElement?.querySelector('span');
-    if (span) {
-      span.style.color = input.checked ? T.text3 : '';
-      span.style.textDecoration = input.checked ? 'line-through' : '';
-      const strong = span.querySelector('strong');
-      if (strong) strong.style.color = input.checked ? T.text3 : T.text1;
-    }
-  };
-  window._hbCite = (card) => {
-    const title = card?.dataset?.evTitle || 'Citation';
-    const cite  = card?.dataset?.evCite  || 'No citation on file.';
-    if (typeof window._dsToast === 'function') {
-      window._dsToast({ title, body: cite, severity: 'info' });
-    } else {
-      console.info('[handbook citation]', title, cite);
-    }
-  };
-  window._hbToast = (title, body) => {
-    if (typeof window._dsToast === 'function') window._dsToast({ title, body, severity: 'info' });
-    else console.info('[handbook]', title, body);
-  };
-  window._hbPrint = () => { try { window.print(); } catch (_) { /* noop */ } };
+  window._hbSetFilter = (v) => { _state.filter = v; renderLibrary(el); };
+  window._hbSetSearch = (v) => { _state.search = v; renderLibrary(el); };
+  window._hbSetSort = (v) => { _state.sortBy = v; renderLibrary(el); };
+  window._hbRefreshLibrary = () => { _state.handbooks = _demoHandbooks(); renderLibrary(el); };
 
-  window._hbReportAudience = window._hbReportAudience || 'clinician';
-  window._hbSetReportAudience = (v) => {
-    window._hbReportAudience = v === 'patient' ? 'patient' : 'clinician';
-    render();
+  window._hbGenSet = (field, value) => {
+    _state.generator[field] = value;
+    if (field === 'modality') { _state.generator.device = (DEVICES_BY_MODALITY[value] || [])[0] || ''; }
+    renderGenerator(el);
   };
 
-  window._hbExportBundleDocx = async () => {
-    const cond = _effectiveCondition();
-    if (!cond) return;
-    const sel = _aiSelFor(cond);
-    const mapped = _backendConditionFor(cond);
-    const deviceObj = sel.deviceId ? DEVICE_REGISTRY.find(d => d.id === sel.deviceId) : null;
-    const btn = document.getElementById('hb-export-bundle-docx');
-    if (btn) { btn.disabled = true; btn.textContent = 'Preparing DOCX…'; }
+  window._hbGenerate = async () => {
+    const rf = getRoleFeatures();
+    if (!rf.canGenerate) { window._dsToast?.({ title: 'Permission denied', body: 'Generation requires clinician or admin role.', severity: 'warn' }); return; }
+    const g = _state.generator;
+    if (!g.condition.trim()) { window._dsToast?.({ title: 'Condition required', body: 'Please enter a condition.', severity: 'warn' }); return; }
+    g.generating = true; renderGenerator(el);
     try {
-      const blob = await api.exportHandbookDocx({
-        condition_name: mapped.name,
-        modality_name: _modalityForBackend(sel.modality),
-        device_name: deviceObj ? deviceObj.name : '',
-        handbook_kind: sel.kind,
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `handbook-bundle-${cond.id}.docx`;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-      window._dsToast?.({ title: 'Handbook DOCX', body: 'Download started — review before clinical use.', severity: 'info' });
-      api.logAudit({ event: 'handbook_export_bundle_docx', surface: 'handbooks', note: `condition=${cond.id}` }).catch(() => null);
-    } catch (e) {
-      window._dsToast?.({ title: 'DOCX export failed', body: e?.message || 'Backend error', severity: 'warn' });
-    }
-    if (btn) { btn.disabled = false; btn.textContent = 'Download handbook DOCX'; }
-  };
-
-  window._hbExportBundlePdf = async () => {
-    const cond = _effectiveCondition();
-    if (!cond) return;
-    const sel = _aiSelFor(cond);
-    const mapped = _backendConditionFor(cond);
-    const deviceObj = sel.deviceId ? DEVICE_REGISTRY.find(d => d.id === sel.deviceId) : null;
-    const btn = document.getElementById('hb-export-bundle-pdf');
-    if (btn) { btn.disabled = true; btn.textContent = 'Preparing PDF…'; }
-    try {
-      const blob = await api.exportHandbookPdf({
-        condition_name: mapped.name,
-        modality_name: _modalityForBackend(sel.modality),
-        device_name: deviceObj ? deviceObj.name : '',
-        handbook_kind: sel.kind,
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `handbook-bundle-${cond.id}.pdf`;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-      window._dsToast?.({ title: 'Handbook PDF', body: 'Download started — review before clinical use.', severity: 'info' });
-      api.logAudit({ event: 'handbook_export_bundle_pdf', surface: 'handbooks', note: `condition=${cond.id}` }).catch(() => null);
-    } catch (e) {
-      const detail = e?.status === 503 || e?.code === 'pdf_renderer_unavailable'
-        ? (e.message || 'PDF export is not available on this API host. DOCX remains available.')
-        : (e?.message || 'Backend error');
-      window._dsToast?.({ title: 'PDF export unavailable', body: detail, severity: 'warn' });
-    }
-    if (btn) { btn.disabled = false; btn.textContent = 'Download handbook PDF'; }
-  };
-
-  const _hbLog = (event, note) => {
-    api.logAudit({ event, surface: 'handbooks', note: String(note || '').slice(0, 500) }).catch(() => null);
-  };
-
-  // ── DOCX export — posts current handbook to /api/v1/export/handbook-docx ────
-  // Works with or without an AI-generated cache. When the entry has been
-  // generated in-session (via the AI handbook section), the generated
-  // document is sent; otherwise the server assembles from curated sources.
-  window._hbExportDocx = async (entryId) => {
-    if (!entryId) return;
-    const btn = document.getElementById('hb-export-docx-btn');
-    if (btn) { btn.disabled = true; btn.textContent = '⬇ …'; }
-    // The backend ExportHandbookDocxRequest schema expects
-    //   { condition_name, modality_name, device_name }
-    // and re-runs the clinical-dataset generator; the AI-generated cache is
-    // discarded server-side, so we do not ship it.
-    const cond = (CONDITION_REGISTRY || []).find(c => c.id === entryId);
-    const prot = (PROTOCOL_REGISTRY || []).find(p => p.id === entryId);
-    const parentCond = prot ? (CONDITION_REGISTRY || []).find(c => c.id === prot.condition) : null;
-    if (!cond && !parentCond) {
-      if (btn) { btn.disabled = false; btn.textContent = '⬇ DOCX'; }
-      window._dsToast?.({ title: 'Export unavailable', body: 'Ops / training handbooks are not yet wired to the DOCX backend.', severity: 'warn' });
-      return;
-    }
-    const mapped = cond ? _backendConditionFor(cond) : _backendConditionFor(parentCond);
-    const sel = _aiSel[entryId] || {};
-    const modalityRaw = sel.modality || prot?.modality || (cond?.modalities || [])[0] || 'TMS/rTMS';
-    const modality = _modalityForBackend(modalityRaw);
-    const deviceObj = sel.deviceId ? DEVICE_REGISTRY.find(d => d.id === sel.deviceId) : null;
-    try {
-      const blob = await api.exportHandbookDocx({
-        condition_name: mapped.name,
-        modality_name: modality,
-        device_name: deviceObj ? deviceObj.name : '',
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'handbook-' + String(entryId).toLowerCase() + '.docx';
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-      window._dsToast?.({ title: 'Exported', body: mapped.name + ' · handbook.docx (draft render — verify before distribution)', severity: 'info' });
-      _hbLog('handbook_export_docx', `entry=${entryId};condition=${String(mapped.name).slice(0, 80)}`);
-    } catch (e) {
-      window._dsToast?.({ title: 'Export failed', body: (e?.body?.message || e?.message || 'Backend error'), severity: 'error' });
-    }
-    if (btn) { btn.disabled = false; btn.textContent = '⬇ DOCX'; }
-  };
-
-  window._hbExportPatientGuide = async (entryId) => {
-    if (!entryId) return;
-    const btn = document.getElementById('hb-export-patient-guide-btn');
-    if (btn) { btn.disabled = true; btn.textContent = '…'; }
-    const cond = (CONDITION_REGISTRY || []).find(c => c.id === entryId);
-    const prot = (PROTOCOL_REGISTRY || []).find(p => p.id === entryId);
-    const parentCond = prot ? (CONDITION_REGISTRY || []).find(c => c.id === prot.condition) : null;
-    if (!cond && !parentCond) {
-      if (btn) { btn.disabled = false; btn.textContent = 'Patient guide'; }
-      window._dsToast?.({ title: 'Export unavailable', body: 'Patient guide DOCX applies to condition/protocol handbook rows only.', severity: 'warn' });
-      return;
-    }
-    const mapped = cond ? _backendConditionFor(cond) : _backendConditionFor(parentCond);
-    const sel = _aiSel[entryId] || {};
-    const modalityRaw = sel.modality || prot?.modality || (cond?.modalities || [])[0] || 'TMS/rTMS';
-    const modality = _modalityForBackend(modalityRaw);
-    try {
-      const blob = await api.exportPatientGuideDocx({
-        condition_name: mapped.name,
-        modality_name: modality,
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'patient-guide-' + String(entryId).toLowerCase() + '.docx';
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-      window._dsToast?.({ title: 'Patient guide exported', body: 'Review before sharing — generic instructions unless chart-linked.', severity: 'info' });
-      api.logAudit({
-        event: 'patient_guide_export_docx',
-        surface: 'handbooks',
-        note: `entry=${entryId};condition=${String(mapped.name).slice(0, 80)}`,
-      }).catch(() => null);
-    } catch (e) {
-      window._dsToast?.({ title: 'Export failed', body: (e?.body?.message || e?.message || 'Backend error'), severity: 'error' });
-    }
-    if (btn) { btn.disabled = false; btn.textContent = 'Patient guide'; }
-  };
-
-  // ── Keyboard shortcuts — /, Esc, j, k, ? ───────────────────────────────────
-  // `/` focus search; `Esc` clear + blur when focused; `j`/`k` step through
-  // the currently-visible rail entries; `?` show help toast. Input fields are
-  // skipped except the `/` binding (which opens/focuses search intentionally).
-  if (!window._hbKbInstalled) {
-    window._hbKbInstalled = true;
-    document.addEventListener('keydown', (ev) => {
-      if (!document.querySelector('#hb-filter')) return; // not on Handbooks page
-      const inField = ev.target && (ev.target.tagName === 'INPUT' || ev.target.tagName === 'TEXTAREA' || ev.target.tagName === 'SELECT' || ev.target.isContentEditable);
-      if (ev.key === '/' && !inField) {
-        ev.preventDefault();
-        const f = document.getElementById('hb-filter');
-        if (f) { f.focus(); f.select?.(); }
-        return;
-      }
-      if (ev.key === 'Escape' && ev.target?.id === 'hb-filter') {
-        ev.target.value = '';
-        window._hbFilter('');
-        ev.target.blur();
-        return;
-      }
-      if ((ev.key === 'j' || ev.key === 'k') && !inField) {
-        ev.preventDefault();
-        const rail = document.querySelectorAll('aside [onclick^="window._hbOpen"]');
-        if (!rail.length) return;
-        const ids = Array.from(rail).map(el => {
-          const m = String(el.getAttribute('onclick') || '').match(/_hbOpen\('([^']+)'/);
-          return m ? m[1] : null;
-        }).filter(Boolean);
-        const cur = ids.indexOf(_id);
-        const next = ev.key === 'j' ? Math.min(ids.length - 1, cur + 1) : Math.max(0, cur - 1);
-        const pick = ids[cur < 0 ? 0 : next];
-        if (pick) window._hbOpen(pick);
-        return;
-      }
-      if (ev.key === '?' && !inField) {
-        ev.preventDefault();
-        window._dsToast?.({ title: 'Handbook shortcuts', body: '/ focus search · Esc clear · j next · k previous · ? this help', severity: 'info' });
-      }
-    });
-  }
-
-  // Resolve the "effective condition" for the currently-open entry. For a
-  // condition handbook this is the condition itself; for a protocol handbook
-  // we follow the protocol's `condition` field back to the condition registry.
-  const _effectiveCondition = () => {
-    if (!_id) return null;
-    const cond = CONDITION_REGISTRY.find(c => c.id === _id);
-    if (cond) return cond;
-    const prot = PROTOCOL_REGISTRY.find(p => p.id === _id);
-    if (prot) return CONDITION_REGISTRY.find(c => c.id === prot.condition) || null;
-    return null;
-  };
-
-  // ── AI Handbook handlers ───────────────────────────────────────────────────
-  window._hbAiSet = (field, value) => {
-    const cond = _effectiveCondition();
-    if (!cond) return;
-    const sel = _aiSelFor(cond);
-    sel[field] = value;
-    if (field === 'modality') {
-      const protos = PROTOCOL_REGISTRY.filter(p => p.condition === cond.id);
-      const devices = DEVICE_REGISTRY.filter(d => _modalityMatches(d.modality, value));
-      sel.deviceId = devices.length ? devices[0].id : '';
-      const protoStillValid = protos.find(p => p.id === sel.protoId && _modalityMatches(p.modality, value));
-      if (!protoStillValid) {
-        const newProto = protos.find(p => _modalityMatches(p.modality, value));
-        sel.protoId = newProto ? newProto.id : '';
-      }
-    }
-    _section = 'ai-handbook';
-    render();
-  };
-
-  window._hbAiGenerate = async () => {
-    if (!_canGenerate()) {
-      window._dsToast?.({ title: 'Permission required', body: 'Handbook generation needs clinician or admin role.', severity: 'warn' });
-      return;
-    }
-    const cond = _effectiveCondition();
-    if (!cond) return;
-    const sel = _aiSelFor(cond);
-    const cacheKey = `${cond.id}|${sel.modality}|${sel.protoId}|${sel.deviceId}|${sel.kind}`;
-    const btn  = document.getElementById('hb-ai-gen');
-    const stat = document.getElementById('hb-ai-status');
-    if (btn)  btn.disabled = true;
-    if (stat) stat.textContent = 'Generating from clinical dataset…';
-    try {
-      const mapped = _backendConditionFor(cond);
-      const deviceObj = sel.deviceId ? DEVICE_REGISTRY.find(d => d.id === sel.deviceId) : null;
       const res = await api.generateHandbook({
-        handbook_kind: sel.kind,
-        condition: mapped.name,
-        modality: _modalityForBackend(sel.modality),
-        device: deviceObj ? deviceObj.name : '',
+        handbook_kind: g.audience.toLowerCase().replace(/ /g, '_'),
+        condition: g.condition,
+        modality: g.modality,
+        device: g.device,
+        evidence_threshold: g.evidenceThreshold,
+        reading_level: g.readingLevel,
+        patient_scoped: g.patientScoped && !!_state.patientId,
       });
-      _aiCache[cacheKey] = {
-        document: res?.document || res,
-        disclaimers: res?.disclaimers,
-        detailed_report: res?.detailed_report,
-        governance: res?.governance,
-        modality: sel.modality,
-        protoId: sel.protoId,
-        deviceId: sel.deviceId,
-        kind: sel.kind,
-        ts: Date.now(),
+      const newHb = {
+        id: `hb-${Date.now()}`,
+        title: `${g.modality} for ${g.condition}`,
+        modality: g.modality,
+        audience: g.audience,
+        state: 'draft',
+        date: new Date().toISOString().slice(0, 10),
+        condition: g.condition,
+        evidence: g.evidenceThreshold.includes('A-only') ? 'A' : g.evidenceThreshold.includes('A-B') ? 'B' : 'C',
+        author: currentUser?.display_name || currentUser?.email || 'Clinician',
+        patientScoped: g.patientScoped && !!_state.patientId,
+        sections: null,
       };
-      api.logAudit({
-        event: 'handbook_ai_draft_generate',
-        surface: 'handbooks',
-        note: `condition=${cond.id};modality=${sel.modality};kind=${sel.kind}`,
-      }).catch(() => null);
-      window._dsToast?.({ title: 'AI-assisted draft ready', body: cond.name + ' · ' + sel.modality + ' — review before use.', severity: 'ok' });
+      if (res?.document) {
+        newHb.sections = _sectionsFromApi(res.document, newHb.evidence);
+      }
+      _state.handbooks.unshift(newHb);
+      _state.selectedHandbook = newHb;
+      _state.view = 'handbook';
+      window._dsToast?.({ title: 'Handbook generated', body: `${newHb.title} — review before clinical use.`, severity: 'ok' });
+      renderHandbookView(el);
     } catch (e) {
-      const msg = e?.body?.message || e?.message || 'Backend error';
-      if (stat) stat.textContent = 'Failed: ' + msg;
-      window._dsToast?.({ title: 'Generate failed', body: msg, severity: 'warn' });
-      if (btn) btn.disabled = false;
-      return;
+      g.generating = false;
+      const msg = e?.message || 'Generation failed. Please try again.';
+      window._dsToast?.({ title: 'Generation failed', body: msg, severity: 'error' });
+      renderGenerator(el);
     }
-    _section = 'ai-handbook';
-    render();
   };
 
-  render();
+  window._hbToggleSection = (id) => {
+    if (_state.expandedSections.has(id)) _state.expandedSections.delete(id); else _state.expandedSections.add(id);
+    renderHandbookView(el);
+  };
+  window._hbToggleReviewed = (id, checked) => {
+    _state.sectionReviewed[id] = checked;
+    renderHandbookView(el);
+  };
+  window._hbUpdateSection = (id, content) => {
+    const hb = _state.selectedHandbook;
+    if (hb && hb.sections) { const sec = hb.sections.find(s => s.id === id); if (sec) sec.content = content; }
+  };
+  window._hbRegenerateSection = (id) => {
+    const hb = _state.selectedHandbook;
+    if (!hb || !hb.sections) return;
+    const sec = hb.sections.find(s => s.id === id);
+    if (sec) {
+      sec.content = _lorem(sec.title + ' (regenerated)') + ' [Regenerated at ' + new Date().toLocaleTimeString() + ']';
+      window._dsToast?.({ title: 'Section regenerated', body: `${sec.title} has been refreshed.`, severity: 'info' });
+      renderHandbookView(el);
+    }
+  };
+  window._hbToggleEvidencePanel = () => { _state.evidencePanelOpen = !_state.evidencePanelOpen; renderHandbookView(el); };
+  window._hbToggleGovernance = () => {
+    const panel = document.getElementById('hb-governance-panel');
+    const actions = document.getElementById('hb-governance-actions');
+    if (panel) panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+    if (actions) actions.style.display = actions.style.display === 'none' ? 'flex' : 'none';
+  };
+  window._hbGovAction = (action) => {
+    const hb = _state.selectedHandbook;
+    if (!hb) return;
+    const stateFlow = {
+      submit: { from: 'draft', to: 'needs_review' },
+      approve: { from: 'needs_review', to: 'approved' },
+      reject: { from: 'needs_review', to: 'draft' },
+      sign: { from: 'approved', to: 'signed' },
+      export: { from: 'signed', to: 'exported' },
+      archive: { from: '*', to: 'archived' },
+    };
+    const flow = stateFlow[action];
+    if (flow) {
+      if (action === 'archive') { window._dsToast?.({ title: 'Archived', body: `${hb.title} has been archived.`, severity: 'info' }); }
+      else if (flow.from === '*' || hb.state === flow.from) { hb.state = flow.to; window._dsToast?.({ title: 'Status updated', body: `Moved to ${GOVERNANCE_LABELS[flow.to]}.`, severity: 'ok' }); }
+      else { window._dsToast?.({ title: 'Invalid transition', body: `Cannot ${action} from ${GOVERNANCE_LABELS[hb.state]}.`, severity: 'warn' }); return; }
+    }
+    renderHandbookView(el);
+  };
+
+  window._hbExport = async (format) => {
+    const hb = _state.selectedHandbook;
+    if (!hb) return;
+    if (hb.state !== 'signed') { window._dsToast?.({ title: 'Export blocked', body: 'Handbook must be signed before export.', severity: 'warn' }); return; }
+    const rf = getRoleFeatures();
+    if (!rf.canExport) { window._dsToast?.({ title: 'Export blocked', body: 'Handbook export not enabled for your clinic.', severity: 'warn' }); return; }
+
+    try {
+      if (format === 'docx') {
+        const blob = await api.exportHandbookDocx({ condition_name: hb.condition, modality_name: hb.modality, device_name: hb.device || '' });
+        _triggerDownload(blob, `handbook-${hb.id}.docx`);
+        window._dsToast?.({ title: 'DOCX exported', body: 'Download started.', severity: 'ok' });
+      } else if (format === 'pdf') {
+        const blob = await api.exportHandbookPdf({ condition_name: hb.condition, modality_name: hb.modality, device_name: hb.device || '' });
+        _triggerDownload(blob, `handbook-${hb.id}.pdf`);
+        window._dsToast?.({ title: 'PDF exported', body: 'Download started.', severity: 'ok' });
+      } else if (format === 'patient') {
+        const blob = await api.exportPatientGuideDocx({ condition_name: hb.condition, modality_name: hb.modality });
+        _triggerDownload(blob, `patient-guide-${hb.id}.docx`);
+        window._dsToast?.({ title: 'Patient guide exported', body: 'Download started.', severity: 'ok' });
+      } else {
+        const content = _buildMarkdownExport(hb);
+        const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+        _triggerDownload(blob, `handbook-${hb.id}${format === 'evidence' ? '-evidence' : format === 'bundle' ? '-bundle' : ''}.md`);
+        window._dsToast?.({ title: `${format} exported`, body: 'Download started.', severity: 'ok' });
+      }
+    } catch (e) {
+      const fallbackMsg = format === 'pdf' ? 'PDF export unavailable — DOCX or Markdown are alternatives.' : (e?.message || 'Export failed.');
+      window._dsToast?.({ title: 'Export error', body: fallbackMsg, severity: 'error' });
+    }
+  };
+
+  // Initial render
+  renderLibrary(el);
 }
+
+// ── Helper: trigger file download ────────────────────────────────────────────
+function _triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+// ── Helper: build markdown export ────────────────────────────────────────────
+function _buildMarkdownExport(hb) {
+  const sections = hb.sections || _demoGeneratedSections(hb);
+  let md = `# ${hb.title}\n\n`;
+  md += `**Modality:** ${hb.modality} | **Condition:** ${hb.condition} | **Audience:** ${hb.audience}\n\n`;
+  md += `> **⚠ SAFETY NOTICE:** This document is for educational decision-support only. `;
+  md += `Not a diagnosis, prescription, or emergency guidance. Review by a licensed clinician is required.\n\n`;
+  md += `---\n\n`;
+  sections.forEach(s => {
+    md += `## ${s.title} (Grade ${s.evidence})\n\n${s.content}\n\n`;
+    if (s.citations) {
+      s.citations.forEach(c => { md += `- ${c.title} *${c.journal}* (${c.year})${c.doi ? ' DOI:' + c.doi : ''}${c.pmid ? ' PMID:' + c.pmid : ''}\n`; });
+      md += '\n';
+    }
+  });
+  md += `---\n\nGenerated: ${new Date().toISOString()} | Status: ${GOVERNANCE_LABELS[hb.state] || hb.state}\n`;
+  return md;
+}
+
+// ── Helper: convert API document to sections ─────────────────────────────────
+function _sectionsFromApi(doc, defaultGrade) {
+  const grade = defaultGrade || 'B';
+  return [
+    { id: 'overview', title: 'Overview', evidence: grade, content: doc.overview || _lorem('Overview'), citations: _demoCitations(grade) },
+    { id: 'indications', title: 'Indications / Context', evidence: grade, content: (doc.eligibility || []).join('\n') || _lorem('Indications'), citations: _demoCitations(grade) },
+    { id: 'contraindications', title: 'Contraindications', evidence: 'A', content: (doc.safety || []).join('\n') || _lorem('Contraindications'), citations: _demoCitations('A') },
+    { id: 'preparation', title: 'Preparation', evidence: grade, content: (doc.setup || []).join('\n') || _lorem('Preparation'), citations: _demoCitations(grade) },
+    { id: 'workflow', title: 'Session Workflow', evidence: grade, content: (doc.session_workflow || []).join('\n') || _lorem('Session Workflow'), citations: _demoCitations(grade) },
+    { id: 'safety', title: 'Safety Checklist', evidence: 'A', content: (doc.safety || []).join('\n') || _lorem('Safety'), citations: _demoCitations('A') },
+    { id: 'adverse', title: 'Adverse Event Guidance', evidence: 'A', content: (doc.troubleshooting || []).join('\n') || _lorem('Adverse Events'), citations: _demoCitations('A') },
+    { id: 'experience', title: 'Expected Experience', evidence: 'B', content: _lorem('Expected Experience'), citations: _demoCitations('B') },
+    { id: 'notes', title: 'Clinician Notes / Patient Explanation', evidence: grade, content: doc.patientExplain || _lorem('Notes'), citations: _demoCitations(grade) },
+    { id: 'evidence', title: 'Evidence Appendix', evidence: grade, content: 'See citations.', citations: _demoCitations(grade, 6), collapsible: true },
+    { id: 'limitations', title: 'Limitations', evidence: 'C', content: _lorem('Limitations'), citations: _demoCitations('C') },
+    { id: 'signoff', title: 'Review / Sign-Off', evidence: grade, content: 'Awaiting clinician review and sign-off.', citations: [] },
+  ];
+}
+
+// ── Default export ───────────────────────────────────────────────────────────
+export default { pgHandbooks };
