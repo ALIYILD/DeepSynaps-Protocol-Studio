@@ -62,6 +62,22 @@ from app.services.consent_enforcement import (
 )
 from app.services.evidence_intelligence import list_saved_citations
 from app.services import mri_pipeline as mri_pipeline_facade
+from app.services.mri_biomarker_panel import (
+    compute_biomarker_panel,
+    get_biomarker_registry,
+    get_registry_summary,
+)
+from app.services.mri_atlas_service import (
+    get_atlas_labels,
+    list_available_atlases,
+    list_registration_methods,
+    register_to_atlas,
+)
+from app.services.mri_ai_detection import (
+    detect_abnormalities,
+    detect_abnormalities_by_category,
+    get_detection_summary,
+)
 from app.settings import get_settings
 
 _log = logging.getLogger(__name__)
@@ -2225,3 +2241,737 @@ def get_mri_capabilities(
         warnings=warnings,
         last_checked_at=datetime.now(timezone.utc).isoformat(),
     )
+
+
+# ── Phase 3 (Weeks 9-12): Neuroimaging Intelligence ─────────────────────────
+# Biomarker Panel, Atlas Registration, AI Abnormality Detection
+
+
+class _BiomarkerPanelOut(BaseModel):
+    """Biomarker panel response (Phase 3, Week 9).
+
+    Evidence-graded neuroimaging biomarkers across 6 categories
+    with 47 markers total.  Decision-support only.
+    """
+    patient_age: int
+    patient_sex: str
+    categories: dict[str, Any]
+    abnormal_count: int
+    total_count: int
+    summary: str
+    safety_note: str
+    requires_clinical_correlation: bool = True
+
+
+@router.get("/{analysis_id}/biomarkers", response_model=_BiomarkerPanelOut)
+def get_biomarkers(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> _BiomarkerPanelOut:
+    """Get evidence-graded biomarker panel for an MRI analysis (Phase 3, W9).
+
+    Computes 47 biomarkers across 6 categories (structural, diffusion,
+    white_matter, functional, composite).  Each marker carries an
+    evidence grade (A-D) and z-score against age/sex-matched norms.
+
+    Decision-support only -- requires clinician/radiologist review.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    data = _load(analysis.structural_json) or {}
+    panel = compute_biomarker_panel(
+        analysis_data=data,
+        patient_age=analysis.age or 0,
+        patient_sex=analysis.sex or "U",
+    )
+
+    _log.info(
+        "mri_biomarker_panel_served",
+        extra={
+            "event": "mri_biomarker_panel_served",
+            "analysis_id": analysis_id,
+            "abnormal_count": panel["abnormal_count"],
+            "total_count": panel["total_count"],
+            "actor_id": actor.actor_id,
+        },
+    )
+    return _BiomarkerPanelOut(**panel)
+
+
+@router.get("/biomarkers/registry")
+def get_biomarker_registry_endpoint(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict[str, Any]:
+    """Return the biomarker registry metadata (Phase 3, W9).
+
+    Lists all 47 markers with descriptions, evidence grades, and
+    associated clinical conditions.  Does not require patient access.
+    """
+    require_minimum_role(actor, "clinician")
+    return {
+        "registry": get_biomarker_registry(),
+        "summary": get_registry_summary(),
+    }
+
+
+class _AtlasRegistrationOut(BaseModel):
+    """Atlas registration response (Phase 3, Week 10)."""
+    atlas: str
+    atlas_description: Optional[str] = None
+    method: str
+    method_description: Optional[str] = None
+    qa_metrics: dict[str, Any]
+    passed: bool
+    output_space: str
+    transformation_type: str
+    patient_age: Optional[int] = None
+    patient_sex: Optional[str] = None
+    safety_note: str
+    requires_clinical_correlation: bool = True
+
+
+@router.post("/{analysis_id}/register-atlas", response_model=_AtlasRegistrationOut)
+def register_atlas(
+    analysis_id: str,
+    atlas_name: str = "MNI152NLin2009cAsym",
+    method: str = "ants_syn_quick",
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> _AtlasRegistrationOut:
+    """Register patient volume to atlas space (Phase 3, W10).
+
+    Performs spatial normalisation to a standard template (default:
+    MNI152NLin2009cAsym) using the specified method (default: ANTs
+    SyN quick).  Returns QA metrics (Dice coefficient, Jacobian
+    determinants, mutual information) and a pass/fail assessment.
+
+    Decision-support only -- registration quality must be verified
+    before clinical use.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    result = register_to_atlas(
+        patient_volume_path=analysis.upload_ref or "patient_volume.nii.gz",
+        atlas_name=atlas_name,
+        method=method,
+        patient_age=analysis.age,
+        patient_sex=analysis.sex,
+    )
+
+    if "error" in result:
+        raise ApiServiceError(
+            code="registration_failed",
+            message=result["error"],
+            status_code=422,
+        )
+
+    _log.info(
+        "mri_atlas_registration_served",
+        extra={
+            "event": "mri_atlas_registration_served",
+            "analysis_id": analysis_id,
+            "atlas": atlas_name,
+            "method": method,
+            "passed": result["passed"],
+            "actor_id": actor.actor_id,
+        },
+    )
+    return _AtlasRegistrationOut(**result)
+
+
+@router.get("/atlas/available")
+def get_available_atlases(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict[str, Any]:
+    """List available neuroimaging atlases (Phase 3, W10)."""
+    require_minimum_role(actor, "clinician")
+    return list_available_atlases()
+
+
+@router.get("/atlas/registration-methods")
+def get_registration_methods(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict[str, Any]:
+    """List available registration methods (Phase 3, W10)."""
+    require_minimum_role(actor, "clinician")
+    return list_registration_methods()
+
+
+@router.get("/atlas/label")
+def lookup_atlas_label(
+    x: float,
+    y: float,
+    z: float,
+    atlas_name: str = "AAL3",
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict[str, Any]:
+    """Look up atlas labels for an MNI coordinate (Phase 3, W10).
+
+    Query params: x, y, z (MNI mm), atlas_name (default: AAL3).
+    """
+    require_minimum_role(actor, "clinician")
+    return get_atlas_labels(coordinate_mni=(x, y, z), atlas_name=atlas_name)
+
+
+class _AIFindingsOut(BaseModel):
+    """AI abnormality detection response (Phase 3, Week 11)."""
+    findings: list[dict[str, Any]]
+    summary: dict[str, Any]
+    safety_note: str
+    requires_clinical_correlation: bool = True
+
+
+@router.get("/{analysis_id}/ai-findings", response_model=_AIFindingsOut)
+def get_ai_findings(
+    analysis_id: str,
+    threshold_z: float = 2.5,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> _AIFindingsOut:
+    """Get AI-detected abnormalities with confidence scoring (Phase 3, W11).
+
+    Scans all biomarker z-scores across structural, diffusion, functional,
+    and composite categories.  Flags regions exceeding ``threshold_z``
+    (default 2.5) with hedged, radiologist-safe language.
+
+    Decision-support only -- all findings require radiologist review.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    data = _load(analysis.structural_json) or {}
+    findings = detect_abnormalities(data, threshold_z=threshold_z)
+    summary = get_detection_summary(findings)
+
+    _log.info(
+        "mri_ai_findings_served",
+        extra={
+            "event": "mri_ai_findings_served",
+            "analysis_id": analysis_id,
+            "finding_count": len(findings),
+            "threshold_z": threshold_z,
+            "actor_id": actor.actor_id,
+        },
+    )
+
+    return _AIFindingsOut(
+        findings=findings,
+        summary=summary,
+        safety_note=(
+            "AI findings are decision support only. "
+            "All flagged regions require radiologist review. "
+            "Not a diagnostic device."
+        ),
+        requires_clinical_correlation=True,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 4: Advanced Integration (Weeks 13-16)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+# ── Multimodal Fusion (Week 13) ────────────────────────────────────────────
+
+class _MultimodalFusionOut(BaseModel):
+    """Multimodal fusion response."""
+    domain: str = Field(..., description="Fusion domain")
+    correlations: list[dict[str, Any]] = Field(default_factory=list)
+    count: int = Field(0, description="Number of correlations found")
+    safety_note: str = Field("", description="Safety framing note")
+    error: Optional[str] = Field(None, description="Error message if fusion failed")
+
+
+@router.get("/{analysis_id}/multimodal/{domain}", response_model=_MultimodalFusionOut)
+def get_multimodal_fusion(
+    analysis_id: str,
+    domain: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> _MultimodalFusionOut:
+    """Get MRI fused with another clinical domain (Week 13).
+
+    Correlates MRI structural findings with data from qEEG, biomarkers,
+    assessments, medications, protocols, or risk domains.
+
+    **Decision-support only.** Correlations are temporal associations,
+    not causal proof. Requires clinician review.
+
+    Parameters
+    ----------
+    analysis_id : str
+        MRI analysis UUID.
+    domain : str
+        Fusion domain — one of ``qeeg``, ``biomarkers``, ``assessments``,
+        ``medications``, ``protocols``, ``risk``.
+    actor : AuthenticatedActor
+        Authenticated user.
+    db : Session
+        Database session.
+
+    Returns
+    -------
+    _MultimodalFusionOut
+        Fusion result with correlation signals and uncertainty framing.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    # Parse MRI structural data
+    mri_data: dict[str, Any] = {"structural": {}}
+    structural = _load(analysis.structural_json)
+    if isinstance(structural, dict):
+        mri_data["structural"] = structural
+    # Also include stim targets if available
+    targets = _load(analysis.stim_targets_json)
+    if isinstance(targets, dict):
+        mri_data["targets"] = targets
+    if isinstance(targets, list):
+        mri_data["stim_targets"] = {f"target_{i}": t for i, t in enumerate(targets)}
+
+    # Build domain data from related records
+    domain_data: dict[str, Any] = {}
+
+    if domain == "qeeg":
+        # Fetch qEEG records for this patient
+        qeeg_rows = (
+            db.query(QEEGRecord)
+            .filter_by(patient_id=analysis.patient_id)
+            .order_by(QEEGRecord.created_at.desc())
+            .limit(5)
+            .all()
+        )
+        for row in qeeg_rows:
+            if hasattr(row, "report_payload_json") and row.report_payload_json:
+                try:
+                    payload = json.loads(row.report_payload_json)
+                    if isinstance(payload, dict):
+                        for k, v in payload.items():
+                            if isinstance(v, (int, float)):
+                                domain_data[k] = v
+                            elif isinstance(v, dict):
+                                domain_data[k] = v
+                except (TypeError, ValueError):
+                    pass
+
+    elif domain == "biomarkers":
+        # Use structural data as proxy biomarker values
+        structural_data = mri_data.get("structural", {})
+        for region, value in structural_data.items():
+            if isinstance(value, dict) and "z_score" in value:
+                domain_data[region] = value["z_score"]
+            elif isinstance(value, (int, float)):
+                domain_data[region] = value
+
+    elif domain in ("assessments", "medications", "protocols", "risk"):
+        # Generic: use available analysis metadata as placeholder
+        if analysis.condition:
+            domain_data["condition"] = analysis.condition
+        if analysis.age:
+            domain_data["age"] = analysis.age
+
+    # Run fusion
+    from app.services.mri_multimodal_fusion import fuse_mri_with_domain
+
+    result = fuse_mri_with_domain(mri_data, domain_data, domain)
+
+    if "error" in result:
+        return _MultimodalFusionOut(
+            domain=domain,
+            correlations=[],
+            count=0,
+            safety_note="",
+            error=result["error"],
+        )
+
+    return _MultimodalFusionOut(
+        domain=result["domain"],
+        correlations=result["correlations"],
+        count=result["count"],
+        safety_note=result["safety_note"],
+    )
+
+
+# ── Structured Report Generator (Week 14) ──────────────────────────────────
+
+class _GenerateReportIn(BaseModel):
+    """Request body for structured report generation."""
+    biomarkers: dict[str, Any] = Field(default_factory=dict)
+    findings: list[dict[str, Any]] = Field(default_factory=list)
+    safety_cockpit: dict[str, Any] = Field(default_factory=dict)
+    target_plans: list[dict[str, Any]] = Field(default_factory=list)
+    evidence_links: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class _GenerateReportOut(BaseModel):
+    """Structured report response."""
+    header: dict[str, Any] = Field(default_factory=dict)
+    patient_info: dict[str, Any] = Field(default_factory=dict)
+    scan_info: dict[str, Any] = Field(default_factory=dict)
+    safety_cockpit: dict[str, Any] = Field(default_factory=dict)
+    biomarkers: dict[str, Any] = Field(default_factory=dict)
+    ai_findings: list[dict[str, Any]] = Field(default_factory=list)
+    target_plans: list[dict[str, Any]] = Field(default_factory=list)
+    evidence_links: list[dict[str, Any]] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+    footer: dict[str, Any] = Field(default_factory=dict)
+    patient_friendly_summary: str = Field("", description="Patient-friendly text")
+
+
+@router.post("/{analysis_id}/generate-report", response_model=_GenerateReportOut)
+def generate_report(
+    analysis_id: str,
+    payload: _GenerateReportIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> _GenerateReportOut:
+    """Generate a structured MRI report (Week 14).
+
+    Produces an industry-standard structured report with patient-friendly
+    summary, biomarker panel, AI findings, and mandatory safety framing.
+
+    **Decision-support only.** Not a diagnosis or treatment recommendation.
+
+    Parameters
+    ----------
+    analysis_id : str
+        MRI analysis UUID.
+    payload : _GenerateReportIn
+        Report content (biomarkers, findings, safety cockpit).
+    actor : AuthenticatedActor
+        Authenticated user (must be clinician or above).
+    db : Session
+        Database session.
+
+    Returns
+    -------
+    _GenerateReportOut
+        Complete structured report with patient-friendly summary.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    from app.services.mri_report_generator import (
+        generate_patient_friendly_summary,
+        generate_structured_report,
+    )
+
+    report = generate_structured_report(
+        analysis_id=analysis_id,
+        patient_id=analysis.patient_id,
+        age=analysis.age,
+        sex=analysis.sex,
+        condition=analysis.condition,
+        modality="T1w",  # default; could be parsed from modalities_present_json
+        scan_date=analysis.created_at,
+        biomarkers=payload.biomarkers,
+        findings=payload.findings,
+        safety_cockpit=payload.safety_cockpit,
+        target_plans=payload.target_plans,
+        evidence_links=payload.evidence_links,
+    )
+
+    # Generate patient-friendly summary
+    patient_summary = generate_patient_friendly_summary(report)
+    report["patient_friendly_summary"] = patient_summary
+
+    return _GenerateReportOut(
+        header=report["header"],
+        patient_info=report["patient_info"],
+        scan_info=report["scan_info"],
+        safety_cockpit=report["safety_cockpit"],
+        biomarkers=report["biomarkers"],
+        ai_findings=report["ai_findings"],
+        target_plans=report["target_plans"],
+        evidence_links=report["evidence_links"],
+        limitations=report["limitations"],
+        footer=report["footer"],
+        patient_friendly_summary=patient_summary,
+    )
+
+
+@router.get("/{analysis_id}/patient-summary")
+def get_patient_summary(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, str]:
+    """Get patient-friendly summary for an analysis (Week 14).
+
+    Returns a plain-text, patient-friendly summary of the MRI analysis.
+    Requires the analysis to have a generated report.
+
+    Parameters
+    ----------
+    analysis_id : str
+        MRI analysis UUID.
+    actor : AuthenticatedActor
+        Authenticated user.
+    db : Session
+        Database session.
+
+    Returns
+    -------
+    dict
+        ``{"summary": "..."}`` with patient-friendly text.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(MriAnalysis).filter_by(analysis_id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    # Use stored patient-facing report if available
+    if analysis.patient_facing_report_json:
+        try:
+            stored = json.loads(analysis.patient_facing_report_json)
+            if isinstance(stored, dict) and "summary" in stored:
+                return {"summary": stored["summary"]}
+        except (TypeError, ValueError):
+            pass
+
+    # Generate a basic summary from available data
+    from app.services.mri_report_generator import generate_patient_friendly_summary
+    from app.services.mri_report_generator import REPORT_TEMPLATE
+
+    report = dict(REPORT_TEMPLATE)
+    report["scan_info"] = {
+        "analysis_id": analysis_id,
+        "scan_date": _iso(analysis.created_at),
+    }
+    report["biomarkers"] = {
+        "abnormal_count": 0,
+        "total_count": 0,
+    }
+    structural = _load(analysis.structural_json)
+    if isinstance(structural, dict):
+        report["biomarkers"]["total_count"] = len(structural)
+        report["biomarkers"]["regions"] = structural
+
+    report["ai_findings"] = []
+    report["safety_cockpit"] = _load(analysis.safety_cockpit_json) or {}
+
+    summary = generate_patient_friendly_summary(report)
+    return {"summary": summary}
+
+
+# ── Compliance Dashboard (Week 15) ─────────────────────────────────────────
+
+class _ComplianceOut(BaseModel):
+    """Compliance dashboard response."""
+    clinic_id: str = Field(..., description="Clinic identifier")
+    period_days: int = Field(30, description="Analysis period in days")
+    total_analyses: int = Field(0)
+    approved: int = Field(0)
+    approval_rate: float = Field(0.0)
+    signed: int = Field(0)
+    sign_rate: float = Field(0.0)
+    with_red_flags: int = Field(0)
+    red_flag_rate: float = Field(0.0)
+    avg_turnaround_hours: float = Field(0.0)
+    avg_review_time_hours: float = Field(0.0)
+    avg_daily_volume: float = Field(0.0)
+    compliance_score: float = Field(0.0, description="0-100 weighted score")
+    fda_510k_metrics: dict[str, Any] = Field(default_factory=dict)
+    alerts: list[dict[str, Any]] = Field(default_factory=list)
+    trend: dict[str, Any] = Field(default_factory=dict)
+    error: Optional[str] = Field(None)
+
+
+@router.get("/clinic/{clinic_id}/compliance", response_model=_ComplianceOut)
+def get_compliance_dashboard(
+    clinic_id: str,
+    days: int = Query(30, ge=1, le=365, description="Look-back period in days"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> _ComplianceOut:
+    """Get clinic compliance metrics (Week 15).
+
+    Returns regulatory-quality metrics including approval rates, sign-off
+    rates, turnaround times, automated alerts, and FDA 510(k)-aligned
+    quality indicators.
+
+    **Requires admin role.**
+
+    Parameters
+    ----------
+    clinic_id : str
+        Clinic UUID.
+    days : int
+        Look-back period (1-365, default 30).
+    actor : AuthenticatedActor
+        Authenticated user (must be admin).
+    db : Session
+        Database session.
+
+    Returns
+    -------
+    _ComplianceOut
+        Compliance dashboard payload.
+    """
+    require_minimum_role(actor, "admin")
+
+    # Verify clinic access
+    if actor.role != "admin" and getattr(actor, "clinic_id", None) != clinic_id:
+        raise ApiServiceError(
+            code="clinic_access_denied",
+            message="Access denied for this clinic.",
+            status_code=403,
+        )
+
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # Query analyses for this clinic
+    analyses = (
+        db.query(MriAnalysis)
+        .filter(
+            MriAnalysis.created_at >= since,
+        )
+        .all()
+    )
+
+    # Filter by clinic via patient lookup if clinic_id column doesn't exist
+    # (fallback: use all analyses in period for demo/admin view)
+    from app.repositories.patients import resolve_patient_clinic_id
+
+    clinic_analyses: list[Any] = []
+    for a in analyses:
+        try:
+            exists, resolved_clinic_id = resolve_patient_clinic_id(db, a.patient_id)
+            if exists and resolved_clinic_id == clinic_id:
+                clinic_analyses.append(a)
+            elif not exists and actor.role == "admin":
+                # Include orphaned analyses for admin
+                clinic_analyses.append(a)
+        except Exception:
+            pass
+
+    from app.services.mri_compliance import compute_compliance_metrics
+
+    result = compute_compliance_metrics(
+        analyses=clinic_analyses,
+        clinic_id=clinic_id,
+        days=days,
+    )
+
+    if "error" in result:
+        return _ComplianceOut(
+            clinic_id=clinic_id,
+            period_days=days,
+            error=result["error"],
+            total_analyses=result.get("total_analyses", 0),
+        )
+
+    return _ComplianceOut(
+        clinic_id=result["clinic_id"],
+        period_days=result["period_days"],
+        total_analyses=result["total_analyses"],
+        approved=result["approved"],
+        approval_rate=result["approval_rate"],
+        signed=result["signed"],
+        sign_rate=result["sign_rate"],
+        with_red_flags=result["with_red_flags"],
+        red_flag_rate=result["red_flag_rate"],
+        avg_turnaround_hours=result["avg_turnaround_hours"],
+        avg_review_time_hours=result["avg_review_time_hours"],
+        avg_daily_volume=result["avg_daily_volume"],
+        compliance_score=result["compliance_score"],
+        fda_510k_metrics=result.get("fda_510k_metrics", {}),
+        alerts=result.get("alerts", []),
+        trend=result.get("trend", {}),
+    )
+
+
+@router.get("/clinic/{clinic_id}/compliance/export")
+def export_compliance_report(
+    clinic_id: str,
+    days: int = Query(30, ge=1, le=365),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    """Export clinic compliance report in FDA 510(k) format (Week 15).
+
+    Generates a regulatory-quality export bundle suitable for quality
+    officer review and regulatory submission.
+
+    **Requires admin role.**
+
+    Parameters
+    ----------
+    clinic_id : str
+        Clinic UUID.
+    days : int
+        Look-back period (default 30).
+    actor : AuthenticatedActor
+        Authenticated user (must be admin).
+    db : Session
+        Database session.
+
+    Returns
+    -------
+    dict
+        FDA 510(k)-aligned regulatory export.
+    """
+    require_minimum_role(actor, "admin")
+
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    analyses = (
+        db.query(MriAnalysis)
+        .filter(MriAnalysis.created_at >= since)
+        .all()
+    )
+
+    from app.repositories.patients import resolve_patient_clinic_id
+
+    clinic_analyses: list[Any] = []
+    for a in analyses:
+        try:
+            exists, resolved_clinic_id = resolve_patient_clinic_id(db, a.patient_id)
+            if exists and resolved_clinic_id == clinic_id:
+                clinic_analyses.append(a)
+        except Exception:
+            pass
+
+    from app.services.mri_compliance import (
+        compute_compliance_metrics,
+        generate_regulatory_export,
+    )
+
+    metrics = compute_compliance_metrics(
+        analyses=clinic_analyses,
+        clinic_id=clinic_id,
+        days=days,
+    )
+
+    clinic_info = {
+        "clinic_id": clinic_id,
+        "clinic_name": getattr(actor, "clinic_name", "Unknown Clinic"),
+        "software_version": "0.4.0",
+    }
+
+    return generate_regulatory_export(metrics, clinic_info)
