@@ -1,0 +1,307 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Frontend Coverage Enforcement — DeepSynaps Protocol Studio
+# ═══════════════════════════════════════════════════════════════════════════════
+# Runs the Vitest test suite with v8 coverage against the 90/90/90/90
+# threshold gates. Fails the build if any metric falls below target.
+#
+# Triggers:
+#   - Pull request (affects apps/web/** or packages/api-client/**)
+#   - Push to main
+#   - Manual (workflow_dispatch)
+#
+# Outputs:
+#   - Coverage HTML report (artifact, 14-day retention)
+#   - lcov.info for external tools (Codecov, SonarQube)
+#   - Coverage summary JSON for downstream jobs
+#   - PR comment with coverage diff (if triggered by PR)
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: Frontend Coverage
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "packages/api-client/**"
+      - "package-lock.json"
+      - "package.json"
+      - ".github/workflows/frontend-coverage.yml"
+      - "vitest.config.ts"
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "packages/api-client/**"
+      - "package-lock.json"
+      - "package.json"
+  workflow_dispatch:
+
+env:
+  COVERAGE_THRESHOLD_LINES: "90"
+  COVERAGE_THRESHOLD_BRANCHES: "90"
+  COVERAGE_THRESHOLD_FUNCTIONS: "90"
+  COVERAGE_THRESHOLD_STATEMENTS: "90"
+  NODE_VERSION: "20"
+
+jobs:
+  # ── Phase 1: Install & build ───────────────────────────────────────────────
+  install:
+    name: Install & build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (required by some tests)
+        run: npm run build:web
+        continue-on-error: true
+
+      - name: Cache build output
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            apps/web/dist
+            node_modules
+          key: frontend-build-${{ github.run_id }}
+
+  # ── Phase 2: Run tests with coverage ───────────────────────────────────────
+  test-coverage:
+    name: Vitest + v8 coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [install]
+
+    outputs:
+      lines: ${{ steps.coverage.outputs.lines }}
+      branches: ${{ steps.coverage.outputs.branches }}
+      functions: ${{ steps.coverage.outputs.functions }}
+      statements: ${{ steps.coverage.outputs.statements }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Restore build cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            apps/web/dist
+            node_modules
+          key: frontend-build-${{ github.run_id }}
+
+      - name: Install dependencies (if cache miss)
+        if: steps.cache-restore.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Run Vitest with coverage
+        id: coverage
+        working-directory: apps/web
+        run: |
+          npx vitest run --coverage 2>&1 | tee coverage-output.txt
+          EXIT_CODE=$?
+
+          # Extract coverage percentages from the JSON summary
+          if [ -f coverage/coverage-summary.json ]; then
+            LINES=$(jq -r '.total.lines.pct // 0' coverage/coverage-summary.json)
+            BRANCHES=$(jq -r '.total.branches.pct // 0' coverage/coverage-summary.json)
+            FUNCTIONS=$(jq -r '.total.functions.pct // 0' coverage/coverage-summary.json)
+            STATEMENTS=$(jq -r '.total.statements.pct // 0' coverage/coverage-summary.json)
+          else
+            # Fallback: parse text output
+            LINES=$(grep -oP 'Lines\s+:\s+\K[0-9.]+' coverage-output.txt || echo "0")
+            BRANCHES=$(grep -oP 'Branches\s+:\s+\K[0-9.]+' coverage-output.txt || echo "0")
+            FUNCTIONS=$(grep -oP 'Functions\s+:\s+\K[0-9.]+' coverage-output.txt || echo "0")
+            STATEMENTS=$(grep -oP 'Statements\s+:\s+\K[0-9.]+' coverage-output.txt || echo "0")
+          fi
+
+          echo "lines=${LINES}" >> "$GITHUB_OUTPUT"
+          echo "branches=${BRANCHES}" >> "$GITHUB_OUTPUT"
+          echo "functions=${FUNCTIONS}" >> "$GITHUB_OUTPUT"
+          echo "statements=${STATEMENTS}" >> "$GITHUB_OUTPUT"
+
+          exit $EXIT_CODE
+        continue-on-error: true
+
+      - name: Upload coverage HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage-html
+          path: apps/web/coverage/htmlcov/
+          retention-days: 14
+
+      - name: Upload coverage lcov
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage-lcov
+          path: apps/web/coverage/lcov.info
+          retention-days: 30
+
+      - name: Upload coverage JSON summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage-summary
+          path: apps/web/coverage/coverage-summary.json
+          retention-days: 30
+
+      - name: Upload junit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-junit
+          path: apps/web/coverage/junit.xml
+          retention-days: 14
+
+      - name: Print coverage summary to step log
+        if: always()
+        run: |
+          echo ""
+          echo "╔═══════════════════════════════════════════════════════════╗"
+          echo "║           FRONTEND COVERAGE SUMMARY                       ║"
+          echo "╠═══════════════════════════════════════════════════════════╣"
+          printf "║  Lines      : %6.2f%%  (target: %s%%)\n" "${{ steps.coverage.outputs.lines }}" "${{ env.COVERAGE_THRESHOLD_LINES }}"
+          printf "║  Branches   : %6.2f%%  (target: %s%%)\n" "${{ steps.coverage.outputs.branches }}" "${{ env.COVERAGE_THRESHOLD_BRANCHES }}"
+          printf "║  Functions  : %6.2f%%  (target: %s%%)\n" "${{ steps.coverage.outputs.functions }}" "${{ env.COVERAGE_THRESHOLD_FUNCTIONS }}"
+          printf "║  Statements : %6.2f%%  (target: %s%%)\n" "${{ steps.coverage.outputs.statements }}" "${{ env.COVERAGE_THRESHOLD_STATEMENTS }}"
+          echo "╚═══════════════════════════════════════════════════════════╝"
+          echo ""
+
+      - name: Write GitHub Step Summary
+        if: always()
+        run: |
+          L="${{ steps.coverage.outputs.lines }}"
+          B="${{ steps.coverage.outputs.branches }}"
+          F="${{ steps.coverage.outputs.functions }}"
+          S="${{ steps.coverage.outputs.statements }}"
+          TL="${{ env.COVERAGE_THRESHOLD_LINES }}"
+          TB="${{ env.COVERAGE_THRESHOLD_BRANCHES }}"
+          TF="${{ env.COVERAGE_THRESHOLD_FUNCTIONS }}"
+          TS="${{ env.COVERAGE_THRESHOLD_STATEMENTS }}"
+
+          # Pass/fail badges
+          badge() { if (( $(echo "$1 >= $2" | bc -l) )); then echo "✅"; else echo "❌"; fi; }
+
+          echo "## Frontend Coverage Report" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Metric | Actual | Target | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Lines | ${L}% | ${TL}% | $(badge $L $TL) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Branches | ${B}% | ${TB}% | $(badge $B $TB) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Functions | ${F}% | ${TF}% | $(badge $F $TF) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Statements | ${S}% | ${TS}% | $(badge $S $TS) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "[View HTML report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if thresholds not met
+        run: |
+          L="${{ steps.coverage.outputs.lines }}"
+          B="${{ steps.coverage.outputs.branches }}"
+          F="${{ steps.coverage.outputs.functions }}"
+          S="${{ steps.coverage.outputs.statements }}"
+          TL="${{ env.COVERAGE_THRESHOLD_LINES }}"
+          TB="${{ env.COVERAGE_THRESHOLD_BRANCHES }}"
+          TF="${{ env.COVERAGE_THRESHOLD_FUNCTIONS }}"
+          TS="${{ env.COVERAGE_THRESHOLD_STATEMENTS }}"
+
+          FAILED=0
+          if (( $(echo "$L < $TL" | bc -l) )); then echo "❌ Lines coverage below threshold: $L% < $TL%"; FAILED=1; fi
+          if (( $(echo "$B < $TB" | bc -l) )); then echo "❌ Branches coverage below threshold: $B% < $TB%"; FAILED=1; fi
+          if (( $(echo "$F < $TF" | bc -l) )); then echo "❌ Functions coverage below threshold: $F% < $TF%"; FAILED=1; fi
+          if (( $(echo "$S < $TS" | bc -l) )); then echo "❌ Statements coverage below threshold: $S% < $TS%"; FAILED=1; fi
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo ""
+            echo "Coverage targets not met. To see missing lines:"
+            echo "  1. Download the 'frontend-coverage-html' artifact"
+            echo "  2. Open index.html in a browser"
+            echo "  3. Or run locally: cd apps/web && npx vitest run --coverage"
+            exit 1
+          fi
+          echo "✅ All coverage thresholds met."
+
+  # ── Phase 3: Post coverage comment to PR ───────────────────────────────────
+  pr-comment:
+    name: PR coverage comment
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [test-coverage]
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Find existing comment
+        uses: peter-evans/find-comment@v3
+        id: find-comment
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: "github-actions[bot]"
+          body-includes: "<!-- frontend-coverage -->"
+
+      - name: Post / update coverage comment
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          edit-mode: replace
+          body: |
+            <!-- frontend-coverage -->
+            ## 📊 Frontend Coverage Report
+
+            | Metric | Actual | Target | Status |
+            |---|---|---|---|
+            | Lines | ${{ needs.test-coverage.outputs.lines }}% | 90% | ${{ fromJSON('{"true":"✅","false":"❌"}')[format('{0}', needs.test-coverage.outputs.lines >= '90')] }} |
+            | Branches | ${{ needs.test-coverage.outputs.branches }}% | 90% | ${{ fromJSON('{"true":"✅","false":"❌"}')[format('{0}', needs.test-coverage.outputs.branches >= '90')] }} |
+            | Functions | ${{ needs.test-coverage.outputs.functions }}% | 90% | ${{ fromJSON('{"true":"✅","false":"❌"}')[format('{0}', needs.test-coverage.outputs.functions >= '90')] }} |
+            | Statements | ${{ needs.test-coverage.outputs.statements }}% | 90% | ${{ fromJSON('{"true":"✅","false":"❌"}')[format('{0}', needs.test-coverage.outputs.statements >= '90')] }} |
+
+            <details>
+            <summary>How to improve coverage</summary>
+
+            1. Download the `frontend-coverage-html` artifact from this run
+            2. Open `index.html` to see per-file coverage
+            3. Add tests for uncovered lines/branches
+            4. Re-run `cd apps/web && npx vitest run --coverage`
+
+            </details>
+
+  # ── Phase 4: Optional Codecov upload ───────────────────────────────────────
+  codecov:
+    name: Upload to Codecov
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [test-coverage]
+    if: env.CODECOV_TOKEN != ''
+    steps:
+      - name: Download lcov artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-coverage-lcov
+          path: .
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          flags: frontend
+          name: frontend-coverage
+          fail_ci_if_error: false
