@@ -21,7 +21,9 @@ from app.errors import ApiServiceError
 from app.repositories.audit import create_audit_event
 from app.services.access_control_service import (
     AccessDeniedError,
+    log_phi_access,
     require_clinic_access,
+    require_patient_access,
 )
 from app.services.data_console_service import (
     SAFE_TABLES,
