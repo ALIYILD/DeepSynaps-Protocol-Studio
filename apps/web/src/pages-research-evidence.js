@@ -962,76 +962,87 @@ function _renderSavedSearches() {
   );
 }
 
-window._reSaveSearchFromUI = function() {
-  const q = document.getElementById('lib-ext-q')?.value || '';
-  const source = document.getElementById('re-ev-search-source')?.value || '';
-  const grade = document.getElementById('re-ev-filter-grade')?.value || '';
-  const oaOnly = document.getElementById('re-ev-oa-only')?.checked || false;
-  window._reSaveSearch(q, source, grade, oaOnly);
-  // Refresh saved searches panel
-  const panel = document.getElementById('re-ev-saved-searches');
-  if (panel) panel.innerHTML = _renderSavedSearches();
-  // Show brief confirmation
-  const btn = event?.target;
-  if (btn) { btn.textContent = 'Saved!'; setTimeout(() => btn.textContent = 'Save', 1500); }
-};
+// Saved-search globals + listeners — wired only in the browser. Guarding
+// the whole block lets node:test consumers (e.g. library-hub-evidence-card)
+// import this module for its exports without throwing
+// `ReferenceError: window is not defined` at module instantiation.
+if (typeof window !== 'undefined') {
+  window._reSaveSearchFromUI = function() {
+    const q = document.getElementById('lib-ext-q')?.value || '';
+    const source = document.getElementById('re-ev-search-source')?.value || '';
+    const grade = document.getElementById('re-ev-filter-grade')?.value || '';
+    const oaOnly = document.getElementById('re-ev-oa-only')?.checked || false;
+    window._reSaveSearch(q, source, grade, oaOnly);
+    // Refresh saved searches panel
+    const panel = document.getElementById('re-ev-saved-searches');
+    if (panel) panel.innerHTML = _renderSavedSearches();
+    // Show brief confirmation
+    const btn = event?.target;
+    if (btn) { btn.textContent = 'Saved!'; setTimeout(() => btn.textContent = 'Save', 1500); }
+  };
 
-window._reSaveSearch = function(q, indication, grade, oaOnly) {
-  const saved = JSON.parse(localStorage.getItem('_reSavedSearches') || '[]');
-  const entry = { q, indication, grade, oa_only: oaOnly, date: new Date().toLocaleString() };
-  // Don't duplicate exact same search
-  const dupIndex = saved.findIndex(s => s.q === q && s.indication === indication && s.grade === grade);
-  if (dupIndex >= 0) saved.splice(dupIndex, 1);
-  saved.unshift(entry);
-  if (saved.length > 20) saved.pop(); // keep last 20
-  localStorage.setItem('_reSavedSearches', JSON.stringify(saved));
-};
+  window._reSaveSearch = function(q, indication, grade, oaOnly) {
+    const saved = JSON.parse(localStorage.getItem('_reSavedSearches') || '[]');
+    const entry = { q, indication, grade, oa_only: oaOnly, date: new Date().toLocaleString() };
+    // Don't duplicate exact same search
+    const dupIndex = saved.findIndex(s => s.q === q && s.indication === indication && s.grade === grade);
+    if (dupIndex >= 0) saved.splice(dupIndex, 1);
+    saved.unshift(entry);
+    if (saved.length > 20) saved.pop(); // keep last 20
+    localStorage.setItem('_reSavedSearches', JSON.stringify(saved));
+  };
 
-window._reLoadSavedSearch = function(index) {
-  const saved = JSON.parse(localStorage.getItem('_reSavedSearches') || '[]');
-  const s = saved[index]; if (!s) return;
-  window._reSearchQ = s.q || '';
-  window._reSearchIndication = s.indication || '';
-  window._reSearchGrade = s.grade || '';
-  window._reSearchOA = s.oa_only || false;
-  // Trigger search refresh
-  const evt = new Event('_reRerunSearch');
-  window.dispatchEvent(evt);
-};
+  window._reLoadSavedSearch = function(index) {
+    const saved = JSON.parse(localStorage.getItem('_reSavedSearches') || '[]');
+    const s = saved[index]; if (!s) return;
+    window._reSearchQ = s.q || '';
+    window._reSearchIndication = s.indication || '';
+    window._reSearchGrade = s.grade || '';
+    window._reSearchOA = s.oa_only || false;
+    // Trigger search refresh
+    const evt = new Event('_reRerunSearch');
+    window.dispatchEvent(evt);
+  };
 
-window._reDeleteSavedSearch = function(index) {
-  const saved = JSON.parse(localStorage.getItem('_reSavedSearches') || '[]');
-  saved.splice(index, 1);
-  localStorage.setItem('_reSavedSearches', JSON.stringify(saved));
-  // Refresh UI
-  const evt = new Event('_reRefreshSavedSearches');
-  window.dispatchEvent(evt);
-};
+  window._reDeleteSavedSearch = function(index) {
+    const saved = JSON.parse(localStorage.getItem('_reSavedSearches') || '[]');
+    saved.splice(index, 1);
+    localStorage.setItem('_reSavedSearches', JSON.stringify(saved));
+    // Refresh UI
+    const evt = new Event('_reRefreshSavedSearches');
+    window.dispatchEvent(evt);
+  };
 
-window._reClearSavedSearches = function() {
-  localStorage.removeItem('_reSavedSearches');
-  const evt = new Event('_reRefreshSavedSearches');
-  window.dispatchEvent(evt);
-};
+  window._reClearSavedSearches = function() {
+    localStorage.removeItem('_reSavedSearches');
+    const evt = new Event('_reRefreshSavedSearches');
+    window.dispatchEvent(evt);
+  };
 
-// Event listeners for saved search refresh
-window.addEventListener('_reRefreshSavedSearches', function() {
-  const panel = document.getElementById('re-ev-saved-searches');
-  if (panel) panel.innerHTML = _renderSavedSearches();
-});
-window.addEventListener('_reRerunSearch', function() {
-  // Refresh search inputs from saved search state
-  const qEl = document.getElementById('lib-ext-q');
-  if (qEl && window._reSearchQ !== undefined) qEl.value = window._reSearchQ;
-  const indEl = document.getElementById('re-ev-search-source');
-  if (indEl && window._reSearchIndication !== undefined) indEl.value = window._reSearchIndication;
-  const gradeEl = document.getElementById('re-ev-filter-grade');
-  if (gradeEl && window._reSearchGrade !== undefined) gradeEl.value = window._reSearchGrade;
-  const oaEl = document.getElementById('re-ev-oa-only');
-  if (oaEl && window._reSearchOA !== undefined) oaEl.checked = window._reSearchOA;
-  // Trigger search
-  window._libUnifiedEvidenceSearch();
-});
+  // Event listeners — only when the runtime supplies addEventListener.
+  // Defensive against partial `window` shims in node:test (e.g. the
+  // pages-research-evidence.runtime test stubs out window but not its
+  // EventTarget surface).
+  if (typeof window.addEventListener === 'function') {
+    window.addEventListener('_reRefreshSavedSearches', function() {
+      const panel = document.getElementById('re-ev-saved-searches');
+      if (panel) panel.innerHTML = _renderSavedSearches();
+    });
+    window.addEventListener('_reRerunSearch', function() {
+      // Refresh search inputs from saved search state
+      const qEl = document.getElementById('lib-ext-q');
+      if (qEl && window._reSearchQ !== undefined) qEl.value = window._reSearchQ;
+      const indEl = document.getElementById('re-ev-search-source');
+      if (indEl && window._reSearchIndication !== undefined) indEl.value = window._reSearchIndication;
+      const gradeEl = document.getElementById('re-ev-filter-grade');
+      if (gradeEl && window._reSearchGrade !== undefined) gradeEl.value = window._reSearchGrade;
+      const oaEl = document.getElementById('re-ev-oa-only');
+      if (oaEl && window._reSearchOA !== undefined) oaEl.checked = window._reSearchOA;
+      // Trigger search
+      window._libUnifiedEvidenceSearch();
+    });
+  }
+}
 
 async function renderConditions(body, q, filt, sort, sInput, pills, sortBtn) {
   const cats = ['All', 'Mood', 'Anxiety', 'OCD Spectrum', 'Trauma', 'ADHD', 'Autism',
