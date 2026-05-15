@@ -24,6 +24,8 @@ from app.auth import (
     require_patient_owner,
 )
 from app.database import get_db_session
+from app.entitlements import require_any_feature
+from app.packages import Feature
 from app.errors import ApiServiceError
 from app.limiter import limiter
 from app.persistence.models import Patient
@@ -241,6 +243,12 @@ def export_handbook_docx(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> StreamingResponse:
     require_minimum_role(actor, "clinician")
+    require_any_feature(
+        actor.package_id,
+        Feature.HANDBOOK_GENERATE_FULL,
+        Feature.HANDBOOK_GENERATE_LIMITED,
+        message="Handbook export requires Resident / Fellow or higher.",
+    )
 
     try:
         from deepsynaps_render_engine.handbook_bundle import render_handbook_bundle_docx
@@ -288,6 +296,12 @@ def export_handbook_pdf(
 ):
     """PDF bundle — requires WeasyPrint + system libs on the API host."""
     require_minimum_role(actor, "clinician")
+    require_any_feature(
+        actor.package_id,
+        Feature.HANDBOOK_GENERATE_FULL,
+        Feature.HANDBOOK_GENERATE_LIMITED,
+        message="Handbook export requires Resident / Fellow or higher.",
+    )
 
     try:
         from deepsynaps_render_engine.handbook_bundle import render_handbook_bundle_pdf
@@ -346,6 +360,12 @@ def export_patient_guide_docx(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> StreamingResponse:
     require_minimum_role(actor, "clinician")
+    require_any_feature(
+        actor.package_id,
+        Feature.HANDBOOK_GENERATE_FULL,
+        Feature.HANDBOOK_GENERATE_LIMITED,
+        message="Patient guide export requires Resident / Fellow or higher.",
+    )
 
     # Build protocol draft to extract patient communication notes
     draft_request = ProtocolDraftRequest(
