@@ -1,0 +1,284 @@
+# DeepSynaps Protocol Studio — Clinical Safety Alerts
+#
+# These alerts cover clinical endpoint health, patient data access
+# anomalies, qEEG/MRI pipeline failures, assessment timeouts, evidence DB
+# staleness, and backup integrity.
+#
+# Severity:
+#   - critical: Immediate clinician impact, patient safety concern
+#   - warning:  Degraded clinical experience, investigate within 30 min
+#   - info:     Awareness events, review during business hours
+#
+# Every alert includes:
+#   - runbook_url → docs/runbooks/alerting-runbook.md#<section>
+#   - dashboard_url → Grafana drill-down link
+#   - summary + description annotations for AlertManager
+
+groups:
+  - name: clinical_api_health
+    interval: 30s
+    rules:
+      # --- High error rate on clinical endpoints (CRITICAL) ---
+      - alert: ClinicalEndpointHighErrorRate
+        expr: |
+          sum(rate(http_errors_total{error_type="clinical"}[5m])) by (endpoint, env)
+          /
+          sum(rate(http_requests_total[5m])) by (endpoint, env)
+          > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          alertgroup: clinical
+          team: clinical-engineering
+        annotations:
+          summary: "Clinical endpoint {{ $labels.endpoint }} error rate is {{ $value | humanizePercentage }}"
+          description: "The clinical endpoint {{ $labels.endpoint }} in {{ $labels.env }} is returning errors at > 5% for more than 2 minutes. Patient treatments may be affected."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#clinical-endpoint-high-error-rate"
+          dashboard_url: "https://grafana.deepsynaps.io/d/clinical?var-endpoint={{ $labels.endpoint }}&from=now-1h&to=now"
+
+      # --- Clinical endpoint completely down (CRITICAL) ---
+      - alert: ClinicalEndpointDown
+        expr: |
+          up{job="deepsynaps-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          alertgroup: clinical
+          team: sre
+        annotations:
+          summary: "Clinical API is down in {{ $labels.env }}"
+          description: "The DeepSynaps API instance {{ $labels.instance }} has been unreachable for more than 1 minute. All clinical operations are halted."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#clinical-endpoint-down"
+          dashboard_url: "https://grafana.deepsynaps.io/d/infrastructure?var-instance={{ $labels.instance }}&from=now-1h&to=now"
+
+      # --- Clinical latency SLO breach (WARNING) ---
+      - alert: ClinicalLatencySloBreach
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket{endpoint=~"/api/v1/(patients|protocols|assessments|treatment|qeeg|mri|adverse-events).*"}[5m])) by (endpoint, le)
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          alertgroup: clinical
+          team: clinical-engineering
+        annotations:
+          summary: "Clinical endpoint {{ $labels.endpoint }} P95 latency is {{ $value }}s"
+          description: "The P95 latency for clinical endpoint {{ $labels.endpoint }} in {{ $labels.env }} has exceeded 500ms for 5 minutes. Clinicians may experience degraded responsiveness."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#clinical-latency-slo-breach"
+          dashboard_url: "https://grafana.deepsynaps.io/d/api-performance?var-endpoint_filter={{ $labels.endpoint }}&from=now-1h&to=now"
+
+  - name: patient_data_access
+    interval: 30s
+    rules:
+      # --- Suspicious patient data access pattern (WARNING) ---
+      - alert: PatientDataAccessAnomaly
+        expr: |
+          (
+            sum(rate(patient_data_access_total[5m])) by (actor_role, env)
+            /
+            avg_over_time(sum(rate(patient_data_access_total[1h])) by (actor_role, env)[1h:5m])
+          ) > 5
+        for: 5m
+        labels:
+          severity: warning
+          alertgroup: clinical
+          team: security
+        annotations:
+          summary: "Unusual patient data access rate by {{ $labels.actor_role }}"
+          description: "Patient data access by {{ $labels.actor_role }} in {{ $labels.env }} is 5x higher than the 1h baseline. Potential data scraping or unauthorized bulk export."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#patient-data-access-anomaly"
+          dashboard_url: "https://grafana.deepsynaps.io/d/clinical?from=now-1h&to=now"
+
+      # --- Excessive patient data exports (CRITICAL) ---
+      - alert: ExcessivePatientDataExport
+        expr: |
+          sum(rate(patient_data_access_total{operation_type="export"}[15m])) by (env) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+          alertgroup: clinical
+          team: security
+        annotations:
+          summary: "High rate of patient data exports in {{ $labels.env }}"
+          description: "Patient data exports are occurring at an unusually high rate ({{ $value | humanize }}/s). This may indicate a bulk data exfiltration attempt."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#excessive-patient-data-export"
+          dashboard_url: "https://grafana.deepsynaps.io/d/clinical?from=now-1h&to=now"
+
+  - name: qeeg_mri_pipeline
+    interval: 30s
+    rules:
+      # --- High qEEG analysis failure rate (CRITICAL) ---
+      - alert: QEEGAnalysisHighFailureRate
+        expr: |
+          sum(rate(qeeg_analysis_duration_seconds_count{status="error"}[15m])) by (analysis_type, env)
+          /
+          sum(rate(qeeg_analysis_duration_seconds_count[15m])) by (analysis_type, env)
+          > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          alertgroup: clinical
+          team: neuroimaging
+        annotations:
+          summary: "qEEG {{ $labels.analysis_type }} analysis failure rate is {{ $value | humanizePercentage }}"
+          description: "The qEEG {{ $labels.analysis_type }} pipeline in {{ $labels.env }} has a > 5% failure rate. Clinicians relying on these analyses for protocol generation may be blocked."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#qeeg-analysis-high-failure-rate"
+          dashboard_url: "https://grafana.deepsynaps.io/d/clinical?from=now-1h&to=now"
+
+      # --- qEEG analysis timeout (WARNING) ---
+      - alert: QEEGAnalysisTimeout
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(qeeg_analysis_duration_seconds_bucket{status="success"}[15m])) by (analysis_type, le)
+          ) > 600
+        for: 10m
+        labels:
+          severity: warning
+          alertgroup: clinical
+          team: neuroimaging
+        annotations:
+          summary: "qEEG {{ $labels.analysis_type }} analysis P99 duration is {{ $value }}s"
+          description: "The P99 duration for qEEG {{ $labels.analysis_type }} in {{ $labels.env }} has exceeded 10 minutes. Background worker capacity may be insufficient."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#qeeg-analysis-timeout"
+          dashboard_url: "https://grafana.deepsynaps.io/d/clinical?from=now-1h&to=now"
+
+      # --- No successful qEEG analysis in 1h (WARNING) ---
+      - alert: QEEGAnalysisStalled
+        expr: |
+          sum(rate(qeeg_analysis_duration_seconds_count{status="success"}[1h])) by (env) == 0
+          and
+          sum(rate(qeeg_analysis_duration_seconds_count[1h])) by (env) > 0
+        for: 5m
+        labels:
+          severity: warning
+          alertgroup: clinical
+          team: neuroimaging
+        annotations:
+          summary: "qEEG analysis pipeline stalled in {{ $labels.env }}"
+          description: "No successful qEEG analyses have completed in the last hour, although jobs are being submitted. The Celery worker may be down or stuck."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#qeeg-analysis-stalled"
+          dashboard_url: "https://grafana.deepsynaps.io/d/infrastructure?from=now-1h&to=now"
+
+  - name: assessment_timeouts
+    interval: 30s
+    rules:
+      # --- Assessment timeout rate high (WARNING) ---
+      - alert: AssessmentTimeoutHigh
+        expr: |
+          sum(rate(http_errors_total{error_type="timeout",endpoint=~"/api/v1/assessments.*"}[10m])) by (env)
+          /
+          sum(rate(http_requests_total{endpoint=~"/api/v1/assessments.*"}[10m])) by (env)
+          > 0.02
+        for: 5m
+        labels:
+          severity: warning
+          alertgroup: clinical
+          team: clinical-engineering
+        annotations:
+          summary: "Assessment timeout rate is {{ $value | humanizePercentage }}"
+          description: "More than 2% of assessment requests are timing out in {{ $labels.env }}. Patients may be unable to complete assessments."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#assessment-timeout-high"
+          dashboard_url: "https://grafana.deepsynaps.io/d/clinical?from=now-1h&to=now"
+
+  - name: evidence_database
+    interval: 60s
+    rules:
+      # --- Evidence DB has gone stale (WARNING) ---
+      - alert: EvidenceDatabaseStale
+        expr: |
+          sum(rate(evidence_queries_total[24h])) by (env) == 0
+        for: 1h
+        labels:
+          severity: warning
+          alertgroup: clinical
+          team: data-platform
+        annotations:
+          summary: "Evidence database appears stale in {{ $labels.env }}"
+          description: "No evidence queries have been recorded in the last 24 hours. The evidence database may be unreachable or the ingestion pipeline may have failed."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#evidence-database-stale"
+          dashboard_url: "https://grafana.deepsynaps.io/d/clinical?from=now-24h&to=now"
+
+      # --- Evidence query latency high (WARNING) ---
+      - alert: EvidenceQueryLatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket{endpoint=~"/api/v1/evidence.*"}[5m])) by (le)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+          alertgroup: clinical
+          team: data-platform
+        annotations:
+          summary: "Evidence query P95 latency is {{ $value }}s"
+          description: "Evidence endpoint queries are taking longer than 2 seconds (P95). The SQLite evidence DB on /data may need optimization or the volume may be under I/O pressure."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#evidence-query-latency-high"
+          dashboard_url: "https://grafana.deepsynaps.io/d/api-performance?var-endpoint_filter=/api/v1/evidence.*&from=now-1h&to=now"
+
+  - name: backup_integrity
+    interval: 60s
+    rules:
+      # --- Backup age exceeds 25 hours (CRITICAL) ---
+      - alert: BackupAgeCritical
+        expr: |
+          backup_age_seconds > 90000
+        for: 5m
+        labels:
+          severity: critical
+          alertgroup: clinical
+          team: sre
+        annotations:
+          summary: "Database backup is {{ $value | humanizeDuration }} old"
+          description: "The last successful database backup in {{ $labels.env }} was more than 25 hours ago. Data loss window is unacceptable for a clinical system."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#backup-age-critical"
+          dashboard_url: "https://grafana.deepsynaps.io/d/infrastructure?from=now-24h&to=now"
+
+      # --- Backup age warning at 20 hours (WARNING) ---
+      - alert: BackupAgeWarning
+        expr: |
+          backup_age_seconds > 72000
+        for: 10m
+        labels:
+          severity: warning
+          alertgroup: clinical
+          team: sre
+        annotations:
+          summary: "Database backup is {{ $value | humanizeDuration }} old"
+          description: "The last successful database backup in {{ $labels.env }} is approaching the 25-hour critical threshold."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#backup-age-warning"
+          dashboard_url: "https://grafana.deepsynaps.io/d/infrastructure?from=now-24h&to=now"
+
+  - name: clinical_security
+    interval: 30s
+    rules:
+      # --- Failed auth rate on clinical endpoints high (WARNING) ---
+      - alert: ClinicalAuthFailureRateHigh
+        expr: |
+          sum(rate(security_events_total{event_type="failed_auth"}[5m])) by (env)
+          > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          alertgroup: security
+          team: security
+        annotations:
+          summary: "Clinical auth failure rate is {{ $value | humanize }}/s"
+          description: "Failed authentication attempts on clinical endpoints in {{ $labels.env }} are elevated. Possible brute-force or credential issues."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#clinical-auth-failure-rate-high"
+          dashboard_url: "https://grafana.deepsynaps.io/d/api-performance?from=now-1h&to=now"
+
+      # --- Privilege escalation attempt detected (CRITICAL) ---
+      - alert: PrivilegeEscalationDetected
+        expr: |
+          sum(rate(security_events_total{event_type="privilege_escalation"}[5m])) by (env) > 0
+        for: 0s
+        labels:
+          severity: critical
+          alertgroup: security
+          team: security
+        annotations:
+          summary: "Privilege escalation detected in {{ $labels.env }}"
+          description: "A privilege escalation event has been detected. A user may be attempting to access clinical functions beyond their authorization level."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#privilege-escalation-detected"
+          dashboard_url: "https://grafana.deepsynaps.io/d/api-performance?from=now-1h&to=now"
