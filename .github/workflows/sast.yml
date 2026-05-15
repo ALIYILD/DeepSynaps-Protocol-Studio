@@ -205,11 +205,18 @@ jobs:
         run: npm ci
 
       - name: Install ESLint security plugins
+        # Pin eslint@8 because the security/no-secrets/sdl plugins below ship
+        # legacy (.eslintrc) configs that ESLint 9's flat-only resolver
+        # rejects. Project root may have eslint 9 from `npm ci`; this
+        # downgrade is scoped to this CI step's node_modules and does not
+        # affect the app build elsewhere.
         run: |
-          npm install --save-dev \
+          npm install --save-dev --no-save \
+            eslint@8 \
             eslint-plugin-security \
             eslint-plugin-no-secrets \
-            @microsoft/eslint-plugin-sdl
+            @microsoft/eslint-plugin-sdl \
+            @microsoft/eslint-formatter-sarif
 
       - name: Create ESLint security config
         run: |
@@ -269,11 +276,11 @@ jobs:
           EOF
 
       - name: Run ESLint security scan
-        env:
-          ESLINT_USE_FLAT_CONFIG: 'false'
         run: |
-          npx eslint \
+          npx --no-install eslint \
+            --no-eslintrc \
             --config .eslintrc.security.js \
+            --resolve-plugins-relative-to . \
             --ext .ts,.tsx,.js,.jsx \
             apps/web/src/ packages/ \
             --format @microsoft/eslint-formatter-sarif \
