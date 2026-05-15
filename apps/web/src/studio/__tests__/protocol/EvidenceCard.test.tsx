@@ -4,7 +4,7 @@
  * Tests evidence card rendering, grade display, expand/collapse behavior.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { EvidenceCard } from "../../protocol/EvidenceCard";
 import {
