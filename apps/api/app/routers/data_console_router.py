@@ -47,7 +47,7 @@ from deepsynaps_core_schema import (
     PatientDataSummary,
     DataRow,
     PatientRowsResponse,
-    PatientAuditLogResponse,
+    DataConsoleAuditLogResponse,
     AuditEventEntry,
     UserRole,
 )
@@ -221,7 +221,7 @@ async def get_patient_data_rows(
 
 @router.get(
     "/patients/{patient_id}/audit-events",
-    response_model=PatientAuditLogResponse,
+    response_model=DataConsoleAuditLogResponse,
     summary="Get data access audit trail",
     description="Who accessed this patient's data and when.",
 )
@@ -230,7 +230,7 @@ async def get_data_console_audit_log(
     days: int = Query(30, ge=1, le=365),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
-) -> PatientAuditLogResponse:
+) -> DataConsoleAuditLogResponse:
     """Get audit trail (clinic-scoped, audit-logged)."""
     require_patient_access(session, actor.actor_id, patient_id)
     log_phi_access(
@@ -253,7 +253,7 @@ async def get_data_console_audit_log(
         for i in range(10)
     ]
 
-    return PatientAuditLogResponse(
+    return DataConsoleAuditLogResponse(
         patient_id=patient_id,
         clinic_id=actor.clinic_id,
         events=events,
