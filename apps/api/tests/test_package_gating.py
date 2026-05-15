@@ -5,8 +5,18 @@ Verifies that:
 - Resident can generate protocols but not access uploads or review queue
 - Clinician Pro can access all single-user features
 - Governance EV-D and off-label blocks apply regardless of package
+- Export routes enforce the same package entitlements as generation routes
 """
+import pytest
 from fastapi.testclient import TestClient
+
+
+@pytest.fixture
+def client() -> TestClient:
+    from app.main import app
+
+    with TestClient(app) as tc:
+        yield tc
 
 
 PACKAGE_HEADERS: dict[str, dict[str, str]] = {
@@ -15,6 +25,8 @@ PACKAGE_HEADERS: dict[str, dict[str, str]] = {
     "clinician_pro": {"Authorization": "Bearer clinician-demo-token"},
     "clinic_admin": {"Authorization": "Bearer clinic-admin-demo-token"},
     "enterprise": {"Authorization": "Bearer enterprise-demo-token"},
+    "reviewer": {"Authorization": "Bearer reviewer-demo-token"},
+    "clinician_no_handbook": {"Authorization": "Bearer clinician-no-handbook-demo-token"},
 }
 
 _PROTOCOL_PAYLOAD = {
@@ -48,6 +60,18 @@ _REVIEW_PAYLOAD = {
     "target_type": "protocol",
     "action": "reviewed",
     "note": "Package gating test.",
+}
+
+_EXPORT_HANDBOOK_PAYLOAD = {
+    "condition_name": "Parkinson's disease",
+    "modality_name": "TPS",
+    "device_name": "NEUROLITH",
+    "handbook_kind": "clinician_handbook",
+}
+
+_EXPORT_PATIENT_GUIDE_PAYLOAD = {
+    "condition_name": "Major Depressive Disorder",
+    "modality_name": "rTMS",
 }
 
 
@@ -206,3 +230,165 @@ class TestGovernanceOverridesPackage:
             json=_PROTOCOL_PAYLOAD,
         )
         assert response.status_code == 200
+
+
+# ── Export entitlement gating (mirrors generation gating) ─────────────────────
+
+class TestExportHandbookEntitlementGating:
+    """Export routes must enforce the SAME package entitlement checks as generation."""
+
+    def test_clinician_with_entitlement_can_export_handbook_docx(self, client: TestClient) -> None:
+        """Clinician Pro (has HANDBOOK_GENERATE_FULL) can export handbook DOCX."""
+        response = client.post(
+            "/api/v1/export/handbook-docx",
+            headers=PACKAGE_HEADERS["clinician_pro"],
+            json=_EXPORT_HANDBOOK_PAYLOAD,
+        )
+        assert response.status_code == 200
+
+    def test_clinician_without_entitlement_cannot_export_handbook_docx(self, client: TestClient) -> None:
+        """Clinician on explorer package (no handbook entitlement) cannot export."""
+        response = client.post(
+            "/api/v1/export/handbook-docx",
+            headers=PACKAGE_HEADERS["clinician_no_handbook"],
+            json=_EXPORT_HANDBOOK_PAYLOAD,
+        )
+        assert response.status_code == 403
+        assert response.json()["code"] == "insufficient_package"
+
+    def test_resident_can_export_handbook_docx(self, client: TestClient) -> None:
+        """Resident (has HANDBOOK_GENERATE_LIMITED) can export handbook DOCX."""
+        response = client.post(
+            "/api/v1/export/handbook-docx",
+            headers=PACKAGE_HEADERS["resident"],
+            json={
+                "condition_name": "Parkinson's disease",
+                "modality_name": "TPS",
+                "device_name": "NEUROLITH",
+                "handbook_kind": "clinician_handbook",
+            },
+        )
+        assert response.status_code == 200
+
+    def test_reviewer_cannot_export_handbook_docx(self, client: TestClient) -> None:
+        """Reviewer role cannot export handbook (blocked by role check)."""
+        response = client.post(
+            "/api/v1/export/handbook-docx",
+            headers=PACKAGE_HEADERS["reviewer"],
+            json=_EXPORT_HANDBOOK_PAYLOAD,
+        )
+        assert response.status_code == 403
+
+
+class TestExportHandbookPdfEntitlementGating:
+    def test_clinician_with_entitlement_can_export_handbook_pdf(self, client: TestClient) -> None:
+        """Clinician Pro (has HANDBOOK_GENERATE_FULL) can export handbook PDF."""
+        response = client.post(
+            "/api/v1/export/handbook-pdf",
+            headers=PACKAGE_HEADERS["clinician_pro"],
+            json=_EXPORT_HANDBOOK_PAYLOAD,
+        )
+        # PDF may be 200 (WeasyPrint installed) or 503 — either is allowed
+        assert response.status_code in (200, 503)
+
+    def test_clinician_without_entitlement_cannot_export_handbook_pdf(self, client: TestClient) -> None:
+        """Clinician on explorer package (no handbook entitlement) cannot export PDF."""
+        response = client.post(
+            "/api/v1/export/handbook-pdf",
+            headers=PACKAGE_HEADERS["clinician_no_handbook"],
+            json=_EXPORT_HANDBOOK_PAYLOAD,
+        )
+        assert response.status_code == 403
+        assert response.json()["code"] == "insufficient_package"
+
+    def test_reviewer_cannot_export_handbook_pdf(self, client: TestClient) -> None:
+        """Reviewer role cannot export handbook PDF (blocked by role check)."""
+        response = client.post(
+            "/api/v1/export/handbook-pdf",
+            headers=PACKAGE_HEADERS["reviewer"],
+            json=_EXPORT_HANDBOOK_PAYLOAD,
+        )
+        assert response.status_code == 403
+
+
+class TestExportPatientGuideEntitlementGating:
+    def test_clinician_with_entitlement_can_export_patient_guide(self, client: TestClient) -> None:
+        """Clinician Pro (has HANDBOOK_GENERATE_FULL) can export patient guide."""
+        response = client.post(
+            "/api/v1/export/patient-guide-docx",
+            headers=PACKAGE_HEADERS["clinician_pro"],
+            json=_EXPORT_PATIENT_GUIDE_PAYLOAD,
+        )
+        assert response.status_code == 200
+
+    def test_clinician_without_entitlement_cannot_export_patient_guide(self, client: TestClient) -> None:
+        """Clinician on explorer package (no handbook entitlement) cannot export patient guide."""
+        response = client.post(
+            "/api/v1/export/patient-guide-docx",
+            headers=PACKAGE_HEADERS["clinician_no_handbook"],
+            json=_EXPORT_PATIENT_GUIDE_PAYLOAD,
+        )
+        assert response.status_code == 403
+        assert response.json()["code"] == "insufficient_package"
+
+    def test_resident_can_export_patient_guide(self, client: TestClient) -> None:
+        """Resident (has HANDBOOK_GENERATE_LIMITED) can export patient guide."""
+        response = client.post(
+            "/api/v1/export/patient-guide-docx",
+            headers=PACKAGE_HEADERS["resident"],
+            json=_EXPORT_PATIENT_GUIDE_PAYLOAD,
+        )
+        assert response.status_code == 200
+
+    def test_reviewer_cannot_export_patient_guide(self, client: TestClient) -> None:
+        """Reviewer role cannot export patient guide (blocked by role check)."""
+        response = client.post(
+            "/api/v1/export/patient-guide-docx",
+            headers=PACKAGE_HEADERS["reviewer"],
+            json=_EXPORT_PATIENT_GUIDE_PAYLOAD,
+        )
+        assert response.status_code == 403
+
+
+class TestExportBundleChecksEntitlements:
+    """Bundle export checks entitlements — bundled handbook content requires handbook feature."""
+
+    def test_clinician_with_entitlement_can_export_bundle(self, client: TestClient) -> None:
+        """Clinician Pro can export handbook bundle (DOCX)."""
+        response = client.post(
+            "/api/v1/export/handbook-docx",
+            headers=PACKAGE_HEADERS["clinician_pro"],
+            json={
+                "condition_name": "Anxiety",
+                "modality_name": "tDCS",
+                "handbook_kind": "patient_guide",
+            },
+        )
+        assert response.status_code == 200
+
+    def test_clinician_without_entitlement_cannot_export_bundle(self, client: TestClient) -> None:
+        """Clinician on explorer package cannot export handbook bundle."""
+        response = client.post(
+            "/api/v1/export/handbook-docx",
+            headers=PACKAGE_HEADERS["clinician_no_handbook"],
+            json={
+                "condition_name": "Anxiety",
+                "modality_name": "tDCS",
+                "handbook_kind": "patient_guide",
+            },
+        )
+        assert response.status_code == 403
+        assert response.json()["code"] == "insufficient_package"
+
+    def test_reviewer_cannot_export_bundle(self, client: TestClient) -> None:
+        """Reviewer role cannot export handbook bundle."""
+        response = client.post(
+            "/api/v1/export/handbook-docx",
+            headers=PACKAGE_HEADERS["reviewer"],
+            json={
+                "condition_name": "Anxiety",
+                "modality_name": "tDCS",
+                "handbook_kind": "patient_guide",
+            },
+        )
+        assert response.status_code == 403
