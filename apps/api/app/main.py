@@ -280,6 +280,7 @@ from app.routers.admin_governance_router import router as admin_governance_route
 from app.routers.patient_care_router import router as patient_care_router
 from app.routers.intervention_planning_router import router as intervention_planning_router
 from app.routers.ecosystem_router import router as ecosystem_router
+from app.routers.patient_portal_v2_router import router as patient_portal_v2_router
 from app.routers.handbook_v2_router import router as handbook_v2_router
 from app.monitoring.middleware import MetricsMiddleware, register_metrics_endpoint
 from app.sentry_setup import init_sentry
@@ -772,6 +773,7 @@ app.include_router(admin_governance_router)
 app.include_router(patient_care_router)
 app.include_router(intervention_planning_router)
 app.include_router(ecosystem_router)
+app.include_router(patient_portal_v2_router)
 app.include_router(handbook_v2_router)
 
 app.state.limiter = limiter
