@@ -204,6 +204,19 @@ def _parse_iso(value: str) -> Optional[datetime]:
         return None
 
 
+def _iso_dt(v) -> str:
+    """Render a datetime (or any value) as an ISO-8601 string for audit events.
+
+    Previously this was an inner `def _dt(v)` defined inside the `for r in records`
+    loop. Ruff B023 flagged the inner closure for capturing the loop variable,
+    even though every call site invokes `_dt` in the same iteration. Hoist to
+    module scope so the rule passes and so the helper is reusable.
+    """
+    if v is None:
+        return ""
+    return v.isoformat() if isinstance(v, datetime) else str(v)
+
+
 def _get_consent_or_404(db: Session, consent_id: str, actor: AuthenticatedActor) -> ConsentRecord:
     """Load a consent record, gated by the canonical cross-clinic check.
 
@@ -348,10 +361,6 @@ def get_consent_audit_log(
 
     events: list[ConsentAuditEvent] = []
     for r in records:
-        def _dt(v) -> str:
-            if v is None:
-                return r.created_at.isoformat() if isinstance(r.created_at, datetime) else str(r.created_at)
-            return v.isoformat() if isinstance(v, datetime) else str(v)
         # creation event
         events.append(ConsentAuditEvent(
             event_id=f"{r.id}:created",
@@ -360,7 +369,7 @@ def get_consent_audit_log(
             clinician_id=r.clinician_id,
             action="created",
             details=f"Consent type: {r.consent_type}",
-            occurred_at=_dt(r.created_at),
+            occurred_at=_iso_dt(r.created_at),
         ))
         # sign event
         if r.signed and r.signed_at:
@@ -371,7 +380,7 @@ def get_consent_audit_log(
                 clinician_id=r.clinician_id,
                 action="signed",
                 details=None,
-                occurred_at=_dt(r.signed_at),
+                occurred_at=_iso_dt(r.signed_at),
             ))
         # revoked / expired
         if r.status in ("withdrawn", "expired"):
@@ -382,7 +391,7 @@ def get_consent_audit_log(
                 clinician_id=r.clinician_id,
                 action=r.status,
                 details=None,
-                occurred_at=_dt(r.expires_at or r.created_at),
+                occurred_at=_iso_dt(r.expires_at or r.created_at),
             ))
 
     return ConsentAuditLogResponse(items=events, total=len(events))
