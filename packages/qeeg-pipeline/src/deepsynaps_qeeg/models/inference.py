@@ -57,7 +57,7 @@ def load_model_from_spec(spec: ModelSpec, weights_path: str | Path) -> Any:
 
 
 def predict_likelihood(model: Any, eeg_window: Any, *, positive_index: int = 1) -> float:
-    """Return \(P(y=positive)\) for a single EEG window tensor.
+    r"""Return \(P(y=positive)\) for a single EEG window tensor.
 
     `eeg_window` is expected to be shaped like (n_channels, n_times) or
     (1, n_channels, n_times); the exact shape depends on the chosen model.
