@@ -2042,6 +2042,24 @@ export const __rehabTestApi__ = {
   ),
 };
 
+// ── Multimodal Integration Panel ─────────────────────────────────────────
+
+function _renderRehabIntegrationPanel(patientId) {
+  return `<div class="ch-card">
+    <div class="ch-card-title">Multimodal Integration</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;">
+      <a href="#/medication-analyzer?patient=${patientId}" class="ch-link">Medications</a>
+      <a href="#/qeeg-analysis?patient=${patientId}" class="ch-link">qEEG</a>
+      <a href="#/mri-analysis?patient=${patientId}" class="ch-link">MRI</a>
+      <a href="#/biomarkers?patient=${patientId}" class="ch-link">Biomarkers</a>
+      <a href="#/nutrition-analyzer?patient=${patientId}" class="ch-link">Nutrition</a>
+      <a href="#/protocols?patient=${patientId}" class="ch-link">Protocols</a>
+      <a href="#/deeptwin?patient=${patientId}" class="ch-link">DeepTwin</a>
+      <a href="#/risk?patient=${patientId}" class="ch-link">Risk Analyzer</a>
+    </div>
+  </div>`;
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // Default export for renderPage integration
 // ──────────────────────────────────────────────────────────────────────────
