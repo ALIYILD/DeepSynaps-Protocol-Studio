@@ -1,0 +1,529 @@
+# =============================================================================
+# DeepSynaps Protocol Studio — Security Scanning Pipeline
+# =============================================================================
+# Comprehensive security scanning for a clinical neuromodulation platform.
+# Integrates multiple SAST/DAST and dependency scanning tools with SARIF
+# output for GitHub Security tab integration.
+#
+# Scanners:
+#   - Bandit:        Python SAST (security-focused static analysis)
+#   - npm audit:     Node.js dependency vulnerability scanning
+#   - Trivy:         Container image vulnerability scanning
+#   - pip-audit:     Python dependency vulnerability scanning
+#   - TruffleHog:    Secret/credential leakage detection
+#   - git-secrets:   Prevent committing secrets to repository
+#
+# HIPAA Compliance:
+#   - No patient data is present in repository
+#   - All findings are logged to GitHub Security tab
+#   - SARIF format ensures compatibility with security dashboards
+# =============================================================================
+
+name: Security Scan
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  # Run weekly for continuous monitoring
+  schedule:
+    - cron: '0 6 * * 1'  # Every Monday at 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      scan_type:
+        description: "Scan type"
+        required: true
+        default: "full"
+        type: choice
+        options:
+          - full
+          - sast-only
+          - dependencies-only
+          - secrets-only
+          - container-only
+
+permissions:
+  # Required for SARIF upload to GitHub Security tab
+  security-events: write
+  contents: read
+  actions: read
+
+env:
+  # Scanner versions (pin for reproducibility)
+  BANDIT_VERSION: "1.7.9"
+  TRIVY_VERSION: "0.53.0"
+  TRUFFLEHOG_VERSION: "3.81.0"
+  PIP_AUDIT_VERSION: "2.7.3"
+
+jobs:
+  # ===========================================================================
+  # Job 1: Python SAST — Bandit
+  # ===========================================================================
+  bandit-scan:
+    name: Python SAST (Bandit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event.inputs.scan_type == 'full' || github.event.inputs.scan_type == 'sast-only' || github.event.inputs.scan_type == null
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Full history for baseline comparison
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Bandit
+        run: |
+          python -m pip install --upgrade pip
+          pip install "bandit[baseline]==${{ env.BANDIT_VERSION }}"
+
+      - name: Run Bandit scan
+        run: |
+          echo "=== Running Bandit SAST scan ==="
+
+          # Create config file for Bandit
+          cat > /tmp/bandit-config.yaml << 'EOF'
+          # Bandit configuration for DeepSynaps Protocol Studio
+          # Skipping B101 (assert_used) — pytest uses assertions extensively
+          # Skipping B104 (hardcoded_bind_all_interfaces) — 0.0.0.0 required for containers
+          skips: ['B101', 'B104']
+          exclude_dirs:
+            - tests
+            - test
+            - .venv
+            - venv
+            - node_modules
+          EOF
+
+          # Run bandit with SARIF output
+          bandit \
+            -r apps/api/app packages/ \
+            -f sarif \
+            -o bandit-results.sarif \
+            -c /tmp/bandit-config.yaml \
+            -ll \
+            -ii \
+            2>&1 || true
+
+          # Also run text output for log visibility (no PHI in output)
+          echo "--- Bandit text summary ---"
+          bandit \
+            -r apps/api/app packages/ \
+            -c /tmp/bandit-config.yaml \
+            -ll \
+            -ii \
+            -f txt \
+            2>&1 || true
+
+          echo "✓ Bandit scan complete"
+
+      - name: Upload Bandit SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: bandit-results.sarif
+          category: bandit
+
+      - name: Upload Bandit artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-results
+          path: bandit-results.sarif
+          retention-days: 30
+
+  # ===========================================================================
+  # Job 2: Node.js Dependency Audit (npm audit)
+  # ===========================================================================
+  npm-audit:
+    name: Node.js Dependencies (npm audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event.inputs.scan_type == 'full' || github.event.inputs.scan_type == 'dependencies-only' || github.event.inputs.scan_type == null
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts  # Don't run postinstall scripts for security
+
+      - name: Run npm audit
+        run: |
+          echo "=== Running npm audit ==="
+
+          # Run audit and capture output
+          npm audit --audit-level=moderate --json > npm-audit-results.json 2>/dev/null || true
+
+          # Generate human-readable summary
+          echo "--- npm audit summary ---"
+          npm audit --audit-level=moderate 2>&1 || true
+
+          echo "✓ npm audit complete"
+
+      - name: Parse and report vulnerabilities
+        run: |
+          if [ -f npm-audit-results.json ]; then
+            CRITICAL=$(jq '.metadata.vulnerabilities.critical // 0' npm-audit-results.json)
+            HIGH=$(jq '.metadata.vulnerabilities.high // 0' npm-audit-results.json)
+            MODERATE=$(jq '.metadata.vulnerabilities.moderate // 0' npm-audit-results.json)
+            LOW=$(jq '.metadata.vulnerabilities.low // 0' npm-audit-results.json)
+
+            echo "=== Vulnerability Summary ==="
+            echo "Critical : $CRITICAL"
+            echo "High     : $HIGH"
+            echo "Moderate : $MODERATE"
+            echo "Low      : $LOW"
+
+            # Fail on critical vulnerabilities
+            if [ "$CRITICAL" -gt 0 ]; then
+              echo "✗ Critical vulnerabilities found — failing build" >&2
+              exit 1
+            fi
+          fi
+
+      - name: Upload npm audit results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: npm-audit-results
+          path: npm-audit-results.json
+          retention-days: 30
+
+  # ===========================================================================
+  # Job 3: Python Dependency Audit (pip-audit)
+  # ===========================================================================
+  pip-audit:
+    name: Python Dependencies (pip-audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event.inputs.scan_type == 'full' || github.event.inputs.scan_type == 'dependencies-only' || github.event.inputs.scan_type == null
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install pip-audit
+        run: |
+          python -m pip install --upgrade pip
+          pip install "pip-audit==${{ env.PIP_AUDIT_VERSION }}"
+
+      - name: Generate requirements files
+        run: |
+          echo "=== Generating requirements from pyproject.toml files ==="
+
+          # apps/api requirements
+          if [ -f apps/api/pyproject.toml ]; then
+            cd apps/api
+            pip install pip-requirements-builder
+            pip-requirements-builder pyproject.toml > /tmp/api-requirements.txt || \
+              python -c "import tomli; deps=tomli.load(open('pyproject.toml','rb'))['project']['dependencies']; print('\n'.join(deps))" > /tmp/api-requirements.txt 2>/dev/null || true
+            cd ../..
+          fi
+
+          # Root pyproject.toml
+          if [ -f pyproject.toml ]; then
+            python -c "
+import tomli
+try:
+    with open('pyproject.toml', 'rb') as f:
+        data = tomli.load(f)
+    deps = data.get('project', {}).get('dependencies', [])
+    if deps:
+        with open('/tmp/root-requirements.txt', 'w') as out:
+            out.write('\n'.join(deps) + '\n')
+        print('Root requirements written')
+except Exception as e:
+    print(f'Skipping root pyproject.toml: {e}')
+" 2>/dev/null || true
+          fi
+
+      - name: Run pip-audit
+        run: |
+          echo "=== Running pip-audit ==="
+
+          REQUIREMENTS_FILES=""
+          for req_file in /tmp/api-requirements.txt /tmp/root-requirements.txt; do
+            if [ -f "$req_file" ] && [ -s "$req_file" ]; then
+              REQUIREMENTS_FILES="$REQUIREMENTS_FILES --requirement $req_file"
+            fi
+          done
+
+          if [ -n "$REQUIREMENTS_FILES" ]; then
+            pip-audit \
+              $REQUIREMENTS_FILES \
+              --format=json \
+              --output=pip-audit-results.json \
+              --desc \
+              2>&1 || true
+
+            # Also output human-readable format
+            pip-audit \
+              $REQUIREMENTS_FILES \
+              --format=markdown \
+              --output=pip-audit-results.md \
+              --desc \
+              2>&1 || true
+
+            echo "--- pip-audit results ---"
+            cat pip-audit-results.md 2>/dev/null || echo "No readable report generated"
+          else
+            echo "⚠ No requirements files found — scanning installed packages only"
+            pip-audit --format=json --output=pip-audit-results.json 2>&1 || true
+          fi
+
+          echo "✓ pip-audit complete"
+
+      - name: Upload pip-audit results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pip-audit-results
+          path: |
+            pip-audit-results.json
+            pip-audit-results.md
+          retention-days: 30
+
+  # ===========================================================================
+  # Job 4: Container Image Scanning (Trivy)
+  # ===========================================================================
+  trivy-scan:
+    name: Container Scan (Trivy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event.inputs.scan_type == 'full' || github.event.inputs.scan_type == 'container-only' || github.event.inputs.scan_type == null
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build API Docker image (without push)
+        run: |
+          docker build \
+            -f apps/api/Dockerfile \
+            -t deepsynaps-api:scan-target \
+            .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'deepsynaps-api:scan-target'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '0'  # Don't fail — report only for now
+          ignore-unfixed: true
+
+      - name: Run Trivy (text output for logs)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'deepsynaps-api:scan-target'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+          ignore-unfixed: true
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy
+
+      - name: Upload Trivy artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-results
+          path: trivy-results.sarif
+          retention-days: 30
+
+  # ===========================================================================
+  # Job 5: Secrets Scanning (TruffleHog)
+  # ===========================================================================
+  secrets-scan:
+    name: Secrets Scan (TruffleHog)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event.inputs.scan_type == 'full' || github.event.inputs.scan_type == 'secrets-only' || github.event.inputs.scan_type == null
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for comprehensive scan
+
+      - name: Run TruffleHog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: "${{ github.event.repository.default_branch }}"
+          head: HEAD
+          extra_args: --results=verified,unknown --only-verified=false
+
+      - name: Run TruffleHog (deep scan of full history)
+        if: github.event_name == 'schedule'  # Weekly deep scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ""  # Scan entire history
+          head: HEAD
+          extra_args: --results=verified,unknown
+
+  # ===========================================================================
+  # Job 6: Hardcoded Secrets Check (git-secrets patterns)
+  # ===========================================================================
+  git-secrets-scan:
+    name: Git Secrets Pattern Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event.inputs.scan_type == 'full' || github.event.inputs.scan_type == 'secrets-only' || github.event.inputs.scan_type == null
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install git-secrets
+        run: |
+          git clone https://github.com/awslabs/git-secrets.git /tmp/git-secrets
+          cd /tmp/git-secrets
+          make install PREFIX=/usr/local
+          git secrets --register-aws --global 2>/dev/null || true
+
+      - name: Scan for prohibited patterns
+        run: |
+          echo "=== Running git-secrets pattern scan ==="
+
+          # Register common healthcare/clinical patterns
+          git secrets --add --global 'password\s*=\s*["'\''"'\'''][^"'\''"'\''']{4,}' 2>/dev/null || true
+          git secrets --add --global 'secret\s*=\s*["'\''"'\'''][^"'\''"'\''']{8,}' 2>/dev/null || true
+          git secrets --add --global 'api[_-]?key\s*=\s*["'\''"'\'''][^"'\''"'\''']{8,}' 2>/dev/null || true
+          git secrets --add --global '-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----' 2>/dev/null || true
+
+          # Scan the repository
+          if git secrets --scan-history 2>&1; then
+            echo "✓ No secrets patterns found"
+          else
+            echo "✗ Potential secrets detected — review output above"
+            # Don't fail the build — this is informational
+            # In production, you may want to uncomment: exit 1
+          fi
+
+      - name: Check for common secret file patterns
+        run: |
+          echo "=== Checking for common secret files ==="
+
+          # List of files/patterns that should never be committed
+          PATTERNS=(
+            "*.pem"
+            "*.key"
+            "*.p12"
+            "*.pfx"
+            ".env"
+            ".env.*"
+            "credentials.json"
+            "secrets.json"
+            "*.keystore"
+          )
+
+          FOUND=0
+          for pattern in "${PATTERNS[@]}"; do
+            # Use git ls-files to check tracked files only
+            MATCHES=$(git ls-files | grep -i "$pattern" 2>/dev/null || true)
+            if [ -n "$MATCHES" ]; then
+              echo "⚠ Found files matching pattern '$pattern':"
+              echo "$MATCHES" | head -5
+              FOUND=1
+            fi
+          done
+
+          if [ "$FOUND" = 0 ]; then
+            echo "✓ No secret files found in repository"
+          else
+            echo "⚠ Review the files above — some may be legitimate (e.g., test fixtures)"
+          fi
+
+  # ===========================================================================
+  # Job 7: Security Summary
+  # ===========================================================================
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [bandit-scan, npm-audit, pip-audit, trivy-scan, secrets-scan, git-secrets-scan]
+    if: always()
+    timeout-minutes: 5
+    steps:
+      - name: Download all scan artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: security-scan-artifacts
+
+      - name: Generate security summary
+        run: |
+          echo "## 🔒 Security Scan Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Scanner | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+
+          # Map job results
+          declare -A JOBS
+          JOBS[bandit-scan]="${{ needs.bandit-scan.result }}"
+          JOBS[npm-audit]="${{ needs.npm-audit.result }}"
+          JOBS[pip-audit]="${{ needs.pip-audit.result }}"
+          JOBS[trivy-scan]="${{ needs.trivy-scan.result }}"
+          JOBS[secrets-scan]="${{ needs.secrets-scan.result }}"
+          JOBS[git-secrets-scan]="${{ needs.git-secrets-scan.result }}"
+
+          for job in "${!JOBS[@]}"; do
+            STATUS="${JOBS[$job]}"
+            case "$STATUS" in
+              success) ICON="✅" ;;
+              failure) ICON="❌" ;;
+              skipped) ICON="⏭️" ;;
+              *) ICON="⚠️" ;;
+            esac
+            echo "| $job | $ICON $STATUS |" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Note:** SARIF results have been uploaded to the GitHub Security tab." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Scan Details" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Bandit**: Python SAST scanning (SARIF uploaded)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **npm audit**: Node.js dependency vulnerabilities" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **pip-audit**: Python dependency vulnerabilities" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Trivy**: Container image CVE scanning (SARIF uploaded)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **TruffleHog**: Secret/credential leakage detection" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **git-secrets**: Prohibited pattern detection" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "⏰ Scheduled scans run every Monday at 06:00 UTC." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Final assessment
+        run: |
+          # Check if any critical scanner failed
+          if [ "${{ needs.bandit-scan.result }}" = "failure" ] || \
+             [ "${{ needs.npm-audit.result }}" = "failure" ]; then
+            echo "✗ Critical security scanners failed — review findings before deploying"
+            exit 1
+          fi
+
+          echo "✓ Security scan pipeline complete"
