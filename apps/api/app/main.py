@@ -199,7 +199,6 @@ from app.routers.qeeg_viz_router import router as qeeg_viz_router
 from app.routers.qeeg_capabilities_router import router as qeeg_capabilities_router
 from app.routers.mri_analysis_router import router as mri_analysis_router
 from app.routers.mri_capabilities_router import router as mri_capabilities_router
-from app.routers.neuro_signs import router as neuro_signs_router
 from app.routers.medical_images_router import router as medical_images_router
 from app.routers.fusion_router import router as fusion_router
 from app.routers.patient_summary_router import router as patient_summary_router
@@ -299,7 +298,6 @@ from app.services.agent_skills_seed import seed_default_agent_skills
 from app.services.clinical_data import HandbookGenerateAPIResponse, seed_clinical_dataset
 from app.services.demo_clinic_seed import (
     demo_seed_enabled,
-    seed_demo_clinic,
     seed_demo_clinic_data,
 )
 from app.services.devices import list_devices
