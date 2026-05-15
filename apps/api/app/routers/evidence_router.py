@@ -32,12 +32,15 @@ import sqlite3
 import sys
 import tempfile
 import uuid
+import csv
+import io
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
@@ -49,10 +52,6 @@ from app.auth import (
     require_patient_owner,
 )
 from app.database import get_db_session
-from app.services.consent_enforcement import (
-    require_ai_analysis_consent,
-    ConsentMissingError,
-)
 from app.errors import ApiServiceError
 from app.logging_setup import get_logger
 from app.persistence.models import AssessmentRecord, ClinicalSession, DsPaper, EvidenceSavedCitation, LiteraturePaper, OutcomeSeries, Patient, TreatmentCourse, User
@@ -85,6 +84,7 @@ from app.services.neuromodulation_research import (
     build_adjunct_condition_review_tables,
     build_adjunct_evidence_summary,
     build_research_summary,
+    bundle_root_or_none,
     dataset_keys,
     dataset_path,
     get_condition_knowledge as get_research_condition_knowledge,
@@ -147,6 +147,21 @@ _RESEARCH_EXPORT_SCHEDULES = [
         "status": "paused",
     },
 ]
+
+# ── Export cache (BUG-FIX-002: in-memory staging for generated exports) ───────
+_EXPORT_TTL_SECONDS = 3600  # 1 hour
+_export_cache: dict[str, dict] = {}
+
+
+def _cleanup_expired_exports() -> None:
+    """Remove export cache entries older than _EXPORT_TTL_SECONDS."""
+    now = time.time()
+    expired = [
+        k for k, v in _export_cache.items()
+        if now - v.get("created_at_ts", 0) > _EXPORT_TTL_SECONDS
+    ]
+    for k in expired:
+        del _export_cache[k]
 
 
 def _actor_id(actor: AuthenticatedActor) -> str:
@@ -816,12 +831,13 @@ def _scoped_saved_citation_status_counts(
     return int(row.pending or 0), int(row.unverified or 0)
 
 
+# SAFETY-FIX C-001/C-005: diagnosis field renamed to clinical_context — software does not diagnose
 class ByFindingRequest(BaseModel):
     patient_id: str
     context_type: str = "biomarker"
     target_name: str
     modality: Optional[str] = None
-    diagnosis: Optional[str] = None
+    clinical_context: Optional[str] = None
     intervention: Optional[str] = None
     phenotype_tags: list[str] = Field(default_factory=list)
     feature_summary: list[dict] = Field(default_factory=list)
@@ -898,7 +914,8 @@ def evidence_by_finding(
         context_type=body.context_type,  # type: ignore[arg-type]
         target_name=body.target_name,
         modality_filters=[body.modality] if body.modality else [],
-        diagnosis_filters=[body.diagnosis] if body.diagnosis else [],
+        # SAFETY-FIX C-005: body.diagnosis → body.clinical_context — software does not diagnose
+        diagnosis_filters=[body.clinical_context] if body.clinical_context else [],
         intervention_filters=[body.intervention] if body.intervention else [],
         phenotype_tags=body.phenotype_tags,
         feature_summary=body.feature_summary,
@@ -1876,10 +1893,54 @@ def create_research_dataset_export(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> ResearchExportRequestOut:
+    """BUG-FIX-002: Generate a real CSV/JSON dataset export instead of a fake 'queued' stub."""
     require_minimum_role(actor, "clinician")
     summary = _research_export_summary(db, actor, body.consent, body.format)
     export_id = str(uuid.uuid4())
     requested_at = datetime.now(timezone.utc).isoformat()
+    fmt = (body.format or "csv").strip().lower()
+
+    # For CSV/JSON, generate immediately; for PDF/complex formats, be honest.
+    if fmt in ("csv", "json"):
+        conn = _evidence_conn()
+        try:
+            rows = conn.execute(
+                "SELECT p.title, p.authors_json, p.year, p.oa_url, p.is_oa, "
+                " GROUP_CONCAT(i.label) as indications "
+                "FROM papers p LEFT JOIN paper_indications pi ON pi.paper_id = p.id "
+                "LEFT JOIN indications i ON i.id = pi.indication_id "
+                "GROUP BY p.id LIMIT 1000"
+            ).fetchall()
+        finally:
+            conn.close()
+
+        _cleanup_expired_exports()
+        _export_cache[export_id] = {
+            "rows": [dict(r) for r in rows],
+            "format": fmt,
+            "created_at": requested_at,
+            "created_at_ts": time.time(),
+        }
+
+        _audit(
+            "research.export.dataset",
+            actor,
+            export_id=export_id,
+            consent=body.consent,
+            format=body.format,
+            kind=body.kind,
+            patients=summary["patients_eligible"],
+            status="ready",
+        )
+        return ResearchExportRequestOut(
+            export_id=export_id,
+            kind=body.kind,
+            status="ready",
+            requested_at=requested_at,
+            summary=summary,
+        )
+
+    # PDF or other complex formats — honest status
     _audit(
         "research.export.dataset",
         actor,
@@ -1888,11 +1949,12 @@ def create_research_dataset_export(
         format=body.format,
         kind=body.kind,
         patients=summary["patients_eligible"],
+        status="unsupported",
     )
     return ResearchExportRequestOut(
         export_id=export_id,
         kind=body.kind,
-        status="queued",
+        status="unsupported",
         requested_at=requested_at,
         summary=summary,
     )
@@ -1902,21 +1964,72 @@ def create_research_dataset_export(
 def create_research_bundle_export(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> ResearchExportRequestOut:
+    """BUG-FIX-002: Return 'unsupported' status instead of fake 'queued'. Bundle exports
+    require a background job that is not yet implemented.
+
+    The honest-status semantics MUST work whether or not the CSV bundle is
+    installed on disk — the response says "this endpoint is unimplemented",
+    not "I went looking for the bundle and could not find it". Use
+    `bundle_root_or_none()` so a missing bundle yields `bundle_root: null`
+    in the summary instead of raising HTTP 503 from `dataset_path("master")`
+    via `require_bundle_root()`.
+    """
     require_minimum_role(actor, "clinician")
     export_id = str(uuid.uuid4())
     requested_at = datetime.now(timezone.utc).isoformat()
+    bundle_root = bundle_root_or_none()
     summary = {
         "datasets": len(list_research_datasets()),
-        "bundle_root": str(dataset_path("master")),
+        "bundle_root": str(bundle_root) if bundle_root is not None else None,
     }
-    _audit("research.export.bundle", actor, export_id=export_id, datasets=summary["datasets"])
+    _audit("research.export.bundle", actor, export_id=export_id, datasets=summary["datasets"], status="unsupported")
     return ResearchExportRequestOut(
         export_id=export_id,
         kind="research-bundle",
-        status="queued",
+        status="unsupported",
         requested_at=requested_at,
         summary=summary,
     )
+
+
+@router.get("/research/exports/{export_id}/download")
+def download_research_export(
+    export_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+):
+    """BUG-FIX-002: Download a previously generated CSV/JSON export by its ID."""
+    require_minimum_role(actor, "clinician")
+    _cleanup_expired_exports()
+    export = _export_cache.get(export_id)
+    if not export:
+        raise HTTPException(status_code=404, detail="Export not found or expired")
+
+    rows = export["rows"]
+    fmt = export["format"]
+
+    if fmt == "csv":
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["title", "authors_json", "year", "oa_url", "is_oa", "indications"])
+        for row in rows:
+            writer.writerow([
+                row.get("title", ""),
+                row.get("authors_json", ""),
+                row.get("year", ""),
+                row.get("oa_url", ""),
+                row.get("is_oa", ""),
+                row.get("indications", ""),
+            ])
+        output.seek(0)
+        return StreamingResponse(
+            io.BytesIO(output.getvalue().encode("utf-8")),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=evidence_export_{export_id}.csv"},
+        )
+    elif fmt == "json":
+        return rows
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported export format: {fmt}")
 
 
 @router.post("/research/exports/individual", response_model=ResearchExportRequestOut, status_code=status.HTTP_202_ACCEPTED)
@@ -3155,32 +3268,168 @@ def search_evidence(
     hits = [_paper_row_to_out(r, include_abstract=include_abstract) for r in ranked]
     _audit("search", actor, q=q, result_count=len(hits))
     return EvidenceSearchOut(query=q, total=len(hits), hits=hits)
-    # CONSENT ENFORCEMENT: ai_analysis (evidence)
-    try:
-        require_ai_analysis_consent(
-            session=db,
-            patient_id=request.patient_id,
-            clinic_id=actor.clinic_id,
-            actor_user_id=actor.actor_id,
-            ai_modality="evidence",
-        )
-    except ConsentMissingError:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Patient consent required for evidence search.",
-        )
+    # BUG-FIX-001: Removed dead consent code. This is a generic search endpoint
+    # with no patient_id parameter. Consent is enforced in patient-linked
+    # evidence endpoints (e.g., /research/individual, /evidence/patient-match).
 
-    # CONSENT ENFORCEMENT: ai_analysis (evidence)
-    try:
-        require_ai_analysis_consent(
-            session=db,
-            patient_id=body.patient_id,
-            clinic_id=actor.clinic_id,
-            actor_user_id=actor.actor_id,
-            ai_modality="evidence",
-        )
-    except ConsentMissingError:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Patient consent required for evidence search.",
-        )
+
+# ═════════════════════════════════════════════════════════════════════════════
+# GRADE Evidence System + Modality-Condition Matrix + FDA Status
+# (Added 2025-07 — research roadmap evidence enrichment)
+# ═════════════════════════════════════════════════════════════════════════════
+
+# core-schema-exempt: GRADE definitions are static reference data
+class GradeDefinitionOut(BaseModel):
+    grade: str
+    label: str
+    color: str
+    description: str
+
+
+# core-schema-exempt: single modality cell in the evidence matrix
+class MatrixCellOut(BaseModel):
+    grade: str
+    smd: Optional[str] = None
+    fda: Optional[str] = None
+    fdaYear: Optional[int] = None
+    ci: Optional[str] = None
+    i2: Optional[str] = None
+    nStudies: Optional[int] = None
+
+
+# core-schema-exempt: one row of the modality x condition evidence matrix
+class MatrixRowOut(BaseModel):
+    condition: str
+    conditionLabel: str
+    rTMS: MatrixCellOut
+    tDCS: MatrixCellOut
+    tACS: MatrixCellOut
+    tRNS: MatrixCellOut
+    NF: MatrixCellOut
+
+
+# core-schema-exempt: FDA status entry for a modality-condition pair
+class FdaStatusOut(BaseModel):
+    modality: str
+    condition: str
+    conditionLabel: str
+    fdaStatus: str
+    fdaYear: Optional[int] = None
+    notes: Optional[str] = None
+
+
+# Static GRADE definitions (mirror of EVIDENCE_GRADES in evidence-dataset.js)
+_GRADE_DEFINITIONS: list[dict] = [
+    {"grade": "A", "label": "Strong", "color": "#16a34a", "description": "Multiple RCTs, consistent results, low heterogeneity (I\u00b2<50%), low risk of bias"},
+    {"grade": "B", "label": "Moderate", "color": "#3b82f6", "description": "Some RCTs, mostly consistent, minor methodological concerns"},
+    {"grade": "C", "label": "Limited", "color": "#f59e0b", "description": "Few RCTs, small samples, high heterogeneity, methodological limitations"},
+    {"grade": "D", "label": "Emerging", "color": "#f97316", "description": "Preliminary/pilot studies, case series, mechanistic rationale only"},
+    {"grade": "N", "label": "Negative", "color": "#ef4444", "description": "Probably-blinded outcomes show no clinically meaningful benefit"},
+]
+
+# Static Modality x Condition Evidence Matrix (mirror of MODALITY_CONDITION_EVIDENCE_MATRIX)
+_MODALITY_CONDITION_EVIDENCE_MATRIX: list[dict] = [
+    {"condition": "major-depressive-disorder", "conditionLabel": "Major Depressive Disorder",
+     "rTMS": {"grade": "A", "smd": "0.35-0.55", "fda": "approved", "fdaYear": 2008, "ci": "95% dose ~34,773 pulses", "i2": "<50%", "nStudies": 50},
+     "tDCS": {"grade": "B", "smd": "-0.355", "fda": "cleared", "fdaYear": 2022, "ci": "p<0.001; 2mA > 1mA", "nStudies": 56},
+     "tACS": {"grade": "D"}, "tRNS": {"grade": "D"}, "NF": {"grade": "C"}},
+    {"condition": "treatment-resistant-depression", "conditionLabel": "Treatment-Resistant Depression",
+     "rTMS": {"grade": "A", "smd": "~0.64", "fda": "approved", "fdaYear": 2008, "ci": "response 40-60%", "nStudies": 30},
+     "tDCS": {"grade": "C"}, "tACS": {"grade": "D"}, "tRNS": {"grade": "D"}, "NF": {"grade": "C"}},
+    {"condition": "obsessive-compulsive-disorder", "conditionLabel": "Obsessive-Compulsive Disorder",
+     "rTMS": {"grade": "B", "smd": "g=0.64", "fda": "approved", "fdaYear": 2020, "ci": "OR=3.15; 38-58% response", "nStudies": 18},
+     "tDCS": {"grade": "C"}, "tACS": {"grade": "D"}, "tRNS": {"grade": "D"}, "NF": {"grade": "C"}},
+    {"condition": "post-traumatic-stress-disorder", "conditionLabel": "Post-Traumatic Stress Disorder",
+     "rTMS": {"grade": "B", "smd": "-0.97", "ci": "HF-rTMS; iTBS SMD=-0.93", "nStudies": 21},
+     "tDCS": {"grade": "B", "smd": "-1.30", "ci": "dual-tDCS (strongest in network)", "nStudies": 21},
+     "tACS": {"grade": "D"}, "tRNS": {"grade": "D"}, "NF": {"grade": "D"}},
+    {"condition": "anxiety-disorders", "conditionLabel": "Anxiety Disorders",
+     "rTMS": {"grade": "C"}, "tDCS": {"grade": "C"}, "tACS": {"grade": "D"}, "tRNS": {"grade": "D"}, "NF": {"grade": "C"}},
+    {"condition": "chronic-pain", "conditionLabel": "Chronic Pain",
+     "rTMS": {"grade": "C"}, "tDCS": {"grade": "C"}, "tACS": {"grade": "C"}, "tRNS": {"grade": "D"}, "NF": {"grade": "C"}},
+    {"condition": "adhd", "conditionLabel": "ADHD (Adult)",
+     "rTMS": {"grade": "C"}, "tDCS": {"grade": "C"}, "tACS": {"grade": "D"}, "tRNS": {"grade": "D"},
+     "NF": {"grade": "N", "smd": "0.04", "ci": "probably-blinded SMD=0.04 (NO benefit); standard SMD=0.21", "nStudies": 38}},
+    {"condition": "alzheimers-disease", "conditionLabel": "Alzheimer's Disease",
+     "rTMS": {"grade": "C"}, "tDCS": {"grade": "C"}, "tACS": {"grade": "D"}, "tRNS": {"grade": "D"}, "NF": {"grade": "C"}},
+    {"condition": "parkinsons-disease", "conditionLabel": "Parkinson's Disease (motor)",
+     "rTMS": {"grade": "C"}, "tDCS": {"grade": "C"}, "tACS": {"grade": "C"}, "tRNS": {"grade": "D"}, "NF": {"grade": "C"}},
+    {"condition": "fibromyalgia", "conditionLabel": "Fibromyalgia",
+     "rTMS": {"grade": "C"}, "tDCS": {"grade": "C"}, "tACS": {"grade": "D"}, "tRNS": {"grade": "D"}, "NF": {"grade": "C"}},
+    {"condition": "pediatric-adhd", "conditionLabel": "Pediatric ADHD",
+     "rTMS": {"grade": "C"}, "tDCS": {"grade": "C"}, "tACS": {"grade": "D"}, "tRNS": {"grade": "D"},
+     "NF": {"grade": "N", "smd": "0.04", "ci": "JAMA Psychiatry 2024: no benefit in probably-blinded", "nStudies": 38}},
+    {"condition": "pediatric-asd", "conditionLabel": "Pediatric ASD",
+     "rTMS": {"grade": "D"}, "tDCS": {"grade": "D"}, "tACS": {"grade": "D"}, "tRNS": {"grade": "D"}, "NF": {"grade": "D"}},
+]
+
+# FDA status lookup table (modality slug → condition slug → status)
+_FDA_STATUS_LOOKUP: list[dict] = [
+    {"modality": "rTMS", "condition": "major-depressive-disorder", "conditionLabel": "Major Depressive Disorder", "fdaStatus": "approved", "fdaYear": 2008},
+    {"modality": "dTMS", "condition": "major-depressive-disorder", "conditionLabel": "Major Depressive Disorder", "fdaStatus": "approved", "fdaYear": 2013, "notes": "H1 coil"},
+    {"modality": "dTMS", "condition": "obsessive-compulsive-disorder", "conditionLabel": "Obsessive-Compulsive Disorder", "fdaStatus": "approved", "fdaYear": 2018, "notes": "H7 coil"},
+    {"modality": "rTMS", "condition": "obsessive-compulsive-disorder", "conditionLabel": "Obsessive-Compulsive Disorder", "fdaStatus": "approved", "fdaYear": 2020},
+    {"modality": "tDCS", "condition": "major-depressive-disorder", "conditionLabel": "Major Depressive Disorder", "fdaStatus": "cleared", "fdaYear": 2022},
+    {"modality": "rTMS", "condition": "smoking-cessation", "conditionLabel": "Smoking Cessation", "fdaStatus": "cleared", "fdaYear": 2020},
+    {"modality": "rTMS", "condition": "major-depressive-disorder", "conditionLabel": "Major Depressive Disorder", "fdaStatus": "cleared", "fdaYear": 2025, "notes": "Multiple expanded indications cleared 2025"},
+]
+
+
+@router.get("/grade-definitions", response_model=list[GradeDefinitionOut])
+def get_grade_definitions(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[GradeDefinitionOut]:
+    """GRADE (Grading of Recommendations Assessment, Development and Evaluation)
+    evidence definitions. Static reference data — does not query the evidence DB.
+    Includes the extended Grade N (Negative) for probably-blinded null findings."""
+    require_minimum_role(actor, "clinician")
+    return [GradeDefinitionOut(**d) for d in _GRADE_DEFINITIONS]
+
+
+@router.get("/modality-condition-matrix", response_model=list[MatrixRowOut])
+def get_modality_condition_matrix(
+    condition: Optional[str] = Query(None, description="Filter by condition slug e.g. major-depressive-disorder"),
+    modality: Optional[str] = Query(None, description="Filter by modality key e.g. rTMS, tDCS"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[MatrixRowOut]:
+    """Modality x Condition Evidence Matrix from 2024-2025 meta-analytic consensus.
+
+    Returns GRADE evidence grades (A/B/C/D/N), pooled SMD effect sizes,
+    FDA status, confidence intervals, and study counts per modality-condition pair.
+    Static reference data — does not query the evidence DB.
+    """
+    require_minimum_role(actor, "clinician")
+    rows = _MODALITY_CONDITION_EVIDENCE_MATRIX
+    if condition:
+        rows = [r for r in rows if r["condition"] == condition or condition in r["condition"]]
+    if modality:
+        rows = [r for r in rows if modality in r and r.get(modality, {}).get("grade")]
+    return [MatrixRowOut(
+        condition=r["condition"],
+        conditionLabel=r["conditionLabel"],
+        rTMS=MatrixCellOut(**r.get("rTMS", {"grade": "D"})),
+        tDCS=MatrixCellOut(**r.get("tDCS", {"grade": "D"})),
+        tACS=MatrixCellOut(**r.get("tACS", {"grade": "D"})),
+        tRNS=MatrixCellOut(**r.get("tRNS", {"grade": "D"})),
+        NF=MatrixCellOut(**r.get("NF", {"grade": "D"})),
+    ) for r in rows]
+
+
+@router.get("/fda-status", response_model=list[FdaStatusOut])
+def get_fda_status_lookups(
+    modality: Optional[str] = Query(None, description="Filter by modality e.g. rTMS, dTMS, tDCS"),
+    condition: Optional[str] = Query(None, description="Filter by condition slug e.g. major-depressive-disorder"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[FdaStatusOut]:
+    """FDA regulatory status (approved / cleared) per modality x condition.
+
+    Static reference data from the research roadmap. For live FDA device records
+    linked to indications, use /indications/{slug}/devices instead.
+    """
+    require_minimum_role(actor, "clinician")
+    results = _FDA_STATUS_LOOKUP
+    if modality:
+        results = [r for r in results if r["modality"].lower() == modality.lower()]
+    if condition:
+        results = [r for r in results if r["condition"] == condition or condition in r["condition"]]
+    return [FdaStatusOut(**r) for r in results]
