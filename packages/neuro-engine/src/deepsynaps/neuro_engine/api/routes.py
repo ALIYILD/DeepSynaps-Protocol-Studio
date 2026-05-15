@@ -20,7 +20,6 @@ from ..session.schemas import (
     ProtocolFeatureViewSchema,
     RecommendationDraftSchema,
     ReviewQueueSnapshotSchema,
-    RecommendationDraftSchema,
     SessionFeaturesFullSchema,
     SessionFeaturesLiteSchema,
 )
