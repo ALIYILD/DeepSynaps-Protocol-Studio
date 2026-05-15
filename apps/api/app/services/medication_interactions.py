@@ -1,6 +1,7 @@
 """Shared medication–medication and medication–therapy modality interaction checks.
 
-Used by medications_router and treatment_sessions_analyzer (same rules, single source).
+Used by medications_router and intervention_analyzer (same rules, single source).
+Decision-support only. Not a calibrated prediction model. Requires clinician review.
 """
 from __future__ import annotations
 

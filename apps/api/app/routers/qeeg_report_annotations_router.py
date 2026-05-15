@@ -235,7 +235,7 @@ def patch_annotation_endpoint(
     return _serialise(row)
 
 
-@router.delete("/annotations/{annotation_id}", status_code=204)
+@router.delete("/annotations/{annotation_id}")
 def delete_annotation_endpoint(
     annotation_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

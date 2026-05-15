@@ -1230,7 +1230,7 @@ def update_session_endpoint(
     return SessionOut.from_record(result)
 
 
-@router.delete("/{session_id}", status_code=204)
+@router.delete("/{session_id}")
 def delete_session_endpoint(
     session_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

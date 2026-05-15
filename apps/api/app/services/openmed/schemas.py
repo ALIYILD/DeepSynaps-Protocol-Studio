@@ -19,6 +19,12 @@ SourceType = Literal[
     "transcript",
     "document_text",
     "free_text",
+    # Neuromodulation-specific types
+    "stimulation_log",
+    "device_interrogation",
+    "programming_note",
+    "session_note",
+    "neuromodulation_text",
 ]
 
 EntityLabel = Literal[
@@ -92,6 +98,25 @@ class PIIEntity(BaseModel):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
+class StimulationParameter(BaseModel):
+    """A structured stimulation parameter extracted from clinical text.
+
+    Represents a single quantified parameter (frequency, intensity, duration,
+    pulse count, session count, inter-train interval, or electrode montage).
+    """
+
+    parameter_type: str = Field(
+        ...,
+        description="Parameter category: frequency, intensity_current, intensity_percent_mt, "
+                    "intensity_percent_mso, duration_train, duration_session, pulses, sessions, "
+                    "inter_train_interval, or montage.",
+    )
+    value: float = Field(..., description="Numeric value of the parameter.")
+    unit: str = Field(default="", description="Unit of measurement (Hz, mA, %, s, min, etc.).")
+    text_span: TextSpan = Field(..., description="Character span in original text.")
+    confidence: float = Field(default=0.85, ge=0.0, le=1.0)
+
+
 class AnalyzeResponse(BaseModel):
     """Result of `POST /analyze`."""
 
@@ -122,6 +147,21 @@ class NeuromodulationExtractResponse(BaseModel):
     char_count: int
 
 
+class ExtractParametersResponse(BaseModel):
+    """Result of POST /extract-parameters.
+
+    Returns structured stimulation parameters extracted from clinical text
+    (frequency, intensity, duration, pulse count, session count, ITI, montage).
+    """
+
+    schema_id: Literal["deepsynaps.openmed.parameters/v1"] = "deepsynaps.openmed.parameters/v1"
+    backend: Literal["openmed_http", "heuristic"]
+    parameters: list[StimulationParameter]
+    summary: str = Field(default="", description="Parameter extraction summary; not a clinical interpretation.")
+    safety_footer: str = "decision-support, not autonomous diagnosis"
+    char_count: int
+
+
 class DeidentifyResponse(BaseModel):
     schema_id: Literal["deepsynaps.openmed.deid/v1"] = "deepsynaps.openmed.deid/v1"
     backend: Literal["openmed_http", "heuristic"]
@@ -143,9 +183,11 @@ __all__ = [
     "TextSpan",
     "ExtractedClinicalEntity",
     "PIIEntity",
+    "StimulationParameter",
     "AnalyzeResponse",
     "PIIExtractResponse",
     "NeuromodulationExtractResponse",
+    "ExtractParametersResponse",
     "DeidentifyResponse",
     "HealthResponse",
     "SourceType",

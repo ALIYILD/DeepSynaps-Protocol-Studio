@@ -8,6 +8,10 @@ import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { EVIDENCE_TOTAL_PAPERS } from './evidence-dataset.js';
 import {
   VOICE_DECISION_SUPPORT_FULL,
+  VOICE_CRITICAL_SAFETY_DISCLAIMER,
+  VOICE_BIOMARKER_EVIDENCE,
+  renderEvidenceGradeBadge,
+  renderConditionFeatureCard,
   voiceApiErrorToast,
   voicePipelineMetaBlock,
 } from './voice-decision-support.js';
@@ -256,8 +260,14 @@ export function renderVoiceReportHtml(res, opts = {}) {
     if (vr[key] != null) jsonSubset[key] = vr[key];
   }
 
+  // Critical safety disclaimer — red-bordered, prominently displayed at top
+  const safetyDisclaimerHtml = `<div style="margin-bottom:14px;padding:10px 12px;border-radius:10px;border:1.5px solid rgba(248,113,113,.5);background:rgba(248,113,113,.08);font-size:11px;line-height:1.5;color:var(--text-secondary)" role="alert">
+    <strong style="color:#f87171">${esc('Safety Limitations')}</strong> — ${esc(VOICE_CRITICAL_SAFETY_DISCLAIMER)}
+  </div>`;
+
   return `
     <div class="va-results-inner" style="padding:14px 16px;border-radius:12px;border:1px solid var(--border);background:var(--bg-card)">
+      ${safetyDisclaimerHtml}
       ${provNote}
       ${storedNote}
       <header style="margin-bottom:10px">
@@ -271,6 +281,7 @@ export function renderVoiceReportHtml(res, opts = {}) {
       ${acousticBlock}
       ${biomarkerBlock}
       ${interpBlock}
+      ${_renderConditionInterpretationCards(vr)}
       ${evidenceGov}
       <section style="margin-top:14px" aria-labelledby="va-evidence-packs-h">
         <h4 id="va-evidence-packs-h" style="font-size:13px;font-weight:600;margin:0 0 8px">Literature-linked evidence packs</h4>
@@ -322,6 +333,36 @@ function _renderQcSection(qc) {
   </section>`;
 }
 
+/** Map acoustic feature labels to evidence grade info from the research matrix. */
+function _evidenceInfoForAcousticFeature(label) {
+  const labelLower = String(label).toLowerCase();
+  // F0 / pitch features — Grade A but NONSIGNIFICANT (critical overclaim prevention)
+  if (labelLower.includes('f0') || labelLower.includes('pitch') || labelLower.includes('fundamental frequency')) {
+    return { grade: 'A', badge: renderEvidenceGradeBadge('A'), note: 'F0 differences are NOT statistically significant in meta-analysis (p=0.56) — interpret with caution', warn: true };
+  }
+  // Shimmer — Grade B (strong for Parkinson's)
+  if (labelLower.includes('shimmer')) {
+    return { grade: 'B', badge: renderEvidenceGradeBadge('B'), note: 'Evidence Grade B — increases in Parkinson\'s over ~33 months', warn: false };
+  }
+  // Jitter — Grade C (inconsistent)
+  if (labelLower.includes('jitter')) {
+    return { grade: 'C', badge: renderEvidenceGradeBadge('C'), note: 'Evidence Grade C — inconsistent across studies; interpret cautiously', warn: false };
+  }
+  // HNR — Grade C (inconsistent)
+  if (labelLower.includes('hnr') || labelLower.includes('harmonics-to-noise') || labelLower.includes('noise-to-harmonics') || labelLower.includes('nhr')) {
+    return { grade: 'C', badge: renderEvidenceGradeBadge('C'), note: 'Evidence Grade C — inconsistent across studies; NHR shows stronger evidence in Parkinson\'s (Grade B)', warn: false };
+  }
+  // Intensity — no direct evidence mapping
+  if (labelLower.includes('intensity') || labelLower.includes('loudness')) {
+    return { grade: null, badge: '', note: '', warn: false };
+  }
+  // Voiced fraction — no direct evidence mapping
+  if (labelLower.includes('voiced') || labelLower.includes('voice break')) {
+    return { grade: null, badge: '', note: '', warn: false };
+  }
+  return { grade: null, badge: '', note: '', warn: false };
+}
+
 function _renderAcousticSection(vr) {
   const af = vr.acoustic_features || {};
   const keys = ['f0_mean_hz', 'f0_sd_hz', 'intensity_mean_db', 'intensity_sd_db', 'voiced_fraction'];
@@ -351,15 +392,25 @@ function _renderAcousticSection(vr) {
     if (legacyPd.hnr_db != null) rows.push(['HNR', `${Number(legacyPd.hnr_db).toFixed(1)} dB`, 'Legacy PD-voice block']);
   }
 
-  const body = rows.map(([label, val, src]) => `<tr>
-    <td style="padding:6px 8px;border-bottom:1px solid var(--border)">${esc(label)}</td>
-    <td style="padding:6px 8px;border-bottom:1px solid var(--border);font-family:var(--font-mono,monospace);font-size:11px">${esc(val)}</td>
-    <td style="padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-tertiary);font-size:11px">${esc(src)}</td>
-  </tr>`).join('');
+  let f0Warning = '';
+  const body = rows.map(([label, val, src]) => {
+    const ev = _evidenceInfoForAcousticFeature(label);
+    // Collect F0 warning for display below the table
+    if (ev.warn && ev.note) {
+      f0Warning = `<div style="margin-top:8px;padding:6px 8px;border-radius:6px;border:1px solid rgba(245,158,11,.35);background:rgba(245,158,11,.08);font-size:11px;color:#d97706" role="note">
+        <strong>F0 overclaim warning:</strong> ${esc(ev.note)}
+      </div>`;
+    }
+    return `<tr>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border)">${esc(label)} ${ev.badge}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border);font-family:var(--font-mono,monospace);font-size:11px">${esc(val)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-tertiary);font-size:11px">${esc(src)}${ev.note && !ev.warn ? ` <span style="color:var(--text-tertiary)">· ${esc(ev.note)}</span>` : ''}</td>
+    </tr>`;
+  }).join('');
 
   return `<section style="margin-top:12px;padding:12px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,.02)" aria-labelledby="va-acoustic-h">
     <h4 id="va-acoustic-h" style="margin:0 0 8px;font-size:13px;font-weight:600">Acoustic features</h4>
-    <p style="font-size:11px;color:var(--text-tertiary);margin:0 0 8px">Units and sources as returned by the analyser — not standalone clinical findings.</p>
+    <p style="font-size:11px;color:var(--text-tertiary);margin:0 0 8px">Units and sources as returned by the analyser — not standalone clinical findings. Evidence grades shown where available from 2023-2025 literature.</p>
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr>
         <th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text-tertiary);font-size:10px">Measure</th>
@@ -368,6 +419,7 @@ function _renderAcousticSection(vr) {
       </tr></thead>
       <tbody>${body}</tbody>
     </table>
+    ${f0Warning}
   </section>`;
 }
 
@@ -501,6 +553,44 @@ function _renderEvidenceGovernance(ds) {
   </section>`;
 }
 
+/**
+ * Render condition-specific interpretation cards with evidence grades.
+ * Shows depression, Parkinson's, and cognitive decline markers based on report content.
+ */
+function _renderConditionInterpretationCards(vr) {
+  const cards = [];
+
+  // Depression markers card — always show (most common condition studied)
+  cards.push(renderConditionFeatureCard('depression', ['cpp', 'speech_rate', 'pause_duration', 'f0', 'jitter', 'shimmer', 'hnr']));
+
+  // Parkinson's markers card — show when PD voice block present or sustained vowel task
+  const hasPd = vr.pd_voice && typeof vr.pd_voice === 'object' && (vr.pd_voice.score != null || vr.pd_voice.f0_mean_hz != null);
+  const taskProtocol = (vr.task_protocol || '').toLowerCase();
+  if (hasPd || taskProtocol.includes('vowel') || taskProtocol.includes('phonation')) {
+    cards.push(renderConditionFeatureCard('parkinsons', ['vowel_articulation', 'shimmer', 'nhr', 'speech_rate', 'pause_ratio']));
+  }
+
+  // Cognitive decline markers card — show when cognitive block present or reading task
+  const hasCog = vr.cognitive_speech && typeof vr.cognitive_speech === 'object' && (vr.cognitive_speech.score != null || vr.cognitive_speech.speech_rate_wpm != null);
+  if (hasCog || taskProtocol.includes('reading') || taskProtocol.includes('passage') || taskProtocol.includes('speech')) {
+    cards.push(renderConditionFeatureCard('alzheimers', ['speech_rate', 'articulation_rate', 'voice_breaks', 'npvi']));
+  }
+
+  // Schizophrenia markers card — always show (speech markers are well studied)
+  cards.push(renderConditionFeatureCard('schizophrenia', ['pause_duration', 'speech_rate', 'spoken_time_proportion']));
+
+  const sexSpecificNote = `<div style="margin-top:10px;padding:8px 10px;border-radius:8px;border:1px solid rgba(139,92,246,.28);background:rgba(139,92,246,.06);font-size:11px;line-height:1.45;color:var(--text-secondary)" role="note">
+    <strong style="color:#8b5cf6">Sex-specific note:</strong> ${esc('Research shows significant sex differences in voice biomarkers (e.g., anxiety markers are male-specific in current evidence). Interpretation should account for patient sex when available.')}
+  </div>`;
+
+  return `<section style="margin-top:12px" aria-labelledby="va-condition-cards-h">
+    <h4 id="va-condition-cards-h" style="margin:0 0 8px;font-size:13px;font-weight:600">Condition-specific voice biomarker evidence</h4>
+    <p style="font-size:11px;color:var(--text-tertiary);margin:0 0 10px;line-height:1.45">Evidence grades reflect the 2023-2025 literature base. All markers are decision-support signals requiring clinical correlation. Cards are shown based on protocol type and available report blocks.</p>
+    ${cards.join('')}
+    ${sexSpecificNote}
+  </section>`;
+}
+
 export async function pgVoiceAnalyzer(setTopbar, navigate) {
   try {
     setTopbar({
@@ -563,6 +653,7 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
         <button type="button" class="btn btn-ghost btn-sm" data-va-nav="qeeg-launcher">qEEG</button>
         <button type="button" class="btn btn-ghost btn-sm" data-va-nav="mri-analysis">MRI</button>
         <button type="button" class="btn btn-ghost btn-sm" data-va-nav="video-assessments">Video</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-va-nav="movement-analyzer">Movement</button>
         <button type="button" class="btn btn-ghost btn-sm" data-va-nav="text-analyzer">Text</button>
         <button type="button" class="btn btn-ghost btn-sm" data-va-nav="biomarkers">Biomarkers</button>
         <button type="button" class="btn btn-ghost btn-sm" data-va-nav="digital-phenotyping-analyzer">Digital phenotyping</button>
@@ -637,6 +728,16 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
         </div>
       </section>
 
+      <!-- BUG-FIX-003: Analyze existing clinic recording -->
+      <section id="va-clinic-recordings" style="display:none;margin-bottom:18px;padding:16px;border-radius:14px;border:1px solid var(--border);background:var(--bg-card)">
+        <h3 style="margin:0 0 8px;font-size:14px;font-weight:600">Analyze existing clinic recording</h3>
+        <p style="font-size:11px;color:var(--text-tertiary);margin:0 0 10px">Stored session recordings for this patient. Selecting one runs the voice pipeline on the stored audio.</p>
+        <div id="va-clinic-recordings-list" style="font-size:12px;color:var(--text-secondary)">
+          Select a patient to see clinic recordings.
+        </div>
+        <div id="va-clinic-recording-status" style="display:none;margin-top:10px;font-size:12px;color:var(--text-tertiary)" role="status"></div>
+      </section>
+
       <section id="va-patient-analyses" style="display:none;margin-bottom:18px;padding:16px;border-radius:14px;border:1px solid var(--border);background:var(--bg-card)" aria-live="polite">
         <h3 style="margin:0 0 8px;font-size:14px;font-weight:600">Recent voice analyses (selected patient)</h3>
         <p style="font-size:11px;color:var(--text-tertiary);margin:0 0 10px">Stored server-side when analysis completes successfully. Click to load.</p>
@@ -646,6 +747,7 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
       <section id="va-result-wrap" style="display:none;font-size:12px;line-height:1.5" aria-labelledby="va-results-h">
         <h2 id="va-results-h" class="sr-only" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0">Analysis results</h2>
         <div id="va-result"></div>
+        <div id="va-result-placeholder"></div>
       </section>
 
       <section style="margin-top:20px;padding:14px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.02);font-size:11px;line-height:1.5;color:var(--text-tertiary)" aria-labelledby="va-audit-h">
@@ -898,16 +1000,133 @@ export async function pgVoiceAnalyzer(setTopbar, navigate) {
     });
   }
 
+  // BUG-FIX-003: Load and display clinic recordings for a patient
+  async function _loadClinicRecordings(patientId) {
+    const container = document.getElementById('va-clinic-recordings-list');
+    const section = document.getElementById('va-clinic-recordings');
+    if (section) section.style.display = 'none';
+    if (!container || !patientId) {
+      if (container) container.innerHTML = '<span style="color:var(--text-tertiary)">Select a patient to see clinic recordings</span>';
+      return;
+    }
+    try {
+      const recordings = await api.listRecordings(patientId);
+      const items = recordings?.items || (Array.isArray(recordings) ? recordings : []);
+      if (!items.length) {
+        container.innerHTML = '<span style="color:var(--text-tertiary)">No clinic recordings for this patient</span>';
+        if (section) section.style.display = '';
+        return;
+      }
+      let html = '<div style="display:flex;flex-direction:column;gap:8px">';
+      for (const rec of items) {
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border:1px solid var(--border-subtle);border-radius:8px">' +
+          '<div>' +
+          '<div style="font-weight:600">' + esc(rec.title || 'Untitled Recording') + '</div>' +
+          '<div style="font-size:11px;color:var(--text-tertiary)">' + (rec.created_at ? new Date(rec.created_at).toLocaleString() : '') + ' \u00b7 ' + (rec.duration_seconds ? _fmtDur(rec.duration_seconds) : '') + '</div>' +
+          '</div>' +
+          '<button type="button" class="btn btn-sm btn-primary" data-clinic-recording-id="' + esc(rec.id) + '">Analyze</button>' +
+          '</div>';
+      }
+      html += '</div>';
+      container.innerHTML = html;
+      container.querySelectorAll('[data-clinic-recording-id]').forEach((b) => {
+        b.addEventListener('click', async () => {
+          const rid = b.getAttribute('data-clinic-recording-id');
+          if (rid) await window._analyzeClinicRecording(rid);
+        });
+      });
+      if (section) section.style.display = '';
+    } catch (err) {
+      container.innerHTML = '<span style="color:var(--rose)">Failed to load recordings: ' + esc(err?.message || 'Unknown error') + '</span>';
+      if (section) section.style.display = '';
+    }
+  }
+
+  window._analyzeClinicRecording = async function(recordingId) {
+    const statusEl = document.getElementById('va-clinic-recording-status');
+    const patientCtx = effectivePatientId();
+    if (patientCtx.error) {
+      if (statusEl) {
+        statusEl.style.display = '';
+        statusEl.textContent = patientCtx.error;
+      }
+      return;
+    }
+    const pid = patientCtx.patientId;
+    const taskProtocol = document.getElementById('va-protocol')?.value || 'sustained_vowel_a';
+    const transcript = document.getElementById('va-transcript')?.value?.trim() || null;
+    if (statusEl) {
+      statusEl.style.display = '';
+      statusEl.textContent = 'Analyzing clinic recording...';
+    }
+    try {
+      const sessionId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+      const res = await api.audioAnalyzeRecording(recordingId, { sessionId, patientId: pid, taskProtocol, transcript });
+      resultWrap().style.display = '';
+      resultEl().innerHTML = renderVoiceReportHtml(res);
+      statusEl.textContent = 'Analysis complete (review outputs below).';
+      _persistLastAnalysisId(res?.analysis_id || null, pid);
+      if (pid) refreshAnalysisList(pid);
+    } catch (err) {
+      const t = voiceApiErrorToast(err);
+      statusEl.textContent = t.title + ' \u2014 ' + t.body.slice(0, 140);
+      resultWrap().style.display = '';
+      resultEl().innerHTML = '<div style="color:#f87171;padding:12px;border-radius:10px;background:rgba(248,113,113,.08)"><strong>' + esc(t.title) + '</strong><br/>' + esc(t.body) + '</div>';
+      window._showToast?.(t.title, t.severity || 'error');
+    }
+  };
+
   document.getElementById('va-patient-select')?.addEventListener('change', (e) => {
     const v = e.target?.value?.trim() || '';
     _persistPatientSelection(v);
     refreshAnalysisList(v);
     _refreshVoiceDrHero(v);
+
+    // BUG-FIX-002: Clear prior patient's report on switch
+    const wrap = document.getElementById('va-result-wrap');
+    const result = document.getElementById('va-result');
+    if (wrap) wrap.style.display = 'none';
+    if (result) result.innerHTML = '';
+    window._lastVoiceAnalysisId = null;
+    clearPendingAudio();
+    const placeholder = document.getElementById('va-result-placeholder');
+    if (placeholder) {
+      placeholder.style.display = '';
+      placeholder.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-tertiary)">Select or run an analysis for this patient</div>';
+    }
+
+    // BUG-FIX-003: Refresh clinic recordings list for newly selected patient
+    _loadClinicRecordings(v);
   });
 
   await refreshPatientList();
   await refreshAnalysisList(effectivePatientId().patientId);
   _refreshVoiceDrHero(effectivePatientId().patientId);
+  // BUG-FIX-003: Load clinic recordings for initially selected patient
+  await _loadClinicRecordings(effectivePatientId().patientId);
+
+  // Check for incoming navigation params from movement analyzer
+  try {
+    const incomingNav = sessionStorage.getItem('nav_voice-analyzer');
+    if (incomingNav) {
+      const navParams = JSON.parse(incomingNav);
+      if (navParams.patientId) {
+        window._selectedPatientId = navParams.patientId;
+        window._profilePatientId = navParams.patientId;
+        _persistPatientSelection(navParams.patientId);
+        const sel = document.getElementById('va-patient-select');
+        if (sel) sel.value = navParams.patientId;
+        refreshAnalysisList(navParams.patientId);
+        _refreshVoiceDrHero(navParams.patientId);
+        _loadClinicRecordings(navParams.patientId);
+      }
+      if (navParams.note) {
+        const statusEl = document.getElementById('va-status');
+        if (statusEl) statusEl.textContent = navParams.note + ' — select a recording or upload to analyze.';
+      }
+      sessionStorage.removeItem('nav_voice-analyzer');
+    }
+  } catch (_) {}
 
   // Recording
   document.getElementById('va-rec-start')?.addEventListener('click', async () => {

@@ -449,7 +449,7 @@ function _formatReportVersionLabel(report, index, total) {
   if (mode === 'rag_draft') mode = 'evidence-grounded draft';
   var raw = report.generated_at || report.created_at || report.updated_at || null;
   var dateText = raw ? new Date(raw).toLocaleString() : 'Undated';
-  var reviewText = report.clinician_reviewed ? 'Reviewed' : 'Draft';
+  var reviewText = (report.report_state && report.report_state !== 'DRAFT_AI') ? 'Reviewed' : 'Draft';
   return 'v' + (total - index) + ' · ' + mode + ' · ' + reviewText + ' · ' + dateText;
 }
 
@@ -3193,9 +3193,10 @@ function _renderComprehensiveReport(report, analysis, savedEvidenceCitations) {
   }
 
   // ── Section 13: Clinician Review ────────────────────────────────────────
+  var _reportState = report.report_state || 'DRAFT_AI';
   html += card('Clinician Review',
     '<div style="padding:8px">'
-    + (report.clinician_reviewed
+    + (_reportState !== 'DRAFT_AI'
       ? '<div style="margin-bottom:8px">' + badge('Reviewed', 'var(--green)') + '</div>'
       : '<div style="margin-bottom:8px">' + badge('Pending Review', 'var(--amber)') + '</div>')
     + '<textarea id="qeeg-amendments" class="form-control" rows="3" placeholder="Add clinical amendments or notes...">'
@@ -4223,6 +4224,7 @@ var DEMO_QEEG_REPORT = {
     { protocol: 'Neurofeedback — SMR/theta draft idea', rationale: 'Illustrative training concept only. SMR up-training with theta inhibition is discussed in neurofeedback research; not a prescribed protocol here.' },
   ],
   clinician_reviewed: false,
+  report_state: 'DRAFT_AI',
   clinician_amendments: '',
 
   // ── MNE pipeline AI shape (CONTRACT.md §5.4) ───────────────────────────────
@@ -7945,3 +7947,796 @@ function _wireRawViewerSummary(tabEl, analysisId) {
   window.__qeegRawSummaryObserver = observer;
   observer.observe(document.body, { childList: true, subtree: true });
 }
+
+
+// ###########################################################################
+// ╔═══════════════════════════════════════════════════════════════════════════╗
+// ║  PHASE 2: MANUAL REVIEW WORKBENCH (Weeks 5-8)                           ║
+// ║  Raw Trace Viewer, Montage Selector, Quality Metrics, Topo Maps,        ║
+// ║  Split-Screen Workbench — appended to pages-qeeg-analysis.js             ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
+// ###########################################################################
+
+// ── Week 5: Raw Trace Viewer ───────────────────────────────────────────────
+
+var TRACE_CONFIG = {
+  timeWindows: [3, 6, 10, 30],
+  voltageScales: [30, 50, 75, 100, 150, 200],
+  defaultChannels: 19,
+  colors: ['#00d4bc', '#4a9eff', '#f5a623', '#ff6b6b', '#a78bfa', '#34d399', '#fb923c', '#f472b6', '#60a5fa', '#a3e635'],
+};
+
+var traceViewer = {
+  canvas: null,
+  ctx: null,
+  data: null,
+  sfreq: 256,
+  channels: [],
+  montage: 'longitudinal_bipolar',
+  timeWindow: 10,
+  voltageScale: 75,
+  currentTime: 0,
+  selectedChannels: new Set(),
+  annotations: [],
+  isPlaying: false,
+  playbackInterval: null,
+};
+
+function initTraceViewer(canvasId, eegData, channelNames, samplingFreq) {
+  var canvas = document.getElementById(canvasId);
+  if (!canvas) return false;
+
+  traceViewer.canvas = canvas;
+  traceViewer.ctx = canvas.getContext('2d');
+  traceViewer.data = eegData;
+  traceViewer.channels = channelNames;
+  traceViewer.sfreq = samplingFreq;
+  traceViewer.selectedChannels = new Set(channelNames);
+
+  canvas.addEventListener('mousedown', handleTraceMouseDown);
+  canvas.addEventListener('mousemove', handleTraceMouseMove);
+  canvas.addEventListener('mouseup', handleTraceMouseUp);
+  canvas.addEventListener('wheel', handleTraceWheel, { passive: false });
+
+  if (!window.__traceKeydownWired) {
+    document.addEventListener('keydown', handleTraceKeydown);
+    window.__traceKeydownWired = true;
+  }
+
+  // Auto-resize canvas to parent
+  _resizeTraceCanvas(canvas);
+  renderTraceFrame();
+  return true;
+}
+
+function _resizeTraceCanvas(canvas) {
+  var parent = canvas.parentElement;
+  if (!parent) return;
+  var rect = parent.getBoundingClientRect();
+  if (rect.width > 0 && rect.height > 0) {
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+  }
+}
+
+function renderTraceFrame() {
+  var ctx = traceViewer.ctx;
+  var data = traceViewer.data;
+  var channels = traceViewer.channels;
+  var sfreq = traceViewer.sfreq;
+  var timeWindow = traceViewer.timeWindow;
+  var voltageScale = traceViewer.voltageScale;
+  var currentTime = traceViewer.currentTime;
+  var selectedChannels = traceViewer.selectedChannels;
+
+  if (!ctx || !data) return;
+
+  var canvas = traceViewer.canvas;
+  var w = canvas.width;
+  var h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  var activeChannels = channels.filter(function (c) { return selectedChannels.has(c); });
+  var nCh = activeChannels.length;
+  if (nCh === 0) return;
+
+  var chHeight = h / nCh;
+  var samplesPerWindow = Math.floor(timeWindow * sfreq);
+  var startSample = Math.floor(currentTime * sfreq);
+  var pixelsPerSample = w / samplesPerWindow;
+
+  // Grid lines - vertical (time)
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.lineWidth = 0.5;
+  for (var gi = 0; gi <= 10; gi++) {
+    var gx = (w / 10) * gi;
+    ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, h); ctx.stroke();
+  }
+  // Grid lines - horizontal (channel boundaries)
+  for (var ci = 0; ci < nCh; ci++) {
+    var gy = chHeight * ci + chHeight / 2;
+    ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(w, gy); ctx.stroke();
+  }
+
+  // Draw traces
+  activeChannels.forEach(function (chName, chIdx) {
+    var chData = data[channels.indexOf(chName)];
+    if (!chData) return;
+
+    var yCenter = chHeight * chIdx + chHeight / 2;
+    var scale = (chHeight * 0.4) / voltageScale;
+
+    ctx.strokeStyle = TRACE_CONFIG.colors[chIdx % TRACE_CONFIG.colors.length];
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+
+    for (var s = 0; s < samplesPerWindow && (startSample + s) < chData.length; s++) {
+      var x = s * pixelsPerSample;
+      var y = yCenter - chData[startSample + s] * scale;
+      if (s === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Channel label
+    ctx.fillStyle = 'var(--text-secondary)';
+    ctx.font = '11px sans-serif';
+    ctx.fillText(chName, 4, yCenter - chHeight * 0.4 + 12);
+  });
+
+  // Time axis
+  ctx.fillStyle = 'var(--text-secondary)';
+  ctx.font = '10px sans-serif';
+  for (var ti = 0; ti <= 10; ti++) {
+    var t = currentTime + (timeWindow / 10) * ti;
+    var tx = (w / 10) * ti;
+    ctx.fillText(t.toFixed(1) + 's', tx + 2, h - 4);
+  }
+
+  // Update status
+  var statusEl = document.getElementById('trace-status');
+  if (statusEl) statusEl.textContent = 'Viewing ' + currentTime.toFixed(1) + 's';
+  var posEl = document.getElementById('trace-position');
+  if (posEl) {
+    var dur = data[0] ? (data[0].length / sfreq) : 0;
+    posEl.textContent = currentTime.toFixed(1) + 's / ' + dur.toFixed(1) + 's';
+  }
+}
+
+// ── Trace interaction handlers ──────────────────────────────────────────────
+
+function handleTraceMouseDown(e) {
+  traceViewer._mouseDown = true;
+  traceViewer._mouseStartX = e.offsetX;
+  traceViewer._mouseStartTime = traceViewer.currentTime;
+}
+
+function handleTraceMouseMove(e) {
+  if (!traceViewer._mouseDown) return;
+  var dx = e.offsetX - traceViewer._mouseStartX;
+  if (!traceViewer.canvas) return;
+  var timeShift = -(dx / traceViewer.canvas.width) * traceViewer.timeWindow;
+  traceViewer.currentTime = Math.max(0, traceViewer._mouseStartTime + timeShift);
+  renderTraceFrame();
+}
+
+function handleTraceMouseUp() {
+  traceViewer._mouseDown = false;
+}
+
+function handleTraceWheel(e) {
+  e.preventDefault();
+  if (!traceViewer.ctx) return;
+  if (e.deltaY < 0) {
+    traceViewer.currentTime = Math.max(0, traceViewer.currentTime - traceViewer.timeWindow * 0.2);
+  } else {
+    traceViewer.currentTime += traceViewer.timeWindow * 0.2;
+  }
+  renderTraceFrame();
+}
+
+function handleTraceKeydown(e) {
+  // Only respond when workbench is visible
+  var workbench = document.getElementById('qeeg-workbench-host');
+  if (!workbench || workbench.offsetParent === null) return;
+  if (!traceViewer.ctx) return;
+
+  switch (e.key) {
+    case 'ArrowRight':
+      e.preventDefault();
+      traceViewer.currentTime += 1;
+      break;
+    case 'ArrowLeft':
+      e.preventDefault();
+      traceViewer.currentTime = Math.max(0, traceViewer.currentTime - 1);
+      break;
+    case 'ArrowUp': {
+      e.preventDefault();
+      var vi = TRACE_CONFIG.voltageScales.indexOf(traceViewer.voltageScale);
+      if (vi > 0) traceViewer.voltageScale = TRACE_CONFIG.voltageScales[vi - 1];
+      break;
+    }
+    case 'ArrowDown': {
+      e.preventDefault();
+      var vd = TRACE_CONFIG.voltageScales.indexOf(traceViewer.voltageScale);
+      if (vd < TRACE_CONFIG.voltageScales.length - 1) traceViewer.voltageScale = TRACE_CONFIG.voltageScales[vd + 1];
+      break;
+    }
+    case ' ':
+      e.preventDefault();
+      togglePlayback();
+      break;
+    case '?':
+      e.preventDefault();
+      _showTraceKeyboardHelp();
+      break;
+  }
+  renderTraceFrame();
+}
+
+function togglePlayback() {
+  if (traceViewer.isPlaying) {
+    clearInterval(traceViewer.playbackInterval);
+    traceViewer.isPlaying = false;
+    var btn = document.getElementById('play-btn');
+    if (btn) btn.textContent = '\u25B6 Play';
+  } else {
+    traceViewer.isPlaying = true;
+    var btn = document.getElementById('play-btn');
+    if (btn) btn.textContent = '\u23F8 Pause';
+    traceViewer.playbackInterval = setInterval(function () {
+      traceViewer.currentTime += 0.1;
+      renderTraceFrame();
+    }, 100);
+  }
+}
+
+function _showTraceKeyboardHelp() {
+  var helpEl = document.getElementById('trace-help-overlay');
+  if (helpEl) {
+    helpEl.style.display = helpEl.style.display === 'none' ? 'block' : 'none';
+    return;
+  }
+  helpEl = document.createElement('div');
+  helpEl.id = 'trace-help-overlay';
+  helpEl.innerHTML = '<div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:20px;z-index:9999;max-width:400px;box-shadow:0 16px 48px rgba(0,0,0,0.5)">'
+    + '<div style="font-weight:700;font-size:14px;margin-bottom:12px">Keyboard Shortcuts</div>'
+    + '<div style="font-size:12px;color:var(--text-secondary);line-height:2">'
+    + '<div><kbd style="background:var(--surface-tint-1);padding:2px 6px;border-radius:4px;font-family:monospace">ArrowRight</kbd> Scroll forward 1s</div>'
+    + '<div><kbd style="background:var(--surface-tint-1);padding:2px 6px;border-radius:4px;font-family:monospace">ArrowLeft</kbd> Scroll backward 1s</div>'
+    + '<div><kbd style="background:var(--surface-tint-1);padding:2px 6px;border-radius:4px;font-family:monospace">ArrowUp</kbd> Increase sensitivity</div>'
+    + '<div><kbd style="background:var(--surface-tint-1);padding:2px 6px;border-radius:4px;font-family:monospace">ArrowDown</kbd> Decrease sensitivity</div>'
+    + '<div><kbd style="background:var(--surface-tint-1);padding:2px 6px;border-radius:4px;font-family:monospace">Space</kbd> Play / Pause</div>'
+    + '<div><kbd style="background:var(--surface-tint-1);padding:2px 6px;border-radius:4px;font-family:monospace">F1-F5</kbd> Montage presets</div>'
+    + '<div><kbd style="background:var(--surface-tint-1);padding:2px 6px;border-radius:4px;font-family:monospace">?</kbd> Toggle this help</div>'
+    + '</div>'
+    + '<div style="text-align:right;margin-top:12px"><button onclick="document.getElementById(\'trace-help-overlay\').style.display=\'none\'" class="btn btn-sm btn-primary">Close</button></div>'
+    + '</div>';
+  document.body.appendChild(helpEl);
+}
+
+// ── Week 5: Montage Quick-Switch System ────────────────────────────────────
+
+var MONTAGES = {
+  longitudinal_bipolar: { name: 'Longitudinal Bipolar', shortcut: 'F1', pairs: [['Fp1','F3'],['F3','C3'],['C3','P3'],['P3','O1'],['Fp2','F4'],['F4','C4'],['C4','P4'],['P4','O2'],['F7','T3'],['T3','T5'],['F8','T4'],['T4','T6'],['Fp1','F7'],['F7','T7'],['T7','P7'],['P7','O1'],['Fp2','F8'],['F8','T8'],['T8','P8'],['P8','O2']] },
+  transverse_bipolar: { name: 'Transverse Bipolar', shortcut: 'F2', pairs: [['Fp1','Fp2'],['F7','F8'],['T3','T4'],['T5','T6'],['O1','O2'],['F3','F4'],['C3','C4'],['P3','P4']] },
+  average_reference: { name: 'Average Reference', shortcut: 'F3', description: 'Each channel referenced to average of all channels' },
+  laplacian: { name: 'Laplacian (CSD)', shortcut: 'F4', description: 'Current source density approximation' },
+  circular_bipolar: { name: 'Circular Bipolar', shortcut: 'F5', pairs: [['Fp1','F7'],['F7','T3'],['T3','T5'],['T5','O1'],['O1','P3'],['P3','C3'],['C3','F3'],['F3','Fp1'],['Fp2','F8'],['F8','T4'],['T4','T6'],['T6','O2'],['O2','P4'],['P4','C4'],['C4','F4'],['F4','Fp2']] },
+};
+
+function renderMontageToolbar() {
+  return '<div style="display:flex;gap:6px;padding:8px;border-bottom:1px solid var(--border);align-items:center;flex-wrap:wrap">'
+    + '<span style="font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.5px">Montage:</span>'
+    + Object.keys(MONTAGES).map(function (key) {
+      var m = MONTAGES[key];
+      var active = traceViewer.montage === key;
+      return '<button onclick="setMontage(\'' + key + '\')" id="montage-' + key + '" style="padding:4px 10px;border-radius:4px;border:1px solid var(--border);background:' + (active ? 'rgba(0,212,188,0.15)' : 'var(--input)') + ';color:var(--text-primary);font-size:11px;cursor:pointer;white-space:nowrap">' + esc(m.name) + ' <span style="color:var(--text-tertiary);font-size:9px">' + esc(m.shortcut) + '</span></button>';
+    }).join('')
+    + '<span id="current-montage" style="font-size:11px;color:var(--teal);margin-left:auto;font-weight:600">' + esc(MONTAGES[traceViewer.montage]?.name || traceViewer.montage) + '</span>'
+    + '</div>';
+}
+
+function setMontage(montageKey) {
+  traceViewer.montage = montageKey;
+  var labelEl = document.getElementById('current-montage');
+  if (labelEl) labelEl.textContent = MONTAGES[montageKey]?.name || montageKey;
+  // Update button styling
+  Object.keys(MONTAGES).forEach(function (k) {
+    var btn = document.getElementById('montage-' + k);
+    if (btn) btn.style.background = k === montageKey ? 'rgba(0,212,188,0.15)' : 'var(--input)';
+  });
+  renderTraceFrame();
+}
+
+// ── Week 6: Quality Metrics Dashboard ──────────────────────────────────────
+
+function renderQualityMetrics(metrics) {
+  if (!metrics) return '<div style="padding:20px;color:var(--text-secondary);font-size:12px">No quality metrics available</div>';
+
+  var ratingColors = { Excellent: 'var(--teal)', Good: '#4a9eff', Acceptable: 'var(--amber)', Marginal: '#f5a623', Poor: 'var(--red)' };
+  var rating = metrics.overall_rating || 'Unknown';
+
+  return '<div style="padding:12px">'
+    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">'
+    + '<span style="font-size:13px;font-weight:600;color:var(--text-primary)">Quality Rating:</span>'
+    + '<span style="padding:3px 10px;border-radius:4px;background:' + (ratingColors[rating] || '#666') + '22;color:' + (ratingColors[rating] || '#666') + ';font-size:12px;font-weight:600">' + esc(rating) + '</span>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+    + _qualityMetricItem('Artifact Burden', (metrics.artifact_burden_pct != null ? metrics.artifact_burden_pct.toFixed(1) + '%' : '\u2014'), metrics.artifact_burden_pct < 10 ? 'var(--teal)' : metrics.artifact_burden_pct < 20 ? 'var(--amber)' : 'var(--red)')
+    + _qualityMetricItem('Bad Channels', (metrics.bad_channels != null ? metrics.bad_channels : '0') + '/' + (metrics.total_channels || '?'), metrics.bad_channels === 0 ? 'var(--teal)' : 'var(--amber)')
+    + _qualityMetricItem('Split-Half r', metrics.split_half_reliability != null ? metrics.split_half_reliability.toFixed(2) : '\u2014', metrics.split_half_reliability > 0.9 ? 'var(--teal)' : metrics.split_half_reliability > 0.8 ? 'var(--amber)' : 'var(--red)')
+    + _qualityMetricItem('SNR Estimate', metrics.snr_db != null ? metrics.snr_db.toFixed(1) + ' dB' : '\u2014', metrics.snr_db > 20 ? 'var(--teal)' : metrics.snr_db > 10 ? 'var(--amber)' : 'var(--red)')
+    + '</div></div>';
+}
+
+function _qualityMetricItem(label, value, color) {
+  return '<div style="padding:8px;border:1px solid var(--border);border-radius:6px;background:rgba(255,255,255,0.02)">'
+    + '<div style="font-size:10px;color:var(--text-secondary)">' + esc(label) + '</div>'
+    + '<div style="font-size:14px;font-weight:600;color:' + (color || 'var(--text-primary)') + ';margin-top:2px">' + (value || '\u2014') + '</div>'
+    + '</div>';
+}
+
+// ── Week 7: Topographic Map System ─────────────────────────────────────────
+
+// Standard 10-20 electrode positions (normalized 0-1)
+var TOPO_ELECTRODE_POSITIONS = {
+  Fp1: [0.25, 0.1], Fp2: [0.75, 0.1], Fz: [0.5, 0.15],
+  F7: [0.1, 0.25], F3: [0.35, 0.25], F4: [0.65, 0.25], F8: [0.9, 0.25],
+  T3: [0.08, 0.5], C3: [0.35, 0.5], Cz: [0.5, 0.5], C4: [0.65, 0.5], T4: [0.92, 0.5],
+  T5: [0.1, 0.75], P3: [0.35, 0.75], Pz: [0.5, 0.75], P4: [0.65, 0.75], T6: [0.9, 0.75],
+  O1: [0.35, 0.92], O2: [0.65, 0.92], Oz: [0.5, 0.95],
+  A1: [0.0, 0.5], A2: [1.0, 0.5],
+};
+
+var TOPO_BAND_COLORS = {
+  delta: '#1a237e', theta: '#3949ab', alpha: '#43a047',
+  low_beta: '#fb8c00', high_beta: '#e53935', gamma: '#8e24aa',
+};
+
+function renderTopographicMap(canvasId, bandData, bandName) {
+  var canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var w = canvas.width;
+  var h = canvas.height;
+
+  ctx.clearRect(0, 0, w, h);
+  if (!bandData || Object.keys(bandData).length === 0) {
+    ctx.fillStyle = 'var(--text-secondary)';
+    ctx.font = '12px sans-serif';
+    ctx.fillText('No data for ' + (bandName || ''), 8, h / 2);
+    return;
+  }
+
+  // Compute statistics for z-scoring
+  var vals = [];
+  Object.keys(bandData).forEach(function (ch) { vals.push(bandData[ch]); });
+  var mean = vals.reduce(function (a, b) { return a + b; }, 0) / vals.length;
+  var std = Math.sqrt(vals.reduce(function (a, b) { return a + (b - mean) * (b - mean); }, 0) / vals.length) || 1;
+
+  // Draw interpolated color field
+  var imageData = ctx.createImageData(w, h);
+  for (var y = 0; y < h; y++) {
+    for (var x = 0; x < w; x++) {
+      var nx = x / w;
+      var ny = y / h;
+
+      // Spherical spline interpolation (simplified inverse distance weighting)
+      var value = 0;
+      var totalWeight = 0;
+      var chKeys = Object.keys(TOPO_ELECTRODE_POSITIONS);
+      for (var ki = 0; ki < chKeys.length; ki++) {
+        var ch = chKeys[ki];
+        var pos = TOPO_ELECTRODE_POSITIONS[ch];
+        var dx = nx - pos[0];
+        var dy = ny - pos[1];
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        var weight = 1 / (dist * dist + 0.001);
+        value += ((bandData[ch] || mean) - mean) / std * weight;
+        totalWeight += weight;
+      }
+      value = value / totalWeight;
+
+      // Color mapping (RdBu_r diverging, centered at 0)
+      var color = zScoreToColor(value);
+      var idx = (y * w + x) * 4;
+      imageData.data[idx] = color[0];
+      imageData.data[idx + 1] = color[1];
+      imageData.data[idx + 2] = color[2];
+      imageData.data[idx + 3] = 255;
+    }
+  }
+  ctx.putImageData(imageData, 0, 0);
+
+  // Draw head outline
+  ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(w / 2, h / 2, w * 0.42, h * 0.48, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Nose indicator
+  ctx.beginPath();
+  ctx.moveTo(w / 2, h * 0.04);
+  ctx.lineTo(w / 2 - w * 0.03, h * 0.1);
+  ctx.lineTo(w / 2 + w * 0.03, h * 0.1);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.fill();
+
+  // Draw electrode positions
+  var posKeys = Object.keys(TOPO_ELECTRODE_POSITIONS);
+  for (var pi = 0; pi < posKeys.length; pi++) {
+    var pch = posKeys[pi];
+    var ppos = TOPO_ELECTRODE_POSITIONS[pch];
+    var cx = ppos[0] * w;
+    var cy = ppos[1] * h;
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Label
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.font = 'bold 8px sans-serif';
+    ctx.fillText(pch, cx + 5, cy + 3);
+  }
+
+  // Band label
+  ctx.fillStyle = TOPO_BAND_COLORS[bandName] || '#fff';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.fillText((bandName || '').toUpperCase(), 8, 18);
+
+  // Legend bar
+  _drawTopoLegend(ctx, w, h);
+}
+
+function zScoreToColor(z) {
+  // RdBu_r diverging: blue (-3) -> white (0) -> red (+3)
+  var t = Math.max(-3, Math.min(3, z)) / 3; // -1 to 1
+  if (t < 0) {
+    // Blue to white
+    var s = 1 + t; // 0 to 1
+    return [Math.round(66 * (1 - s) + 255 * s), Math.round(133 * (1 - s) + 255 * s), Math.round(244 * (1 - s) + 255 * s)];
+  } else {
+    // White to red
+    return [255, Math.round(255 * (1 - t) + 80 * t), Math.round(255 * (1 - t) + 80 * t)];
+  }
+}
+
+function _drawTopoLegend(ctx, w, h) {
+  var legendW = 100;
+  var legendH = 6;
+  var lx = w - legendW - 8;
+  var ly = h - 16;
+
+  for (var li = 0; li < legendW; li++) {
+    var lz = ((li / legendW) * 6) - 3;
+    var lc = zScoreToColor(lz);
+    ctx.fillStyle = 'rgb(' + lc[0] + ',' + lc[1] + ',' + lc[2] + ')';
+    ctx.fillRect(lx + li, ly, 1, legendH);
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+  ctx.lineWidth = 0.5;
+  ctx.strokeRect(lx, ly, legendW, legendH);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.font = '7px sans-serif';
+  ctx.fillText('-3\u03C3', lx, ly + legendH + 8);
+  ctx.fillText('0', lx + legendW / 2 - 3, ly + legendH + 8);
+  ctx.fillText('+3\u03C3', lx + legendW - 12, ly + legendH + 8);
+}
+
+// ── Week 7: Multi-Panel Map Layout ─────────────────────────────────────────
+
+function renderTopographicPanel(bandData) {
+  var bands = ['delta', 'theta', 'alpha', 'low_beta', 'high_beta', 'gamma'];
+  var html = '<div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:8px;padding:12px">';
+  bands.forEach(function (band) {
+    html += '<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;background:rgba(0,0,0,0.3)">';
+    html += '<canvas id="topo-' + band + '" width="280" height="240" style="width:100%;display:block"></canvas>';
+    html += '</div>';
+  });
+  html += '</div>';
+  return html;
+}
+
+function initTopographicMaps(bandData) {
+  var bands = ['delta', 'theta', 'alpha', 'low_beta', 'high_beta', 'gamma'];
+  bands.forEach(function (band) {
+    renderTopographicMap('topo-' + band, bandData[band] || {}, band);
+  });
+}
+
+// ── Week 8: Split-Screen Workbench Layout ──────────────────────────────────
+
+function renderWorkbenchLayout() {
+  var html = '<div id="qeeg-workbench-host" style="display:flex;flex-direction:column;height:calc(100vh - 120px);border:1px solid var(--border);border-radius:12px;overflow:hidden;background:#0a0a0f">';
+  // Toolbar
+  html += '<div id="trace-toolbar" style="flex:0 0 auto">' + renderMontageToolbar() + '</div>';
+  // Main area
+  html += '<div style="display:flex;flex:1;min-height:0">';
+  // Left: Trace viewer
+  html += '<div style="flex:3;display:flex;flex-direction:column;border-right:1px solid var(--border);min-width:0">';
+  html += '<canvas id="trace-viewer" style="flex:1;width:100%;display:block;background:#0a0a0f;cursor:grab"></canvas>';
+  html += '<div id="trace-controls" style="padding:8px;border-top:1px solid var(--border)">' + renderTraceControls() + '</div>';
+  html += '</div>';
+  // Right: Maps + Quality
+  html += '<div style="flex:2;display:flex;flex-direction:column;min-width:0;overflow-y:auto;background:var(--surface-1)">';
+  html += '<div style="padding:8px;border-bottom:1px solid var(--border)"><span style="font-size:11px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px">Topographic Maps (z-score)</span></div>';
+  html += '<div id="topographic-panel" style="flex:1"></div>';
+  html += '<div style="padding:8px;border-top:1px solid var(--border)"><span style="font-size:11px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.5px">Quality Metrics</span></div>';
+  html += '<div id="quality-panel" style="border-top:1px solid var(--border);padding:0"></div>';
+  html += '</div>';
+  html += '</div>';
+  // Bottom: Status bar
+  html += '<div style="flex:0 0 auto;padding:6px 12px;border-top:1px solid var(--border);font-size:11px;color:var(--text-secondary);display:flex;gap:16px;background:var(--surface-1)">';
+  html += '<span id="trace-status">Ready</span>';
+  html += '<span id="trace-position">0.0s / 300.0s</span>';
+  html += '<span id="trace-montage-status" style="color:var(--teal)">Longitudinal Bipolar</span>';
+  html += '<span style="margin-left:auto">Press ? for keyboard shortcuts</span>';
+  html += '</div>';
+  html += '</div>';
+  return html;
+}
+
+function renderTraceControls() {
+  var html = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">';
+  html += '<button onclick="togglePlayback()" id="play-btn" style="padding:4px 12px;border-radius:4px;border:1px solid var(--border);background:var(--input);color:var(--text-primary);font-size:11px;cursor:pointer">\u25B6 Play</button>';
+  html += '<select onchange="traceViewer.timeWindow=parseInt(this.value);renderTraceFrame()" style="padding:3px 8px;border-radius:4px;border:1px solid var(--border);background:var(--input);color:var(--text-primary);font-size:11px;cursor:pointer">';
+  html += '<option value="3">3s window</option><option value="6">6s window</option><option value="10" selected>10s window</option><option value="30">30s window</option>';
+  html += '</select>';
+  html += '<select onchange="traceViewer.voltageScale=parseInt(this.value);renderTraceFrame()" style="padding:3px 8px;border-radius:4px;border:1px solid var(--border);background:var(--input);color:var(--text-primary);font-size:11px;cursor:pointer">';
+  html += '<option value="30">30 \u03BCV</option><option value="50">50 \u03BCV</option><option value="75" selected>75 \u03BCV</option><option value="100">100 \u03BCV</option><option value="150">150 \u03BCV</option><option value="200">200 \u03BCV</option>';
+  html += '</select>';
+  html += '<button onclick="traceViewer.currentTime=Math.max(0,traceViewer.currentTime-10);renderTraceFrame()" style="padding:4px 10px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:var(--input);color:var(--text-primary);cursor:pointer">\u23EE -10s</button>';
+  html += '<button onclick="traceViewer.currentTime+=10;renderTraceFrame()" style="padding:4px 10px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:var(--input);color:var(--text-primary);cursor:pointer">+10s \u23ED</button>';
+  html += '<button onclick="traceViewer.currentTime=0;renderTraceFrame()" style="padding:4px 10px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:var(--input);color:var(--text-primary);cursor:pointer">\u23EE\u23EE Reset</button>';
+  html += '<span style="font-size:10px;color:var(--text-tertiary);margin-left:auto">\u2190\u2192 scroll | \u2191\u2193 gain | Space play | ? help</span>';
+  html += '</div>';
+  return html;
+}
+
+// ── Workbench initialization ───────────────────────────────────────────────
+
+/**
+ * Initialize the full Phase 2 workbench (trace viewer + topo maps + quality).
+ * Call this after rendering the workbench HTML into the DOM.
+ *
+ * @param {Object} options
+ * @param {Array<Array<number>>} options.eegData     - 2D array [channels][samples]
+ * @param {string[]}             options.channelNames - list of channel names
+ * @param {number}               options.sfreq        - sampling frequency
+ * @param {Object}               options.bandData     - per-band, per-channel values for topo maps
+ * @param {Object}               options.qualityMetrics - quality metrics object
+ */
+function initPhase2Workbench(options) {
+  var opts = options || {};
+
+  // 1. Initialize trace viewer
+  if (opts.eegData && opts.channelNames && opts.channelNames.length) {
+    initTraceViewer('trace-viewer', opts.eegData, opts.channelNames, opts.sfreq || 256);
+  }
+
+  // 2. Render topographic maps panel
+  var topoPanel = document.getElementById('topographic-panel');
+  if (topoPanel) {
+    topoPanel.innerHTML = renderTopographicPanel(opts.bandData || {});
+    // Initialize maps after a brief delay for canvas elements to mount
+    setTimeout(function () {
+      initTopographicMaps(opts.bandData || {});
+    }, 50);
+  }
+
+  // 3. Render quality metrics
+  var qualityPanel = document.getElementById('quality-panel');
+  if (qualityPanel) {
+    qualityPanel.innerHTML = renderQualityMetrics(opts.qualityMetrics || null);
+  }
+
+  // 4. Wire montage keyboard shortcuts
+  if (!window.__montageKeydownWired) {
+    window.__montageKeydownWired = true;
+    document.addEventListener('keydown', function (e) {
+      var workbench = document.getElementById('qeeg-workbench-host');
+      if (!workbench || workbench.offsetParent === null) return;
+      var keyMap = { F1: 'longitudinal_bipolar', F2: 'transverse_bipolar', F3: 'average_reference', F4: 'laplacian', F5: 'circular_bipolar' };
+      if (keyMap[e.key]) {
+        e.preventDefault();
+        setMontage(keyMap[e.key]);
+      }
+    });
+  }
+
+  // 5. Handle window resize
+  var resizeHandler = function () {
+    var canvas = document.getElementById('trace-viewer');
+    if (canvas && traceViewer.ctx) {
+      _resizeTraceCanvas(canvas);
+      renderTraceFrame();
+    }
+  };
+  window.addEventListener('resize', resizeHandler);
+
+  // 6. Audit log
+  _qeegAudit('phase2_workbench_opened', {
+    channels: (opts.channelNames || []).length,
+    sfreq: opts.sfreq || 256,
+  });
+}
+
+// ── Generate synthetic demo EEG data for the workbench ─────────────────────
+
+/**
+ * Generate realistic synthetic EEG data for the workbench demo mode.
+ * Produces 19 channels x N samples with typical band characteristics.
+ */
+function _generateDemoEEGData(durationSec, sfreq) {
+  var nSamples = Math.floor(durationSec * sfreq);
+  var chNames = ['Fp1','Fp2','F7','F3','Fz','F4','F8','T3','C3','Cz','C4','T4','T5','P3','Pz','P4','T6','O1','O2'];
+  var nCh = chNames.length;
+  var data = [];
+
+  for (var ch = 0; ch < nCh; ch++) {
+    var row = new Float64Array(nSamples);
+    // Base amplitude varies by region
+    var baseAmp = 10 + (ch % 5) * 2;
+    for (var s = 0; s < nSamples; s++) {
+      var t = s / sfreq;
+      var val = 0;
+      // Alpha (posterior channels have more)
+      var alphaAmp = (ch >= 16) ? 25 : 8; // O1, O2 get strong alpha
+      val += alphaAmp * Math.sin(2 * Math.PI * 10 * t);
+      // Theta (frontal)
+      var thetaAmp = (ch <= 4) ? 15 : 6;
+      val += thetaAmp * Math.sin(2 * Math.PI * 6 * t);
+      // Beta (central)
+      var betaAmp = (ch >= 7 && ch <= 11) ? 8 : 3;
+      val += betaAmp * Math.sin(2 * Math.PI * 20 * t);
+      // Delta
+      val += 5 * Math.sin(2 * Math.PI * 2 * t);
+      // Gamma (low)
+      val += 2 * Math.sin(2 * Math.PI * 35 * t);
+      // Add some noise
+      val += (Math.random() - 0.5) * 3;
+      row[s] = val + baseAmp * 0.1;
+    }
+    data.push(row);
+  }
+  return { data: data, channels: chNames };
+}
+
+/**
+ * Build demo band data from DEMO_QEEG_ANALYSIS for the topo map renderer.
+ */
+function _buildWorkbenchDemoBandData() {
+  var bands = {};
+  var demoBands = DEMO_QEEG_ANALYSIS.band_powers.bands;
+  var bandNames = ['delta', 'theta', 'alpha', 'low_beta', 'high_beta', 'gamma'];
+  bandNames.forEach(function (b) {
+    var chData = {};
+    var src = demoBands[b];
+    if (src && src.channels) {
+      Object.keys(src.channels).forEach(function (ch) {
+        chData[ch] = src.channels[ch].relative_pct || 0;
+      });
+    }
+    bands[b] = chData;
+  });
+  return bands;
+}
+
+/**
+ * Build demo quality metrics for the workbench quality panel.
+ */
+function _buildWorkbenchDemoQualityMetrics() {
+  var qm = DEMO_QEEG_ANALYSIS.quality_metrics || {};
+  return {
+    overall_rating: qm.n_channels_rejected === 0 ? 'Good' : 'Acceptable',
+    artifact_burden_pct: 8.5,
+    bad_channels: qm.n_channels_rejected || 0,
+    total_channels: qm.n_channels_input || 19,
+    split_half_reliability: 0.93,
+    snr_db: 22.4,
+    epochs_total: qm.n_epochs_total || 278,
+    epochs_retained: qm.n_epochs_retained || 261,
+    ica_dropped: qm.ica_components_dropped || 4,
+    sfreq_input: qm.sfreq_input || 256,
+    sfreq_output: qm.sfreq_output || 250,
+    bandpass: qm.bandpass || [1.0, 45.0],
+  };
+}
+
+// ── CSS for the workbench layout ──────────────────────────────────────────
+// Injected dynamically so no separate CSS file is needed.
+
+function _injectPhase2WorkbenchCSS() {
+  if (document.getElementById('phase2-workbench-css')) return;
+  var style = document.createElement('style');
+  style.id = 'phase2-workbench-css';
+  style.textContent = ''
+    + '#qeeg-workbench-host { --wb-bg: #0a0a0f; --wb-border: rgba(255,255,255,0.08); }'
+    + '#trace-viewer:active { cursor: grabbing; }'
+    + '#trace-viewer { image-rendering: pixelated; }'
+    + '#topographic-panel canvas { image-rendering: pixelated; }'
+    + '.phase2-workbench-container { height: calc(100vh - 120px); display: flex; flex-direction: column; }'
+    + '@media (max-width: 768px) {'
+    + '  #qeeg-workbench-host > div:nth-child(2) { flex-direction: column !important; }'
+    + '  #qeeg-workbench-host > div:nth-child(2) > div:first-child { border-right: none !important; border-bottom: 1px solid var(--border); flex: 2 !important; }'
+    + '  #qeeg-workbench-host > div:nth-child(2) > div:last-child { flex: 1 !important; overflow-y: visible !important; }'
+    + '}'
+    + '';
+  document.head.appendChild(style);
+}
+
+// Inject CSS immediately
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _injectPhase2WorkbenchCSS);
+  } else {
+    _injectPhase2WorkbenchCSS();
+  }
+}
+
+// ── Convenience: render + init the workbench in one call ──────────────────
+
+/**
+ * Render the Phase 2 Manual Review Workbench into a host element and initialize it.
+ * @param {HTMLElement} host - DOM element to render into
+ * @param {Object} options - see initPhase2Workbench()
+ */
+function renderPhase2Workbench(host, options) {
+  if (!host) return;
+  host.innerHTML = renderWorkbenchLayout();
+  // Need a brief delay for DOM to settle before initializing canvases
+  setTimeout(function () {
+    initPhase2Workbench(options || {});
+  }, 30);
+}
+
+/**
+ * Render the workbench with demo data (for testing / development).
+ * @param {HTMLElement} host - DOM element to render into
+ */
+function renderPhase2WorkbenchDemo(host) {
+  var eeg = _generateDemoEEGData(30, 256);
+  renderPhase2Workbench(host, {
+    eegData: eeg.data,
+    channelNames: eeg.channels,
+    sfreq: 256,
+    bandData: _buildWorkbenchDemoBandData(),
+    qualityMetrics: _buildWorkbenchDemoQualityMetrics(),
+  });
+}
+
+// ── Exports ────────────────────────────────────────────────────────────────
+
+// Export key functions for module consumers and test access.
+export {
+  TRACE_CONFIG,
+  traceViewer,
+  initTraceViewer,
+  renderTraceFrame,
+  handleTraceWheel,
+  handleTraceKeydown,
+  togglePlayback,
+  MONTAGES,
+  renderMontageToolbar,
+  setMontage,
+  renderQualityMetrics,
+  TOPO_ELECTRODE_POSITIONS,
+  TOPO_BAND_COLORS,
+  renderTopographicMap,
+  zScoreToColor,
+  renderTopographicPanel,
+  initTopographicMaps,
+  renderWorkbenchLayout,
+  renderTraceControls,
+  initPhase2Workbench,
+  renderPhase2Workbench,
+  renderPhase2WorkbenchDemo,
+  _generateDemoEEGData,
+  _buildWorkbenchDemoBandData,
+  _buildWorkbenchDemoQualityMetrics,
+};

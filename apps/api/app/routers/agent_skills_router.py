@@ -323,7 +323,7 @@ def update_agent_skill(
     return _record_to_out(record)
 
 
-@router.delete("/{skill_id}", status_code=204)
+@router.delete("/{skill_id}")
 def delete_agent_skill(
     skill_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

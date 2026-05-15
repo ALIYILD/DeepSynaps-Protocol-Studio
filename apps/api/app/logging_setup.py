@@ -39,7 +39,7 @@ def configure_logging(app_settings: AppSettings) -> None:
     root_logger.handlers.clear()
     root_logger.addHandler(handler)
     root_logger.setLevel(getattr(logging, app_settings.log_level))
-    setattr(root_logger, "_deepsynaps_configured", True)
+    root_logger._deepsynaps_configured = True
 
 
 def get_logger(name: str) -> logging.Logger:

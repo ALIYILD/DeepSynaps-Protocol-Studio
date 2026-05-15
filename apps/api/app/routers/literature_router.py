@@ -217,7 +217,7 @@ def add_to_reading_list(
     return ReadingListEntry.from_record(entry, paper)
 
 
-@router.delete("/reading-list/{paper_id}", status_code=204)
+@router.delete("/reading-list/{paper_id}")
 def remove_from_reading_list(
     paper_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

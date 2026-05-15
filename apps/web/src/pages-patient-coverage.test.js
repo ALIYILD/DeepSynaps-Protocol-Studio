@@ -14,7 +14,7 @@
 // idempotent on a single shared JSDOM. We re-import the module dynamically
 // AFTER the JSDOM globals are installed.
 
-import { describe, it, before, beforeEach } from 'node:test';
+import { after, describe, it, before, beforeEach } from 'node:test';
 import assert from 'node:assert';
 import { JSDOM } from 'jsdom';
 
@@ -1277,4 +1277,20 @@ describe('cross-page rendering safety', () => {
     // Still has a finite (small) number of children — innerHTML overwrite, not append
     assert.ok(list.children.length < 50);
   });
+});
+
+// ── File-scope JSDOM cleanup ──────────────────────────────────────────────────
+// Clears pgPatientVirtualCare timers via the module-scoped _dom.window reference
+// (not globalThis.window, which a concurrent worker may have replaced) so that
+// Node-20 --test-force-exit can drain the event loop cleanly.
+after(() => {
+  // Clear VirtualCare polling timers using the module-scoped window reference.
+  for (const k of ['_vcPollTimer', '_vcRecordTimer', '_vcBioTimer', '_vcVoiceTimer']) {
+    try { if (_dom.window[k]) clearInterval(_dom.window[k]); } catch {}
+    try { _dom.window[k] = null; } catch {}
+  }
+  try { _dom.window.close(); } catch {}
+  for (const k of ['window', 'document', 'navigator', 'HTMLElement', 'Event', 'Node', 'MutationObserver', 'IntersectionObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'localStorage']) {
+    try { delete globalThis[k]; } catch {}
+  }
 });

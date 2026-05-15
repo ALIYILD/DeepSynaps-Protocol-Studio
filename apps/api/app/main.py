@@ -177,7 +177,11 @@ from app.routers.reviewer_sla_calibration_threshold_tuning_router import (
 from app.routers.digital_phenotyping_router import router as digital_phenotyping_router
 from app.routers.labs_analyzer_router import router as labs_analyzer_router
 from app.routers.medication_analyzer_router import router as medication_analyzer_router
-from app.routers.movement_analyzer_router import router as movement_analyzer_router
+# Movement analyzer router depends on `MovementBiomarkerTrend` (ORM class +
+# `movement_biomarker_trends` table) that does not yet exist in
+# `app.persistence.models` or in any Alembic migration. Gate the import +
+# inclusion behind a feature flag so production boots cleanly until the
+# backing model + migration land. Default off. See PR #947.
 from app.routers.nutrition_analyzer_router import router as nutrition_analyzer_router
 from app.routers.qeeg_annotation_outcome_tracker_router import (
     router as qeeg_annotation_outcome_tracker_router,
@@ -199,7 +203,6 @@ from app.routers.qeeg_viz_router import router as qeeg_viz_router
 from app.routers.qeeg_capabilities_router import router as qeeg_capabilities_router
 from app.routers.mri_analysis_router import router as mri_analysis_router
 from app.routers.mri_capabilities_router import router as mri_capabilities_router
-from app.routers.neuro_signs import router as neuro_signs_router
 from app.routers.medical_images_router import router as medical_images_router
 from app.routers.fusion_router import router as fusion_router
 from app.routers.patient_summary_router import router as patient_summary_router
@@ -299,7 +302,6 @@ from app.services.agent_skills_seed import seed_default_agent_skills
 from app.services.clinical_data import HandbookGenerateAPIResponse, seed_clinical_dataset
 from app.services.demo_clinic_seed import (
     demo_seed_enabled,
-    seed_demo_clinic,
     seed_demo_clinic_data,
 )
 from app.services.devices import list_devices
@@ -489,7 +491,11 @@ app.include_router(medications_router)
 app.include_router(medication_analyzer_router)
 app.include_router(labs_analyzer_router)
 app.include_router(digital_phenotyping_router)
-app.include_router(movement_analyzer_router)
+if os.getenv("DEEPSYNAPS_ENABLE_MOVEMENT_ANALYZER") == "1":
+    from app.routers.movement_analyzer_router import (
+        router as movement_analyzer_router,
+    )
+    app.include_router(movement_analyzer_router)
 app.include_router(nutrition_analyzer_router)
 app.include_router(consent_management_router)
 # Patient Home Program Tasks (Homework) launch-audit (2026-05-01).

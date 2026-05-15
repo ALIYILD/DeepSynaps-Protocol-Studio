@@ -1145,7 +1145,7 @@ _UV2_PER_HZ_SCALE = 1e12  # V²/Hz → µV²/Hz
 
 
 def _trapz_compat(y: Any, x: Any, axis: int = -1) -> Any:
-    fn = getattr(np, "trapezoid", None) or getattr(np, "trapz")
+    fn = getattr(np, "trapezoid", None) or np.trapz
     return fn(y, x, axis=axis)
 
 

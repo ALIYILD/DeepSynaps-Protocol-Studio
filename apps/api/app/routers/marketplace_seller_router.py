@@ -168,7 +168,7 @@ def create_listing(
     authenticated user — including freshly-self-registered guest /
     technician / reviewer accounts — could become a seller and post
     Amazon affiliate spam. Combined with the URL-XSS fix in
-    PR #183 (\`_validate_seller_url\`), the role gate below ensures
+    PR #183 (``_validate_seller_url``), the role gate below ensures
     a malicious actor must at minimum hold a clinician token before
     they can create a listing that renders into clinician browsers.
     """
@@ -283,7 +283,7 @@ def update_listing(
     return {"item": _item_to_dict(item)}
 
 
-@router.delete("/items/{item_id}", status_code=204)
+@router.delete("/items/{item_id}")
 def delete_listing(
     item_id: str = Path(..., min_length=1, max_length=36),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

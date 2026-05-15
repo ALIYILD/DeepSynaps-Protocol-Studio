@@ -33,6 +33,7 @@ from app.services.openmed.schemas import (
     AnalyzeResponse,
     ClinicalTextInput,
     DeidentifyResponse,
+    ExtractParametersResponse,
     HealthResponse,
     NeuromodulationExtractResponse,
     PIIExtractResponse,
@@ -78,15 +79,15 @@ def _gate_patient_context(
 
     Returns True only when ``patient_id`` is non-empty and resolves to an
     existing patient (and the cross-clinic owner check passed). Returns
-    False for the no-patient-id case and for nonexistent patient ids — the
-    caller skips downstream consent enforcement in that case because there
-    is no real patient data to gate.
+    False for the no-patient-id case. Raises HTTPException(404) for
+    nonexistent patient ids so the caller gets a clear error instead of
+    silently skipping consent enforcement.
     """
     if not patient_id:
         return False
     exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
     if not exists:
-        return False
+        raise HTTPException(status_code=404, detail="Patient not found")
     require_patient_owner(actor, clinic_id)
     return True
 
@@ -96,7 +97,7 @@ def _enforce_text_ai_consent(
     patient_id: str,
     actor: AuthenticatedActor,
 ) -> None:
-    """Convert ConsentMissingError into a 403 for the four text endpoints."""
+    """Convert ConsentMissingError into a 403 for the text endpoints."""
     try:
         require_ai_analysis_consent(db, patient_id, actor, ai_modality="text")
     except ConsentMissingError:
@@ -165,6 +166,30 @@ def clinical_text_analyze_neuromodulation(
     if _gate_patient_context(actor, payload.patient_id, db):
         _enforce_text_ai_consent(db, payload.patient_id, actor)
     return adapter.analyze_neuromodulation(_validated_input(payload))
+
+
+@router.post("/extract-parameters", response_model=ExtractParametersResponse)
+@limiter.limit("30/minute")
+def clinical_text_extract_parameters(
+    request: Request,
+    payload: _TextRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ExtractParametersResponse:
+    """Extract structured stimulation parameters from clinical text.
+
+    Identifies quantified neuromodulation parameters: frequency (Hz/kHz),
+    intensity (mA, % MT, % MSO), duration (seconds/minutes), pulse count,
+    session count, inter-train interval (ITI), and electrode montage
+    locations (10-20 system).
+
+    Decision-support only — extracted values are NLP candidates,
+    never validated device readings.
+    """
+    require_minimum_role(actor, "clinician")
+    if _gate_patient_context(actor, payload.patient_id, db):
+        _enforce_text_ai_consent(db, payload.patient_id, actor)
+    return adapter.extract_parameters(_validated_input(payload))
 
 
 __all__ = ["router"]

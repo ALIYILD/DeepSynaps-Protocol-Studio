@@ -67,9 +67,16 @@ export function buildTimeline(elId, events, overlays) {
   Plotly.newPlot(elId, traces, { ...BASE_LAYOUT, height: 280, yaxis: { ...BASE_LAYOUT.yaxis, type: 'category' } }, CONFIG);
 }
 
+// Supported correlation domains (expanded):
+//   qeeg, mri, assessments, biomarkers, sleep, sessions, tasks, notes, wearables
+//   voice, video, digital_phenotyping, risk, medications, text
 export function buildCorrelationHeatmap(elId, matrix, labels) {
   const Plotly = ensurePlotly();
   if (!Plotly) return;
+  // Dynamically size the heatmap based on domain count (up to 18 domains)
+  const domainCount = Array.isArray(labels) ? labels.length : 0;
+  const height = Math.max(360, Math.min(720, domainCount * 42 + 80));
+  const leftMargin = Math.max(120, domainCount * 7 + 40);
   const trace = {
     z: matrix, x: labels, y: labels, type: 'heatmap',
     colorscale: [[0, '#ff6b6b'], [0.5, '#1a1f2e'], [1, '#00d4bc']],
@@ -77,7 +84,7 @@ export function buildCorrelationHeatmap(elId, matrix, labels) {
     hovertemplate: '%{y} ↔ %{x}<br>r = %{z:.2f}<extra></extra>',
     colorbar: { thickness: 12, len: 0.7 },
   };
-  Plotly.newPlot(elId, [trace], { ...BASE_LAYOUT, height: 360, margin: { t: 10, r: 16, b: 80, l: 120 } }, CONFIG);
+  Plotly.newPlot(elId, [trace], { ...BASE_LAYOUT, height, margin: { t: 10, r: 16, b: 80, l: leftMargin } }, CONFIG);
 }
 
 function buildBandTrace(name, x, point, ciLow, ciHigh, color) {

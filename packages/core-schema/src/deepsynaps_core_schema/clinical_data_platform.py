@@ -159,8 +159,18 @@ class AuditEventEntry(BaseModel):
     source_name: str = Field(..., description="Data source accessed")
 
 
-class PatientAuditLogResponse(BaseModel):
-    """Data Console audit log."""
+class DataConsoleAuditLogResponse(BaseModel):
+    """Data Console audit log.
+
+    Disambiguated from the earlier ``PatientAuditLogResponse`` (which carries
+    ``AuditEventDetail`` entries and is consumed by
+    ``patient_analytics_router``). Before the rename both classes shared the
+    same name; the second definition silently shadowed the first, so anyone
+    importing ``PatientAuditLogResponse`` got the Data-Console shape and
+    ``patient_analytics_router`` was constructing responses with the wrong
+    schema. The two surface different fields and belong to different
+    auditing flows — keep them as separate types.
+    """
     patient_id: str = Field(..., description="Patient identifier")
     clinic_id: str = Field(..., description="Clinic identifier")
     events: List[AuditEventEntry] = Field(default_factory=list, description="Audit events")

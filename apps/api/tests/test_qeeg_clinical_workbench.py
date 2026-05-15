@@ -507,3 +507,131 @@ def test_build_bids_package_blocked_when_not_signed():
     with pytest.raises(ApiServiceError) as exc:
         build_bids_package("a1", actor, db)
     assert exc.value.code == "export_not_allowed"
+
+
+# ── Export Governance (router-level) ─────────────────────────────────────────
+
+
+def _make_export_governance_analysis(**overrides):
+    """Return a FakeAnalysis with export-governance defaults."""
+    defaults = dict(
+        id="a1",
+        patient_id="p1",
+        analysis_status="completed",
+        sample_rate_hz=256.0,
+        channel_count=19,
+        recording_duration_sec=300.0,
+        band_powers_json=json.dumps({"bands": {}}),
+        created_at=datetime(2024, 1, 15, tzinfo=timezone.utc),
+    )
+    defaults.update(overrides)
+    return FakeAnalysis(**defaults)
+
+
+def _make_export_governance_report(**overrides):
+    """Return a MagicMock report with export-governance defaults."""
+    report = MagicMock()
+    report.id = "r1"
+    report.report_state = "APPROVED"
+    report.signed_by = "clin_1"
+    report.signed_at = datetime(2024, 1, 16, tzinfo=timezone.utc)
+    report.patient_id = "p1"
+    for k, v in overrides.items():
+        setattr(report, k, v)
+    return report
+
+
+def _make_export_governance_db(analysis, report):
+    """Return a MagicMock db that resolves analysis and report queries."""
+    from app.persistence.models import QEEGAIReport, QEEGAnalysis
+
+    db = MagicMock()
+    call_count = [0]
+
+    def _query(model):
+        q = MagicMock()
+        if model is QEEGAnalysis:
+            q.filter_by.return_value.first.return_value = analysis
+        elif model is QEEGAIReport:
+            q.filter_by.return_value.order_by.return_value.first.return_value = report
+        return q
+
+    db.query.side_effect = _query
+    return db
+
+
+def test_verify_qeeg_export_governance_passes():
+    """_verify_qeeg_export_governance succeeds when report is approved+signed."""
+    from app.routers.qeeg_analysis_router import _verify_qeeg_export_governance
+
+    report = _make_export_governance_report()
+    db = _make_export_governance_db(None, report)
+    result = _verify_qeeg_export_governance(db, "a1")
+    assert result == report
+
+
+def test_verify_qeeg_export_governance_blocks_unapproved():
+    """_verify_qeeg_export_governance raises 409 when report is not approved."""
+    from app.routers.qeeg_analysis_router import _verify_qeeg_export_governance
+
+    report = _make_export_governance_report(
+        report_state="DRAFT_AI", signed_by=None, signed_at=None,
+    )
+    db = _make_export_governance_db(None, report)
+    with pytest.raises(ApiServiceError) as exc:
+        _verify_qeeg_export_governance(db, "a1")
+    assert exc.value.code == "export_not_allowed"
+    assert exc.value.status_code == 409
+    assert "DRAFT_AI" in exc.value.message
+
+
+def test_verify_qeeg_export_governance_blocks_unsigned():
+    """_verify_qeeg_export_governance raises 409 when report is approved but unsigned."""
+    from app.routers.qeeg_analysis_router import _verify_qeeg_export_governance
+
+    report = _make_export_governance_report(
+        report_state="APPROVED", signed_by=None, signed_at=None,
+    )
+    db = _make_export_governance_db(None, report)
+    with pytest.raises(ApiServiceError) as exc:
+        _verify_qeeg_export_governance(db, "a1")
+    assert exc.value.code == "export_not_allowed"
+    assert exc.value.status_code == 409
+
+
+def test_verify_qeeg_export_governance_blocks_no_report():
+    """_verify_qeeg_export_governance raises 409 when no report exists."""
+    from app.routers.qeeg_analysis_router import _verify_qeeg_export_governance
+
+    db = _make_export_governance_db(None, None)
+    with pytest.raises(ApiServiceError) as exc:
+        _verify_qeeg_export_governance(db, "a1")
+    assert exc.value.code == "export_not_allowed"
+    assert exc.value.status_code == 409
+
+
+def test_amend_report_sets_needs_review():
+    """amend_report updates report_state from DRAFT_AI to NEEDS_REVIEW when reviewed."""
+    from app.routers.qeeg_analysis_router import amend_report, ReportAmendRequest
+
+    report = MagicMock()
+    report.id = "r1"
+    report.clinician_reviewed = False
+    report.report_state = "DRAFT_AI"
+    report.clinician_amendments = None
+    report.patient_id = "p1"
+
+    actor = MagicMock()
+    actor.actor_id = "clin_1"
+    actor.role = "clinician"
+
+    db = MagicMock()
+    db.query.return_value.filter_by.return_value.first.return_value = report
+
+    body = ReportAmendRequest(clinician_amendments="Looks good", reviewed=True)
+    result = amend_report("r1", body, actor, db)
+
+    assert report.clinician_reviewed is True
+    assert report.report_state == "NEEDS_REVIEW"
+    assert report.clinician_amendments == "Looks good"
+    db.commit.assert_called_once()

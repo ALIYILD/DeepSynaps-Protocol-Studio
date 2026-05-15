@@ -12296,14 +12296,26 @@ export async function pgPatientProfile(setTopbar) {
   if (serverDetail && serverDetail.header) {
     // Synthesize a profile shell so the legacy renderer keeps working while
     // the new Clinical Record card drives the real-data view above it.
+    //
+    // Only inherit local-only tab content (allergies / medications /
+    // treatmentHistory / photoDataUrl / insurance / …) from a local
+    // profile whose id MATCHES the server header. The pre-fix code
+    // spread `...(profile || {})` where `profile` had fallen back to
+    // `profiles[0]` (the first _ppSeedProfiles seed — Sarah Mitchell
+    // with Penicillin + Latex allergies). That bled Sarah's seed data
+    // into every newly-mounted server-only patient (e.g. srv-3) and
+    // persisted it via savePatientProfile below — so later
+    // _profileDeleteAllergy(idx) appeared to "fail" because Sarah's
+    // entries remained.
     const h = serverDetail.header;
     const fullName = `${h.first_name || ''} ${h.last_name || ''}`.trim() || h.id;
+    const localBase = getPatientProfile(h.id) || {};
     profile = {
-      ...(profile || {}),
+      ...localBase,
       id:     h.id,
       name:   fullName,
-      dob:    h.dob || (profile && profile.dob) || '',
-      gender: h.gender || (profile && profile.gender) || '',
+      dob:    h.dob || localBase.dob || '',
+      gender: h.gender || localBase.gender || '',
       mrn:    h.mrn,
       _serverHeader: h,
       _serverCounts: serverDetail.counts || {},

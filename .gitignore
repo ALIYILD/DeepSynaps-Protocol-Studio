@@ -6,6 +6,10 @@ dist-check/
 # Python
 __pycache__/
 .pytest_cache/
+.pytest_tmp*/
+.pytest-tmp*/
+codex_pytest_tmp*/
+pytest-cache-files-*/
 .ruff_cache/
 .venv/
 venv/
@@ -29,6 +33,9 @@ apps/worker/deepsynaps_worker.egg-info/
 !.env.example
 *.pem
 *.key
+# Local secret-rotation scratch output (contains generated dev keys).
+.secrets-*.tmp
+.secrets-*.txt
 
 # OS
 .DS_Store
@@ -80,6 +87,13 @@ design-v2-prototype.html
 
 # Python package build artifacts
 packages/*/build/
+
+# Editor / backup
+*.bak
+*~
+
+# Stale PR scratch
+.pr-body.txt
 
 # Test / lint output files
 pytest_out.txt

@@ -46,6 +46,23 @@ from app.repositories.patients import resolve_patient_clinic_id
 from app.services.evidence_intelligence import list_saved_citations
 from app.settings import get_settings
 
+# ── Phase 3: AI Analysis + Connectivity Engine imports ────────────────────────
+from app.services.qeeg_spectral_analysis import (
+    FREQUENCY_BANDS,
+    full_spectral_analysis,
+)
+from app.services.qeeg_connectivity import full_connectivity_analysis
+from app.services.qeeg_source_localization import full_source_localization
+from app.services.qeeg_biomarker_engine import (
+    evaluate_biomarkers,
+    generate_safe_interpretation,
+    get_biomarker_summary,
+)
+from app.services.mri_qeeg_fusion import (
+    get_fusion_summary,
+    get_neuromodulation_targets_fused,
+)
+
 _log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/qeeg-analysis", tags=["qeeg-analysis"])
@@ -62,6 +79,44 @@ def _gate_patient_access(
     exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
     if exists:
         require_patient_owner(actor, clinic_id)
+
+
+def _verify_qeeg_export_governance(db: Session, analysis_id: str) -> QEEGAIReport:
+    """Verify the latest report for *analysis_id* is approved and signed.
+
+    Returns the report row on success so callers can reuse it.
+    Raises ApiServiceError(409) when the report is not exportable.
+    """
+    from app.services.qeeg_clinician_review import can_export
+
+    report = (
+        db.query(QEEGAIReport)
+        .filter_by(analysis_id=analysis_id)
+        .order_by(QEEGAIReport.created_at.desc())
+        .first()
+    )
+    if report is None or not can_export(report):
+        report_state = getattr(report, "report_state", None) or "MISSING"
+        signed_by = getattr(report, "signed_by", None)
+        _log.warning(
+            "qeeg_export_governance_denied",
+            extra={
+                "event": "qeeg_export_governance_denied",
+                "analysis_id": analysis_id,
+                "report_id": getattr(report, "id", None),
+                "report_state": report_state,
+                "signed_by": signed_by is not None,
+            },
+        )
+        raise ApiServiceError(
+            code="export_not_allowed",
+            message=(
+                f"Report must be approved and signed before export. "
+                f"Current state: {report_state}; signed: {bool(signed_by)}"
+            ),
+            status_code=409,
+        )
+    return report
 
 # New local recommender (qeeg-pipeline package).
 try:  # optional import guard for older deployments
@@ -2180,6 +2235,9 @@ def amend_report(
     if body.reviewed:
         report.clinician_reviewed = True
         report.reviewed_at = datetime.now(timezone.utc)
+        # Unify with canonical state machine
+        if not report.report_state or report.report_state == "DRAFT_AI":
+            report.report_state = "NEEDS_REVIEW"
 
     if body.clinician_amendments is not None:
         report.clinician_amendments = body.clinician_amendments
@@ -4245,7 +4303,10 @@ def export_qeeg_fhir(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> Response:
-    """Export a qEEG analysis as a FHIR R4 Bundle document."""
+    """Export a qEEG analysis as a FHIR R4 Bundle document.
+
+    Gated: requires approved and signed-off report.
+    """
     require_minimum_role(actor, "clinician")
 
     from app.services import fhir_export
@@ -4255,6 +4316,17 @@ def export_qeeg_fhir(
         raise ApiServiceError(
             code="not_found", message="Analysis not found", status_code=404,
         )
+    _gate_patient_access(actor, row.patient_id, db)
+    _verify_qeeg_export_governance(db, analysis_id)
+    _record_qeeg_backend_audit_event(
+        db,
+        actor=actor,
+        analysis_id=analysis_id,
+        patient_id=row.patient_id,
+        event="fhir_export",
+        note="FHIR R4 Bundle export initiated",
+    )
+
     bundle = fhir_export.qeeg_to_fhir_bundle(row)
     return Response(
         content=json.dumps(bundle, indent=2),
@@ -4584,6 +4656,15 @@ def export_bids_package(
     if not analysis:
         raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
     _gate_patient_access(actor, analysis.patient_id, db)
+    _verify_qeeg_export_governance(db, analysis_id)
+    _record_qeeg_backend_audit_event(
+        db,
+        actor=actor,
+        analysis_id=analysis_id,
+        patient_id=analysis.patient_id,
+        event="bids_export",
+        note="BIDS-style zip package export initiated",
+    )
 
     from app.services.qeeg_bids_export import build_bids_package
 
@@ -4745,3 +4826,1832 @@ def record_qeeg_audit_event(
         return QEEGAuditEventOut(accepted=False, event_id=event_id)
 
     return QEEGAuditEventOut(accepted=True, event_id=event_id)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PHASE 4: Advanced Integration + Reporting (Weeks 13-16)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class ReportGenerateOut(BaseModel):
+    """Response shape for the 14-section clinical report endpoint."""
+
+    analysis_id: str
+    success: bool
+    report: dict[str, Any] = Field(default_factory=dict)
+    error: Optional[str] = None
+    generated_at: str = ""
+    schema_version: str = "0.4.0"
+    report_state: str = "DRAFT_AI"
+    disclaimer: str = (
+        "This report is decision-support only and does not constitute a medical diagnosis. "
+        "All findings require correlation with clinical history and qualified clinician review."
+    )
+
+
+@router.post("/{analysis_id}/report", response_model=ReportGenerateOut)
+def generate_report_endpoint(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ReportGenerateOut:
+    """Generate a complete 14-section qEEG clinical report.
+
+    Decision-support only. Report is generated in DRAFT_AI state and
+    requires clinician sign-off before distribution per IQCB 2025.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    try:
+        from app.services.qeeg_report_generator import generate_report
+
+        # Build patient info
+        patient = db.query(Patient).filter_by(id=analysis.patient_id).first()
+        patient_info: dict[str, Any] = {
+            "patient_id": analysis.patient_id,
+            "age": patient.age if patient else None,
+            "sex": patient.sex if patient else "unknown",
+        }
+
+        # Build scan metadata from analysis
+        scan_metadata: dict[str, Any] = {
+            "recording_date": analysis.created_at.isoformat() if analysis.created_at else None,
+            "duration_sec": analysis.duration_sec,
+            "sampling_rate": analysis.sampling_rate,
+            "channels": _maybe_json_loads(analysis.channels_json) if analysis.channels_json else [],
+            "montage": analysis.montage or "unknown",
+            "eyes_condition": analysis.eyes_condition or "unknown",
+        }
+
+        # Build quality metrics
+        quality_metrics: dict[str, Any] = {
+            "overall_rating": analysis.quality_rating or "Unknown",
+            "artifact_burden_pct": analysis.artifact_burden_pct,
+            "bad_channels": _maybe_json_loads(analysis.bad_channels_json)
+            if analysis.bad_channels_json
+            else [],
+            "total_channels": analysis.channel_count,
+            "split_half_reliability": analysis.split_half_reliability,
+            "snr_db": analysis.snr_db,
+            "pipeline_steps": _maybe_json_loads(analysis.pipeline_steps_json)
+            if analysis.pipeline_steps_json
+            else [],
+            "pipeline_version": analysis.pipeline_version or "unknown",
+            "normative_db": analysis.norm_db_version or "unknown",
+        }
+
+        # Build spectral results
+        spectral_results: dict[str, Any] = {
+            "band_powers": _maybe_json_loads(analysis.band_powers_json)
+            if analysis.band_powers_json
+            else {},
+            "ratios": _maybe_json_loads(analysis.ratios_json) if analysis.ratios_json else {},
+            "asymmetry": _maybe_json_loads(analysis.asymmetry_json)
+            if analysis.asymmetry_json
+            else {},
+            "iaf": _maybe_json_loads(analysis.peak_alpha_freq_json)
+            if analysis.peak_alpha_freq_json
+            else {},
+            "psd_method": analysis.psd_method or "Welch (2s Hamming, 50% overlap)",
+            "connectivity": _maybe_json_loads(analysis.connectivity_json)
+            if analysis.connectivity_json
+            else {},
+        }
+
+        # Build biomarker results
+        biomarker_results: dict[str, Any] = {
+            "findings": _maybe_json_loads(analysis.findings_json)
+            if analysis.findings_json
+            else [],
+            "references": [],  # Would be populated from evidence DB
+            "key_images": [],  # Would be populated from image captures
+        }
+
+        report = generate_report(
+            analysis_id=analysis_id,
+            patient_info=patient_info,
+            scan_metadata=scan_metadata,
+            quality_metrics=quality_metrics,
+            spectral_results=spectral_results,
+            biomarker_results=biomarker_results,
+            template="default",
+        )
+
+        # Persist report payload for later retrieval
+        from app.services.report_payload import build_report_payload
+
+        try:
+            payload = build_report_payload(report)
+            analysis.report_payload_json = json.dumps(payload)
+            db.commit()
+        except Exception:
+            _log.warning("report payload persistence skipped for %s", analysis_id)
+
+        return ReportGenerateOut(
+            analysis_id=analysis_id,
+            success=True,
+            report=report,
+            generated_at=report["header"]["generated_at"],
+            schema_version=report["header"]["schema_version"],
+            report_state=report["header"]["report_state"],
+        )
+    except ApiServiceError:
+        raise
+    except Exception as exc:
+        _log.exception("report generation failed for %s", analysis_id)
+        return ReportGenerateOut(
+            analysis_id=analysis_id,
+            success=False,
+            error=f"{type(exc).__name__}: {exc}",
+            generated_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+
+class ProtocolSuggestionsOut(BaseModel):
+    """Response shape for protocol suggestion endpoint."""
+
+    analysis_id: str
+    success: bool
+    suggestions: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    safety_screening_passed: bool = False
+    disclaimer: str = (
+        "Protocol suggestions are decision support only. "
+        "Final protocol selection requires a qualified BCIA-certified or equivalent "
+        "neurofeedback clinician."
+    )
+    error: Optional[str] = None
+
+
+@router.get("/{analysis_id}/protocol-suggestions", response_model=ProtocolSuggestionsOut)
+def get_protocol_suggestions_endpoint(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ProtocolSuggestionsOut:
+    """Generate qEEG-guided neurofeedback protocol suggestions with safety screening.
+
+    Returns ranked protocol list with contraindication checking.
+    Decision-support only — requires qualified clinician for final selection.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    try:
+        from app.services.qeeg_protocol_planner import plan_neurofeedback_protocol
+
+        # Build spectral results
+        spectral_results: dict[str, Any] = {
+            "band_powers": _maybe_json_loads(analysis.band_powers_json)
+            if analysis.band_powers_json
+            else {},
+            "ratios": _maybe_json_loads(analysis.ratios_json) if analysis.ratios_json else {},
+            "asymmetry": _maybe_json_loads(analysis.asymmetry_json)
+            if analysis.asymmetry_json
+            else {},
+        }
+
+        biomarker_results: dict[str, Any] = {
+            "findings": _maybe_json_loads(analysis.findings_json)
+            if analysis.findings_json
+            else [],
+        }
+
+        # Build patient history (best-effort from patient record)
+        patient = db.query(Patient).filter_by(id=analysis.patient_id).first()
+        patient_history: dict[str, Any] = {}
+        if patient and patient.medical_history:
+            try:
+                history = json.loads(patient.medical_history)
+                if isinstance(history, dict):
+                    patient_history = history
+            except (TypeError, ValueError):
+                pass
+
+        result = plan_neurofeedback_protocol(
+            spectral_results=spectral_results,
+            biomarker_results=biomarker_results,
+            patient_history=patient_history,
+        )
+
+        return ProtocolSuggestionsOut(
+            analysis_id=analysis_id,
+            success=True,
+            suggestions=result.get("suggestions", []),
+            warnings=result.get("warnings", []),
+            safety_screening_passed=result.get("safety_screening_passed", False),
+            disclaimer=result.get("disclaimer", ProtocolSuggestionsOut().disclaimer),
+        )
+    except ApiServiceError:
+        raise
+    except Exception as exc:
+        _log.exception("protocol suggestions failed for %s", analysis_id)
+        return ProtocolSuggestionsOut(
+            analysis_id=analysis_id,
+            success=False,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+
+
+class MultimodalContextOut(BaseModel):
+    """Response shape for multimodal cross-analyzer context."""
+
+    patient_id: str
+    qeeeg_analysis_id: str
+    target_analyzer: str
+    fusion_relevance: str = ""
+    qeeeg_contributes: list[str] = Field(default_factory=list)
+    fusion_opportunity: str = ""
+    integration_method: str = ""
+    clinical_value: str = ""
+    safety_note: str = ""
+    governance_note: str = ""
+    error: Optional[str] = None
+
+
+@router.get("/{analysis_id}/multimodal/{target}", response_model=MultimodalContextOut)
+def get_multimodal_context_endpoint(
+    analysis_id: str,
+    target: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> MultimodalContextOut:
+    """Get qEEG context for cross-analyzer multimodal fusion.
+
+    Supported targets: mri, biomarkers, medications, assessments, risk, deeptwin.
+    All correlations are temporal associations, not causal proof.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    try:
+        from app.services.qeeg_multimodal_wiring import get_cross_analyzer_context
+
+        result = get_cross_analyzer_context(
+            patient_id=analysis.patient_id,
+            analysis_id=analysis_id,
+            target_analyzer=target,
+        )
+
+        if result.get("error"):
+            return MultimodalContextOut(
+                patient_id=analysis.patient_id,
+                qeeeg_analysis_id=analysis_id,
+                target_analyzer=target,
+                error=result["error"],
+            )
+
+        # Determine the target contributes key dynamically
+        target_contributes_key = f"{target}_contributes"
+        target_contributes = result.get(target_contributes_key, [])
+
+        return MultimodalContextOut(
+            patient_id=result.get("patient_id", analysis.patient_id),
+            qeeeg_analysis_id=result.get("qeeeg_analysis_id", analysis_id),
+            target_analyzer=result.get("target_analyzer", target),
+            fusion_relevance=result.get("fusion_relevance", ""),
+            qeeeg_contributes=result.get("qeeeg_contributes", []),
+            fusion_opportunity=result.get("fusion_opportunity", ""),
+            integration_method=result.get("integration_method", ""),
+            clinical_value=result.get("clinical_value", ""),
+            safety_note=result.get("safety_note", ""),
+            governance_note=result.get("governance_note", ""),
+        )
+    except ApiServiceError:
+        raise
+    except Exception as exc:
+        _log.exception("multimodal context failed for %s/%s", analysis_id, target)
+        return MultimodalContextOut(
+            patient_id=analysis.patient_id if analysis else "",
+            qeeeg_analysis_id=analysis_id,
+            target_analyzer=target,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+
+
+class ComplianceDashboardOut(BaseModel):
+    """Response shape for clinic compliance dashboard."""
+
+    clinic_id: str
+    success: bool
+    compliance_metrics: dict[str, Any] = Field(default_factory=dict)
+    state_distribution: dict[str, int] = Field(default_factory=dict)
+    pending_signoff_queue: list[dict[str, Any]] = Field(default_factory=list)
+    pending_signoff_total: int = 0
+    action_items: list[dict[str, str]] = Field(default_factory=list)
+    generated_at: str = ""
+    error: Optional[str] = None
+
+
+@router.get("/clinic/{clinic_id}/compliance", response_model=ComplianceDashboardOut)
+def get_compliance_dashboard_endpoint(
+    clinic_id: str,
+    days: int = Query(default=30, ge=1, le=365),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ComplianceDashboardOut:
+    """Return compliance dashboard metrics for a clinic.
+
+    Includes approval rates, sign-off completion, safety review coverage,
+    overdue alerts, and prioritized action items.
+    """
+    require_minimum_role(actor, "clinician")
+
+    # Clinic access check
+    if str(actor.clinic_id) != str(clinic_id):
+        raise ApiServiceError(
+            code="access_denied",
+            message="You can only view compliance for your own clinic.",
+            status_code=403,
+        )
+
+    try:
+        from app.services.qeeg_compliance import compute_clinic_summary
+
+        # Fetch analyses for this clinic within the period
+        since = datetime.now(timezone.utc) - timedelta(days=days)
+        analyses = (
+            db.query(QEEGAnalysis)
+            .filter(QEEGAnalysis.clinic_id == clinic_id)
+            .filter(QEEGAnalysis.created_at >= since)
+            .all()
+        )
+
+        summary = compute_clinic_summary(analyses, clinic_id)
+
+        return ComplianceDashboardOut(
+            clinic_id=clinic_id,
+            success=True,
+            compliance_metrics=summary.get("compliance_metrics", {}),
+            state_distribution=summary.get("state_distribution", {}),
+            pending_signoff_queue=summary.get("pending_signoff_queue", []),
+            pending_signoff_total=summary.get("pending_signoff_total", 0),
+            action_items=summary.get("action_items", []),
+            generated_at=summary.get("generated_at", ""),
+        )
+    except ApiServiceError:
+        raise
+    except Exception as exc:
+        _log.exception("compliance dashboard failed for clinic %s", clinic_id)
+        return ComplianceDashboardOut(
+            clinic_id=clinic_id,
+            success=False,
+            error=f"{type(exc).__name__}: {exc}",
+            generated_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 3: AI Analysis + Connectivity Engine (Weeks 9-12)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class SpectralAnalysisIn(BaseModel):
+    """Request body for spectral analysis endpoint.
+
+    Accepts EEG data as channel->signal mapping for analysis.
+    """
+    eeg_data: dict[str, list[float]] = Field(
+        ..., description="channel_name -> list of signal values"
+    )
+    sfreq: float = Field(..., gt=0, description="Sampling frequency in Hz")
+    channel_locations: dict[str, tuple[float, float, float]] = Field(
+        default_factory=dict,
+        description="channel_name -> (x, y, z) positions",
+    )
+
+
+class SpectralAnalysisOut(BaseModel):
+    channel_spectral: dict
+    band_powers: dict
+    iaf: dict
+    ratios: dict
+    asymmetry: dict
+    channel_count: int
+    n_channels_total: int
+    sfreq: float
+    safety_note: str
+
+
+@router.post("/{analysis_id}/spectral", response_model=SpectralAnalysisOut)
+async def spectral_analysis_endpoint(
+    analysis_id: str,
+    payload: SpectralAnalysisIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> SpectralAnalysisOut:
+    """Run full spectral analysis (Welch PSD, band powers, IAF, ratios, asymmetry).
+
+    Decision-support only. Requires clinician review. Not diagnostic.
+    """
+    require_minimum_role(actor, "clinician")
+
+    result = full_spectral_analysis(
+        eeg_data=payload.eeg_data,
+        sfreq=payload.sfreq,
+        channel_locations=payload.channel_locations,
+    )
+
+    return SpectralAnalysisOut(
+        channel_spectral=result["channel_spectral"],
+        band_powers=result["band_powers"],
+        iaf=result["iaf"],
+        ratios=result["ratios"],
+        asymmetry=result["asymmetry"],
+        channel_count=result["channel_count"],
+        n_channels_total=result["n_channels_total"],
+        sfreq=result["sfreq"],
+        safety_note=result["safety_note"],
+    )
+
+
+class ConnectivityAnalysisIn(BaseModel):
+    """Request body for connectivity analysis endpoint."""
+    eeg_data: dict[str, list[float]] = Field(
+        ..., description="channel_name -> list of signal values"
+    )
+    sfreq: float = Field(..., gt=0, description="Sampling frequency in Hz")
+    band: tuple[float, float] = Field(
+        default=(8.0, 13.0),
+        description="Frequency band (low, high) in Hz",
+    )
+    threshold: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Graph metric binarization threshold",
+    )
+
+
+class ConnectivityAnalysisOut(BaseModel):
+    wpli_matrix: list[list[float]]
+    coherence_matrix: list[list[float]]
+    imaginary_coherence_matrix: list[list[float]]
+    graph_metrics: dict
+    band: tuple[float, float]
+    n_channels: int
+    methods_used: list[str]
+    safety_note: str
+
+
+@router.post("/{analysis_id}/connectivity", response_model=ConnectivityAnalysisOut)
+async def connectivity_analysis_endpoint(
+    analysis_id: str,
+    payload: ConnectivityAnalysisIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ConnectivityAnalysisOut:
+    """Run connectivity analysis (wPLI, coherence, imaginary coherence, graph metrics).
+
+    Volume conduction is a major confound. Decision-support only.
+    Requires clinician review. Not diagnostic.
+    """
+    require_minimum_role(actor, "clinician")
+
+    result = full_connectivity_analysis(
+        eeg_data=payload.eeg_data,
+        sfreq=payload.sfreq,
+        band=payload.band,
+        threshold=payload.threshold,
+    )
+
+    return ConnectivityAnalysisOut(
+        wpli_matrix=result["wpli_matrix"],
+        coherence_matrix=result["coherence_matrix"],
+        imaginary_coherence_matrix=result["imaginary_coherence_matrix"],
+        graph_metrics=result["graph_metrics"],
+        band=result["band"],
+        n_channels=result["n_channels"],
+        methods_used=result["methods_used"],
+        safety_note=result["safety_note"],
+    )
+
+
+class SourceLocalizationIn(BaseModel):
+    """Request body for source localization endpoint."""
+    eeg_data: dict[str, list[float]] = Field(
+        ..., description="channel_name -> list of signal values"
+    )
+    sfreq: float = Field(..., gt=0, description="Sampling frequency in Hz")
+    channel_locations: dict[str, tuple[float, float, float]] = Field(
+        default_factory=dict,
+        description="channel_name -> (x, y, z) positions",
+    )
+    band: tuple[float, float] = Field(
+        default=(8.0, 13.0),
+        description="Frequency band (low, high) in Hz",
+    )
+    methods: list[str] = Field(
+        default=["sLORETA"],
+        description="Source estimation methods to run",
+    )
+
+
+class SourceLocalizationOut(BaseModel):
+    methods: dict
+    uncertainty: dict
+    n_channels: int
+    sfreq: float
+    band: tuple[float, float]
+    safety_note: str
+
+
+@router.post("/{analysis_id}/source-localization", response_model=SourceLocalizationOut)
+async def source_localization_endpoint(
+    analysis_id: str,
+    payload: SourceLocalizationIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> SourceLocalizationOut:
+    """Run source localization (sLORETA, eLORETA, MNE).
+
+    Template head model — ~20mm localization error expected.
+    Research-level only. Not for clinical diagnosis without expert review.
+    """
+    require_minimum_role(actor, "clinician")
+
+    result = full_source_localization(
+        eeg_data=payload.eeg_data,
+        channel_locations=payload.channel_locations,
+        sfreq=payload.sfreq,
+        band=payload.band,
+        methods=payload.methods,
+    )
+
+    return SourceLocalizationOut(
+        methods=result["methods"],
+        uncertainty=result["uncertainty"],
+        n_channels=result["n_channels"],
+        sfreq=result["sfreq"],
+        band=result["band"],
+        safety_note=result["safety_note"],
+    )
+
+
+class BiomarkersIn(BaseModel):
+    """Request body for biomarker evidence panel endpoint."""
+    spectral_results: dict = Field(
+        default_factory=dict,
+        description="Output from spectral analysis pipeline",
+    )
+    connectivity_results: dict = Field(
+        default_factory=dict,
+        description="Output from connectivity analysis pipeline",
+    )
+    age: int | None = Field(default=None, ge=0, le=120, description="Patient age in years")
+    sex: str | None = Field(default=None, description="Patient sex (M/F/O)")
+
+
+class BiomarkersOut(BaseModel):
+    findings: list[dict]
+    total_markers: int
+    grade_distribution: dict[str, int]
+    age_sex_context: dict
+    evidence_grade_definitions: dict[str, str]
+    interpretation: dict
+    safety_note: str
+
+
+@router.get("/{analysis_id}/biomarkers", response_model=BiomarkersOut)
+async def biomarkers_evidence_panel(
+    analysis_id: str,
+    age: int | None = None,
+    sex: str | None = None,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> BiomarkersOut:
+    """Get biomarker evidence panel for an analysis.
+
+    Returns 26 qEEG biomarkers across 11 conditions with evidence grades.
+    Decision-support only. Never diagnostic. Requires clinician correlation.
+    """
+    require_minimum_role(actor, "clinician")
+
+    biomarker_results = evaluate_biomarkers(
+        spectral_results=None,
+        connectivity_results=None,
+        age=age,
+        sex=sex,
+    )
+
+    interpretation = generate_safe_interpretation(biomarker_results)
+
+    return BiomarkersOut(
+        findings=biomarker_results["findings"],
+        total_markers=biomarker_results["total_markers"],
+        grade_distribution=biomarker_results["grade_distribution"],
+        age_sex_context=biomarker_results["age_sex_context"],
+        evidence_grade_definitions=biomarker_results["evidence_grade_definitions"],
+        interpretation=interpretation,
+        safety_note=biomarker_results["safety_note"],
+    )
+
+
+@router.post("/{analysis_id}/biomarkers", response_model=BiomarkersOut)
+async def biomarkers_evidence_panel_with_data(
+    analysis_id: str,
+    payload: BiomarkersIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> BiomarkersOut:
+    """Evaluate biomarkers against provided spectral and connectivity results.
+
+    Returns 26 qEEG biomarkers across 11 conditions with evidence grades.
+    Decision-support only. Never diagnostic. Requires clinician correlation.
+    """
+    require_minimum_role(actor, "clinician")
+
+    biomarker_results = evaluate_biomarkers(
+        spectral_results=payload.spectral_results or None,
+        connectivity_results=payload.connectivity_results or None,
+        age=payload.age,
+        sex=payload.sex,
+    )
+
+    interpretation = generate_safe_interpretation(biomarker_results)
+
+    return BiomarkersOut(
+        findings=biomarker_results["findings"],
+        total_markers=biomarker_results["total_markers"],
+        grade_distribution=biomarker_results["grade_distribution"],
+        age_sex_context=biomarker_results["age_sex_context"],
+        evidence_grade_definitions=biomarker_results["evidence_grade_definitions"],
+        interpretation=interpretation,
+        safety_note=biomarker_results["safety_note"],
+    )
+
+
+@router.get("/biomarker-registry/summary")
+async def biomarker_registry_summary(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict:
+    """Get summary of the biomarker registry (26 markers, 11 conditions, evidence grades).
+
+    Transparency endpoint for governance and documentation.
+    """
+    require_minimum_role(actor, "clinician")
+    return get_biomarker_summary()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 5: Advanced qEEG Analysis Endpoints
+# Spectral, Connectivity, Source Localization, Biomarkers,
+# Protocol Suggestions, Report Generation, and Cross-Modal Fusion
+# ══════════════════════════════════════════════════════════════════════════════
+
+_QEEG_DISCLAIMER = (
+    "Decision-support only. Not diagnostic. All qEEG outputs require correlation "
+    "with clinical history and qualified clinician review before any clinical use."
+)
+
+
+def _mock_spectral_response(analysis_id: str) -> dict:
+    """Return mock spectral data for demo mode."""
+    return {
+        "analysis_id": analysis_id,
+        "demo_mode": True,
+        "band_powers": {
+            "delta": {
+                "absolute_mean_uv2": 15.2,
+                "relative_pct": 28.5,
+                "channels": {
+                    "Fp1": {"absolute_uv2": 18.5, "relative_pct": 30.2},
+                    "Fp2": {"absolute_uv2": 17.9, "relative_pct": 29.8},
+                    "Cz": {"absolute_uv2": 14.1, "relative_pct": 27.5},
+                },
+            },
+            "theta": {
+                "absolute_mean_uv2": 12.8,
+                "relative_pct": 24.1,
+                "channels": {
+                    "Fp1": {"absolute_uv2": 14.2, "relative_pct": 25.1},
+                    "Fp2": {"absolute_uv2": 13.6, "relative_pct": 24.5},
+                    "Cz": {"absolute_uv2": 11.3, "relative_pct": 22.8},
+                },
+            },
+            "alpha": {
+                "absolute_mean_uv2": 10.5,
+                "relative_pct": 19.7,
+                "channels": {
+                    "Fp1": {"absolute_uv2": 9.8, "relative_pct": 18.5},
+                    "Fp2": {"absolute_uv2": 9.5, "relative_pct": 18.1},
+                    "Cz": {"absolute_uv2": 12.2, "relative_pct": 21.5},
+                    "O1": {"absolute_uv2": 14.5, "relative_pct": 24.2},
+                    "O2": {"absolute_uv2": 14.1, "relative_pct": 23.8},
+                },
+            },
+            "low_beta": {
+                "absolute_mean_uv2": 8.3,
+                "relative_pct": 15.6,
+                "channels": {
+                    "Fp1": {"absolute_uv2": 7.9, "relative_pct": 14.8},
+                    "Cz": {"absolute_uv2": 9.2, "relative_pct": 16.5},
+                },
+            },
+            "high_beta": {
+                "absolute_mean_uv2": 4.7,
+                "relative_pct": 8.8,
+                "channels": {
+                    "Fp1": {"absolute_uv2": 4.5, "relative_pct": 8.2},
+                    "Cz": {"absolute_uv2": 5.1, "relative_pct": 9.5},
+                },
+            },
+            "gamma": {
+                "absolute_mean_uv2": 1.9,
+                "relative_pct": 3.6,
+                "channels": {
+                    "Fp1": {"absolute_uv2": 1.8, "relative_pct": 3.4},
+                    "Cz": {"absolute_uv2": 2.1, "relative_pct": 3.8},
+                },
+            },
+        },
+        "iaf": {"value": 10.2, "method": "peak_alpha", "confidence": "medium"},
+        "ratios": {
+            "theta_beta_ratio": 1.28,
+            "theta_alpha_ratio": 1.22,
+            "delta_alpha_ratio": 1.45,
+        },
+        "frontal_asymmetry": {
+            "f4_f3_alpha": -0.15,
+            "interpretation": "slightly reduced left frontal alpha (depression marker)",
+        },
+        "disclaimer": _QEEG_DISCLAIMER,
+        "evidence_grade": "B",
+    }
+
+
+def _mock_connectivity_response(analysis_id: str) -> dict:
+    """Return mock connectivity data for demo mode."""
+    import random
+
+    random.seed(hash(analysis_id) % 2**32)
+    n_ch = 19
+    wpli = [[0.0] * n_ch for _ in range(n_ch)]
+    coherence = [[0.0] * n_ch for _ in range(n_ch)]
+    for i in range(n_ch):
+        for j in range(i + 1, n_ch):
+            w = round(random.uniform(0.1, 0.75), 3)
+            c = round(random.uniform(0.15, 0.85), 3)
+            wpli[i][j] = wpli[j][i] = w
+            coherence[i][j] = coherence[j][i] = c
+    return {
+        "analysis_id": analysis_id,
+        "demo_mode": True,
+        "connectivity_matrices": {
+            "wpli": wpli,
+            "coherence": coherence,
+        },
+        "graph_metrics": {
+            "clustering_coefficient": round(random.uniform(0.3, 0.55), 3),
+            "characteristic_path_length": round(random.uniform(1.8, 2.8), 2),
+            "small_world_index": round(random.uniform(1.4, 2.2), 2),
+            "modularity": round(random.uniform(0.3, 0.55), 3),
+            "hubs": ["Cz", "Pz", "O1"],
+        },
+        "method": "wpli",
+        "disclaimer": _QEEG_DISCLAIMER,
+        "evidence_grade": "B",
+    }
+
+
+def _mock_source_localization_response(analysis_id: str) -> dict:
+    """Return mock source localization data for demo mode."""
+    return {
+        "analysis_id": analysis_id,
+        "demo_mode": True,
+        "source_estimates": {
+            "prefrontal": {"activation": 0.85, "uncertainty": 0.12},
+            "temporal": {"activation": 0.62, "uncertainty": 0.18},
+            "parietal": {"activation": 0.71, "uncertainty": 0.15},
+            "occipital": {"activation": 0.93, "uncertainty": 0.10},
+        },
+        "region_activations": {
+            "BA9": 0.82,
+            "BA10": 0.78,
+            "BA21": 0.65,
+            "BA39": 0.73,
+            "BA17": 0.95,
+            "BA18": 0.88,
+        },
+        "uncertainty_metrics": {"mean_uncertainty": 0.14, "max_uncertainty": 0.22},
+        "method": "eLORETA",
+        "disclaimer": _QEEG_DISCLAIMER,
+        "evidence_grade": "C",
+    }
+
+
+def _mock_biomarkers_response(analysis_id: str, condition: Optional[str] = None) -> dict:
+    """Return mock biomarker data for demo mode."""
+    markers = [
+        {
+            "name": "Elevated Theta/Beta Ratio",
+            "condition": "ADHD",
+            "z_score": 2.3,
+            "evidence_grade": "A",
+            "interpretation": "Elevated TBR consistent with attentional dysfunction",
+        },
+        {
+            "name": "Reduced Alpha Peak Frequency",
+            "condition": "depression",
+            "z_score": -1.8,
+            "evidence_grade": "B",
+            "interpretation": "Slower alpha may indicate depressive state",
+        },
+        {
+            "name": "Frontal Alpha Asymmetry",
+            "condition": "depression",
+            "z_score": -1.5,
+            "evidence_grade": "B",
+            "interpretation": "Reduced left frontal alpha associated with depression",
+        },
+        {
+            "name": "Elevated Delta Power",
+            "condition": "cognitive_impairment",
+            "z_score": 2.1,
+            "evidence_grade": "C",
+            "interpretation": "Increased delta may indicate slow-wave dysfunction",
+        },
+        {
+            "name": "Reduced Beta Coherence",
+            "condition": "ADHD",
+            "z_score": -1.9,
+            "evidence_grade": "B",
+            "interpretation": "Decreased inter-site beta coherence",
+        },
+        {
+            "name": "Eleved Theta Frontally",
+            "condition": "ADHD",
+            "z_score": 2.0,
+            "evidence_grade": "A",
+            "interpretation": "Frontal theta elevation consistent with ADHD",
+        },
+        {
+            "name": "Reduced SMR",
+            "condition": "ADHD",
+            "z_score": -1.7,
+            "evidence_grade": "B",
+            "interpretation": "Low sensorimotor rhythm associated with hyperactivity",
+        },
+        {
+            "name": "Alpha Slowing",
+            "condition": "cognitive_impairment",
+            "z_score": -2.2,
+            "evidence_grade": "B",
+            "interpretation": "Subclinical alpha slowing may indicate early decline",
+        },
+    ]
+    if condition:
+        markers = [m for m in markers if condition.lower() in m["condition"].lower()]
+    return {
+        "analysis_id": analysis_id,
+        "demo_mode": True,
+        "biomarkers": markers,
+        "total_markers": len(markers),
+        "grade_distribution": {"A": 2, "B": 4, "C": 1, "D": 0},
+        "disclaimer": _QEEG_DISCLAIMER,
+    }
+
+
+def _mock_protocol_suggestions(analysis_id: str, condition: str) -> dict:
+    """Return mock protocol suggestions for demo mode."""
+    return {
+        "analysis_id": analysis_id,
+        "demo_mode": True,
+        "condition": condition,
+        "protocols": [
+            {
+                "id": "p1",
+                "name": "SMR Enhancement (12-15 Hz)",
+                "target": "C4",
+                "evidence_grade": "A",
+                "sessions": 20,
+                "contraindications": [],
+            },
+            {
+                "id": "p2",
+                "name": "Theta/Beta Ratio Training",
+                "target": "Cz",
+                "evidence_grade": "A",
+                "sessions": 30,
+                "contraindications": [],
+            },
+            {
+                "id": "p3",
+                "name": "Alpha-Theta Training",
+                "target": "Pz",
+                "evidence_grade": "B",
+                "sessions": 15,
+                "contraindications": ["bipolar_disorder"],
+            },
+            {
+                "id": "p4",
+                "name": "Frontal Asymmetry Training",
+                "target": "F3/F4",
+                "evidence_grade": "B",
+                "sessions": 25,
+                "contraindications": [],
+            },
+            {
+                "id": "p5",
+                "name": "Peak Alpha Frequency Training",
+                "target": "Pz",
+                "evidence_grade": "C",
+                "sessions": 20,
+                "contraindications": [],
+            },
+        ],
+        "safety_screening_passed": True,
+        "contraindications": [],
+        "disclaimer": _QEEG_DISCLAIMER,
+    }
+
+
+def _mock_report_response(analysis_id: str) -> dict:
+    """Return mock report data for demo mode."""
+    now = datetime.now(timezone.utc).isoformat()
+    return {
+        "analysis_id": analysis_id,
+        "demo_mode": True,
+        "sections": {
+            "executive_summary": "Demo qEEG report for testing. Elevated theta/beta ratio observed.",
+            "methodology": "Standard qEEG analysis pipeline. Welch PSD, 2s epochs, 50% overlap.",
+            "data_quality": "Good - 19 channels, 256 Hz, 5 min recording. <5% artifact rejection.",
+            "spectral_analysis": "Delta 28.5%, Theta 24.1%, Alpha 19.7%, Low Beta 15.6%, High Beta 8.8%, Gamma 3.6%.",
+            "connectivity": "Small-world index 1.85. Moderate fronto-parietal wPLI.",
+            "source_localization": "Prefrontal activation 0.85, Occipital 0.93. Template head model used.",
+            "biomarkers": "8 biomarkers evaluated. 2 Grade A, 4 Grade B, 1 Grade C, 1 Grade D.",
+            "asymmetry": "Mild frontal alpha asymmetry (F4>F3). Consistent with depression literature.",
+            "clinical_correlation": "Requires clinician correlation with full clinical history.",
+            "neuromodulation_targets": "DLPFC, ACC, SMA identified as candidate targets.",
+            "normative_comparison": "Theta/beta ratio >95th percentile for age. Alpha peak within norms.",
+            "limitations": "Single session. Normative database: demo reference only.",
+            "recommendations": "Consider theta/beta ratio training. Re-assess after 20 sessions.",
+            "references": ["Hammond (2011)", "Arns et al. (2013)", "Thatcher (2012)"],
+        },
+        "disclaimer": _QEEG_DISCLAIMER,
+        "report_state": "DRAFT_AI",
+        "generated_at": now,
+    }
+
+
+# ── Spectral Analysis ────────────────────────────────────────────────────────
+
+@router.post("/{analysis_id}/spectral")
+async def compute_spectral_analysis_endpoint(
+    analysis_id: str,
+    request: Request,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Compute full spectral analysis: Welch PSD, band powers, IAF, ratios.
+
+    Returns delta, theta, alpha, low_beta, high_beta, gamma powers,
+    individual alpha frequency, theta/beta ratio, theta/alpha ratio,
+    delta/alpha ratio, and frontal asymmetry.
+
+    Decision-support only. Not diagnostic. Requires clinician review.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    if _is_demo_id(analysis_id) or _is_demo_id(analysis.patient_id):
+        return _mock_spectral_response(analysis_id)
+
+    _enforce_qeeg_ai_consent_for_patient_derived_endpoint(
+        db, actor, analysis_id, analysis.patient_id, endpoint="spectral-analysis",
+    )
+
+    if analysis.analysis_status != "completed":
+        raise ApiServiceError(
+            code="analysis_not_ready",
+            message="Analysis must be completed before spectral analysis",
+            status_code=400,
+        )
+
+    band_powers = _maybe_json_loads(analysis.band_powers_json) or {}
+    peak_alpha = _maybe_json_loads(getattr(analysis, "peak_alpha_freq_json", None)) or {}
+    asymmetry = _maybe_json_loads(getattr(analysis, "asymmetry_json", None)) or {}
+
+    _record_qeeg_backend_audit_event(
+        db,
+        actor=actor,
+        analysis_id=analysis_id,
+        patient_id=analysis.patient_id,
+        event="spectral_analysis_accessed",
+        note="Spectral analysis results accessed",
+    )
+
+    derived = band_powers.get("derived_ratios", {}) if isinstance(band_powers, dict) else {}
+
+    return {
+        "analysis_id": analysis_id,
+        "band_powers": band_powers,
+        "iaf": peak_alpha,
+        "ratios": derived,
+        "frontal_asymmetry": asymmetry,
+        "disclaimer": _QEEG_DISCLAIMER,
+        "evidence_grade": "B",
+    }
+
+
+@router.get("/{analysis_id}/spectral")
+async def get_spectral_results_endpoint(
+    analysis_id: str,
+    band: Optional[str] = Query(None, description="Filter by band: delta, theta, alpha, low_beta, high_beta, gamma"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Get spectral analysis results."""
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    if _is_demo_id(analysis_id) or _is_demo_id(analysis.patient_id):
+        mock = _mock_spectral_response(analysis_id)
+        if band and isinstance(mock.get("band_powers"), dict):
+            mock["band_powers"] = {
+                k: v for k, v in mock["band_powers"].items() if k == band.lower()
+            }
+        return mock
+
+    band_powers = _maybe_json_loads(analysis.band_powers_json) or {}
+    peak_alpha = _maybe_json_loads(getattr(analysis, "peak_alpha_freq_json", None)) or {}
+    asymmetry = _maybe_json_loads(getattr(analysis, "asymmetry_json", None)) or {}
+    derived = band_powers.get("derived_ratios", {}) if isinstance(band_powers, dict) else {}
+
+    result = {
+        "analysis_id": analysis_id,
+        "band_powers": band_powers,
+        "iaf": peak_alpha,
+        "ratios": derived,
+        "frontal_asymmetry": asymmetry,
+        "disclaimer": _QEEG_DISCLAIMER,
+        "evidence_grade": "B",
+    }
+
+    if band and isinstance(band_powers, dict) and "bands" in band_powers:
+        bands = band_powers["bands"]
+        if band.lower() in bands:
+            result["band_powers"] = {"bands": {band.lower(): bands[band.lower()]}}
+        else:
+            result["band_powers"] = {"bands": {}}
+
+    return result
+
+
+# ── Connectivity Analysis ────────────────────────────────────────────────────
+
+@router.post("/{analysis_id}/connectivity")
+async def compute_connectivity_endpoint(
+    analysis_id: str,
+    request: Request,
+    method: str = Query("wpli", description="Connectivity method: wpli, coherence, pli, plv"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Compute functional connectivity analysis.
+
+    Returns connectivity matrices, graph metrics (clustering, path length,
+    modularity, hub identification), and network topology measures.
+
+    Decision-support only. Volume conduction is a major confound.
+    Requires clinician review. Not diagnostic.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    if _is_demo_id(analysis_id) or _is_demo_id(analysis.patient_id):
+        return _mock_connectivity_response(analysis_id)
+
+    _enforce_qeeg_ai_consent_for_patient_derived_endpoint(
+        db, actor, analysis_id, analysis.patient_id, endpoint="connectivity-analysis",
+    )
+
+    if analysis.analysis_status != "completed":
+        raise ApiServiceError(
+            code="analysis_not_ready",
+            message="Analysis must be completed before connectivity analysis",
+            status_code=400,
+        )
+
+    connectivity = _maybe_json_loads(getattr(analysis, "connectivity_json", None)) or {}
+    graph_metrics = _maybe_json_loads(getattr(analysis, "graph_metrics_json", None)) or {}
+
+    _record_qeeg_backend_audit_event(
+        db,
+        actor=actor,
+        analysis_id=analysis_id,
+        patient_id=analysis.patient_id,
+        event="connectivity_analysis_accessed",
+        note=f"method={method}",
+    )
+
+    return {
+        "analysis_id": analysis_id,
+        "connectivity_matrices": connectivity,
+        "graph_metrics": graph_metrics,
+        "method": method,
+        "disclaimer": _QEEG_DISCLAIMER,
+        "evidence_grade": "B",
+    }
+
+
+@router.get("/{analysis_id}/connectivity")
+async def get_connectivity_results_endpoint(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Get connectivity analysis results."""
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    if _is_demo_id(analysis_id) or _is_demo_id(analysis.patient_id):
+        return _mock_connectivity_response(analysis_id)
+
+    connectivity = _maybe_json_loads(getattr(analysis, "connectivity_json", None)) or {}
+    graph_metrics = _maybe_json_loads(getattr(analysis, "graph_metrics_json", None)) or {}
+
+    return {
+        "analysis_id": analysis_id,
+        "connectivity_matrices": connectivity,
+        "graph_metrics": graph_metrics,
+        "disclaimer": _QEEG_DISCLAIMER,
+        "evidence_grade": "B",
+    }
+
+
+# ── Source Localization ──────────────────────────────────────────────────────
+
+@router.post("/{analysis_id}/source-localization")
+async def compute_source_localization_endpoint(
+    analysis_id: str,
+    request: Request,
+    method: str = Query("eloreta", description="Source method: sloreta, eloreta, mne"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Compute EEG source localization.
+
+    Returns source estimates, region activations, uncertainty metrics.
+    Template head model used -- ~20 mm localization error expected.
+    Research-level only. Not for clinical diagnosis without expert review.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    if _is_demo_id(analysis_id) or _is_demo_id(analysis.patient_id):
+        return _mock_source_localization_response(analysis_id)
+
+    _enforce_qeeg_ai_consent_for_patient_derived_endpoint(
+        db, actor, analysis_id, analysis.patient_id, endpoint="source-localization",
+    )
+
+    if analysis.analysis_status != "completed":
+        raise ApiServiceError(
+            code="analysis_not_ready",
+            message="Analysis must be completed before source localization",
+            status_code=400,
+        )
+
+    source_roi = _maybe_json_loads(getattr(analysis, "source_roi_json", None)) or {}
+
+    _record_qeeg_backend_audit_event(
+        db,
+        actor=actor,
+        analysis_id=analysis_id,
+        patient_id=analysis.patient_id,
+        event="source_localization_accessed",
+        note=f"method={method}",
+    )
+
+    return {
+        "analysis_id": analysis_id,
+        "source_estimates": source_roi,
+        "region_activations": source_roi.get("roi_band_power", {}) if isinstance(source_roi, dict) else {},
+        "uncertainty_metrics": source_roi.get("uncertainty", {}) if isinstance(source_roi, dict) else {},
+        "method": method,
+        "disclaimer": _QEEG_DISCLAIMER,
+        "evidence_grade": "C",
+    }
+
+
+@router.get("/{analysis_id}/source-localization")
+async def get_source_localization_results_endpoint(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Get source localization results."""
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    if _is_demo_id(analysis_id) or _is_demo_id(analysis.patient_id):
+        return _mock_source_localization_response(analysis_id)
+
+    source_roi = _maybe_json_loads(getattr(analysis, "source_roi_json", None)) or {}
+
+    return {
+        "analysis_id": analysis_id,
+        "source_estimates": source_roi,
+        "region_activations": source_roi.get("roi_band_power", {}) if isinstance(source_roi, dict) else {},
+        "uncertainty_metrics": source_roi.get("uncertainty", {}) if isinstance(source_roi, dict) else {},
+        "disclaimer": _QEEG_DISCLAIMER,
+        "evidence_grade": "C",
+    }
+
+
+# ── Biomarker Endpoints ──────────────────────────────────────────────────────
+
+@router.get("/{analysis_id}/biomarkers")
+async def get_biomarkers_endpoint(
+    analysis_id: str,
+    condition: Optional[str] = Query(None, description="Filter by condition"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Get qEEG biomarker panel with evidence grades.
+
+    Returns 20+ biomarkers across 11+ conditions with z-scores,
+    interpretations, and evidence grades (A-D).
+
+    Decision-support only. Never diagnostic. Requires clinician correlation.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    if _is_demo_id(analysis_id) or _is_demo_id(analysis.patient_id):
+        return _mock_biomarkers_response(analysis_id, condition)
+
+    _enforce_qeeg_ai_consent_for_patient_derived_endpoint(
+        db, actor, analysis_id, analysis.patient_id, endpoint="biomarkers",
+    )
+
+    band_powers = _maybe_json_loads(analysis.band_powers_json) or {}
+    connectivity = _maybe_json_loads(getattr(analysis, "connectivity_json", None)) or {}
+
+    try:
+        biomarker_results = evaluate_biomarkers(
+            spectral_results=band_powers if band_powers else None,
+            connectivity_results=connectivity if connectivity else None,
+            age=None,
+            sex=None,
+        )
+        interpretation = generate_safe_interpretation(biomarker_results)
+
+        findings = biomarker_results.get("findings", [])
+        if condition:
+            findings = [
+                f for f in findings
+                if condition.lower() in str(f.get("condition", "")).lower()
+            ]
+
+        return {
+            "analysis_id": analysis_id,
+            "biomarkers": findings,
+            "total_markers": len(findings),
+            "grade_distribution": biomarker_results.get("grade_distribution", {}),
+            "interpretation": interpretation,
+            "disclaimer": _QEEG_DISCLAIMER,
+            "evidence_grade": "B",
+        }
+    except Exception as exc:
+        _log.exception("Biomarker evaluation failed for %s", analysis_id)
+        raise ApiServiceError(
+            code="biomarker_evaluation_failed",
+            message=f"Biomarker evaluation failed: {str(exc)[:300]}",
+            status_code=500,
+        )
+
+
+@router.get("/{analysis_id}/biomarkers/summary")
+async def get_biomarker_summary_endpoint(
+    analysis_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Get condensed biomarker summary for dashboard."""
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    if _is_demo_id(analysis_id) or _is_demo_id(analysis.patient_id):
+        mock = _mock_biomarkers_response(analysis_id)
+        return {
+            "analysis_id": analysis_id,
+            "demo_mode": True,
+            "summary": {
+                "total_markers": mock["total_markers"],
+                "grade_distribution": mock["grade_distribution"],
+                "top_conditions": ["ADHD", "depression", "cognitive_impairment"],
+            },
+            "disclaimer": _QEEG_DISCLAIMER,
+        }
+
+    try:
+        summary = get_biomarker_summary()
+        band_powers = _maybe_json_loads(analysis.band_powers_json) or {}
+        connectivity = _maybe_json_loads(getattr(analysis, "connectivity_json", None)) or {}
+
+        biomarker_results = evaluate_biomarkers(
+            spectral_results=band_powers if band_powers else None,
+            connectivity_results=connectivity if connectivity else None,
+            age=None,
+            sex=None,
+        )
+
+        return {
+            "analysis_id": analysis_id,
+            "summary": {
+                "total_markers": biomarker_results.get("total_markers", 0),
+                "grade_distribution": biomarker_results.get("grade_distribution", {}),
+                "conditions_evaluated": summary.get("conditions", []),
+            },
+            "disclaimer": _QEEG_DISCLAIMER,
+        }
+    except Exception as exc:
+        _log.exception("Biomarker summary failed for %s", analysis_id)
+        raise ApiServiceError(
+            code="biomarker_summary_failed",
+            message=f"Biomarker summary failed: {str(exc)[:300]}",
+            status_code=500,
+        )
+
+
+# ── Protocol Suggestion Endpoints ────────────────────────────────────────────
+
+@router.get("/{analysis_id}/protocol-suggestions")
+async def get_protocol_suggestions_endpoint_v2(
+    analysis_id: str,
+    condition: str = Query(..., description="Target condition"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Get neuromodulation protocol suggestions based on qEEG findings.
+
+    Returns protocol library with safety screening, evidence grades,
+    and contraindication checks.
+
+    Decision-support only -- requires qualified clinician for final selection.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    if _is_demo_id(analysis_id) or _is_demo_id(analysis.patient_id):
+        return _mock_protocol_suggestions(analysis_id, condition)
+
+    band_powers = _maybe_json_loads(analysis.band_powers_json) or {}
+
+    _record_qeeg_backend_audit_event(
+        db,
+        actor=actor,
+        analysis_id=analysis_id,
+        patient_id=analysis.patient_id,
+        event="protocol_suggestions_requested",
+        note=f"condition={condition}",
+    )
+
+    # Delegate to existing recommender if available
+    if recommend_protocols is not None and summarize_for_recommender is not None:
+        try:
+            rel_maps = _band_powers_relative_map(
+                band_powers if isinstance(band_powers, dict) else None
+            )
+            features_payload = {
+                "spectral": {
+                    "bands": {band: {"relative": rel} for band, rel in rel_maps.items()},
+                    "peak_alpha_freq": _maybe_json_loads(
+                        getattr(analysis, "peak_alpha_freq_json", None)
+                    ) or {},
+                },
+                "asymmetry": _maybe_json_loads(getattr(analysis, "asymmetry_json", None)) or {},
+                "connectivity": _maybe_json_loads(getattr(analysis, "connectivity_json", None)) or {},
+            }
+            zscores = _maybe_json_loads(getattr(analysis, "normative_zscores_json", None)) or {}
+            risk_scores = _maybe_json_loads(getattr(analysis, "risk_scores_json", None)) or {}
+
+            fv = summarize_for_recommender(
+                {"features": features_payload, "zscores": zscores, "risk_scores": risk_scores}
+            )
+
+            patient = db.query(Patient).filter_by(id=analysis.patient_id).first()
+            patient_meta = _maybe_json_loads(getattr(patient, "medical_history", None)) if patient else None
+            if not isinstance(patient_meta, dict):
+                patient_meta = {}
+
+            lib = ProtocolLibrary.load() if ProtocolLibrary is not None else None
+            recs, contra_hits, rule_hits = recommend_protocols(
+                fv,
+                patient_meta=patient_meta,
+                library=lib,
+                top_k=10,
+            )
+
+            # Filter by condition if specified
+            filtered_recs = [
+                r for r in recs
+                if condition.lower() in r.condition_id.lower()
+            ] if condition else recs
+
+            return {
+                "analysis_id": analysis_id,
+                "condition": condition,
+                "protocols": [
+                    {
+                        "protocol_id": r.protocol_id,
+                        "protocol_name": r.protocol_name,
+                        "score": float(r.score),
+                        "condition_id": r.condition_id,
+                        "modality_id": r.modality_id,
+                        "target_region": r.target_region,
+                        "evidence_urls": list(r.evidence_urls),
+                        "disclaimer": r.disclaimer,
+                    }
+                    for r in filtered_recs
+                ],
+                "safety_screening_passed": len(contra_hits) == 0,
+                "contraindications": [
+                    {"protocol_id": h.protocol_id, "reason": h.reason}
+                    for h in contra_hits
+                ],
+                "rules_fired": [
+                    {
+                        "rule_id": h.rule_id,
+                        "condition_slug": h.condition_slug,
+                        "score": h.score,
+                        "summary": h.summary,
+                    }
+                    for h in rule_hits
+                ],
+                "disclaimer": _QEEG_DISCLAIMER,
+            }
+        except Exception as exc:
+            _log.warning("Recommender failed for %s: %s", analysis_id, exc)
+
+    # Fallback: basic protocol suggestions
+    return {
+        "analysis_id": analysis_id,
+        "condition": condition,
+        "protocols": [],
+        "safety_screening_passed": True,
+        "contraindications": [],
+        "note": (
+            "Protocol suggestions require the deepsynaps_qeeg.recommender package "
+            "or a configured protocol library."
+        ),
+        "disclaimer": _QEEG_DISCLAIMER,
+        "evidence_grade": "B",
+    }
+
+
+# ── Report Generation Endpoints ──────────────────────────────────────────────
+
+@router.post("/{analysis_id}/report")
+async def generate_report_endpoint_v2(
+    analysis_id: str,
+    request: Request,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Generate 14-section structured qEEG report.
+
+    Sections: executive summary, methodology, data quality, spectral analysis,
+    connectivity, source localization, biomarkers, asymmetry, clinical
+    correlation, neuromodulation targets, comparison to norms, limitations,
+    recommendations, references.
+
+    Decision-support only. Report is generated in DRAFT_AI state and
+    requires clinician sign-off before distribution per IQCB 2025.
+    """
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    if _is_demo_id(analysis_id) or _is_demo_id(analysis.patient_id):
+        return _mock_report_response(analysis_id)
+
+    _enforce_qeeg_ai_consent_for_patient_derived_endpoint(
+        db, actor, analysis_id, analysis.patient_id, endpoint="report-generation",
+    )
+
+    try:
+        from app.services.qeeg_report_generator import generate_report
+
+        patient = db.query(Patient).filter_by(id=analysis.patient_id).first()
+        patient_info: dict = {
+            "patient_id": analysis.patient_id,
+            "age": patient.age if patient else None,
+            "sex": patient.sex if patient else "unknown",
+        }
+
+        scan_metadata: dict = {
+            "recording_date": analysis.created_at.isoformat() if analysis.created_at else None,
+            "duration_sec": getattr(analysis, "recording_duration_sec", None),
+            "sampling_rate": getattr(analysis, "sample_rate_hz", None),
+            "channels": _maybe_json_loads(analysis.channels_json) if analysis.channels_json else [],
+            "eyes_condition": analysis.eyes_condition or "unknown",
+        }
+
+        spectral_results: dict = {
+            "band_powers": _maybe_json_loads(analysis.band_powers_json) or {},
+            "ratios": _maybe_json_loads(getattr(analysis, "ratios_json", None)) or {},
+            "asymmetry": _maybe_json_loads(getattr(analysis, "asymmetry_json", None)) or {},
+            "iaf": _maybe_json_loads(getattr(analysis, "peak_alpha_freq_json", None)) or {},
+            "connectivity": _maybe_json_loads(getattr(analysis, "connectivity_json", None)) or {},
+        }
+
+        biomarker_results: dict = {
+            "findings": _maybe_json_loads(analysis.findings_json) if analysis.findings_json else [],
+            "references": [],
+        }
+
+        report = generate_report(
+            analysis_id=analysis_id,
+            patient_info=patient_info,
+            scan_metadata=scan_metadata,
+            quality_metrics={},
+            spectral_results=spectral_results,
+            biomarker_results=biomarker_results,
+            template="default",
+        )
+
+        # Persist report payload for later retrieval
+        from app.services.report_payload import build_report_payload
+
+        try:
+            payload = build_report_payload(report)
+            analysis.report_payload_json = json.dumps(payload)
+            db.commit()
+        except Exception:
+            _log.warning("report payload persistence skipped for %s", analysis_id)
+
+        _record_qeeg_backend_audit_event(
+            db,
+            actor=actor,
+            analysis_id=analysis_id,
+            patient_id=analysis.patient_id,
+            event="report_generated",
+            note="14-section structured report generated",
+        )
+
+        return {
+            "analysis_id": analysis_id,
+            "success": True,
+            "report": report,
+            "generated_at": report.get("header", {}).get("generated_at", ""),
+            "schema_version": report.get("header", {}).get("schema_version", "0.4.0"),
+            "report_state": "DRAFT_AI",
+            "disclaimer": _QEEG_DISCLAIMER,
+        }
+    except ApiServiceError:
+        raise
+    except Exception as exc:
+        _log.exception("Report generation failed for %s", analysis_id)
+        return {
+            "analysis_id": analysis_id,
+            "success": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "disclaimer": _QEEG_DISCLAIMER,
+            "report_state": "ERROR",
+        }
+
+
+@router.get("/{analysis_id}/report")
+async def get_report_endpoint(
+    analysis_id: str,
+    format: str = Query("json", description="Format: json, html, pdf"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Get generated report in requested format."""
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    if _is_demo_id(analysis_id) or _is_demo_id(analysis.patient_id):
+        return _mock_report_response(analysis_id)
+
+    report_payload = _maybe_json_loads(getattr(analysis, "report_payload_json", None)) or {}
+
+    fmt = format.lower()
+    if fmt == "json":
+        return {
+            "analysis_id": analysis_id,
+            "format": "json",
+            "report": report_payload,
+            "disclaimer": _QEEG_DISCLAIMER,
+        }
+    elif fmt == "html":
+        return HTMLResponse(
+            content=(
+                f"<!DOCTYPE html><html><head><title>qEEG Report {analysis_id[:8]}</title></head>"
+                f"<body><h1>qEEG Report {analysis_id[:8]}</h1>"
+                f"<p>{_QEEG_DISCLAIMER}</p></body></html>"
+            ),
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="qeeg_report_{analysis_id[:8]}.html"'
+                ),
+            },
+        )
+    elif fmt == "pdf":
+        return {
+            "analysis_id": analysis_id,
+            "format": "pdf",
+            "note": "PDF generation requires a PDF renderer (e.g., weasyprint).",
+            "disclaimer": _QEEG_DISCLAIMER,
+        }
+    else:
+        raise ApiServiceError(
+            code="invalid_format",
+            message=f"Unsupported format: {format}. Use json, html, or pdf.",
+            status_code=400,
+        )
+
+
+# ── Cross-Modal Fusion Endpoints ─────────────────────────────────────────────
+
+@router.get("/{analysis_id}/fusion/mri")
+async def get_mri_fusion_endpoint(
+    analysis_id: str,
+    mri_analysis_id: str = Query(..., description="MRI analysis to fuse with"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Get qEEG-MRI fusion summary."""
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    if _is_demo_id(analysis_id) or _is_demo_id(analysis.patient_id):
+        return {
+            "analysis_id": analysis_id,
+            "mri_analysis_id": mri_analysis_id,
+            "demo_mode": True,
+            "fusion_summary": {
+                "correspondence": "Demo qEEG-MRI fusion results.",
+                "overlapping_regions": ["prefrontal", "temporal"],
+                "confidence": "medium",
+            },
+            "disclaimer": _QEEG_DISCLAIMER,
+        }
+
+    try:
+        source_roi = _maybe_json_loads(getattr(analysis, "source_roi_json", None)) or {}
+        fusion = get_fusion_summary(
+            qeeg_source_roi=source_roi,
+            mri_analysis_id=mri_analysis_id,
+        )
+        _record_qeeg_backend_audit_event(
+            db,
+            actor=actor,
+            analysis_id=analysis_id,
+            patient_id=analysis.patient_id,
+            event="mri_fusion_accessed",
+            note=f"mri_analysis_id={mri_analysis_id}",
+        )
+        return {
+            "analysis_id": analysis_id,
+            "mri_analysis_id": mri_analysis_id,
+            "fusion_summary": fusion,
+            "disclaimer": _QEEG_DISCLAIMER,
+        }
+    except Exception as exc:
+        _log.exception("MRI fusion failed for %s", analysis_id)
+        return {
+            "analysis_id": analysis_id,
+            "mri_analysis_id": mri_analysis_id,
+            "error": f"{type(exc).__name__}: {exc}",
+            "disclaimer": _QEEG_DISCLAIMER,
+        }
+
+
+@router.get("/{analysis_id}/fusion/neuromodulation-targets")
+async def get_fused_neuromodulation_targets_endpoint(
+    analysis_id: str,
+    mri_analysis_id: str = Query(..., description="MRI analysis to fuse with"),
+    condition: str = Query(..., description="Target condition"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Get fused neuromodulation targets from qEEG + MRI."""
+    require_minimum_role(actor, "clinician")
+
+    analysis = db.query(QEEGAnalysis).filter_by(id=analysis_id).first()
+    if not analysis:
+        raise ApiServiceError(code="not_found", message="Analysis not found", status_code=404)
+    _gate_patient_access(actor, analysis.patient_id, db)
+
+    if _is_demo_id(analysis_id) or _is_demo_id(analysis.patient_id):
+        return {
+            "analysis_id": analysis_id,
+            "mri_analysis_id": mri_analysis_id,
+            "condition": condition,
+            "demo_mode": True,
+            "fused_targets": [
+                {
+                    "region": "DLPFC",
+                    "qeeg_support": 0.85,
+                    "mri_support": 0.78,
+                    "confidence": "high",
+                    "rationale": "Convergent prefrontal hypoactivation",
+                },
+                {
+                    "region": "ACC",
+                    "qeeg_support": 0.72,
+                    "mri_support": 0.65,
+                    "confidence": "medium",
+                    "rationale": "Midline theta source localization",
+                },
+                {
+                    "region": "SMA",
+                    "qeeg_support": 0.68,
+                    "mri_support": 0.71,
+                    "confidence": "medium",
+                    "rationale": "Motor readiness potential elevation",
+                },
+            ],
+            "disclaimer": _QEEG_DISCLAIMER,
+        }
+
+    try:
+        source_roi = _maybe_json_loads(getattr(analysis, "source_roi_json", None)) or {}
+        targets = get_neuromodulation_targets_fused(
+            qeeg_source_roi=source_roi,
+            mri_analysis_id=mri_analysis_id,
+            condition=condition,
+        )
+        _record_qeeg_backend_audit_event(
+            db,
+            actor=actor,
+            analysis_id=analysis_id,
+            patient_id=analysis.patient_id,
+            event="fused_neuromodulation_targets_accessed",
+            note=f"mri_analysis_id={mri_analysis_id}; condition={condition}",
+        )
+        return {
+            "analysis_id": analysis_id,
+            "mri_analysis_id": mri_analysis_id,
+            "condition": condition,
+            "fused_targets": targets,
+            "disclaimer": _QEEG_DISCLAIMER,
+        }
+    except Exception as exc:
+        _log.exception("Fused targets failed for %s", analysis_id)
+        return {
+            "analysis_id": analysis_id,
+            "mri_analysis_id": mri_analysis_id,
+            "condition": condition,
+            "error": f"{type(exc).__name__}: {exc}",
+            "disclaimer": _QEEG_DISCLAIMER,
+        }

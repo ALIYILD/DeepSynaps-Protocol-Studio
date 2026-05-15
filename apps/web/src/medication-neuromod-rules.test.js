@@ -24,7 +24,7 @@ describe('MED_NEUROMOD_RULES data integrity', () => {
   });
 
   it('severity values are restricted to the clinical set', () => {
-    const VALID = new Set(['monitor', 'moderate', 'major', 'critical']);
+    const VALID = new Set(['monitor', 'mild', 'moderate', 'major', 'critical']);
     for (const rule of MED_NEUROMOD_RULES) {
       assert.ok(VALID.has(rule.severity), `rule ${rule.id} has invalid severity: ${rule.severity}`);
     }

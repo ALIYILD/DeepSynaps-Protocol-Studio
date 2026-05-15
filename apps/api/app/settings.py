@@ -191,6 +191,11 @@ class AppSettings(BaseModel):
     # internal research / validation work only.
     qeeg_unevidenced_indicators_enabled: bool = Field(default=False)
 
+    # Pose estimation backend for video movement analysis (decision-support).
+    # Default: disabled until clinical validation packet exists.
+    # Options: disabled, mediapipe, movenet, yolo_pose
+    pose_backend_type: str = Field(default="disabled")
+
     # SlowAPI rate-limiter storage backend. Empty (default) uses in-memory
     # storage — fine for dev/test and single-process deploys, but on a
     # horizontally-scaled Fly app each machine keeps its own counters and

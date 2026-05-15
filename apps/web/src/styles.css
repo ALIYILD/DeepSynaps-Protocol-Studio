@@ -30165,3 +30165,243 @@ button[aria-selected="true"] .qeeg-uw-step__num {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 16px; background: #1e293b; border-bottom: 1px solid #334155;
 }
+
+/* ============================================
+   Phase 2: Professional Viewer (Weeks 5-8)
+   ============================================ */
+
+/* -- Viewer Toolbar -- */
+.mri-viewer-toolbar {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  align-items: center;
+  background: rgba(5, 8, 16, 0.6);
+}
+.mri-viewer-toolbar select {
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--input);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.mri-viewer-toolbar select:focus {
+  outline: 1px solid var(--teal);
+  border-color: var(--teal);
+}
+
+/* -- Annotation Toolbar -- */
+.mri-annotation-toolbar {
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  align-items: center;
+  background: rgba(5, 8, 16, 0.5);
+}
+
+/* -- Viewer Buttons -- */
+.mri-vbtn {
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--input);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.mri-vbtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--text-secondary);
+}
+.mri-vbtn:active {
+  background: rgba(255, 255, 255, 0.12);
+}
+.mri-vbtn--primary {
+  background: var(--blue);
+  color: #fff;
+  border-color: var(--blue);
+}
+.mri-vbtn--primary:hover {
+  background: var(--blue-hover, #2563eb);
+}
+
+/* -- Annotation Active State -- */
+.mri-vbtn--active {
+  background: var(--teal);
+  color: #000;
+  border-color: var(--teal);
+}
+
+/* -- Keyboard Shortcut Help -- */
+.mri-shortcut-help {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  background: rgba(5, 8, 16, 0.4);
+}
+.mri-kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  margin: 0 2px;
+}
+
+/* -- Responsive Viewer Layouts -- */
+.ds-mri-viewer--mobile .mri-viewer-toolbar,
+.ds-mri-viewer--mobile .mri-annotation-toolbar {
+  padding: 6px;
+  gap: 4px;
+}
+.ds-mri-viewer--mobile .mri-vbtn {
+  padding: 3px 6px;
+  font-size: 10px;
+}
+.ds-mri-viewer--mobile .mri-shortcut-help {
+  font-size: 9px;
+  padding: 4px 6px;
+}
+.ds-mri-viewer--mobile #annotation-list {
+  max-height: 80px;
+}
+
+.ds-mri-viewer--tablet .mri-viewer-toolbar,
+.ds-mri-viewer--tablet .mri-annotation-toolbar {
+  padding: 6px 8px;
+}
+
+/* -- State Indicator -- */
+#viewer-state-indicator {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.3);
+  transition: background 0.3s;
+}
+#viewer-state-indicator:hover {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+/* -- Coordinate + Window/Level Overlays -- */
+#viewer-coordinates,
+#viewer-window-level {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  background: rgba(0, 0, 0, 0.6);
+  padding: 2px 6px;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 20;
+  transition: opacity 0.3s;
+}
+
+/* -- Annotation Overlay Canvas -- */
+#annotation-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* -- Annotation List -- */
+#annotation-list {
+  max-height: 120px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  background: rgba(5, 8, 16, 0.3);
+}
+#annotation-list::-webkit-scrollbar {
+  width: 4px;
+}
+#annotation-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+/* -- Progressive Viewer Card (Phase 2 enhanced) -- */
+.ds-mri-progressive-viewer-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(8, 13, 26, 0.85), rgba(15, 23, 42, 0.95));
+}
+
+/* -- Retry button in fallback state -- */
+.ds-mri-progressive-viewer__fallback .mri-vbtn {
+  margin-top: 8px;
+}
+
+/* -- Responsive: 2-column desktop, stacked tablet, simplified mobile -- */
+@media (max-width: 767px) {
+  .ds-mri-progressive-viewer {
+    min-height: 240px;
+  }
+  .ds-mri-progressive-viewer__canvas,
+  .ds-mri-progressive-viewer__iframe {
+    min-height: 240px;
+    height: 240px;
+  }
+  .mri-viewer-toolbar {
+    gap: 4px;
+    padding: 6px;
+  }
+  .mri-annotation-toolbar {
+    gap: 3px;
+    padding: 4px 6px;
+  }
+  .mri-shortcut-help {
+    display: none; /* Hide shortcuts on mobile (touch-first) */
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1199px) {
+  .ds-mri-progressive-viewer {
+    min-height: 400px;
+  }
+  .ds-mri-progressive-viewer__canvas,
+  .ds-mri-progressive-viewer__iframe {
+    min-height: 400px;
+    height: 400px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .ds-mri-progressive-viewer {
+    min-height: 520px;
+  }
+  .ds-mri-progressive-viewer__canvas,
+  .ds-mri-progressive-viewer__iframe {
+    min-height: 520px;
+    height: 520px;
+  }
+}
+
+/* -- Touch device optimizations -- */
+@media (pointer: coarse) {
+  .mri-vbtn {
+    min-height: 36px; /* Larger touch target */
+    padding: 6px 12px;
+  }
+  .mri-viewer-toolbar select {
+    min-height: 36px;
+  }
+}

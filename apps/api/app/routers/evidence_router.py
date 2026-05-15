@@ -3271,3 +3271,165 @@ def search_evidence(
     # BUG-FIX-001: Removed dead consent code. This is a generic search endpoint
     # with no patient_id parameter. Consent is enforced in patient-linked
     # evidence endpoints (e.g., /research/individual, /evidence/patient-match).
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# GRADE Evidence System + Modality-Condition Matrix + FDA Status
+# (Added 2025-07 — research roadmap evidence enrichment)
+# ═════════════════════════════════════════════════════════════════════════════
+
+# core-schema-exempt: GRADE definitions are static reference data
+class GradeDefinitionOut(BaseModel):
+    grade: str
+    label: str
+    color: str
+    description: str
+
+
+# core-schema-exempt: single modality cell in the evidence matrix
+class MatrixCellOut(BaseModel):
+    grade: str
+    smd: Optional[str] = None
+    fda: Optional[str] = None
+    fdaYear: Optional[int] = None
+    ci: Optional[str] = None
+    i2: Optional[str] = None
+    nStudies: Optional[int] = None
+
+
+# core-schema-exempt: one row of the modality x condition evidence matrix
+class MatrixRowOut(BaseModel):
+    condition: str
+    conditionLabel: str
+    rTMS: MatrixCellOut
+    tDCS: MatrixCellOut
+    tACS: MatrixCellOut
+    tRNS: MatrixCellOut
+    NF: MatrixCellOut
+
+
+# core-schema-exempt: FDA status entry for a modality-condition pair
+class FdaStatusOut(BaseModel):
+    modality: str
+    condition: str
+    conditionLabel: str
+    fdaStatus: str
+    fdaYear: Optional[int] = None
+    notes: Optional[str] = None
+
+
+# Static GRADE definitions (mirror of EVIDENCE_GRADES in evidence-dataset.js)
+_GRADE_DEFINITIONS: list[dict] = [
+    {"grade": "A", "label": "Strong", "color": "#16a34a", "description": "Multiple RCTs, consistent results, low heterogeneity (I\u00b2<50%), low risk of bias"},
+    {"grade": "B", "label": "Moderate", "color": "#3b82f6", "description": "Some RCTs, mostly consistent, minor methodological concerns"},
+    {"grade": "C", "label": "Limited", "color": "#f59e0b", "description": "Few RCTs, small samples, high heterogeneity, methodological limitations"},
+    {"grade": "D", "label": "Emerging", "color": "#f97316", "description": "Preliminary/pilot studies, case series, mechanistic rationale only"},
+    {"grade": "N", "label": "Negative", "color": "#ef4444", "description": "Probably-blinded outcomes show no clinically meaningful benefit"},
+]
+
+# Static Modality x Condition Evidence Matrix (mirror of MODALITY_CONDITION_EVIDENCE_MATRIX)
+_MODALITY_CONDITION_EVIDENCE_MATRIX: list[dict] = [
+    {"condition": "major-depressive-disorder", "conditionLabel": "Major Depressive Disorder",
+     "rTMS": {"grade": "A", "smd": "0.35-0.55", "fda": "approved", "fdaYear": 2008, "ci": "95% dose ~34,773 pulses", "i2": "<50%", "nStudies": 50},
+     "tDCS": {"grade": "B", "smd": "-0.355", "fda": "cleared", "fdaYear": 2022, "ci": "p<0.001; 2mA > 1mA", "nStudies": 56},
+     "tACS": {"grade": "D"}, "tRNS": {"grade": "D"}, "NF": {"grade": "C"}},
+    {"condition": "treatment-resistant-depression", "conditionLabel": "Treatment-Resistant Depression",
+     "rTMS": {"grade": "A", "smd": "~0.64", "fda": "approved", "fdaYear": 2008, "ci": "response 40-60%", "nStudies": 30},
+     "tDCS": {"grade": "C"}, "tACS": {"grade": "D"}, "tRNS": {"grade": "D"}, "NF": {"grade": "C"}},
+    {"condition": "obsessive-compulsive-disorder", "conditionLabel": "Obsessive-Compulsive Disorder",
+     "rTMS": {"grade": "B", "smd": "g=0.64", "fda": "approved", "fdaYear": 2020, "ci": "OR=3.15; 38-58% response", "nStudies": 18},
+     "tDCS": {"grade": "C"}, "tACS": {"grade": "D"}, "tRNS": {"grade": "D"}, "NF": {"grade": "C"}},
+    {"condition": "post-traumatic-stress-disorder", "conditionLabel": "Post-Traumatic Stress Disorder",
+     "rTMS": {"grade": "B", "smd": "-0.97", "ci": "HF-rTMS; iTBS SMD=-0.93", "nStudies": 21},
+     "tDCS": {"grade": "B", "smd": "-1.30", "ci": "dual-tDCS (strongest in network)", "nStudies": 21},
+     "tACS": {"grade": "D"}, "tRNS": {"grade": "D"}, "NF": {"grade": "D"}},
+    {"condition": "anxiety-disorders", "conditionLabel": "Anxiety Disorders",
+     "rTMS": {"grade": "C"}, "tDCS": {"grade": "C"}, "tACS": {"grade": "D"}, "tRNS": {"grade": "D"}, "NF": {"grade": "C"}},
+    {"condition": "chronic-pain", "conditionLabel": "Chronic Pain",
+     "rTMS": {"grade": "C"}, "tDCS": {"grade": "C"}, "tACS": {"grade": "C"}, "tRNS": {"grade": "D"}, "NF": {"grade": "C"}},
+    {"condition": "adhd", "conditionLabel": "ADHD (Adult)",
+     "rTMS": {"grade": "C"}, "tDCS": {"grade": "C"}, "tACS": {"grade": "D"}, "tRNS": {"grade": "D"},
+     "NF": {"grade": "N", "smd": "0.04", "ci": "probably-blinded SMD=0.04 (NO benefit); standard SMD=0.21", "nStudies": 38}},
+    {"condition": "alzheimers-disease", "conditionLabel": "Alzheimer's Disease",
+     "rTMS": {"grade": "C"}, "tDCS": {"grade": "C"}, "tACS": {"grade": "D"}, "tRNS": {"grade": "D"}, "NF": {"grade": "C"}},
+    {"condition": "parkinsons-disease", "conditionLabel": "Parkinson's Disease (motor)",
+     "rTMS": {"grade": "C"}, "tDCS": {"grade": "C"}, "tACS": {"grade": "C"}, "tRNS": {"grade": "D"}, "NF": {"grade": "C"}},
+    {"condition": "fibromyalgia", "conditionLabel": "Fibromyalgia",
+     "rTMS": {"grade": "C"}, "tDCS": {"grade": "C"}, "tACS": {"grade": "D"}, "tRNS": {"grade": "D"}, "NF": {"grade": "C"}},
+    {"condition": "pediatric-adhd", "conditionLabel": "Pediatric ADHD",
+     "rTMS": {"grade": "C"}, "tDCS": {"grade": "C"}, "tACS": {"grade": "D"}, "tRNS": {"grade": "D"},
+     "NF": {"grade": "N", "smd": "0.04", "ci": "JAMA Psychiatry 2024: no benefit in probably-blinded", "nStudies": 38}},
+    {"condition": "pediatric-asd", "conditionLabel": "Pediatric ASD",
+     "rTMS": {"grade": "D"}, "tDCS": {"grade": "D"}, "tACS": {"grade": "D"}, "tRNS": {"grade": "D"}, "NF": {"grade": "D"}},
+]
+
+# FDA status lookup table (modality slug → condition slug → status)
+_FDA_STATUS_LOOKUP: list[dict] = [
+    {"modality": "rTMS", "condition": "major-depressive-disorder", "conditionLabel": "Major Depressive Disorder", "fdaStatus": "approved", "fdaYear": 2008},
+    {"modality": "dTMS", "condition": "major-depressive-disorder", "conditionLabel": "Major Depressive Disorder", "fdaStatus": "approved", "fdaYear": 2013, "notes": "H1 coil"},
+    {"modality": "dTMS", "condition": "obsessive-compulsive-disorder", "conditionLabel": "Obsessive-Compulsive Disorder", "fdaStatus": "approved", "fdaYear": 2018, "notes": "H7 coil"},
+    {"modality": "rTMS", "condition": "obsessive-compulsive-disorder", "conditionLabel": "Obsessive-Compulsive Disorder", "fdaStatus": "approved", "fdaYear": 2020},
+    {"modality": "tDCS", "condition": "major-depressive-disorder", "conditionLabel": "Major Depressive Disorder", "fdaStatus": "cleared", "fdaYear": 2022},
+    {"modality": "rTMS", "condition": "smoking-cessation", "conditionLabel": "Smoking Cessation", "fdaStatus": "cleared", "fdaYear": 2020},
+    {"modality": "rTMS", "condition": "major-depressive-disorder", "conditionLabel": "Major Depressive Disorder", "fdaStatus": "cleared", "fdaYear": 2025, "notes": "Multiple expanded indications cleared 2025"},
+]
+
+
+@router.get("/grade-definitions", response_model=list[GradeDefinitionOut])
+def get_grade_definitions(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[GradeDefinitionOut]:
+    """GRADE (Grading of Recommendations Assessment, Development and Evaluation)
+    evidence definitions. Static reference data — does not query the evidence DB.
+    Includes the extended Grade N (Negative) for probably-blinded null findings."""
+    require_minimum_role(actor, "clinician")
+    return [GradeDefinitionOut(**d) for d in _GRADE_DEFINITIONS]
+
+
+@router.get("/modality-condition-matrix", response_model=list[MatrixRowOut])
+def get_modality_condition_matrix(
+    condition: Optional[str] = Query(None, description="Filter by condition slug e.g. major-depressive-disorder"),
+    modality: Optional[str] = Query(None, description="Filter by modality key e.g. rTMS, tDCS"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[MatrixRowOut]:
+    """Modality x Condition Evidence Matrix from 2024-2025 meta-analytic consensus.
+
+    Returns GRADE evidence grades (A/B/C/D/N), pooled SMD effect sizes,
+    FDA status, confidence intervals, and study counts per modality-condition pair.
+    Static reference data — does not query the evidence DB.
+    """
+    require_minimum_role(actor, "clinician")
+    rows = _MODALITY_CONDITION_EVIDENCE_MATRIX
+    if condition:
+        rows = [r for r in rows if r["condition"] == condition or condition in r["condition"]]
+    if modality:
+        rows = [r for r in rows if modality in r and r.get(modality, {}).get("grade")]
+    return [MatrixRowOut(
+        condition=r["condition"],
+        conditionLabel=r["conditionLabel"],
+        rTMS=MatrixCellOut(**r.get("rTMS", {"grade": "D"})),
+        tDCS=MatrixCellOut(**r.get("tDCS", {"grade": "D"})),
+        tACS=MatrixCellOut(**r.get("tACS", {"grade": "D"})),
+        tRNS=MatrixCellOut(**r.get("tRNS", {"grade": "D"})),
+        NF=MatrixCellOut(**r.get("NF", {"grade": "D"})),
+    ) for r in rows]
+
+
+@router.get("/fda-status", response_model=list[FdaStatusOut])
+def get_fda_status_lookups(
+    modality: Optional[str] = Query(None, description="Filter by modality e.g. rTMS, dTMS, tDCS"),
+    condition: Optional[str] = Query(None, description="Filter by condition slug e.g. major-depressive-disorder"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[FdaStatusOut]:
+    """FDA regulatory status (approved / cleared) per modality x condition.
+
+    Static reference data from the research roadmap. For live FDA device records
+    linked to indications, use /indications/{slug}/devices instead.
+    """
+    require_minimum_role(actor, "clinician")
+    results = _FDA_STATUS_LOOKUP
+    if modality:
+        results = [r for r in results if r["modality"].lower() == modality.lower()]
+    if condition:
+        results = [r for r in results if r["condition"] == condition or condition in r["condition"]]
+    return [FdaStatusOut(**r) for r in results]

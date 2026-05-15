@@ -574,7 +574,7 @@ def create_patient_substance(
     return _substance_out(row)
 
 
-@router.delete("/patients/{patient_id}/substances/{substance_id}", status_code=204)
+@router.delete("/patients/{patient_id}/substances/{substance_id}")
 def delete_patient_substance(
     patient_id: str,
     substance_id: str,
@@ -661,7 +661,7 @@ def create_patient_lab(
     return _lab_out(row)
 
 
-@router.delete("/patients/{patient_id}/labs/{lab_result_id}", status_code=204)
+@router.delete("/patients/{patient_id}/labs/{lab_result_id}")
 def delete_patient_lab(
     patient_id: str,
     lab_result_id: str,

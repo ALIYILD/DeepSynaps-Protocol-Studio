@@ -1,0 +1,425 @@
+# DeepSynaps Protocol Studio — System Health Alerts
+#
+# These alerts cover compute resources (CPU, memory, disk), database
+# connection pool, SSL certificate expiry, worker queue depth, API error
+# rate, and latency SLOs.
+#
+# Severity:
+#   - critical: Service degradation imminent or occurring
+#   - warning:  Capacity planning concern, investigate soon
+#   - info:     Tracking / informational
+#
+# Every alert includes:
+#   - runbook_url → docs/runbooks/alerting-runbook.md#<section>
+#   - dashboard_url → Grafana drill-down link
+#   - summary + description annotations for AlertManager
+
+groups:
+  - name: compute_resources
+    interval: 30s
+    rules:
+      # --- CPU usage high (WARNING) ---
+      - alert: HighCPUUsage
+        expr: |
+          100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[2m])) by (instance, env) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "CPU usage is {{ $value | humanize }}% on {{ $labels.instance }}"
+          description: "CPU utilization on {{ $labels.instance }} in {{ $labels.env }} has been above 80% for 5 minutes. Consider scaling the Fly.io machine."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#high-cpu-usage"
+          dashboard_url: "https://grafana.deepsynaps.io/d/infrastructure?var-instance={{ $labels.instance }}&from=now-1h&to=now"
+
+      # --- CPU usage critical (CRITICAL) ---
+      - alert: CriticalCPUUsage
+        expr: |
+          100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[2m])) by (instance, env) * 100) > 95
+        for: 2m
+        labels:
+          severity: critical
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "CPU usage is {{ $value | humanize }}% on {{ $labels.instance }}"
+          description: "CPU utilization on {{ $labels.instance }} in {{ $labels.env }} is critically high (> 95%). Immediate scaling or investigation required."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#critical-cpu-usage"
+          dashboard_url: "https://grafana.deepsynaps.io/d/infrastructure?var-instance={{ $labels.instance }}&from=now-1h&to=now"
+
+      # --- Memory usage high (WARNING) ---
+      - alert: HighMemoryUsage
+        expr: |
+          (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes)
+          /
+          node_memory_MemTotal_bytes * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "Memory usage is {{ $value | humanize }}% on {{ $labels.instance }}"
+          description: "Memory utilization on {{ $labels.instance }} in {{ $labels.env }} has been above 85% for 5 minutes. Fly.io vm.memory = 1gb — consider increasing allocation."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#high-memory-usage"
+          dashboard_url: "https://grafana.deepsynaps.io/d/infrastructure?var-instance={{ $labels.instance }}&from=now-1h&to=now"
+
+      # --- Memory usage critical (CRITICAL) ---
+      - alert: CriticalMemoryUsage
+        expr: |
+          (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes)
+          /
+          node_memory_MemTotal_bytes * 100 > 95
+        for: 2m
+        labels:
+          severity: critical
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "Memory usage is {{ $value | humanize }}% on {{ $labels.instance }}"
+          description: "Memory utilization on {{ $labels.instance }} in {{ $labels.env }} is critically high (> 95%). OOM kills likely — scale memory immediately."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#critical-memory-usage"
+          dashboard_url: "https://grafana.deepsynaps.io/d/infrastructure?var-instance={{ $labels.instance }}&from=now-1h&to=now"
+
+      # --- Disk usage high (WARNING) ---
+      - alert: HighDiskUsage
+        expr: |
+          100 - ((node_filesystem_avail_bytes{mountpoint="/data"} * 100)
+          /
+          node_filesystem_size_bytes{mountpoint="/data"}) > 85
+        for: 5m
+        labels:
+          severity: warning
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "Disk usage is {{ $value | humanize }}% on /data"
+          description: "Disk utilization on the /data volume in {{ $labels.env }} is above 85%. Evidence DB and media uploads may fail."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#high-disk-usage"
+          dashboard_url: "https://grafana.deepsynaps.io/d/infrastructure?from=now-1h&to=now"
+
+      # --- Disk usage critical (CRITICAL) ---
+      - alert: CriticalDiskUsage
+        expr: |
+          100 - ((node_filesystem_avail_bytes{mountpoint="/data"} * 100)
+          /
+          node_filesystem_size_bytes{mountpoint="/data"}) > 95
+        for: 2m
+        labels:
+          severity: critical
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "Disk usage is {{ $value | humanize }}% on /data"
+          description: "Disk utilization on the /data volume in {{ $labels.env }} is critically high (> 95%). Immediate cleanup or volume expansion required."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#critical-disk-usage"
+          dashboard_url: "https://grafana.deepsynaps.io/d/infrastructure?from=now-1h&to=now"
+
+  - name: database_pool
+    interval: 15s
+    rules:
+      # --- DB pool utilization high (WARNING) ---
+      - alert: DBPoolUtilizationHigh
+        expr: |
+          (db_pool_checked_out / db_pool_size{pool="default"}) > 0.75
+        for: 5m
+        labels:
+          severity: warning
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "DB pool utilization is {{ $value | humanizePercentage }}"
+          description: "Database connection pool in {{ $labels.env }} is > 75% utilized. Requests may start queueing and timing out."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#db-pool-utilization-high"
+          dashboard_url: "https://grafana.deepsynaps.io/d/infrastructure?from=now-1h&to=now"
+
+      # --- DB pool exhausted (CRITICAL) ---
+      - alert: DBPoolExhausted
+        expr: |
+          (db_pool_checked_out / db_pool_size{pool="default"}) >= 1.0
+        for: 1m
+        labels:
+          severity: critical
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "DB connection pool exhausted in {{ $labels.env }}"
+          description: "All database connections are checked out and new requests cannot obtain a connection. The API is effectively down for DB-dependent endpoints."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#db-pool-exhausted"
+          dashboard_url: "https://grafana.deepsynaps.io/d/infrastructure?from=now-1h&to=now"
+
+      # --- DB connection acquisition slow (WARNING) ---
+      - alert: DBConnectionSlow
+        expr: |
+          histogram_quantile(0.95, sum(rate(db_pool_acquire_seconds_bucket[5m])) by (le)) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "DB connection acquisition P95 is {{ $value }}s"
+          description: "Acquiring a DB connection is taking > 500ms (P95). The pool may be undersized or connections may be leaking."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#db-connection-slow"
+          dashboard_url: "https://grafana.deepsynaps.io/d/infrastructure?from=now-1h&to=now"
+
+  - name: ssl_certificates
+    interval: 300s
+    rules:
+      # --- SSL certificate expires in 30 days (WARNING) ---
+      - alert: SSLCertificateExpiring30d
+        expr: |
+          ssl_certificate_expiry_seconds / 86400 < 30
+        for: 1h
+        labels:
+          severity: warning
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "SSL certificate expires in {{ $value | humanize }} days"
+          description: "The SSL certificate for {{ $labels.env }} expires in {{ $value | humanize }} days. Schedule renewal."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#ssl-certificate-expiring"
+          dashboard_url: "https://grafana.deepsynaps.io/d/infrastructure?from=now-7d&to=now"
+
+      # --- SSL certificate expires in 14 days (WARNING, escalated) ---
+      - alert: SSLCertificateExpiring14d
+        expr: |
+          ssl_certificate_expiry_seconds / 86400 < 14
+        for: 1h
+        labels:
+          severity: warning
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "SSL certificate expires in {{ $value | humanize }} days"
+          description: "URGENT: SSL certificate for {{ $labels.env }} expires in {{ $value | humanize }} days. Renewal must be completed soon."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#ssl-certificate-expiring"
+          dashboard_url: "https://grafana.deepsynaps.io/d/infrastructure?from=now-7d&to=now"
+
+      # --- SSL certificate expires in 7 days (CRITICAL) ---
+      - alert: SSLCertificateExpiring7d
+        expr: |
+          ssl_certificate_expiry_seconds / 86400 < 7
+        for: 1h
+        labels:
+          severity: critical
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "SSL certificate expires in {{ $value | humanize }} days"
+          description: "CRITICAL: SSL certificate for {{ $labels.env }} expires in {{ $value | humanize }} days. Service will become unreachable. Renew immediately."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#ssl-certificate-expiring"
+          dashboard_url: "https://grafana.deepsynaps.io/d/infrastructure?from=now-7d&to=now"
+
+  - name: worker_queue
+    interval: 30s
+    rules:
+      # --- Worker queue depth high (WARNING) ---
+      - alert: WorkerQueueDepthHigh
+        expr: |
+          worker_queue_depth > 500
+        for: 5m
+        labels:
+          severity: warning
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "Worker queue depth is {{ $value }}"
+          description: "The Celery worker queue in {{ $labels.env }} has {{ $value }} pending tasks. Queue depth has been > 500 for 5 minutes — workers may be falling behind."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#worker-queue-depth-high"
+          dashboard_url: "https://grafana.deepsynaps.io/d/infrastructure?from=now-1h&to=now"
+
+      # --- Worker queue depth critical (CRITICAL) ---
+      - alert: WorkerQueueDepthCritical
+        expr: |
+          worker_queue_depth > 1000
+        for: 2m
+        labels:
+          severity: critical
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "Worker queue depth is {{ $value }}"
+          description: "The Celery worker queue in {{ $labels.env }} has {{ $value }} pending tasks. Queue depth > 1000 — tasks will be significantly delayed. Scale workers immediately."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#worker-queue-depth-critical"
+          dashboard_url: "https://grafana.deepsynaps.io/d/infrastructure?from=now-1h&to=now"
+
+      # --- No worker processing (CRITICAL) ---
+      - alert: WorkersNotProcessing
+        expr: |
+          sum(rate(celery_task_processed_total[10m])) by (env) == 0
+          and
+          worker_queue_depth > 0
+        for: 5m
+        labels:
+          severity: critical
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "Celery workers are not processing tasks"
+          description: "No tasks have been processed in the last 10 minutes, but the queue has {{ $value }} pending items. All workers may be down."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#workers-not-processing"
+          dashboard_url: "https://grafana.deepsynaps.io/d/infrastructure?from=now-1h&to=now"
+
+  - name: api_slo
+    interval: 30s
+    rules:
+      # --- API error rate high (CRITICAL) ---
+      - alert: APIHighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5xx"}[5m])) by (env)
+          /
+          sum(rate(http_requests_total[5m])) by (env)
+          > 0.001
+        for: 2m
+        labels:
+          severity: critical
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "API 5xx error rate is {{ $value | humanizePercentage }}"
+          description: "The API error rate in {{ $labels.env }} has exceeded the 0.1% SLO (current: {{ $value | humanizePercentage }})."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#api-high-error-rate"
+          dashboard_url: "https://grafana.deepsynaps.io/d/api-performance?from=now-1h&to=now"
+
+      # --- API error rate elevated (WARNING) ---
+      - alert: APIElevatedErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"4xx|5xx"}[5m])) by (env)
+          /
+          sum(rate(http_requests_total[5m])) by (env)
+          > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "API total error rate is {{ $value | humanizePercentage }}"
+          description: "The combined 4xx+5xx error rate in {{ $labels.env }} is elevated ({{ $value | humanizePercentage }}). May indicate client issues or degraded service."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#api-elevated-error-rate"
+          dashboard_url: "https://grafana.deepsynaps.io/d/api-performance?from=now-1h&to=now"
+
+      # --- API P95 latency SLO breach (CRITICAL) ---
+      - alert: APILatencyP95High
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 0.2
+        for: 5m
+        labels:
+          severity: critical
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "API P95 latency is {{ $value }}s"
+          description: "The API P95 latency in {{ $labels.env }} has exceeded the 200ms SLO (current: {{ $value }}s) for 5 minutes."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#api-latency-p95-high"
+          dashboard_url: "https://grafana.deepsynaps.io/d/api-performance?from=now-1h&to=now"
+
+      # --- API P99 latency very high (WARNING) ---
+      - alert: APILatencyP99High
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "API P99 latency is {{ $value }}s"
+          description: "The API P99 latency in {{ $labels.env }} is very high ({{ $value }}s). A small percentage of users are experiencing significant delays."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#api-latency-p99-high"
+          dashboard_url: "https://grafana.deepsynaps.io/d/api-performance?from=now-1h&to=now"
+
+      # --- Error budget fast burn (CRITICAL) ---
+      - alert: ErrorBudgetFastBurn
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5xx"}[1h])) by (env)
+            /
+            sum(rate(http_requests_total[1h])) by (env)
+          ) / (1 - 0.999) > 14.4
+        for: 2m
+        labels:
+          severity: critical
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "Error budget is burning fast ({{ $value | humanize }}x)"
+          description: "The error budget burn rate in {{ $labels.env }} is {{ $value | humanize }}x. At this rate the monthly 99.9% SLO budget will be exhausted within 2 days."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#error-budget-fast-burn"
+          dashboard_url: "https://grafana.deepsynaps.io/d/infrastructure?from=now-1h&to=now"
+
+      # --- Error budget slow burn (WARNING) ---
+      - alert: ErrorBudgetSlowBurn
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5xx"}[6h])) by (env)
+            /
+            sum(rate(http_requests_total[6h])) by (env)
+          ) / (1 - 0.999) > 2
+        for: 1h
+        labels:
+          severity: warning
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "Error budget is burning slowly ({{ $value | humanize }}x)"
+          description: "The error budget burn rate in {{ $labels.env }} is {{ $value | humanize }}x over 6 hours. The monthly 99.9% SLO budget may be exhausted within 2 weeks."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#error-budget-slow-burn"
+          dashboard_url: "https://grafana.deepsynaps.io/d/infrastructure?from=now-6h&to=now"
+
+  - name: flyio_specific
+    interval: 30s
+    rules:
+      # --- Fly.io machine count low (WARNING) ---
+      - alert: FlyMachineCountLow
+        expr: |
+          sum(up{job="deepsynaps-api"}) by (env) < 1
+        for: 1m
+        labels:
+          severity: critical
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "Only {{ $value }} Fly.io machine(s) healthy"
+          description: "The number of healthy Fly.io machines for {{ $labels.env }} is below 1. auto_start_machines may be spinning up a replacement — monitor."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#fly-machine-count-low"
+          dashboard_url: "https://grafana.deepsynaps.io/d/infrastructure?from=now-1h&to=now"
+
+      # --- Fly.io connection limit approaching (WARNING) ---
+      - alert: FlyConnectionLimitApproaching
+        expr: |
+          sum(http_requests_in_progress) by (env) > 18
+        for: 5m
+        labels:
+          severity: warning
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "{{ $value | humanize }} active connections approaching Fly.io limit"
+          description: "Active connections ({{ $value }}) are approaching the Fly.io soft limit of 20. New connections may be refused at the hard limit of 25."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#fly-connection-limit-approaching"
+          dashboard_url: "https://grafana.deepsynaps.io/d/api-performance?from=now-1h&to=now"
+
+  - name: rate_limiting
+    interval: 30s
+    rules:
+      # --- Rate limiting firing frequently (INFO) ---
+      - alert: RateLimitFrequent
+        expr: |
+          sum(rate(security_events_total{event_type="rate_limit_hit"}[5m])) by (env) > 1
+        for: 10m
+        labels:
+          severity: info
+          alertgroup: system
+          team: sre
+        annotations:
+          summary: "Rate limiting active ({{ $value | humanize }}/s)"
+          description: "Rate limit events are occurring at {{ $value | humanize }}/s in {{ $labels.env }}. This is informational — clients may need backoff tuning."
+          runbook_url: "https://docs.deepsynaps.io/runbooks/alerting-runbook.md#rate-limit-frequent"
+          dashboard_url: "https://grafana.deepsynaps.io/d/api-performance?from=now-1h&to=now"

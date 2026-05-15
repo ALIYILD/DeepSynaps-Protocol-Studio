@@ -25,6 +25,7 @@ VOICE_DECISION_SUPPORT_DISCLAIMER = (
 )
 
 # Curated open-access style references (education / orientation — not exhaustive).
+# Evidence-graded key studies (2023-2025) are included for clinician context.
 EXTERNAL_VOICE_RESOURCES: list[dict[str, str]] = [
     {
         "label": "NIH · Speech and Language (overview)",
@@ -37,6 +38,26 @@ EXTERNAL_VOICE_RESOURCES: list[dict[str, str]] = [
     {
         "label": "PubMed · Parkinson disease speech (search)",
         "url": "https://pubmed.ncbi.nlm.nih.gov/?term=Parkinson+disease+speech+biomarkers",
+    },
+    {
+        "label": "Cantor-Cutiva et al. · Voice biomarkers in depression — systematic review/meta-analysis (2026)",
+        "url": "https://pubmed.ncbi.nlm.nih.gov/?term=Cantor-Cutiva+voice+biomarkers+depression+meta-analysis",
+    },
+    {
+        "label": "Saeedi et al. · Voice of patients with Alzheimer's disease vs healthy controls — meta-analysis (JPAD 2024)",
+        "url": "https://pubmed.ncbi.nlm.nih.gov/?term=Saeedi+voice+Alzheimer+meta-analysis+JPAD",
+    },
+    {
+        "label": "Nature npj Parkinson's Disease · Longitudinal voice changes in Parkinson's — 33-month progression study (2025)",
+        "url": "https://www.nature.com/npjparkdis/",
+    },
+    {
+        "label": "Parola et al. · Voice abnormalities in schizophrenia — meta-analysis (Nature 2023)",
+        "url": "https://pubmed.ncbi.nlm.nih.gov/?term=Parola+voice+schizophrenia+meta-analysis",
+    },
+    {
+        "label": "arXiv 2505.18195v1 · Suicide risk prediction from voice: systematic review and limitations (2025)",
+        "url": "https://arxiv.org/abs/2505.18195",
     },
 ]
 
@@ -131,3 +152,87 @@ def _feature_summary_from_report(voice_report: dict[str, Any]) -> list[EvidenceF
             EvidenceFeatureSummary(name="cognitive_speech_risk", value=cog.get("score"), modality="voice"),
         )
     return out[:12]
+
+
+# Evidence-grade mapping for voice/acoustic flag types based on 2023-2025 literature.
+# Grades: A=Meta-analysis/SR, B=RCT/Controlled trial, C=Observational, D=Expert opinion.
+_VOICE_EVIDENCE_GRADE_MAP: dict[str, dict[str, str]] = {
+    "depression": {
+        "cpp": "B",
+        "speech_rate": "A",
+        "pause_duration": "A",
+        "f0": "A",
+        "jitter": "C",
+        "shimmer": "C",
+        "hnr": "C",
+    },
+    "parkinsons": {
+        "vowel_articulation": "B",
+        "shimmer": "B",
+        "nhr": "B",
+        "speech_rate": "B",
+        "pause_ratio": "B",
+    },
+    "alzheimers": {
+        "speech_rate": "A",
+        "articulation_rate": "A",
+        "voice_breaks": "A",
+        "npvi": "A",
+    },
+    "schizophrenia": {
+        "pause_duration": "A",
+        "speech_rate": "A",
+        "spoken_time_proportion": "A",
+    },
+    "anxiety": {
+        "f0_slope": "C",
+        "pitch_range": "C",
+    },
+}
+
+
+def _get_evidence_grade_for_flag(flag_type: str) -> dict[str, Any]:
+    """Map a flag type string to its evidence grade based on the research matrix.
+
+    Returns a dict with keys: grade, strength, note. Defaults to grade D when
+    the flag type is not found in the matrix.
+    """
+    flag_lower = flag_type.lower().strip()
+    # Direct condition lookups
+    for condition, features in _VOICE_EVIDENCE_GRADE_MAP.items():
+        if flag_lower in features:
+            grade = features[flag_lower]
+            strength_note = {
+                "A": "Strong — meta-analytic or systematic-review support",
+                "B": "Moderate — controlled-trial evidence",
+                "C": "Limited — observational or cross-sectional data",
+                "D": "Very limited — expert opinion or case series",
+            }
+            return {
+                "grade": grade,
+                "strength": strength_note.get(grade, "Unknown"),
+                "note": f"Mapped to {condition} evidence matrix",
+            }
+    # Partial matching for compound flag names
+    condition_keywords = {
+        "depression": "depression",
+        "parkinson": "parkinsons",
+        "alzheimer": "alzheimers",
+        "cognitive": "alzheimers",
+        "dementia": "alzheimers",
+        "schizophrenia": "schizophrenia",
+        "anxiety": "anxiety",
+        "suicide": "anxiety",
+    }
+    for keyword, condition in condition_keywords.items():
+        if keyword in flag_lower:
+            return {
+                "grade": "D",
+                "strength": "Very limited — consult condition-specific evidence",
+                "note": f"Flag type '{flag_type}' matched to {condition} category; no specific biomarker grade available",
+            }
+    return {
+        "grade": "D",
+        "strength": "Very limited — no evidence mapping available",
+        "note": f"Flag type '{flag_type}' not found in evidence matrix (2023-2025)",
+    }

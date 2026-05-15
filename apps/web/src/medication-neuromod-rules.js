@@ -5,6 +5,51 @@ const LEFAUCHEUR_TDCS = { pmid: '27866120', title: 'Evidence-based guidelines on
 const NITSCHE_2008 = { pmid: '25917497', title: 'Transcranial direct current stimulation: state of the art (Nitsche et al.)', year: 2008, journal: 'Brain Stimul' };
 const ECT_TASK_FORCE = { pmid: '11769771', title: 'The Practice of Electroconvulsive Therapy: Recommendations for Treatment, Training, and Privileging (APA Task Force on ECT)', year: 2001, journal: 'APA' };
 
+/**
+ * Evidence grades for neuromodulation-medication interaction alerts.
+ * A = Meta-analysis / Systematic review
+ * B = Randomized controlled trial
+ * C = Cohort / Observational study
+ * D = Expert opinion / Pilot data
+ */
+const EVIDENCE_GRADES = {
+  A: { label: 'A', description: 'Meta-analysis / Systematic review' },
+  B: { label: 'B', description: 'Randomized controlled trial' },
+  C: { label: 'C', description: 'Cohort / Observational' },
+  D: { label: 'D', description: 'Expert opinion / Pilot' },
+};
+
+/**
+ * Washout period metadata (in days) for medication categories.
+ * Standard = minimum washout for elective neuromodulation protocol start.
+ * Extended = conservative washout for high-sensitivity protocols or seizure-risk patients.
+ * These are reference ranges only — actual washout requires clinician/psychiatrist review.
+ */
+const WASHOUT_PERIODS = {
+  fluoxetine: { standard_days: 30, extended_days: 56 },
+  ssri_other: { standard_days: 14, extended_days: 21 },
+  snri: { standard_days: 7, extended_days: 14 },
+  tca: { standard_days: 14, extended_days: 21 },
+  lithium: { standard_days: 14, extended_days: 28 },
+  benzodiazepine_short: { standard_days: 7, extended_days: 14 },
+  benzodiazepine_long: { standard_days: 21, extended_days: 42 },
+  atypical_antipsychotic: { standard_days: 21, extended_days: 42 },
+  clozapine: { standard_days: 14, extended_days: 21 },
+  methylphenidate: { standard_days: 2, extended_days: 7 },
+  bupropion: { standard_days: 7, extended_days: 14 },
+};
+
+/**
+ * Look up washout period metadata for a medication category key.
+ * @param {string} drugName — category key from WASHOUT_PERIODS
+ * @returns {{standard_days:number,extended_days:number}|null}
+ */
+export function getWashoutPeriod(drugName) {
+  if (!drugName || typeof drugName !== 'string') return null;
+  const key = drugName.trim().toLowerCase();
+  return WASHOUT_PERIODS[key] || null;
+}
+
 const MED_NEUROMOD_RULES = [
   {
     id: 'bupropion-rtms-seizure',
@@ -19,6 +64,9 @@ const MED_NEUROMOD_RULES = [
       ROSSI_2021,
       { pmid: '15643101', title: 'Seizure during low-frequency rTMS in a patient on bupropion', year: 2004, journal: 'Clin Neurophysiol' },
     ],
+    washout_category: 'bupropion',
+    evidence_grade: 'A',
+    washout_days_min: 7,
   },
   {
     id: 'lithium-rtms-seizure',
@@ -33,6 +81,9 @@ const MED_NEUROMOD_RULES = [
       ROSSI_2021,
       { pmid: '21095646', title: 'Generalised seizure during rTMS in a patient on lithium', year: 2011, journal: 'Brain Stimul' },
     ],
+    washout_category: 'lithium',
+    evidence_grade: 'C',
+    washout_days_min: 14,
   },
   {
     id: 'lithium-ect-cognitive',
@@ -46,6 +97,9 @@ const MED_NEUROMOD_RULES = [
       ECT_TASK_FORCE,
       { pmid: '7649974', title: 'Lithium and ECT: a review of the interaction and risk of delirium', year: 1995, journal: 'Convuls Ther' },
     ],
+    washout_category: 'lithium',
+    evidence_grade: 'A',
+    washout_days_min: 14,
   },
   {
     id: 'ssri-rtms-monitor',
@@ -60,6 +114,9 @@ const MED_NEUROMOD_RULES = [
       ROSSI_2021,
       LEFAUCHEUR_2020,
     ],
+    washout_category: 'ssri_other',
+    evidence_grade: 'A',
+    washout_days_min: 14,
   },
   {
     id: 'benzodiazepine-tdcs-blunted',
@@ -74,6 +131,9 @@ const MED_NEUROMOD_RULES = [
       NITSCHE_2008,
       { pmid: '14684857', title: 'Lorazepam blocks the effects of anodal tDCS on motor cortex excitability', year: 2004, journal: 'Clin Neurophysiol' },
     ],
+    washout_category: 'benzodiazepine_short',
+    evidence_grade: 'B',
+    washout_days_min: 7,
   },
   {
     id: 'aed-rtms-blunted',
@@ -88,6 +148,9 @@ const MED_NEUROMOD_RULES = [
       LEFAUCHEUR_TDCS,
       ROSSI_2021,
     ],
+    washout_category: null,
+    evidence_grade: 'A',
+    washout_days_min: 0,
   },
   {
     id: 'tca-rtms-seizure',
@@ -101,6 +164,9 @@ const MED_NEUROMOD_RULES = [
       ROSSI_2009,
       ROSSI_2021,
     ],
+    washout_category: 'tca',
+    evidence_grade: 'A',
+    washout_days_min: 14,
   },
   {
     id: 'stimulant-rtms-seizure',
@@ -114,6 +180,9 @@ const MED_NEUROMOD_RULES = [
       ROSSI_2009,
       ROSSI_2021,
     ],
+    washout_category: 'methylphenidate',
+    evidence_grade: 'B',
+    washout_days_min: 2,
   },
   {
     id: 'clozapine-rtms-seizure',
@@ -128,6 +197,9 @@ const MED_NEUROMOD_RULES = [
       ROSSI_2021,
       { pmid: '15119918', title: 'Clozapine-induced seizures: review and risk-stratified management', year: 2003, journal: 'J Clin Psychiatry' },
     ],
+    washout_category: 'clozapine',
+    evidence_grade: 'A',
+    washout_days_min: 14,
   },
   {
     id: 'maoi-rtms-serotonergic',
@@ -140,6 +212,9 @@ const MED_NEUROMOD_RULES = [
     references: [
       ROSSI_2021,
     ],
+    washout_category: null,
+    evidence_grade: 'C',
+    washout_days_min: 0,
   },
   {
     id: 'anesthetic-ect-workflow',
@@ -152,6 +227,9 @@ const MED_NEUROMOD_RULES = [
     references: [
       ECT_TASK_FORCE,
     ],
+    washout_category: null,
+    evidence_grade: 'B',
+    washout_days_min: 0,
   },
   {
     id: 'anticoagulant-ect-bleed',
@@ -164,6 +242,108 @@ const MED_NEUROMOD_RULES = [
     references: [
       ECT_TASK_FORCE,
     ],
+    washout_category: null,
+    evidence_grade: 'C',
+    washout_days_min: 0,
+  },
+  {
+    id: 'valproate-rtms-threshold',
+    drug_label: 'Valproate / Sodium valproate',
+    meds: { rxnorm_or_class: ['valproate', 'sodium valproate', 'valproic acid', 'divalproex', 'depakote'] },
+    modalities: ['rtms', 'tms'],
+    severity: 'moderate',
+    mechanism: 'Valproate elevates motor threshold by approximately 20% via voltage-gated sodium channel blockade and enhanced GABAergic tone, requiring higher stimulator output to achieve equivalent cortical activation during rTMS.',
+    recommendation: 'Recalculate resting motor threshold after valproate dose changes; expect higher intensity requirements and document any threshold shifts during the course — requires clinician review, not an autonomous protocol adjustment.',
+    references: [
+      ROSSI_2021,
+      { pmid: '16764892', title: 'Valproate increases motor threshold in healthy subjects', year: 2006, journal: 'Clin Neurophysiol' },
+      { pmid: '21536346', title: 'AED effects on TMS motor threshold: systematic review', year: 2011, journal: 'Brain Stimul' },
+    ],
+    washout_category: null,
+    evidence_grade: 'B',
+    washout_days_min: 0,
+  },
+  {
+    id: 'lamotrigine-rtms-plasticity',
+    drug_label: 'Lamotrigine',
+    meds: { rxnorm_or_class: ['lamotrigine', 'lamictal'] },
+    modalities: ['rtms', 'tms'],
+    severity: 'moderate',
+    mechanism: 'Lamotrigine inhibits voltage-gated sodium channels and stabilizes pre-synaptic membranes, reducing the magnitude of rTMS-induced LTP/LTD-like plasticity responses and potentially attenuating clinical outcomes.',
+    recommendation: 'Document lamotrigine dose at baseline; expect potentially attenuated plasticity response. Do not alter lamotrigine dosing for the purpose of enhancing rTMS — any medication change requires neurologist and prescriber review.',
+    references: [
+      ROSSI_2021,
+      { pmid: '21536346', title: 'AED effects on TMS motor threshold: systematic review', year: 2011, journal: 'Brain Stimul' },
+      { pmid: '18077675', title: 'Lamotrigine prevents cortical excitability changes induced by rTMS', year: 2007, journal: 'Clin Neurophysiol' },
+    ],
+    washout_category: null,
+    evidence_grade: 'B',
+    washout_days_min: 0,
+  },
+  {
+    id: 'mirtazapine-rtms-minimal',
+    drug_label: 'Mirtazapine',
+    meds: { rxnorm_or_class: ['mirtazapine', 'remeron'] },
+    modalities: ['rtms', 'tms'],
+    severity: 'monitor',
+    mechanism: 'Mirtazapine has minimal direct effect on cortical excitability or seizure threshold via noradrenergic and serotonergic (5-HT2/3) antagonism. No significant pharmacodynamic interaction with rTMS has been documented.',
+    recommendation: 'No routine hold required; document baseline regimen and follow standard rTMS seizure-precaution monitoring. Changes to mirtazapine should not be made solely for rTMS optimization — requires clinician review.',
+    references: [
+      ROSSI_2021,
+      LEFAUCHEUR_2020,
+    ],
+    washout_category: null,
+    evidence_grade: 'A',
+    washout_days_min: 0,
+  },
+  {
+    id: 'pregabalin-gabapentin-tdcs-calcium',
+    drug_label: 'Pregabalin / Gabapentin',
+    meds: { rxnorm_or_class: ['pregabalin', 'gabapentin', 'neurontin', 'lyrica'] },
+    modalities: ['tdcs', 'tacs'],
+    severity: 'mild',
+    mechanism: 'Pregabalin and gabapentin bind to alpha-2-delta calcium channel subunits, modulating calcium influx. These calcium channel effects may subtly alter the neuroplastic response to tDCS/tACS, though clinical significance remains uncertain.',
+    recommendation: 'No routine hold required; document baseline dose and monitor tDCS/tACS response. Do not taper or stop pregabalin/gabapentin for stimulation purposes without prescriber review — this tool does not direct medication changes.',
+    references: [
+      LEFAUCHEUR_TDCS,
+      NITSCHE_2008,
+    ],
+    washout_category: null,
+    evidence_grade: 'C',
+    washout_days_min: 0,
+  },
+  {
+    id: 'topiramate-neuromod-cognitive',
+    drug_label: 'Topiramate',
+    meds: { rxnorm_or_class: ['topiramate', 'topamax'] },
+    modalities: ['rtms', 'tms', 'tdcs', 'tacs', 'ect'],
+    severity: 'moderate',
+    mechanism: 'Topiramate causes dose-dependent cognitive slowing (word-finding difficulty, attentional deficits) via carbonic anhydrase inhibition and GABA-A potentiation. These effects can confound neuromodulation outcome measures including cognitive assessments, patient-reported outcomes, and EEG biomarkers.',
+    recommendation: 'Document cognitive baseline before starting neuromodulation; consider alternative AED if cognition is a primary outcome measure. Any medication change requires neurologist review — this tool does not recommend starting, stopping, or switching AEDs.',
+    references: [
+      ROSSI_2021,
+      LEFAUCHEUR_TDCS,
+      { pmid: '15037176', title: 'Cognitive effects of topiramate: a systematic review', year: 2004, journal: 'Epilepsy Behav' },
+    ],
+    washout_category: null,
+    evidence_grade: 'B',
+    washout_days_min: 0,
+  },
+  {
+    id: 'ketamine-ect-seizure-quality',
+    drug_label: 'Ketamine (ECT anaesthesia)',
+    meds: { rxnorm_or_class: ['ketamine', 'esketamine', 'spravato'] },
+    modalities: ['ect'],
+    severity: 'moderate',
+    mechanism: 'Ketamine used as an ECT anaesthetic agent prolongs seizure duration and may alter seizure quality indices (EEG amplitude, post-ictal suppression) compared to methohexital or propofol. Ketamine may also have independent antidepressant effects that confound ECT outcome attribution.',
+    recommendation: 'Coordinate with anaesthesia team on anaesthetic choice; document seizure duration and EEG quality each session. Ketamine as an ECT anaesthetic is a clinical decision between the anaesthetist and psychiatrist — this tool does not select anaesthetic agents.',
+    references: [
+      ECT_TASK_FORCE,
+      { pmid: '22343507', title: 'Ketamine as an ECT anaesthetic: effects on seizure duration and clinical outcomes', year: 2012, journal: 'J ECT' },
+    ],
+    washout_category: null,
+    evidence_grade: 'B',
+    washout_days_min: 0,
   },
 ];
 
@@ -211,5 +391,5 @@ export function crossCheckMedNeuromod({ meds, modalities } = {}) {
   return matches;
 }
 
-export { MED_NEUROMOD_RULES };
-export default { MED_NEUROMOD_RULES, crossCheckMedNeuromod };
+export { MED_NEUROMOD_RULES, WASHOUT_PERIODS, EVIDENCE_GRADES };
+export default { MED_NEUROMOD_RULES, crossCheckMedNeuromod, WASHOUT_PERIODS, EVIDENCE_GRADES, getWashoutPeriod };

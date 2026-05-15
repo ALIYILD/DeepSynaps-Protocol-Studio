@@ -224,7 +224,7 @@ def update_lead(
     return LeadOut.from_record(record)
 
 
-@router.delete("/api/v1/leads/{lead_id}", status_code=204)
+@router.delete("/api/v1/leads/{lead_id}")
 def delete_lead(
     lead_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

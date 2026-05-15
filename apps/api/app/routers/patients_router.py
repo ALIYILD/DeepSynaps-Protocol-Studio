@@ -919,7 +919,7 @@ def update_patient_endpoint(
     return PatientOut.from_record(patient, enrichment.get(patient.id))
 
 
-@router.delete("/{patient_id}", status_code=204)
+@router.delete("/{patient_id}")
 def delete_patient_endpoint(
     patient_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
@@ -1237,33 +1237,36 @@ def get_patient_courses(
     return PatientCoursesResponse(items=items, total=len(items))
 
 
-@router.get("/{patient_id}/treatment-sessions-analyzer")
-def get_treatment_sessions_analyzer(
+@router.get("/{patient_id}/intervention-analyzer")
+def get_intervention_analyzer(
     patient_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> dict:
-    """Aggregated Treatment Sessions Analyzer payload (decision-support UI).
+    """Aggregated Intervention Analyzer payload (decision-support UI).
 
     Clinicians and admins use ownership-aware access via ``_get_patient_for_actor``.
     Patients may request their own aggregate view (same pattern as sessions/courses).
+
+    Decision-support only. Not a calibrated prediction model.
+    Requires clinician review. Associations shown are temporal, not causal proof.
     """
-    from app.services.treatment_sessions_analyzer import (
-        build_treatment_sessions_analyzer_payload,
+    from app.services.intervention_analyzer import (
+        build_intervention_analyzer_payload,
     )
 
     if actor.role == "patient":
         if actor.actor_id != patient_id:
             raise ApiServiceError(
                 code="forbidden",
-                message="You may only view your own treatment analyzer.",
+                message="You may only view your own intervention analyzer.",
                 status_code=403,
             )
     else:
         require_minimum_role(actor, "clinician")
         _get_patient_for_actor(db, patient_id, actor)
 
-    return build_treatment_sessions_analyzer_payload(db, patient_id, actor)
+    return build_intervention_analyzer_payload(db, patient_id, actor)
 
 
 @router.get("/{patient_id}/assessments", response_model=PatientAssessmentsResponse)

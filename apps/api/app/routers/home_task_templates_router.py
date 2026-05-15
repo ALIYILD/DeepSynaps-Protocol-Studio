@@ -188,7 +188,7 @@ def update_home_task_template(
     return _record_to_out(record)
 
 
-@router.delete("/{template_id}", status_code=204)
+@router.delete("/{template_id}")
 def delete_home_task_template(
     template_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

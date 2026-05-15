@@ -364,7 +364,7 @@ def list_phenotype_assignments(
     return PhenotypeAssignmentListResponse(items=items, total=len(items))
 
 
-@router.delete("/{assignment_id}", status_code=204)
+@router.delete("/{assignment_id}")
 def delete_phenotype_assignment(
     assignment_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

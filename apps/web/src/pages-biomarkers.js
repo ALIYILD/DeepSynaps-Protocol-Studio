@@ -1,6 +1,7 @@
 /**
  * Biomarkers page — combines Neuro-Biomarker Reference catalog with
- * patient-linked biomarker workspace. Three tabs: Reference, MRI Neuromarkers, and Patient Workspace.
+ * patient-linked biomarker workspace. Nine tabs: QEEG, MRI, Blood & Labs,
+ * Neuroinflammation, Hormones, Immune, Nutritional, Research, and Patient Workspace.
  */
 import { api } from './api.js';
 import { ensureAgentBrainStatus } from './agent-brain-status.js';
@@ -9,6 +10,12 @@ import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixture
 import { NEURO_BIOMARKER_REFERENCE } from './neuro-biomarker-data.js';
 import { renderBrainMap10_20, SITES_10_20 } from './brain-map-svg.js';
 import { renderMRINeuromarkersTab, bindMRINeuromarkersTab, MRI_NEUROMARKERS_STYLES } from './pages-biomarkers-mri.js';
+import {
+  BLOOD_LAB_BIOMARKERS, NEUROINFLAMMATION_BIOMARKERS,
+  HORMONE_BIOMARKERS, IMMUNE_INFLAMMATION_BIOMARKERS,
+  NUTRITIONAL_METABOLIC_BIOMARKERS, RESEARCH_ONLY_BIOMARKERS,
+  getBiomarkersByCategory, searchBiomarkers
+} from './lab-biomarker-data.js';
 
 function _ensureMRIStyles() {
   if (!document.getElementById('mri-neuromarkers-styles')) {
@@ -563,6 +570,281 @@ function _bindReferenceTab() {
   };
 }
 
+// ── Lab Biomarker rendering helpers ──────────────────────────────────────────
+
+const _EVIDENCE_GRADE_COLOR = { A: '#22c55e', B: '#3b82f6', C: '#f59e0b', D: '#6b7280' };
+const _STATUS_COLOR_MAP = { routine: '#3b82f6', specialist: '#8b5cf6', research: '#6b7280' };
+const _STATUS_LABEL_MAP = { routine: 'Routine', specialist: 'Specialist', research: 'Research' };
+
+/** Render a full biomarker detail modal (shared across all lab categories). */
+function _openLabBiomarkerModal(biomarker, categoryKey, categoryTitle, tone) {
+  document.getElementById('lb-detail-overlay')?.remove();
+  const gradeColor = _EVIDENCE_GRADE_COLOR[biomarker.evidenceGrade] || '#6b7280';
+  const statusColor = _STATUS_COLOR_MAP[biomarker.clinicalStatus] || '#6b7280';
+  const statusLabel = _STATUS_LABEL_MAP[biomarker.clinicalStatus] || biomarker.clinicalStatus;
+
+  const overlayEl = document.createElement('div');
+  overlayEl.id = 'lb-detail-overlay';
+  overlayEl.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:2000;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(4px)';
+
+  const condsHtml = (biomarker.conditions || []).map(c =>
+    `<span style="font-size:11px;padding:5px 12px;border-radius:999px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-primary)">${esc(c)}</span>`
+  ).join('');
+
+  const confoundersHtml = (biomarker.confounders || []).map(c =>
+    `<li style="font-size:12px;color:var(--text-secondary);line-height:1.8">${esc(c)}</li>`
+  ).join('');
+
+  const interventionsHtml = (biomarker.interventions || []).map(i =>
+    `<span style="font-size:11px;padding:5px 12px;border-radius:999px;background:rgba(20,184,166,0.08);border:1px solid rgba(20,184,166,0.16);color:var(--teal)">${esc(i)}</span>`
+  ).join('');
+
+  const caveatsHtml = (biomarker.caveats || []).map(c =>
+    `<li style="font-size:12px;color:var(--text-secondary);line-height:1.8">${esc(c)}</li>`
+  ).join('');
+
+  const refsHtml = (biomarker.evidenceRefs || []).map(r =>
+    `<span style="font-size:10px;padding:3px 10px;border-radius:999px;background:rgba(255,255,255,0.04);color:var(--text-tertiary);border:1px solid var(--border)">${esc(r)}</span>`
+  ).join('');
+
+  overlayEl.innerHTML = `
+    <div style="background:var(--card-bg, #1e293b);border:1px solid var(--border);border-radius:14px;width:100%;max-width:720px;max-height:90vh;overflow-y:auto;position:relative;box-shadow:0 24px 80px rgba(0,0,0,0.5)">
+      <div style="position:sticky;top:0;z-index:1;padding:20px 24px 16px;background:var(--card-bg, #1e293b);border-bottom:1px solid var(--border);border-radius:14px 14px 0 0">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+          <div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+              <span style="font-size:10px;padding:3px 10px;border-radius:999px;background:${tone}18;color:${tone};letter-spacing:.08em;text-transform:uppercase;font-weight:600">${esc(categoryTitle)}</span>
+              <span style="font-size:10px;padding:3px 10px;border-radius:999px;background:${gradeColor}18;color:${gradeColor};font-weight:600">Grade ${biomarker.evidenceGrade}</span>
+              <span style="font-size:10px;padding:3px 10px;border-radius:999px;background:${statusColor}18;color:${statusColor};font-weight:600">${statusLabel}</span>
+            </div>
+            <div style="font-size:22px;font-weight:700;color:var(--text-primary);line-height:1.2">${esc(biomarker.name)}</div>
+            <div style="font-size:12px;color:var(--text-tertiary);font-family:var(--font-mono, monospace);margin-top:6px">${esc(biomarker.abbreviation)} · ${esc(biomarker.unit)}</div>
+          </div>
+          <button id="lb-modal-close" style="background:none;border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:16px;color:var(--text-tertiary);line-height:1;padding:6px 10px;flex-shrink:0;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background='none'">&times;</button>
+        </div>
+      </div>
+      <div style="padding:20px 24px 24px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+          <div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.025);border:1px solid var(--border)">
+            <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Reference Range</div>
+            <div style="font-size:13px;color:var(--text-primary);line-height:1.5;font-weight:600">${esc(biomarker.refRange)}</div>
+          </div>
+          <div style="padding:14px;border-radius:12px;background:rgba(255,255,255,0.025);border:1px solid var(--border)">
+            <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Sample &amp; Fasting</div>
+            <div style="font-size:12px;color:var(--text-primary);line-height:1.5">${esc(biomarker.sampleType)}${biomarker.fasting ? '<br><span style="color:var(--amber)">Fasting: ' + esc(biomarker.fasting) + '</span>' : ''}</div>
+          </div>
+        </div>
+        ${biomarker.safeWording ? `
+          <div style="padding:14px;border-radius:12px;background:${tone}0a;border:1px solid ${tone}22;margin-bottom:16px">
+            <div style="font-size:10px;color:${tone};text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;font-weight:600">Safe Clinical Wording</div>
+            <div style="font-size:12px;color:var(--text-secondary);line-height:1.7">${esc(biomarker.safeWording)}</div>
+          </div>
+        ` : ''}
+        ${condsHtml ? `
+          <div style="margin-bottom:16px">
+            <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">Linked Conditions</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">${condsHtml}</div>
+          </div>
+        ` : ''}
+        ${interventionsHtml ? `
+          <div style="margin-bottom:16px">
+            <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">Clinical Interventions</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">${interventionsHtml}</div>
+          </div>
+        ` : ''}
+        ${confoundersHtml ? `
+          <div style="padding:16px;border-radius:14px;background:rgba(255,255,255,0.02);border:1px solid var(--border);margin-bottom:16px">
+            <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">Confounders</div>
+            <ul style="margin:0;padding-left:18px;color:var(--text-secondary)">${confoundersHtml}</ul>
+          </div>
+        ` : ''}
+        ${caveatsHtml ? `
+          <div style="padding:16px;border-radius:14px;background:rgba(255,176,87,0.05);border:1px solid rgba(255,176,87,0.18);margin-bottom:16px">
+            <div style="font-size:10px;color:var(--amber);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;font-weight:600">Caveats</div>
+            <ul style="margin:0;padding-left:18px;color:var(--text-secondary)">${caveatsHtml}</ul>
+          </div>
+        ` : ''}
+        ${refsHtml ? `
+          <div style="padding:14px 16px;border-radius:12px;background:${tone}0a;border:1px solid ${tone}22">
+            <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Evidence References</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">${refsHtml}</div>
+          </div>
+        ` : ''}
+      </div>
+    </div>
+  `;
+
+  function _closeModal() {
+    overlayEl.remove();
+    document.body.style.overflow = '';
+    document.removeEventListener('keydown', _escHandler);
+  }
+  function _escHandler(e) { if (e.key === 'Escape') _closeModal(); }
+
+  overlayEl.addEventListener('click', function(e) { if (e.target === overlayEl) _closeModal(); });
+  overlayEl.querySelector('#lb-modal-close').addEventListener('click', _closeModal);
+  document.addEventListener('keydown', _escHandler);
+  document.body.style.overflow = 'hidden';
+  document.body.appendChild(overlayEl);
+}
+
+/** Render a single lab biomarker card. */
+function _renderLabBiomarkerCard(biomarker, categoryKey, categoryTitle, tone, idx) {
+  const searchBlob = [
+    biomarker.name, biomarker.abbreviation, biomarker.unit,
+    biomarker.refRange, biomarker.evidenceGrade, biomarker.clinicalStatus,
+    biomarker.safeWording, biomarker.sampleType,
+    ...(biomarker.conditions || []), ...(biomarker.confounders || []),
+    ...(biomarker.interventions || []), ...(biomarker.caveats || []),
+  ].join(' ').toLowerCase();
+
+  const gradeColor = _EVIDENCE_GRADE_COLOR[biomarker.evidenceGrade] || '#6b7280';
+  const statusColor = _STATUS_COLOR_MAP[biomarker.clinicalStatus] || '#6b7280';
+  const statusLabel = _STATUS_LABEL_MAP[biomarker.clinicalStatus] || biomarker.clinicalStatus;
+  const condPills = (biomarker.conditions || []).slice(0, 3).map(c =>
+    `<span style="font-size:9.5px;padding:2px 7px;border-radius:999px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-tertiary)">${esc(c)}</span>`
+  ).join('');
+  const caveatsCount = (biomarker.caveats || []).length;
+
+  return `
+    <article class="card lb-marker" data-search="${esc(searchBlob)}" data-category="${esc(categoryKey)}" style="margin-bottom:0;border:1px solid rgba(255,255,255,0.07);overflow:hidden;transition:border-color .2s,box-shadow .2s;cursor:pointer"
+      onclick="window._openLabBmModal('${esc(categoryKey)}', ${idx})"
+      onmouseover="this.style.borderColor='${tone}44';this.style.boxShadow='0 0 20px ${tone}18'"
+      onmouseout="this.style.borderColor='rgba(255,255,255,0.07)';this.style.boxShadow='none'"
+    >
+      <div style="padding:14px 16px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0))">
+        <div style="display:flex;gap:14px;align-items:flex-start">
+          <div style="flex-shrink:0;width:52px;height:52px;border-radius:12px;background:${tone}10;border:1px solid ${tone}20;display:flex;align-items:center;justify-content:center;font-size:20px">🧪</div>
+          <div style="min-width:0;flex:1">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+              <span style="font-size:9.5px;padding:2px 7px;border-radius:999px;background:${tone}18;color:${tone};letter-spacing:.08em;text-transform:uppercase;font-weight:600">${esc(categoryTitle)}</span>
+              <span style="font-size:9.5px;padding:2px 7px;border-radius:999px;background:${gradeColor}18;color:${gradeColor};font-weight:600">${biomarker.evidenceGrade}</span>
+              <span style="font-size:9.5px;padding:2px 7px;border-radius:999px;background:${statusColor}18;color:${statusColor};font-weight:600">${statusLabel}</span>
+            </div>
+            <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:3px;line-height:1.3">${esc(biomarker.name)}</div>
+            <div style="font-size:10.5px;color:var(--text-tertiary);font-family:var(--font-mono, monospace);margin-bottom:6px">${esc(biomarker.abbreviation)} · ${esc(biomarker.refRange)}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">${condPills}</div>
+            <div style="display:flex;align-items:center;gap:10px;font-size:10px;color:var(--text-tertiary)">
+              <span>Unit: ${esc(biomarker.unit)}</span>
+              <span>Sample: ${esc(biomarker.sampleType)}</span>
+              ${caveatsCount > 0 ? `<span style="color:var(--amber)">${caveatsCount} caveat${caveatsCount > 1 ? 's' : ''}</span>` : ''}
+            </div>
+          </div>
+          <div style="color:${tone};font-size:14px;line-height:1;flex-shrink:0;margin-top:4px;opacity:0.6">&rarr;</div>
+        </div>
+      </div>
+    </article>`;
+}
+
+/** Shared lab category renderer. */
+function _renderLabCategoryTab(categoryKey, biomarkers, title, tone) {
+  const safeKey = categoryKey.replace(/[^a-z0-9]/g, '');
+  return `
+    <div style="display:grid;gap:22px" data-lb-category="${esc(categoryKey)}">
+      <div role="note" style="padding:12px 14px;border-radius:12px;border:1px solid rgba(245,158,11,0.28);background:rgba(245,158,11,0.06);font-size:12px;line-height:1.55;color:var(--text-secondary)">
+        <strong style="color:var(--text-primary)">Draft for clinician review.</strong>
+        Biomarkers are supportive context only and do not diagnose disease alone. Always confirm with validated assays and clinical correlation.
+      </div>
+      <section class="card" style="margin-bottom:0;overflow:hidden;background:
+        radial-gradient(circle at top right, ${tone}18, transparent 34%),
+        radial-gradient(circle at top left, ${tone}14, transparent 28%),
+        linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01))">
+        <div class="card-body" style="padding:24px">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap">
+            <div style="max-width:860px">
+              <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--teal);margin-bottom:10px">DeepSynaps Clinical Library</div>
+              <h1 style="margin:0 0 10px;font-size:28px;line-height:1.05;letter-spacing:-.03em;color:var(--text-primary)">${esc(title)}</h1>
+              <div style="font-size:14px;color:var(--text-secondary);line-height:1.75">
+                ${biomarkers.length} biomarkers. Structured reference covering definition, reference intervals, evidence grade,
+                clinical status, linked conditions, confounders, interventions, and operational caveats — not patient-specific conclusions.
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(120px,1fr));gap:10px;min-width:min(100%,280px)">
+              <div style="padding:14px;border-radius:14px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">
+                <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:6px">Markers</div>
+                <div style="font-size:28px;font-weight:700;color:var(--text-primary)">${biomarkers.length}</div>
+              </div>
+              <div style="padding:14px;border-radius:14px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">
+                <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:6px">Evidence</div>
+                <div style="font-size:18px;font-weight:600;color:var(--text-primary);line-height:1.3">A–D grading</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" style="margin-bottom:0">
+        <div class="card-body" style="padding:18px">
+          <div style="margin-bottom:14px">
+            <input id="lb-search-${safeKey}" class="form-control" style="width:100%;max-width:400px" placeholder="Search biomarkers, conditions, abbreviations..." oninput="window._lbSearch${safeKey}&&window._lbSearch${safeKey}(this.value)">
+          </div>
+          <div id="lb-search-summary-${safeKey}" style="font-size:12px;color:var(--text-tertiary);margin-bottom:14px">
+            Showing all ${biomarkers.length} biomarkers.
+          </div>
+          <div style="display:grid;gap:12px" id="lb-grid-${safeKey}">
+            ${biomarkers.map((bm, idx) => _renderLabBiomarkerCard(bm, categoryKey, title, tone, idx)).join('')}
+          </div>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+/** Bind search and modal click handlers for a lab category tab. */
+function _bindLabCategoryTab(categoryKey, biomarkers, title, tone) {
+  const safeKey = categoryKey.replace(/[^a-z0-9]/g, '');
+
+  window[`_openLabBmModal_${safeKey}`] = function(idx) {
+    const bm = biomarkers[idx];
+    if (!bm) return;
+    _openLabBiomarkerModal(bm, categoryKey, title, tone);
+  };
+
+  // Expose a single global entry point that dispatches by category
+  if (!window._openLabBmModal) {
+    window._openLabBmModal = function(catKey, idx) {
+      const map = {
+        blood_labs: [BLOOD_LAB_BIOMARKERS, 'Blood & Laboratory Biomarkers', '#3b82f6'],
+        neuroinflammation: [NEUROINFLAMMATION_BIOMARKERS, 'Neuroinflammation Biomarkers', '#ef4444'],
+        hormones: [HORMONE_BIOMARKERS, 'Hormone & Endocrine Biomarkers', '#f59e0b'],
+        immune_inflammation: [IMMUNE_INFLAMMATION_BIOMARKERS, 'Immune & Inflammation Biomarkers', '#8b5cf6'],
+        nutritional_metabolic: [NUTRITIONAL_METABOLIC_BIOMARKERS, 'Nutritional & Metabolic Biomarkers', '#10b981'],
+        research_only: [RESEARCH_ONLY_BIOMARKERS, 'Research-Only Biomarkers', '#6b7280'],
+      };
+      const entry = map[catKey];
+      if (!entry) return;
+      const bm = entry[0][idx];
+      if (!bm) return;
+      _openLabBiomarkerModal(bm, catKey, entry[1], entry[2]);
+    };
+  }
+
+  window[`_lbSearch${safeKey}`] = function(query) {
+    const q = String(query || '').toLowerCase().trim();
+    let visible = 0;
+    document.querySelectorAll(`#lb-grid-${safeKey} .lb-marker`).forEach(card => {
+      const match = !q || (card.getAttribute('data-search') || '').includes(q);
+      card.style.display = match ? '' : 'none';
+      if (match) visible++;
+    });
+    const summary = document.getElementById(`lb-search-summary-${safeKey}`);
+    if (summary) {
+      summary.textContent = q && visible === 0
+        ? 'No biomarkers match this search. Try another keyword or clear the search.'
+        : q
+          ? `Showing ${visible} matching biomarkers.`
+          : `Showing all ${biomarkers.length} biomarkers.`;
+    }
+  };
+}
+
+function _renderBloodLabsTab() { return _renderLabCategoryTab('blood_labs', BLOOD_LAB_BIOMARKERS, 'Blood & Laboratory Biomarkers', '#3b82f6'); }
+function _renderNeuroinflammationTab() { return _renderLabCategoryTab('neuroinflammation', NEUROINFLAMMATION_BIOMARKERS, 'Neuroinflammation Biomarkers', '#ef4444'); }
+function _renderHormonesTab() { return _renderLabCategoryTab('hormones', HORMONE_BIOMARKERS, 'Hormone & Endocrine Biomarkers', '#f59e0b'); }
+function _renderImmuneInflammationTab() { return _renderLabCategoryTab('immune_inflammation', IMMUNE_INFLAMMATION_BIOMARKERS, 'Immune & Inflammation Biomarkers', '#8b5cf6'); }
+function _renderNutritionalMetabolicTab() { return _renderLabCategoryTab('nutritional_metabolic', NUTRITIONAL_METABOLIC_BIOMARKERS, 'Nutritional & Metabolic Biomarkers', '#10b981'); }
+function _renderResearchOnlyTab() { return _renderLabCategoryTab('research_only', RESEARCH_ONLY_BIOMARKERS, 'Research-Only Biomarkers', '#6b7280'); }
+
 // ── Main page function ───────────────────────────────────────────────────────
 
 export async function pgBiomarkersWorkspace(setTopbar, navigate) {
@@ -588,10 +870,16 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
         Synthetic non-PHI demo rows may appear when demo login is active (<code style="font-size:11px">VITE_ENABLE_DEMO</code> + demo token).
         Biomarkers supports clinical review and workflow navigation only — not diagnosis, prescribing, emergency triage, treatment approval, or autonomous clinical decision-making.
       </div>
-      <nav id="bm-tabs" style="display:flex;gap:4px;margin-bottom:18px;border-bottom:1px solid var(--border);padding-bottom:0" role="tablist">
-        <button role="tab" class="ch-tab${activeTab === 'reference' ? ' ch-tab--active' : ''}" data-tab="reference" style="padding:10px 18px;font-size:13px;font-weight:600;border:none;background:none;color:${activeTab === 'reference' ? 'var(--text-primary)' : 'var(--text-tertiary)'};cursor:pointer;border-bottom:2px solid ${activeTab === 'reference' ? 'var(--teal, #2DD4BF)' : 'transparent'};transition:all .15s">QEEG Neuromarkers</button>
-        <button role="tab" class="ch-tab${activeTab === 'mri-neuromarkers' ? ' ch-tab--active' : ''}" data-tab="mri-neuromarkers" style="padding:10px 18px;font-size:13px;font-weight:600;border:none;background:none;color:${activeTab === 'mri-neuromarkers' ? 'var(--text-primary)' : 'var(--text-tertiary)'};cursor:pointer;border-bottom:2px solid ${activeTab === 'mri-neuromarkers' ? 'var(--teal, #2DD4BF)' : 'transparent'};transition:all .15s">MRI Neuromarkers</button>
-        <button role="tab" class="ch-tab${activeTab === 'workspace' ? ' ch-tab--active' : ''}" data-tab="workspace" style="padding:10px 18px;font-size:13px;font-weight:600;border:none;background:none;color:${activeTab === 'workspace' ? 'var(--text-primary)' : 'var(--text-tertiary)'};cursor:pointer;border-bottom:2px solid ${activeTab === 'workspace' ? 'var(--teal, #2DD4BF)' : 'transparent'};transition:all .15s">Patient Workspace</button>
+      <nav id="bm-tabs" style="display:flex;gap:4px;margin-bottom:18px;border-bottom:1px solid var(--border);padding-bottom:0;flex-wrap:wrap" role="tablist">
+        <button role="tab" class="ch-tab${activeTab === 'reference' ? ' ch-tab--active' : ''}" data-tab="reference" style="padding:10px 14px;font-size:12px;font-weight:600;border:none;background:none;color:${activeTab === 'reference' ? 'var(--text-primary)' : 'var(--text-tertiary)'};cursor:pointer;border-bottom:2px solid ${activeTab === 'reference' ? 'var(--teal, #2DD4BF)' : 'transparent'};transition:all .15s">QEEG</button>
+        <button role="tab" class="ch-tab${activeTab === 'mri-neuromarkers' ? ' ch-tab--active' : ''}" data-tab="mri-neuromarkers" style="padding:10px 14px;font-size:12px;font-weight:600;border:none;background:none;color:${activeTab === 'mri-neuromarkers' ? 'var(--text-primary)' : 'var(--text-tertiary)'};cursor:pointer;border-bottom:2px solid ${activeTab === 'mri-neuromarkers' ? 'var(--teal, #2DD4BF)' : 'transparent'};transition:all .15s">MRI</button>
+        <button role="tab" class="ch-tab${activeTab === 'blood-labs' ? ' ch-tab--active' : ''}" data-tab="blood-labs" style="padding:10px 14px;font-size:12px;font-weight:600;border:none;background:none;color:${activeTab === 'blood-labs' ? 'var(--text-primary)' : 'var(--text-tertiary)'};cursor:pointer;border-bottom:2px solid ${activeTab === 'blood-labs' ? 'var(--teal, #2DD4BF)' : 'transparent'};transition:all .15s">Blood & Labs</button>
+        <button role="tab" class="ch-tab${activeTab === 'neuroinflammation' ? ' ch-tab--active' : ''}" data-tab="neuroinflammation" style="padding:10px 14px;font-size:12px;font-weight:600;border:none;background:none;color:${activeTab === 'neuroinflammation' ? 'var(--text-primary)' : 'var(--text-tertiary)'};cursor:pointer;border-bottom:2px solid ${activeTab === 'neuroinflammation' ? 'var(--teal, #2DD4BF)' : 'transparent'};transition:all .15s">Neuroinflam.</button>
+        <button role="tab" class="ch-tab${activeTab === 'hormones' ? ' ch-tab--active' : ''}" data-tab="hormones" style="padding:10px 14px;font-size:12px;font-weight:600;border:none;background:none;color:${activeTab === 'hormones' ? 'var(--text-primary)' : 'var(--text-tertiary)'};cursor:pointer;border-bottom:2px solid ${activeTab === 'hormones' ? 'var(--teal, #2DD4BF)' : 'transparent'};transition:all .15s">Hormones</button>
+        <button role="tab" class="ch-tab${activeTab === 'immune-inflammation' ? ' ch-tab--active' : ''}" data-tab="immune-inflammation" style="padding:10px 14px;font-size:12px;font-weight:600;border:none;background:none;color:${activeTab === 'immune-inflammation' ? 'var(--text-primary)' : 'var(--text-tertiary)'};cursor:pointer;border-bottom:2px solid ${activeTab === 'immune-inflammation' ? 'var(--teal, #2DD4BF)' : 'transparent'};transition:all .15s">Immune</button>
+        <button role="tab" class="ch-tab${activeTab === 'nutritional-metabolic' ? ' ch-tab--active' : ''}" data-tab="nutritional-metabolic" style="padding:10px 14px;font-size:12px;font-weight:600;border:none;background:none;color:${activeTab === 'nutritional-metabolic' ? 'var(--text-primary)' : 'var(--text-tertiary)'};cursor:pointer;border-bottom:2px solid ${activeTab === 'nutritional-metabolic' ? 'var(--teal, #2DD4BF)' : 'transparent'};transition:all .15s">Nutritional</button>
+        <button role="tab" class="ch-tab${activeTab === 'research-only' ? ' ch-tab--active' : ''}" data-tab="research-only" style="padding:10px 14px;font-size:12px;font-weight:600;border:none;background:none;color:${activeTab === 'research-only' ? 'var(--text-primary)' : 'var(--text-tertiary)'};cursor:pointer;border-bottom:2px solid ${activeTab === 'research-only' ? 'var(--teal, #2DD4BF)' : 'transparent'};transition:all .15s">Research</button>
+        <button role="tab" class="ch-tab${activeTab === 'workspace' ? ' ch-tab--active' : ''}" data-tab="workspace" style="padding:10px 14px;font-size:12px;font-weight:600;border:none;background:none;color:${activeTab === 'workspace' ? 'var(--text-primary)' : 'var(--text-tertiary)'};cursor:pointer;border-bottom:2px solid ${activeTab === 'workspace' ? 'var(--teal, #2DD4BF)' : 'transparent'};transition:all .15s">Workspace</button>
       </nav>
       <div id="bm-tab-content">
         <div style="padding:28px;text-align:center;color:var(--text-tertiary)">Loading...</div>
@@ -1013,6 +1301,24 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
       _ensureMRIStyles();
       container.innerHTML = renderMRINeuromarkersTab();
       bindMRINeuromarkersTab();
+    } else if (tab === 'blood-labs') {
+      container.innerHTML = _renderBloodLabsTab();
+      _bindLabCategoryTab('blood_labs', BLOOD_LAB_BIOMARKERS, 'Blood & Laboratory Biomarkers', '#3b82f6');
+    } else if (tab === 'neuroinflammation') {
+      container.innerHTML = _renderNeuroinflammationTab();
+      _bindLabCategoryTab('neuroinflammation', NEUROINFLAMMATION_BIOMARKERS, 'Neuroinflammation Biomarkers', '#ef4444');
+    } else if (tab === 'hormones') {
+      container.innerHTML = _renderHormonesTab();
+      _bindLabCategoryTab('hormones', HORMONE_BIOMARKERS, 'Hormone & Endocrine Biomarkers', '#f59e0b');
+    } else if (tab === 'immune-inflammation') {
+      container.innerHTML = _renderImmuneInflammationTab();
+      _bindLabCategoryTab('immune_inflammation', IMMUNE_INFLAMMATION_BIOMARKERS, 'Immune & Inflammation Biomarkers', '#8b5cf6');
+    } else if (tab === 'nutritional-metabolic') {
+      container.innerHTML = _renderNutritionalMetabolicTab();
+      _bindLabCategoryTab('nutritional_metabolic', NUTRITIONAL_METABOLIC_BIOMARKERS, 'Nutritional & Metabolic Biomarkers', '#10b981');
+    } else if (tab === 'research-only') {
+      container.innerHTML = _renderResearchOnlyTab();
+      _bindLabCategoryTab('research_only', RESEARCH_ONLY_BIOMARKERS, 'Research-Only Biomarkers', '#6b7280');
     } else {
       renderWorkspaceTab();
     }

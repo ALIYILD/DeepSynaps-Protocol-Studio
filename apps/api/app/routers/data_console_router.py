@@ -7,7 +7,7 @@ All responses are clinic-scoped, masked, and audit-logged.
 
 import json
 import uuid
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db_session
-from app.auth import get_authenticated_actor, AuthenticatedActor
+from app.auth import get_authenticated_actor, AuthenticatedActor, require_minimum_role
 from app.errors import ApiServiceError
 from app.repositories.audit import create_audit_event
 from app.services.access_control_service import (
@@ -32,6 +32,14 @@ from app.services.data_console_service import (
     get_patient_data_summary,
     get_patient_rows,
     stream_clinic_table_csv,
+    # ── Enhanced service functions (Slice B) ─────────────────────────────────
+    get_clinic_overview,
+    get_clinic_patients,
+    get_patient_explorer_data,
+    get_audit_log,
+    create_data_export,
+    get_consent_overview,
+    anonymize_patient_data,
 )
 from deepsynaps_core_schema import (
     DataSourceInfo,
@@ -39,8 +47,9 @@ from deepsynaps_core_schema import (
     PatientDataSummary,
     DataRow,
     PatientRowsResponse,
-    PatientAuditLogResponse,
+    DataConsoleAuditLogResponse,
     AuditEventEntry,
+    UserRole,
 )
 
 
@@ -49,51 +58,67 @@ router = APIRouter(
     tags=["data-console"],
 )
 
-# ALLOWLIST of safe, non-PHI tables
-SAFE_DATA_SOURCES = [
-    "patient_assessments",
-    "patient_vitals",
-    "patient_events",
-    "patient_protocols",
-    "patient_reports",
-    "patient_uploads",
-]
+# BUG-FIX-002: Use SAFE_TABLES imported from the service as the single
+# source of truth for the allowlist. The local SAFE_DATA_SOURCES list
+# (which had different table names) was causing CSV export mismatches
+# because export_clinic_table_csv validated against SAFE_TABLES while
+# the per-patient endpoints validated against the local list.
 
 
 @router.get(
     "/sources",
     response_model=DataSourcesResponse,
     summary="List available data sources (ALLOWLIST)",
-    description="Returns only ALLOWLIST-approved data sources (no raw SQL, no cross-clinic access).",
+    description=(
+        "Returns only ALLOWLIST-approved data sources (no raw SQL, no cross-clinic access). "
+        "When patient_id is omitted, admin/clinic_admin roles receive clinic-scoped source "
+        "discovery; clinician role receives sources for their assigned patients."
+    ),
 )
 async def list_data_sources(
-    patient_id: str = Query(..., description="Patient ID to filter by"),
+    patient_id: Optional[str] = Query(None, description="Patient ID to filter by (optional for clinic-scoped discovery)"),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> DataSourcesResponse:
-    """List available data sources (clinic-scoped, audit-logged)."""
-    require_patient_access(session, actor.actor_id, patient_id)
-    log_phi_access(
-        session,
-        actor_user_id=actor.actor_id,
-        patient_id=patient_id,
-        action="list_data_sources",
-        resource_type="data_console",
-    )
+    """List available data sources (clinic-scoped, audit-logged).
 
+    BUG-FIX-001: patient_id is now optional. When None, the endpoint uses
+    clinic-scoped access so the frontend can call api.dataConsoleSources()
+    without a patient_id for the initial table browser view.
+    """
+    # If patient_id is provided, enforce per-patient access + PHI audit.
+    if patient_id:
+        require_patient_access(session, actor.actor_id, patient_id)
+        log_phi_access(
+            session,
+            actor_user_id=actor.actor_id,
+            patient_id=patient_id,
+            action="list_data_sources",
+            resource_type="data_console",
+        )
+    else:
+        # Clinic-scoped discovery: admin/clinic_admin see full clinic list;
+        # clinician sees their assigned patients' sources.
+        # BUG-FIX-004: Explicit role check using require_minimum_role.
+        # patient role → own data only (must provide patient_id above);
+        # clinician → clinic/assigned patients; admin/clinic_admin → full clinic data.
+        require_minimum_role(actor, "clinician")
+
+    # BUG-FIX-002: Use SAFE_TABLES (single source of truth from service)
+    # instead of the removed local SAFE_DATA_SOURCES list.
     sources = [
         DataSourceInfo(
-            name=source,
-            description=f"Data from {source}",
-            row_count=100 + i * 20,
-            sample_fields=["id", "patient_id", "created_at"],
+            name=table_name,
+            description=f"Data from {table_name}",
+            row_count=0,  # Real counts come from clinic/patient-scoped queries
+            sample_fields=columns[:5] if columns else ["id", "created_at"],
         )
-        for i, source in enumerate(SAFE_DATA_SOURCES)
+        for table_name, columns in SAFE_TABLES.items()
     ]
 
     return DataSourcesResponse(
-        patient_id=patient_id,
-        clinic_id=actor.clinic_id,
+        patient_id=patient_id or "",
+        clinic_id=actor.clinic_id or "",
         sources=sources,
         total_sources=len(sources),
     )
@@ -112,7 +137,8 @@ async def get_patient_data_summary(
     session: Session = Depends(get_db_session),
 ) -> PatientDataSummary:
     """Get patient data summary (clinic-scoped, audit-logged)."""
-    if source_name not in SAFE_DATA_SOURCES:
+    # BUG-FIX-002: Use SAFE_TABLES instead of removed SAFE_DATA_SOURCES.
+    if source_name not in SAFE_TABLES:
         raise HTTPException(status_code=400, detail=f"Unknown data source: {source_name}")
 
     require_patient_access(session, actor.actor_id, patient_id)
@@ -142,12 +168,24 @@ async def get_patient_data_rows(
     table_name: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    limit: Optional[int] = Query(None, ge=1, le=100, description="Alias for page_size"),
+    offset: Optional[int] = Query(None, ge=0, description="Row offset (alternative to page/page_size)"),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> PatientRowsResponse:
-    """Get patient data rows (clinic-scoped, masked, audit-logged)."""
-    if table_name not in SAFE_DATA_SOURCES:
+    """Get patient data rows (clinic-scoped, masked, audit-logged).
+
+    BUG-FIX-001: Supports both page/page_size (frontend default) AND
+    limit/offset (service-layer default) parameter aliases so the frontend
+    can use whichever style its pagination helper prefers.
+    """
+    # BUG-FIX-002: Use SAFE_TABLES instead of removed SAFE_DATA_SOURCES.
+    if table_name not in SAFE_TABLES:
         raise HTTPException(status_code=400, detail=f"Unknown table: {table_name}")
+
+    # Normalize pagination: prefer limit/offset when provided, else derive from page/page_size.
+    effective_limit = limit if limit is not None else page_size
+    effective_offset = offset if offset is not None else (page - 1) * page_size
 
     require_patient_access(session, actor.actor_id, patient_id)
     log_phi_access(
@@ -164,8 +202,11 @@ async def get_patient_data_rows(
             data={"id": f"row_{i}", "patient_id": patient_id, "value": i * 10},
             masked_fields=["ssn", "dob"] if i % 2 == 0 else [],
         )
-        for i in range(page_size)
+        for i in range(effective_limit)
     ]
+
+    # Compute page number for response (needed when limit/offset were used)
+    effective_page = page if offset is None else (effective_offset // effective_limit) + 1
 
     return PatientRowsResponse(
         patient_id=patient_id,
@@ -173,14 +214,14 @@ async def get_patient_data_rows(
         source_name=table_name,
         rows=rows,
         total_rows=150,
-        page=page,
-        page_size=page_size,
+        page=effective_page,
+        page_size=effective_limit,
     )
 
 
 @router.get(
     "/patients/{patient_id}/audit-events",
-    response_model=PatientAuditLogResponse,
+    response_model=DataConsoleAuditLogResponse,
     summary="Get data access audit trail",
     description="Who accessed this patient's data and when.",
 )
@@ -189,7 +230,7 @@ async def get_data_console_audit_log(
     days: int = Query(30, ge=1, le=365),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
-) -> PatientAuditLogResponse:
+) -> DataConsoleAuditLogResponse:
     """Get audit trail (clinic-scoped, audit-logged)."""
     require_patient_access(session, actor.actor_id, patient_id)
     log_phi_access(
@@ -200,17 +241,19 @@ async def get_data_console_audit_log(
         resource_type="data_console",
     )
 
+    # BUG-FIX-002: Use SAFE_TABLES keys instead of removed SAFE_DATA_SOURCES.
+    safe_table_names = list(SAFE_TABLES.keys())
     events = [
         AuditEventEntry(
             timestamp=datetime.utcnow() - timedelta(days=i),
             actor_id=f"user_{i % 3}",
             action=["view_source", "view_rows", "export"][i % 3],
-            source_name=SAFE_DATA_SOURCES[i % len(SAFE_DATA_SOURCES)],
+            source_name=safe_table_names[i % len(safe_table_names)],
         )
         for i in range(10)
     ]
 
-    return PatientAuditLogResponse(
+    return DataConsoleAuditLogResponse(
         patient_id=patient_id,
         clinic_id=actor.clinic_id,
         events=events,
@@ -476,3 +519,487 @@ async def export_clinic_table_csv(
             "Cache-Control": "no-store",
         },
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ENHANCED DATA CONSOLE ENDPOINTS — Slice B (CRM Overview, Patient Explorer,
+# Audit Centre, Export, Consent, Anonymization)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Pydantic Request / Response Models ───────────────────────────────────────
+
+class ExportRequest(BaseModel):
+    """Request model for creating a data export."""
+    format: str = Field("csv", description="Export format: csv, json, or fhir")
+    scope: str = Field("clinic", description="Export scope: clinic or patient")
+    patient_id: Optional[str] = Field(None, description="Required when scope=patient")
+    date_from: Optional[str] = Field(None, description="ISO date filter start")
+    date_to: Optional[str] = Field(None, description="ISO date filter end")
+    data_types: List[str] = Field(
+        default=["patients", "assessments"],
+        description="List of data types to include",
+    )
+    reason: str = Field("", description="Business reason for the export")
+
+
+class AnonymizeRequest(BaseModel):
+    """Request model for data anonymization."""
+    scope: str = Field("clinic", description="Scope: clinic or patient")
+    patient_id: Optional[str] = Field(None, description="Required when scope=patient")
+    level: str = Field("full", description="Anonymization level: k_anon, l_div, or full")
+    k_value: int = Field(5, ge=2, description="k-anonymity parameter")
+    l_value: int = Field(2, ge=2, description="l-diversity parameter")
+    quasi_identifiers: List[str] = Field(
+        default_factory=lambda: ["dob", "gender", "primary_condition"],
+        description="Quasi-identifier fields for k-anonymity",
+    )
+    sensitive_attr: str = Field("primary_condition", description="Sensitive attribute for l-diversity")
+
+
+class ClinicOverviewResponse(BaseModel):
+    """Response model for clinic overview endpoint."""
+    total_patients: int
+    active_patients: int
+    assessments_count: int
+    qeeg_count: int
+    mri_count: int
+    biomarker_count: int
+    medication_count: int
+    pending_documents: int
+    missing_consent_count: int
+    data_completeness_score: float
+    recent_activity: List[Dict[str, Any]]
+    disclaimer: str
+
+
+class ClinicPatientsResponse(BaseModel):
+    """Response model for paginated clinic patient list."""
+    patients: List[Dict[str, Any]]
+    total_count: int
+    page: int
+    page_size: int
+    total_pages: int
+    disclaimer: str
+
+
+class PatientExplorerResponse(BaseModel):
+    """Response model for patient data explorer."""
+    patient_id: str
+    tab: str
+    disclaimer: str
+
+
+class AuditCentreResponse(BaseModel):
+    """Response model for filterable audit log."""
+    events: List[Dict[str, Any]]
+    total_count: int
+    page: int
+    page_size: int
+    total_pages: int
+    disclaimer: str
+
+
+class ExportResponse(BaseModel):
+    """Response model for data export creation."""
+    export_id: str
+    download_url: str
+    filename: str
+    format: str
+    record_count: int
+    scope: str
+    created_at: str
+    disclaimer: str
+
+
+class ConsentOverviewResponse(BaseModel):
+    """Response model for clinic consent overview."""
+    clinic_id: str
+    total_patients: int
+    missing_consent_count: int
+    expired_consent_count: int
+    compliant_count: int
+    consent_rate_pct: float
+    patients: List[Dict[str, Any]]
+    disclaimer: str
+
+
+class AnonymizeResponse(BaseModel):
+    """Response model for data anonymization."""
+    anonymization_id: str
+    method: str
+    scope: str
+    original_record_count: int
+    anonymized_record_count: int
+    preview: List[Dict[str, Any]]
+    download_url: str
+    filename: str
+    disclaimer: str
+
+
+# ── 1. Clinic Overview ───────────────────────────────────────────────────────
+
+@router.get(
+    "/clinic/overview",
+    response_model=ClinicOverviewResponse,
+    summary="Clinic-wide KPI overview",
+    description=(
+        "Returns patient counts, data source counts, consent summary, "
+        "data completeness score, and recent activity timeline. "
+        "Clinic-scoped and role-filtered. "
+        "Available to clinic_admin (own clinic) and admin (any clinic)."
+    ),
+)
+async def get_clinic_overview_endpoint(
+    clinic_id: Optional[str] = Query(
+        default=None,
+        description="Clinic UUID. Required for admin; optional for clinic_admin.",
+    ),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> ClinicOverviewResponse:
+    """Get clinic-wide overview with all KPIs."""
+    resolved_clinic_id = _resolve_clinic_scope(
+        actor, clinic_id, require_param_for_admin=True
+    )
+
+    try:
+        require_clinic_access(session, actor.actor_id, resolved_clinic_id)
+    except AccessDeniedError:
+        if actor.role != "admin":
+            raise HTTPException(status_code=403, detail="Access denied for this clinic.")
+
+    _audit_clinic_data_console_access(
+        session,
+        actor=actor,
+        clinic_id=resolved_clinic_id,
+        action="clinic_overview_viewed",
+        note={"tab": "overview"},
+    )
+
+    overview = get_clinic_overview(session, resolved_clinic_id, actor.role)
+    return ClinicOverviewResponse(**overview)
+
+
+# ── 2. Patient CRM List ──────────────────────────────────────────────────────
+
+@router.get(
+    "/clinic/patients",
+    response_model=ClinicPatientsResponse,
+    summary="Paginated, filterable patient list for clinic CRM",
+    description=(
+        "Get a paginated, sortable, searchable patient list scoped to the "
+        "clinic. PHI fields are masked based on actor role. "
+        "Available to clinic_admin (own clinic) and admin (any clinic)."
+    ),
+)
+async def get_clinic_patients_endpoint(
+    status: Optional[str] = Query(None, description="Filter by patient status"),
+    clinician_id: Optional[str] = Query(None, description="Filter by clinician"),
+    search: Optional[str] = Query(None, description="Search first/last name or email"),
+    sort_by: str = Query("last_name", description="Sort column"),
+    sort_order: str = Query("asc", description="Sort direction: asc or desc"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    clinic_id: Optional[str] = Query(
+        default=None,
+        description="Clinic UUID. Required for admin; optional for clinic_admin.",
+    ),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> ClinicPatientsResponse:
+    """Get paginated, filterable patient list for clinic CRM table."""
+    resolved_clinic_id = _resolve_clinic_scope(
+        actor, clinic_id, require_param_for_admin=True
+    )
+
+    try:
+        require_clinic_access(session, actor.actor_id, resolved_clinic_id)
+    except AccessDeniedError:
+        if actor.role != "admin":
+            raise HTTPException(status_code=403, detail="Access denied for this clinic.")
+
+    _audit_clinic_data_console_access(
+        session,
+        actor=actor,
+        clinic_id=resolved_clinic_id,
+        action="clinic_patients_list_viewed",
+        note={"page": page, "page_size": page_size, "search": search},
+    )
+
+    filters = {
+        "status": status,
+        "clinician_id": clinician_id,
+        "search": search,
+        "sort_by": sort_by,
+        "sort_order": sort_order,
+    }
+
+    patients_data = get_clinic_patients(session, resolved_clinic_id, filters, page, page_size)
+    return ClinicPatientsResponse(**patients_data)
+
+
+# ── 3. Patient Data Explorer ─────────────────────────────────────────────────
+
+@router.get(
+    "/patients/{patient_id}/explorer",
+    response_model=PatientExplorerResponse,
+    summary="Comprehensive patient data explorer",
+    description=(
+        "Get structured patient data for explorer tabs: overview, assessments, "
+        "qeeg, mri, biomarkers, medications, reports, audit. "
+        "Each tab returns a focused view of the patient's data. "
+        "PHI is masked based on actor role."
+    ),
+)
+async def get_patient_data_explorer(
+    patient_id: str,
+    tab: str = Query("overview", description="Explorer tab: overview, assessments, qeeg, mri, biomarkers, medications, reports, audit"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> PatientExplorerResponse:
+    """Get comprehensive patient data for explorer tabs."""
+    require_patient_access(session, actor.actor_id, patient_id)
+    log_phi_access(
+        session,
+        actor_user_id=actor.actor_id,
+        patient_id=patient_id,
+        action=f"patient_explorer_{tab}",
+        resource_type="data_console",
+    )
+
+    explorer_data = get_patient_explorer_data(session, patient_id, tab)
+
+    # Merge response model fields
+    response_payload = {
+        "patient_id": explorer_data.get("patient_id", patient_id),
+        "tab": explorer_data.get("tab", tab),
+        "disclaimer": explorer_data.get(
+            "disclaimer",
+            "Clinical decision-support data only. Verify against source records.",
+        ),
+    }
+
+    # Pydantic won't accept arbitrary extra keys — merge them in
+    result = {**explorer_data, **response_payload}
+    return PatientExplorerResponse(**{k: v for k, v in result.items() if k in PatientExplorerResponse.model_fields})
+
+
+# ── 4. Audit Centre ──────────────────────────────────────────────────────────
+
+@router.get(
+    "/audit",
+    response_model=AuditCentreResponse,
+    summary="Filterable audit log for clinic",
+    description=(
+        "Get a filterable, paginated audit log scoped to the clinic. "
+        "Supports filtering by actor, action, patient_id, and date range. "
+        "Available to clinic_admin (own clinic) and admin (any clinic)."
+    ),
+)
+async def get_audit_centre(
+    actor_filter: Optional[str] = Query(None, description="Filter by actor ID"),
+    action_filter: Optional[str] = Query(None, description="Filter by action type"),
+    patient_id: Optional[str] = Query(None, description="Filter by patient ID"),
+    date_from: Optional[datetime] = Query(None, description="Filter from date (ISO)"),
+    date_to: Optional[datetime] = Query(None, description="Filter to date (ISO)"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    clinic_id: Optional[str] = Query(
+        default=None,
+        description="Clinic UUID. Required for admin; optional for clinic_admin.",
+    ),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> AuditCentreResponse:
+    """Get filterable audit log for clinic. Clinic-scoped, role-filtered."""
+    resolved_clinic_id = _resolve_clinic_scope(
+        actor, clinic_id, require_param_for_admin=True
+    )
+
+    try:
+        require_clinic_access(session, actor.actor_id, resolved_clinic_id)
+    except AccessDeniedError:
+        if actor.role != "admin":
+            raise HTTPException(status_code=403, detail="Access denied for this clinic.")
+
+    _audit_clinic_data_console_access(
+        session,
+        actor=actor,
+        clinic_id=resolved_clinic_id,
+        action="audit_centre_viewed",
+        note={"page": page, "filters": {"action": action_filter, "patient_id": patient_id}},
+    )
+
+    filters = {
+        "actor_filter": actor_filter,
+        "action_filter": action_filter,
+        "patient_id": patient_id,
+        "date_from": date_from,
+        "date_to": date_to,
+    }
+
+    audit_data = get_audit_log(session, resolved_clinic_id, filters, page, page_size)
+    return AuditCentreResponse(**audit_data)
+
+
+# ── 5. Export Centre ─────────────────────────────────────────────────────────
+
+@router.post(
+    "/export",
+    response_model=ExportResponse,
+    summary="Create data export",
+    description=(
+        "Create a data export in CSV, JSON, or FHIR format. "
+        "Logs an audit event for every export. "
+        "PHI is masked in the export based on actor role. "
+        "Available to clinic_admin (own clinic) and admin (any clinic)."
+    ),
+)
+async def create_export_endpoint(
+    request: ExportRequest,
+    clinic_id: Optional[str] = Query(
+        default=None,
+        description="Clinic UUID. Required for admin; optional for clinic_admin.",
+    ),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> ExportResponse:
+    """Create data export. Logs audit event. Returns export_id and download URL."""
+    resolved_clinic_id = _resolve_clinic_scope(
+        actor, clinic_id, require_param_for_admin=True
+    )
+
+    try:
+        require_clinic_access(session, actor.actor_id, resolved_clinic_id)
+    except AccessDeniedError:
+        if actor.role != "admin":
+            raise HTTPException(status_code=403, detail="Access denied for this clinic.")
+
+    # If patient-scoped, verify patient access
+    if request.scope == "patient" and request.patient_id:
+        require_patient_access(session, actor.actor_id, request.patient_id)
+
+    _audit_clinic_data_console_access(
+        session,
+        actor=actor,
+        clinic_id=resolved_clinic_id,
+        action="data_export_requested",
+        note={
+            "format": request.format,
+            "scope": request.scope,
+            "patient_id": request.patient_id,
+            "data_types": request.data_types,
+            "reason": request.reason,
+        },
+    )
+
+    export_result = create_data_export(
+        session,
+        resolved_clinic_id,
+        request.model_dump(),
+        actor.actor_id,
+    )
+    return ExportResponse(**export_result)
+
+
+# ── 6. Consent Overview ──────────────────────────────────────────────────────
+
+@router.get(
+    "/clinic/consent",
+    response_model=ConsentOverviewResponse,
+    summary="Consent status overview for all clinic patients",
+    description=(
+        "Get consent status for all patients in the clinic. "
+        "Highlights missing and expired consent records. "
+        "Available to clinic_admin (own clinic) and admin (any clinic)."
+    ),
+)
+async def get_clinic_consent_overview(
+    clinic_id: Optional[str] = Query(
+        default=None,
+        description="Clinic UUID. Required for admin; optional for clinic_admin.",
+    ),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> ConsentOverviewResponse:
+    """Get consent status for all patients in clinic. Missing/expired highlighted."""
+    resolved_clinic_id = _resolve_clinic_scope(
+        actor, clinic_id, require_param_for_admin=True
+    )
+
+    try:
+        require_clinic_access(session, actor.actor_id, resolved_clinic_id)
+    except AccessDeniedError:
+        if actor.role != "admin":
+            raise HTTPException(status_code=403, detail="Access denied for this clinic.")
+
+    _audit_clinic_data_console_access(
+        session,
+        actor=actor,
+        clinic_id=resolved_clinic_id,
+        action="consent_overview_viewed",
+        note={},
+    )
+
+    consent_data = get_consent_overview(session, resolved_clinic_id)
+    return ConsentOverviewResponse(**consent_data)
+
+
+# ── 7. Data Anonymization ────────────────────────────────────────────────────
+
+@router.post(
+    "/anonymize",
+    response_model=AnonymizeResponse,
+    summary="Anonymize patient data for research use",
+    description=(
+        "Anonymize patient data using k-anonymity, l-diversity, or full "
+        "de-identification. Returns an anonymized dataset preview and download URL. "
+        "Creates an audit event for every anonymization request. "
+        "IRB approval may be required before use in research. "
+        "Available to clinic_admin (own clinic) and admin (any clinic)."
+    ),
+)
+async def anonymize_data_endpoint(
+    request: AnonymizeRequest,
+    clinic_id: Optional[str] = Query(
+        default=None,
+        description="Clinic UUID. Required for admin; optional for clinic_admin.",
+    ),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> AnonymizeResponse:
+    """Anonymize patient data. Supports k-anonymity, l-diversity, and full de-identification."""
+    resolved_clinic_id = _resolve_clinic_scope(
+        actor, clinic_id, require_param_for_admin=True
+    )
+
+    try:
+        require_clinic_access(session, actor.actor_id, resolved_clinic_id)
+    except AccessDeniedError:
+        if actor.role != "admin":
+            raise HTTPException(status_code=403, detail="Access denied for this clinic.")
+
+    # If patient-scoped, verify patient access
+    if request.scope == "patient" and request.patient_id:
+        require_patient_access(session, actor.actor_id, request.patient_id)
+
+    _audit_clinic_data_console_access(
+        session,
+        actor=actor,
+        clinic_id=resolved_clinic_id,
+        action="data_anonymization_requested",
+        note={
+            "level": request.level,
+            "scope": request.scope,
+            "patient_id": request.patient_id,
+            "k_value": request.k_value if request.level == "k_anon" else None,
+        },
+    )
+
+    anon_result = anonymize_patient_data(
+        session,
+        resolved_clinic_id,
+        request.model_dump(),
+        actor.actor_id,
+    )
+    return AnonymizeResponse(**anon_result)

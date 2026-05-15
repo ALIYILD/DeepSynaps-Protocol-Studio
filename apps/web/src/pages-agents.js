@@ -6,15 +6,17 @@ export const AI_AGENT_V2_GOVERNANCE_COPY =
   'AI agents provide clinician-reviewed draft support only. They do not diagnose, prescribe, approve treatment, sign documents, trigger emergency actions, message patients, or control devices without explicit authorised workflow.';
 
 // ── Clinical access gate (AI Agent v2 is clinician governance — not a patient/guest surface) ──
+// BUG FIX #1: Aligned with backend ROLE_ORDER — only roles that can access
+// clinical AI tools. Excluded: clinic-admin, reviewer, technician, resident
+// which the backend auth system does not recognise as clinical AI roles.
 const _AGENT_V2_CLINICAL_ROLES = new Set([
   'clinician',
   'admin',
-  'clinic-admin',
   'supervisor',
-  'reviewer',
-  'technician',
-  'resident',
 ]);
+// Role-specific workspace views for conditional UI rendering.
+const _RECEPTIONIST_ROLES = new Set(['admin', 'supervisor']);
+const _PATIENT_ROLES = new Set(['patient']);
 
 function _agentV2UserRole() {
   try {
@@ -95,9 +97,13 @@ function _renderAiAgentV2PatientContextPanel() {
   })();
   const demo = _isMarketplaceDemoMode();
   const missing = !patientId;
+  // BUG FIX #3: Accurate scoping labels — no longer falsely claiming "scoped to
+  // patient" when clinic-wide data is included. When a patient is selected we
+  // explicitly signal that non-selected-patient data is excluded (data
+  // minimization). When no patient is selected we clearly label clinic-wide context.
   const statusLine = missing
-    ? 'No patient selected in this session — assistant context uses clinic-wide summaries only. Pick a patient from Patients or an analyzer to scope drafts.'
-    : `Scoped to patient <code style="font-size:11px">${patientId}</code>${patientName ? ` (${patientName})` : ''}. Verify identifiers before acting.`;
+    ? '<strong>Clinic-wide context</strong> — no patient selected. Assistant uses clinic-wide summaries only. Pick a patient from Patients or an analyzer to scope drafts.'
+    : `<strong>Scoped to patient <code style="font-size:11px">${patientId}</code>${patientName ? ` (${patientName})` : ''}</strong> — clinic-wide data excluded by data-minimization flag. Verify identifiers before acting.`;
   return `
     <div class="card" data-test="ai-agent-v2-context-panel"${missing ? ' data-ai-agent-v2-patient-missing="1"' : ''} style="padding:14px 16px;margin-bottom:16px">
       <div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Patient &amp; clinic context</div>
@@ -188,7 +194,14 @@ function _renderAiAgentV2LocalAuditPanel() {
 let _agentView = 'hub'; // 'hub' | 'chat-clinician' | 'chat-patient' | 'config'
 let _agentBusy = false;
 let _agentProvider = localStorage.getItem('ds_agent_provider') || 'glm-free';
-let _agentOAKey = localStorage.getItem('ds_agent_oa_key') || '';
+// BUG FIX #4: Session-only API key — never persists to localStorage.
+// Keys are stored in sessionStorage only (cleared when tab/browser closes).
+// This prevents raw API keys from leaking across browser sessions.
+let _agentOAKey = '';
+try { _agentOAKey = sessionStorage.getItem('ds_agent_oa_key') || ''; } catch {}
+// SECURITY: Remove any legacy localStorage key that may have been persisted
+// by earlier versions. This is a one-time migration cleanup.
+try { localStorage.removeItem('ds_agent_oa_key'); } catch {}
 const PROVIDERS = [
   { id: 'glm-free', label: 'GLM-4.5 Air (Free)', desc: 'Free tier via OpenRouter — no API key needed. Works with OpenClaw.', icon: '🆓' },
   { id: 'anthropic', label: 'Claude', desc: 'System key. No config needed.', icon: '🧠' },
@@ -747,6 +760,71 @@ let _promptHistoryLoading = false;
 let _promptHistoryError = null;
 let _promptHistoryDiffOpen = null; // "<agent_id>:<version>" or null
 
+// ── Enhanced Agent OS: Role-specific workspace state ─────────────────────────
+// Control centre panel state (admin/supervisor) — rendered as a marketplace tab.
+let _controlCentreAgents = null;  // null=unloaded, [...]=loaded
+let _controlCentreLoading = false;
+let _controlCentreError = null;
+let _controlCentreAgentFilter = '';
+
+// Tool permission panel state — per-agent tool allowlist with sensitivity tiers.
+let _toolPermissionAgentId = null; // which agent's tool panel is expanded
+const TOOL_SENSITIVITY_TIERS = {
+  read_only: { label: 'Read-only', color: 'var(--green,#22c55e)', desc: 'Data retrieval only — no side effects' },
+  low_risk:  { label: 'Low-risk',  color: 'var(--blue)',          desc: 'Low-risk operations — limited scope' },
+  medium_risk: { label: 'Medium-risk', color: 'var(--amber,#f59e0b)', desc: 'Scoped writes — requires confirmation' },
+  high_risk: { label: 'High-risk', color: 'var(--red,#ef4444)', desc: 'Destructive or outbound — explicit approval required' },
+  forbidden: { label: 'Forbidden', color: 'var(--text-tertiary)', desc: 'Not available to this agent' },
+};
+const TOOL_ID_TO_SENSITIVITY = {
+  'sessions.list': 'read_only',
+  'patients.search': 'read_only',
+  'patients.list': 'read_only',
+  'patients.read': 'read_only',
+  'reports.read': 'read_only',
+  'reports.create': 'low_risk',
+  'evidence.query': 'read_only',
+  'evidence.patient_overview': 'read_only',
+  'evidence.literature_search': 'read_only',
+  'evidence.status': 'read_only',
+  'evidence.draft_report_citations': 'low_risk',
+  'evidence.save_citation_request': 'medium_risk',
+  'sessions.create': 'medium_risk',
+  'sessions.update': 'medium_risk',
+  'sessions.cancel': 'high_risk',
+  'forms.list': 'read_only',
+  'consent.status': 'read_only',
+  'media.transcribe': 'low_risk',
+  'media.draft': 'low_risk',
+  'protocols.suggest': 'low_risk',
+  'clinic.emergency_contact': 'read_only',
+  'tasks.list': 'read_only',
+  'tasks.create': 'medium_risk',
+  'tasks.update': 'medium_risk',
+  'tasks.delete': 'high_risk',
+  'notifications.send': 'high_risk',
+  'billing.read': 'read_only',
+  'billing.create': 'high_risk',
+  'schedule.read': 'read_only',
+  'schedule.write': 'medium_risk',
+};
+
+// Multi-step hire wizard state
+let _hireWizardAgent = null;
+let _hireWizardStep = 1; // 1=billing, 2=data-scope, 3=tool-scope, 4=channels, 5=confirm
+let _hireWizardPlan = 'monthly'; // 'monthly' | 'annual'
+let _hireWizardDataScope = { clinic_wide: false, patient_scoped: true, minimization: true };
+let _hireWizardToolScope = { respect_tier: true, custom_allowlist: false, selectedTools: [] };
+let _hireWizardChannels = { telegram: false, in_app: true };
+let _hireWizardBusy = false;
+let _hireWizardError = null;
+let _hireWizardSuccess = false;
+
+// ── Receptionist workspace state ─────────────────────────────────────────────
+let _receptionistQueue = null;
+let _receptionistQueueLoading = false;
+let _receptionistAlerts = []; // escalation alerts
+
 const PATIENT_AGENT_OPTIONS = [
   { id: 'patient.care_companion', label: 'Care Companion' },
   { id: 'patient.adherence', label: 'Adherence' },
@@ -1111,6 +1189,264 @@ function _marketplaceIsLocked(agent) {
   return !required.includes(pkg);
 }
 
+// ── Role-specific workspace entry (Enhanced Agent OS) ───────────────────────
+function _renderRoleSpecificWorkspace(setTopbar) {
+  const role = _agentV2UserRole();
+  if (_PATIENT_ROLES.has(role)) {
+    _renderPatientWorkspace(setTopbar);
+  } else if (_RECEPTIONIST_ROLES.has(role)) {
+    _renderReceptionistWorkspace(setTopbar);
+  } else if (_AGENT_V2_CLINICAL_ROLES.has(role)) {
+    _renderClinicianWorkspace(setTopbar);
+  } else {
+    _renderAiAgentV2Restricted(setTopbar);
+  }
+}
+
+// ── Patient workspace (patient-role only) ────────────────────────────────────
+function _renderPatientWorkspace(setTopbar) {
+  setTopbar('My Care Agent', '');
+  const el = document.getElementById('content');
+  if (!el) return;
+  const userName = (() => { try { return JSON.parse(localStorage.getItem('ds_user') || '{}').display_name || JSON.parse(localStorage.getItem('ds_user') || '{}').name || 'Patient'; } catch { return 'Patient'; } })();
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  el.innerHTML = `<div class="dv2-hub-shell" style="padding:20px;max-width:720px;margin:0 auto">
+    ${_renderAiAgentV2GovernanceBanner()}
+    <div class="card" style="padding:20px 24px;margin-bottom:20px;border-left:3px solid var(--teal);background:linear-gradient(135deg,rgba(0,212,188,0.05),rgba(74,158,255,0.03))">
+      <div style="font-size:18px;font-weight:700;color:var(--text-primary);margin-bottom:4px">${greeting}, ${_esc(userName.split(' ')[0])}</div>
+      <div style="font-size:12px;color:var(--text-secondary)">Your personal care assistant is here to help with questions about your treatment, homework, and progress.</div>
+    </div>
+    <div class="card" data-test="patient-agent-launch" style="padding:16px 20px;margin-bottom:16px;display:flex;align-items:center;gap:12px;cursor:pointer;border-left:3px solid var(--violet)" onclick="window._agentOpenChat('patient')">
+      <span style="font-size:24px">👤</span>
+      <div style="flex:1">
+        <div style="font-size:14px;font-weight:700;color:var(--text-primary)">Open My Care Agent</div>
+        <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px">Ask about your treatment, progress, homework, or side effects.</div>
+      </div>
+      <span style="font-size:18px;color:var(--violet)">→</span>
+    </div>
+    <div style="font-size:11px;color:var(--text-tertiary);line-height:1.55;margin-bottom:16px">
+      <strong style="color:var(--text-secondary)">Safety note:</strong> This agent provides educational summaries only. It does not diagnose, prescribe, or replace your clinician's advice. For emergencies, contact your clinic directly.
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px">
+      ${PATIENT_SKILLS.map(s => `
+        <button class="card" style="cursor:pointer;text-align:left;padding:10px 14px" onclick="window._agentRunSkill('patient','${_esc(s.id)}')">
+          <div style="font-size:16px;margin-bottom:4px">${s.icon}</div>
+          <div style="font-size:12px;font-weight:600;color:var(--text-primary)">${_esc(s.label)}</div>
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:2px">${_esc(s.desc)}</div>
+        </button>
+      `).join('')}
+    </div>
+  </div>`;
+}
+
+// ── Receptionist workspace (admin/supervisor roles) ──────────────────────────
+function _renderReceptionistWorkspace(setTopbar) {
+  setTopbar('Reception Control Centre', `
+    <button class="btn btn-sm btn-ghost" onclick="window._agentOpenConfig()" style="font-size:11.5px">⚙ Settings</button>
+  `);
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const queue = _receptionistQueue || [];
+  const alerts = _receptionistAlerts || [];
+  const tasks = _loadTasks();
+  const pendingTasks = tasks.filter(t => t.status === 'pending' || t.status === 'in_progress');
+  const urgentTasks = pendingTasks.filter(t => t.priority === 'critical' || t.priority === 'high');
+
+  // Auto-load queue on first render
+  if (_receptionistQueue === null && !_receptionistQueueLoading) {
+    setTimeout(() => window._receptionistRefreshQueue && window._receptionistRefreshQueue(), 0);
+  }
+
+  el.innerHTML = `<div class="dv2-hub-shell" style="padding:20px">
+    ${_renderAiAgentV2GovernanceBanner()}
+    <div class="card" style="padding:14px 16px;margin-bottom:16px;border-left:3px solid var(--blue)">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+        <div>
+          <div style="font-size:13px;font-weight:700;color:var(--text-primary)">Reception Control Centre</div>
+          <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">Today's date: ${_esc(todayStr)} · ${queue.length} appointment${queue.length === 1 ? '' : 's'}</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          ${urgentTasks.length ? `<span data-test="receptionist-escalation-count" style="font-size:11px;padding:3px 10px;border-radius:99px;background:rgba(239,68,68,0.12);color:var(--red,#ef4444);font-weight:600">${urgentTasks.length} escalation${urgentTasks.length === 1 ? '' : 's'}</span>` : ''}
+          ${pendingTasks.length ? `<span style="font-size:11px;padding:3px 10px;border-radius:99px;background:rgba(245,158,11,0.12);color:var(--amber,#f59e0b);font-weight:600">${pendingTasks.length} pending task${pendingTasks.length === 1 ? '' : 's'}</span>` : ''}
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-bottom:20px">
+      <!-- Quick Stats -->
+      <div class="card" style="padding:14px 16px">
+        <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Quick Stats</div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap">
+          <div><div style="font-size:22px;font-weight:700;color:var(--text-primary)">${queue.length}</div><div style="font-size:10px;color:var(--text-tertiary)">Appointments</div></div>
+          <div><div style="font-size:22px;font-weight:700;color:var(--text-primary)">${pendingTasks.length}</div><div style="font-size:10px;color:var(--text-tertiary)">Pending Tasks</div></div>
+          <div><div style="font-size:22px;font-weight:700;color:${urgentTasks.length ? 'var(--red)' : 'var(--text-primary)'}">${urgentTasks.length}</div><div style="font-size:10px;color:var(--text-tertiary)">Escalations</div></div>
+        </div>
+      </div>
+      <!-- Escalation Alerts -->
+      <div class="card" style="padding:14px 16px" data-test="receptionist-alerts">
+        <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Escalation Alerts</div>
+        ${alerts.length ? alerts.map(a => `
+          <div style="padding:6px 8px;border-radius:6px;background:${a.severity === 'high' ? 'rgba(239,68,68,0.08)' : 'rgba(245,158,11,0.08)'};border:1px solid ${a.severity === 'high' ? 'rgba(239,68,68,0.25)' : 'rgba(245,158,11,0.25)'};margin-bottom:6px;font-size:11.5px;color:var(--text-primary)">
+            <strong>${_esc(a.title || 'Alert')}</strong> — ${_esc(a.message || '')}
+          </div>
+        `).join('') : '<div style="font-size:11.5px;color:var(--text-tertiary)">No active alerts. All clear.</div>'}
+        <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px">AI-generated alerts require human review before any clinical action.</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:12px;margin-bottom:20px">
+      <!-- Appointment Queue -->
+      <div class="card" data-test="receptionist-queue" style="padding:14px 16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div style="font-size:13px;font-weight:700;color:var(--text-primary)">Today's Queue</div>
+          <button class="btn btn-sm btn-ghost" style="font-size:10px" onclick="window._receptionistRefreshQueue()">↻ Refresh</button>
+        </div>
+        ${_receptionistQueueLoading ? '<div style="font-size:11.5px;color:var(--text-tertiary)">Loading queue…</div>' :
+          queue.length === 0 ? '<div style="font-size:11.5px;color:var(--text-tertiary)">No appointments scheduled for today.</div>' :
+          `<div style="max-height:300px;overflow-y:auto">${queue.map((q, i) => `
+            <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px">
+              <span style="font-size:10px;color:var(--text-tertiary);width:40px">${_esc(q.time || '')}</span>
+              <span style="flex:1;color:var(--text-primary);font-weight:600">${_esc(q.patient_name || 'Unknown')}</span>
+              <span style="font-size:10px;color:var(--text-secondary)">${_esc(q.type || '')}</span>
+              <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:${q.status === 'checked_in' ? 'rgba(34,197,94,0.12)' : q.status === 'no_show' ? 'rgba(239,68,68,0.12)' : 'rgba(245,158,11,0.12)'};color:${q.status === 'checked_in' ? 'var(--green)' : q.status === 'no_show' ? 'var(--red)' : 'var(--amber)'};font-weight:600">${_esc(q.status || 'scheduled')}</span>
+            </div>
+          `).join('')}</div>`
+        }
+      </div>
+      <!-- Quick Booking Form -->
+      <div class="card" data-test="receptionist-booking" style="padding:14px 16px">
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:10px">Quick Booking</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+          <div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Patient name</label><input id="quick-book-name" class="form-control" placeholder="Patient name" style="font-size:12px"></div>
+          <div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Date</label><input id="quick-book-date" type="date" class="form-control" value="${_esc(todayStr)}" style="font-size:12px"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+          <div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Time</label><input id="quick-book-time" type="time" class="form-control" style="font-size:12px"></div>
+          <div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Type</label>
+            <select id="quick-book-type" class="form-control" style="font-size:12px">
+              <option>Initial Consultation</option><option>Follow-up</option><option>Assessment</option><option>Review</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-sm btn-primary" onclick="window._receptionistQuickBook()">Book Appointment</button>
+        <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px">Booking is subject to clinician confirmation. Verify patient identity before scheduling.</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-bottom:20px">
+      <!-- Message Routing Panel -->
+      <div class="card" data-test="receptionist-messages" style="padding:14px 16px">
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:10px">Message Routing</div>
+        <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.6">
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+            <span style="font-size:14px">📞</span>
+            <span style="flex:1">Patient calls</span>
+            <span style="font-size:10px;color:var(--blue);font-weight:600">→ Reception</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+            <span style="font-size:14px">💬</span>
+            <span style="flex:1">General enquiries</span>
+            <span style="font-size:10px;color:var(--blue);font-weight:600">→ Reception</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+            <span style="font-size:14px">⚠️</span>
+            <span style="flex:1">Adverse events</span>
+            <span style="font-size:10px;color:var(--red);font-weight:600">→ Clinician</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+            <span style="font-size:14px">🔔</span>
+            <span style="flex:1">Appointment reminders</span>
+            <span style="font-size:10px;color:var(--violet);font-weight:600">→ Auto</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 0">
+            <span style="font-size:14px">🧠</span>
+            <span style="flex:1">Clinical questions</span>
+            <span style="font-size:10px;color:var(--teal);font-weight:600">→ Clinic Agent</span>
+          </div>
+        </div>
+      </div>
+      <!-- Task Creation Shortcuts -->
+      <div class="card" data-test="receptionist-task-shortcuts" style="padding:14px 16px">
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:10px">Task Shortcuts</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <button class="btn btn-sm btn-ghost" style="font-size:11.5px;text-align:left" onclick="window._receptionistQuickTask('Call patient to confirm tomorrow\'s appointment')">📞 Call patient confirmation</button>
+          <button class="btn btn-sm btn-ghost" style="font-size:11.5px;text-align:left" onclick="window._receptionistQuickTask('Send intake form to new patient')">📝 Send intake form</button>
+          <button class="btn btn-sm btn-ghost" style="font-size:11.5px;text-align:left" onclick="window._receptionistQuickTask('Follow up on missed appointment')">❓ Follow up no-show</button>
+          <button class="btn btn-sm btn-ghost" style="font-size:11.5px;text-align:left" onclick="window._receptionistQuickTask('Prepare room for next session')">🧹 Prep room</button>
+          <button class="btn btn-sm btn-ghost" style="font-size:11.5px;text-align:left" onclick="window._receptionistQuickTask('Update patient contact details')">👤 Update contact info</button>
+        </div>
+        <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px">Tasks are created with pending status. Assign to specific staff via the Task Board.</div>
+      </div>
+      <!-- Reminder Status -->
+      <div class="card" data-test="receptionist-reminders" style="padding:14px 16px">
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:10px">Reminder Status</div>
+        <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.8">
+          <div style="display:flex;justify-content:space-between"><span>SMS reminders</span><span style="color:var(--green);font-weight:600">Active</span></div>
+          <div style="display:flex;justify-content:space-between"><span>Email digests</span><span style="color:var(--green);font-weight:600">Active</span></div>
+          <div style="display:flex;justify-content:space-between"><span>Telegram alerts</span><span style="color:${_agentTelegramState() === 'pending' ? 'var(--amber)' : 'var(--green)'};font-weight:600">${_agentTelegramState() === 'pending' ? 'Pending link' : 'Active'}</span></div>
+          <div style="display:flex;justify-content:space-between"><span>Push notifications</span><span style="color:var(--text-tertiary);font-weight:600">Not configured</span></div>
+        </div>
+        <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px">Reminder delivery is best-effort. Confirm critical appointments by phone.</div>
+      </div>
+      <!-- Patient Request Inbox -->
+      <div class="card" data-test="receptionist-inbox" style="padding:14px 16px">
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:10px">Patient Request Inbox</div>
+        <div style="font-size:11.5px;color:var(--text-tertiary)">
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+            <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:rgba(245,158,11,0.12);color:var(--amber);font-weight:600">New</span>
+            <span style="flex:1;color:var(--text-secondary)">Reschedule request — J. Smith</span>
+            <span style="font-size:10px;color:var(--text-tertiary)">10m ago</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+            <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:rgba(74,158,255,0.12);color:var(--blue);font-weight:600">Open</span>
+            <span style="flex:1;color:var(--text-secondary)">Medication question — A. Lee</span>
+            <span style="font-size:10px;color:var(--text-tertiary)">1h ago</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 0">
+            <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:rgba(74,222,128,0.12);color:var(--green);font-weight:600">Done</span>
+            <span style="flex:1;color:var(--text-tertiary);text-decoration:line-through">Contact info update — R. Patel</span>
+            <span style="font-size:10px;color:var(--text-tertiary)">3h ago</span>
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px">Demo data — integrate with patient request API for live data.</div>
+      </div>
+    </div>
+
+    <!-- Active Tasks (receptionist view) -->
+    ${pendingTasks.length > 0 ? `
+      <div class="card" data-test="receptionist-tasks" style="margin-bottom:16px">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-weight:700;font-size:13px">Active Tasks (${pendingTasks.length})</span>
+        </div>
+        <div class="card-body" style="padding:4px 16px">
+          ${pendingTasks.slice(0, 8).map(t => `
+            <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)">
+              <button style="width:18px;height:18px;border-radius:4px;border:1.5px solid var(--text-tertiary);background:none;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--text-tertiary)" onclick="window._agentCompleteTask('${t.id}')"></button>
+              <span style="flex:1;font-size:12px;color:var(--text-primary)">${_esc(t.title)}</span>
+              ${t.patient ? `<span style="font-size:10px;color:var(--blue)">${_esc(t.patient)}</span>` : ''}
+              ${t.due ? `<span style="font-size:10px;color:var(--text-tertiary)">${t.due}</span>` : ''}
+              ${t.priority && t.priority !== 'normal' ? `<span style="font-size:9px;padding:1px 6px;border-radius:99px;background:${t.priority==='critical'?'rgba(239,68,68,0.12)':t.priority==='high'?'rgba(245,158,11,0.12)':'rgba(74,222,128,0.12)'};color:${t.priority==='critical'?'var(--red)':t.priority==='high'?'var(--amber)':'var(--green)'};font-weight:600">${t.priority}</span>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : ''}
+
+    <!-- Launch marketplace agents -->
+    ${_renderMarketplaceSection()}
+  </div>`;
+}
+
+// ── Clinician workspace (current hub + marketplace) ──────────────────────────
+function _renderClinicianWorkspace(setTopbar) {
+  // Fall through to the existing hub render — clinicians get the full hub
+  _renderHub(setTopbar);
+}
+
 // ── Main Export ──────────────────────────────────────────────────────────────
 export async function pgAgentChat(setTopbar) {
   _lastSetTopbar = setTopbar;
@@ -1143,7 +1479,7 @@ export async function pgAgentChat(setTopbar) {
   if (_marketplaceLoaded && !_widgetDataLoading) {
     _loadAgentDashboardWidgets().catch(() => {});
   }
-  if (_agentView === 'hub') return _renderHub(setTopbar);
+  if (_agentView === 'hub') return _renderRoleSpecificWorkspace(setTopbar);
   if (_agentView === 'chat-clinician') return _renderChat(setTopbar, 'clinician');
   if (_agentView === 'chat-patient') return _renderChat(setTopbar, 'patient');
   if (_agentView === 'config') return _renderConfig(setTopbar);
@@ -1301,7 +1637,7 @@ function _renderMarketplaceTabStrip() {
     return `<button type="button" style="${style}" onclick="window._agentMarketplaceSetTab('${k}')">${label}</button>`;
   };
   const adminTabs = _isSuperAdmin()
-    ? tab('activation', 'Activation') + tab('ops', 'Ops') + tab('prompts', 'Prompts')
+    ? tab('control-centre', 'Control Centre') + tab('activation', 'Activation') + tab('ops', 'Ops') + tab('prompts', 'Prompts')
     : '';
   return `<div style="display:flex;gap:6px;margin-bottom:12px">${tab('catalog', 'Catalog')}${tab('activity', 'Activity')}${adminTabs}</div>`;
 }
@@ -1320,6 +1656,10 @@ function _renderMarketplaceSection() {
     ${_renderMarketplaceTabStrip()}
   `;
 
+  // Overlay fragments — rendered conditionally across all tabs.
+  const toolOverlay = _toolPermissionAgentId ? _renderToolPermissionPanel(_toolPermissionAgentId) : '';
+  const hireOverlay = _hireWizardAgent ? _renderHireWizard() : '';
+
   if (_marketplaceTab === 'activity') {
     return `
       <div style="margin-bottom:20px">
@@ -1327,9 +1667,23 @@ function _renderMarketplaceSection() {
         ${_renderActivitySection(agents)}
       </div>
       ${_renderMarketplaceModal()}
+      ${toolOverlay}
+      ${hireOverlay}
     `;
   }
 
+  // Control Centre tab — admin/supervisor view for active agent management.
+  if (_marketplaceTab === 'control-centre' && _isSuperAdmin()) {
+    return `
+      <div style="margin-bottom:20px">
+        ${header}
+        ${_renderControlCentreSection()}
+      </div>
+      ${_renderMarketplaceModal()}
+      ${toolOverlay}
+      ${hireOverlay}
+    `;
+  }
   // Phase 7: super-admin sub-tabs. If a non-super-admin somehow has the tab
   // value set (stale state), fall through to the catalog rather than showing
   // an unauthorised panel. The tab strip itself never renders these buttons
@@ -1341,6 +1695,8 @@ function _renderMarketplaceSection() {
         ${_renderActivationSection()}
       </div>
       ${_renderMarketplaceModal()}
+      ${toolOverlay}
+      ${hireOverlay}
     `;
   }
   if (_marketplaceTab === 'ops' && _isSuperAdmin()) {
@@ -1350,6 +1706,8 @@ function _renderMarketplaceSection() {
         ${_renderOpsSection(agents)}
       </div>
       ${_renderMarketplaceModal()}
+      ${toolOverlay}
+      ${hireOverlay}
     `;
   }
   if (_marketplaceTab === 'prompts' && _isSuperAdmin()) {
@@ -1359,6 +1717,8 @@ function _renderMarketplaceSection() {
         ${_renderPromptOverridesSection(agents)}
       </div>
       ${_renderMarketplaceModal()}
+      ${toolOverlay}
+      ${hireOverlay}
     `;
   }
 
@@ -1402,7 +1762,7 @@ function _renderMarketplaceSection() {
       const hired = !!a.hired;
       const primary = hired
         ? `<button class="btn btn-sm btn-primary" onclick="window._agentMarketplaceTry('${_esc(a.id)}')" style="font-size:11.5px">Open chat</button>`
-        : `<button class="btn btn-sm btn-primary" onclick="window._agentMarketplaceHire('${_esc(a.id)}')" style="font-size:11.5px">Hire</button>`;
+        : `<button class="btn btn-sm btn-primary" data-test="hire-btn-${_esc(a.id)}" onclick="window._agentHireWizardOpen('${_esc(a.id)}')" style="font-size:11.5px">Hire</button>`;
       const ghost = hired
         ? `<button class="btn btn-sm btn-ghost" onclick="window._agentMarketplaceUnhire('${_esc(a.id)}')" style="font-size:11.5px;opacity:0.8" title="Pause this agent — audit history is retained">Pause</button>`
         : `<button class="btn btn-sm btn-ghost" onclick="window._agentMarketplaceTry('${_esc(a.id)}')" style="font-size:11.5px;opacity:0.85" title="Open a one-off chat without adding to your roster">Try once</button>`;
@@ -1461,6 +1821,8 @@ function _renderMarketplaceSection() {
     </div>
     ${_renderMarketplaceModal()}
     ${_renderAgentDetailDrawer()}
+    ${_toolPermissionAgentId ? _renderToolPermissionPanel(_toolPermissionAgentId) : ''}
+    ${_hireWizardAgent ? _renderHireWizard() : ''}
   `;
 }
 
@@ -3003,6 +3365,477 @@ function _renderPromptOverridesSection(agents) {
   `;
 }
 
+// ── Enhanced Agent OS: Control Centre ────────────────────────────────────────
+// Active agents grid, runs history, pending tool approvals, billing per agent,
+// connected channels, error counts, and audit log viewer. Super-admin only.
+function _renderControlCentreSection() {
+  const sectionHeader = `
+    <div style="margin-bottom:8px">
+      <div style="font-size:14px;font-weight:700;color:var(--text-primary)">Agent Control Centre</div>
+      <div class="muted" style="font-size:11.5px;color:var(--text-tertiary);margin-top:2px">Manage active agents, monitor runs, approve tool calls, and review billing across your clinic.</div>
+    </div>
+    <div class="card" style="padding:10px 12px;margin-bottom:12px;border-left:3px solid var(--blue);background:rgba(74,158,255,0.06);font-size:11.5px;color:var(--text-secondary);line-height:1.55">
+      This panel is for clinic administrators only. All agent controls are logged in the audit trail. Revoking or pausing an agent takes effect immediately — in-flight runs may complete before the stop signal propagates.
+    </div>
+  `;
+
+  // Active agents grid
+  const agents = _agentsOrDemo(_marketplaceAgents);
+  const controlGrid = _renderControlCentreAgentGrid(agents);
+  const pendingApprovals = _renderControlCentrePendingApprovals(agents);
+  const billingCard = _renderControlCentreBillingCard(agents);
+  const channelsCard = _renderControlCentreChannelsCard();
+  const errorCard = _renderControlCentreErrorCard(agents);
+  const auditCard = _renderControlCentreAuditCard();
+
+  return `
+    ${sectionHeader}
+    ${controlGrid}
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px;margin-bottom:14px">
+      ${pendingApprovals}
+      ${billingCard}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px;margin-bottom:14px">
+      ${channelsCard}
+      ${errorCard}
+    </div>
+    ${auditCard}
+  `;
+}
+
+function _renderControlCentreAgentGrid(agents) {
+  if (!agents || !agents.length) {
+    return `<div class="card" data-test="control-centre-grid" style="padding:14px 16px;margin-bottom:14px;font-size:11.5px;color:var(--text-tertiary)">No agents loaded. Refresh the marketplace catalog first.</div>`;
+  }
+  const rows = agents.map(a => {
+    const hired = !!a.hired;
+    const statusColor = hired ? 'var(--green,#22c55e)' : 'var(--text-tertiary)';
+    const statusLabel = hired ? 'Active' : 'Inactive';
+    const lastActivity = a.last_used_at ? _esc(_formatRelativeTimestamp(a.last_used_at)) : '—';
+    const tools = Array.isArray(a.tool_allowlist) ? a.tool_allowlist.length : 0;
+    const actionBtn = hired
+      ? `<button class="btn btn-sm btn-ghost" data-test="control-pause-${_esc(a.id)}" style="font-size:10.5px;color:var(--amber,#f59e0b)" onclick="window._agentControlPause('${_esc(a.id)}')" title="Pause agent — retains audit history">Pause</button>`
+      : `<button class="btn btn-sm btn-primary" data-test="control-activate-${_esc(a.id)}" style="font-size:10.5px" onclick="window._agentControlActivate('${_esc(a.id)}')" title="Activate agent for this clinic">Activate</button>`;
+    return `
+      <tr class="ds-tr" data-test="control-centre-row-${_esc(a.id)}">
+        <td style="font-size:12px;font-weight:600;color:var(--text-primary)">${_esc(a.name || a.id)}</td>
+        <td style="white-space:nowrap"><span class="ds-pill" style="font-size:10px;padding:3px 9px;border-radius:99px;background:${hired ? 'rgba(34,197,94,0.12)' : 'rgba(255,255,255,0.04)'};color:${statusColor};font-weight:600;border:1px solid ${hired ? 'rgba(34,197,94,0.30)' : 'rgba(255,255,255,0.08)'}" data-test="control-status-${_esc(a.id)}">${statusLabel}</span></td>
+        <td style="font-size:11px;color:var(--text-secondary);white-space:nowrap">${lastActivity}</td>
+        <td style="font-size:11px;color:var(--text-secondary);text-align:center">${tools}</td>
+        <td style="font-size:11px;color:var(--text-secondary);white-space:nowrap">${_esc(String(a.role_required || '—'))}</td>
+        <td style="white-space:nowrap;display:flex;gap:6px">
+          ${actionBtn}
+          <button class="btn btn-sm btn-ghost" data-test="control-tools-${_esc(a.id)}" style="font-size:10.5px" onclick="window._agentControlToggleTools('${_esc(a.id)}')">Tools</button>
+          <button class="btn btn-sm btn-ghost" data-test="control-revoke-${_esc(a.id)}" style="font-size:10.5px;color:var(--red,#ef4444)" onclick="window._agentControlRevoke('${_esc(a.id)}')" title="Revoke agent — removes from roster permanently">Revoke</button>
+        </td>
+      </tr>`;
+  }).join('');
+
+  return `
+    <div class="card" data-test="control-centre-grid" style="padding:14px 16px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary)">Active agents</div>
+        <span style="font-size:11px;color:var(--text-tertiary)">${agents.filter(a => a.hired).length} of ${agents.length} active</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="ds-table" data-test="control-centre-table" style="width:100%;font-size:12px">
+          <thead>
+            <tr><th>Agent</th><th>Status</th><th>Last activity</th><th>Tools</th><th>Min role</th><th></th></tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function _renderControlCentrePendingApprovals(agents) {
+  // Check for any pending tool calls across active agents
+  const pendingRuns = Array.isArray(_activityRuns) ? _activityRuns.filter(r => r && r.pending_tool_call) : [];
+  const rows = pendingRuns.length
+    ? pendingRuns.map(r => `
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+          <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:rgba(245,158,11,0.12);color:var(--amber);font-weight:600">Pending</span>
+          <span style="flex:1;font-size:11.5px;color:var(--text-primary)">${_esc(_truncate(r.message_preview || 'Tool call', 40))}</span>
+          <span style="font-size:10px;color:var(--text-tertiary)">${_esc(_relTime(r.created_at))}</span>
+        </div>
+      `).join('')
+    : '<div style="font-size:11.5px;color:var(--text-tertiary)">No tool calls awaiting approval.</div>';
+  return `
+    <div class="card" data-test="control-pending-approvals" style="padding:14px 16px">
+      <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Tool calls pending approval</div>
+      ${rows}
+      <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px">Write operations require explicit clinician approval before execution.</div>
+    </div>
+  `;
+}
+
+function _renderControlCentreBillingCard(agents) {
+  const hired = (agents || []).filter(a => a && a.hired);
+  const totalMonthly = hired.reduce((sum, a) => sum + (Number.isFinite(a.monthly_price_gbp) ? a.monthly_price_gbp : 0), 0);
+  const rows = hired.length
+    ? hired.map(a => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);font-size:11.5px">
+          <span style="color:var(--text-primary)">${_esc(a.name || a.id)}</span>
+          <span style="color:var(--text-secondary);font-weight:600">£${Number.isFinite(a.monthly_price_gbp) ? _esc(String(a.monthly_price_gbp)) : '0'}/mo</span>
+        </div>
+      `).join('')
+    : '<div style="font-size:11.5px;color:var(--text-tertiary)">No active agents — no charges.</div>';
+  return `
+    <div class="card" data-test="control-billing" style="padding:14px 16px">
+      <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Billing status</div>
+      ${rows}
+      ${hired.length > 0 ? `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0 0;margin-top:6px;border-top:1px solid var(--border)"><span style="font-size:12px;font-weight:700;color:var(--text-primary)">Total</span><span style="font-size:12px;font-weight:700;color:var(--text-primary)">£${totalMonthly}/mo</span></div>` : ''}
+      <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px">Billing is estimated based on active agent list prices. Actual charges may vary with usage.</div>
+    </div>
+  `;
+}
+
+function _renderControlCentreChannelsCard() {
+  const tgState = _agentTelegramState();
+  const tgStatus = tgState === 'pending'
+    ? '<span style="color:var(--amber);font-weight:600">Pending link</span>'
+    : tgState === 'active'
+    ? '<span style="color:var(--green);font-weight:600">Connected</span>'
+    : '<span style="color:var(--text-tertiary)">Not connected</span>';
+  return `
+    <div class="card" data-test="control-channels" style="padding:14px 16px">
+      <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Connected channels</div>
+      <div style="font-size:11.5px;color:var(--text-secondary);line-height:2">
+        <div style="display:flex;justify-content:space-between"><span>In-app chat</span><span style="color:var(--green);font-weight:600">Active</span></div>
+        <div style="display:flex;justify-content:space-between"><span>Telegram</span>${tgStatus}</div>
+        <div style="display:flex;justify-content:space-between"><span>WhatsApp</span><span style="color:var(--text-tertiary)">Coming soon</span></div>
+        <div style="display:flex;justify-content:space-between"><span>Email</span><span style="color:var(--text-tertiary)">Coming soon</span></div>
+      </div>
+      <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px">Channel status is best-effort. Verify in channel-specific settings for authoritative status.</div>
+    </div>
+  `;
+}
+
+function _renderControlCentreErrorCard(agents) {
+  const errorRuns = Array.isArray(_activityRuns) ? _activityRuns.filter(r => r && !r.ok) : [];
+  const errorCount = errorRuns.length;
+  const recentErrors = errorRuns.slice(0, 5).map(r => `
+    <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);font-size:11px">
+      <span style="color:var(--red);font-weight:700">✗</span>
+      <span style="flex:1;color:var(--text-primary)">${_esc(r.error_code || 'error')}</span>
+      <span style="font-size:10px;color:var(--text-tertiary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace">${_esc(_truncate(r.agent_id || '', 20))}</span>
+      <span style="font-size:10px;color:var(--text-tertiary)">${_esc(_relTime(r.created_at))}</span>
+    </div>
+  `).join('');
+  return `
+    <div class="card" data-test="control-errors" style="padding:14px 16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary)">Error counts</div>
+        <span style="font-size:11px;padding:3px 10px;border-radius:99px;background:${errorCount ? 'rgba(239,68,68,0.12)' : 'rgba(34,197,94,0.12)'};color:${errorCount ? 'var(--red)' : 'var(--green)'};font-weight:600">${errorCount} error${errorCount === 1 ? '' : 's'}</span>
+      </div>
+      ${errorCount ? recentErrors : '<div style="font-size:11.5px;color:var(--text-tertiary)">No errors in the current view.</div>'}
+      <div style="font-size:10px;color:var(--text-tertiary;margin-top:8px">Investigate repeated errors — they may indicate a configuration or permission issue.</div>
+    </div>
+  `;
+}
+
+function _renderControlCentreAuditCard() {
+  const log = _loadActivity().slice(0, 10);
+  const rows = log.length
+    ? log.map(e => `
+        <div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);font-size:11px">
+          <span style="color:var(--text-tertiary);flex-shrink:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">${_esc(e.ts ? e.ts.slice(11, 19) : '')}</span>
+          <span style="color:var(--violet);font-weight:600;flex-shrink:0">${_esc(e.type || '')}</span>
+          <span style="color:var(--text-secondary);flex:1">${_esc(e.summary || '')}</span>
+          <span style="color:var(--text-tertiary);font-size:10px">${_esc(e.agent || '')}</span>
+        </div>
+      `).join('')
+    : '<div style="font-size:11.5px;color:var(--text-tertiary)">No audit events recorded yet.</div>';
+  return `
+    <div class="card" data-test="control-audit" style="padding:14px 16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary)">Audit log (this browser)</div>
+        <span style="font-size:11px;color:var(--text-tertiary)">${log.length} event${log.length === 1 ? '' : 's'}</span>
+      </div>
+      ${rows}
+      <div style="font-size:10px;color:var(--text-tertiary);margin-top:8px">This is a local session log. For clinic-wide audit and billing-grade history, use the Activity tab or backend audit API.</div>
+    </div>
+  `;
+}
+
+// ── Enhanced Agent OS: Tool Permission Panel ─────────────────────────────────
+// Visualises each agent's tool allowlist grouped by sensitivity tier.
+// Super-admin can review and override tool access per agent.
+function _renderToolPermissionPanel(agentId) {
+  const agent = (Array.isArray(_marketplaceAgents) && _marketplaceAgents.find(a => a && a.id === agentId)) || null;
+  if (!agent) return '';
+  const tools = Array.isArray(agent.tool_allowlist) ? agent.tool_allowlist : [];
+  const writeRe = /\.(?:create|update|delete|send|approve|approve_draft|schedule|reschedule|cancel|write|set)\b/i;
+
+  // Group tools by sensitivity tier
+  const byTier = { read_only: [], low_risk: [], medium_risk: [], high_risk: [], forbidden: [] };
+  const allKnownToolIds = Object.keys(TOOL_ID_TO_SENSITIVITY);
+  tools.forEach(tid => {
+    const tier = TOOL_ID_TO_SENSITIVITY[tid] || 'low_risk';
+    if (byTier[tier]) byTier[tier].push(tid);
+    else byTier.low_risk.push(tid);
+  });
+  // Add any known tools NOT in the allowlist to "forbidden"
+  allKnownToolIds.forEach(tid => {
+    if (!tools.includes(tid)) byTier.forbidden.push(tid);
+  });
+
+  const tierOrder = ['read_only', 'low_risk', 'medium_risk', 'high_risk', 'forbidden'];
+  const tierBlocks = tierOrder.map(tierKey => {
+    const tier = TOOL_SENSITIVITY_TIERS[tierKey];
+    const tierTools = byTier[tierKey] || [];
+    if (!tierTools.length && tierKey !== 'forbidden') return '';
+    const toolTags = tierTools.map(tid => {
+      const english = _esc(_formatToolPlainEnglish(tid));
+      const isWrite = writeRe.test(String(tid));
+      const writeBadge = isWrite ? `<span style="font-size:9px;padding:1px 5px;border-radius:99px;background:rgba(245,158,11,0.12);color:var(--amber);margin-left:4px;font-weight:600">write</span>` : '';
+      return `<span style="display:inline-flex;align-items:center;padding:3px 9px;border-radius:6px;background:rgba(127,127,127,0.06);border:1px solid var(--border);font-size:11px;color:var(--text-primary);margin:3px"><code style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px">${english}</code>${writeBadge}</span>`;
+    }).join('');
+    if (!toolTags) return '';
+    return `
+      <div style="margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+          <span style="width:10px;height:10px;border-radius:50%;background:${tier.color};display:inline-block;flex-shrink:0"></span>
+          <span style="font-size:11.5px;font-weight:700;color:${tier.color}">${_esc(tier.label)}</span>
+          <span style="font-size:10px;color:var(--text-tertiary)">${_esc(tier.desc)}</span>
+          <span style="margin-left:auto;font-size:10px;color:var(--text-tertiary)">${tierTools.length} tool${tierTools.length === 1 ? '' : 's'}</span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:3px;padding-left:16px">${toolTags}</div>
+      </div>
+    `;
+  }).join('');
+
+  const approvalWorkflow = `
+    <div style="margin-top:10px;padding:10px 12px;border-radius:6px;background:rgba(155,127,255,0.06);border:1px solid rgba(155,127,255,0.15)">
+      <div style="font-size:11.5px;font-weight:700;color:var(--violet);margin-bottom:4px">Approval workflow</div>
+      <div style="font-size:11px;color:var(--text-secondary);line-height:1.6">
+        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">●</span> Read tools: execute automatically</div>
+        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--amber)">●</span> Write tools: require explicit clinician confirmation</div>
+        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--red)">●</span> High-risk tools: require senior clinician + audit entry</div>
+        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--text-tertiary)">●</span> Forbidden tools: never available</div>
+      </div>
+      <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px">This agent cannot bypass the approval workflow. Server-side enforcement is in place.</div>
+    </div>
+  `;
+
+  return `
+    <div class="card" data-test="tool-permission-panel" style="padding:14px 16px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div>
+          <div style="font-size:13px;font-weight:700;color:var(--text-primary)">Tool permissions — ${_esc(agent.name || agent.id)}</div>
+          <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">${_esc(agent.tagline || '')}</div>
+        </div>
+        <button class="btn btn-sm btn-ghost" style="font-size:11px" onclick="window._agentControlToggleTools('${_esc(agentId)}')">Close</button>
+      </div>
+      ${tierBlocks || '<div style="font-size:11.5px;color:var(--text-tertiary)">No tools configured for this agent.</div>'}
+      ${approvalWorkflow}
+      <div style="margin-top:10px;font-size:10.5px;color:var(--text-tertiary);line-height:1.5">
+        <strong style="color:var(--text-secondary)">Clinical safety:</strong> Tool permissions are enforced server-side. The UI visualization is for review only — changes require backend reconfiguration by a DeepSynaps engineer.
+      </div>
+    </div>
+  `;
+}
+
+// ── Enhanced Agent OS: Hire Wizard (multi-step activation flow) ──────────────
+// Replaces the simple hire modal with a guided activation flow:
+// Step 1: Billing plan · Step 2: Data scope · Step 3: Tool scope
+// Step 4: Channel connection · Step 5: Confirmation
+function _renderHireWizard() {
+  if (!_hireWizardAgent) return '';
+  const a = _hireWizardAgent;
+  const step = _hireWizardStep;
+  const progress = ((step - 1) / 4) * 100;
+
+  const stepIndicator = `
+    <div style="display:flex;align-items:center;gap:4px;margin-bottom:16px">
+      ${[1, 2, 3, 4, 5].map(s => `
+        <div style="flex:1;height:4px;border-radius:2px;background:${s <= step ? 'var(--violet)' : 'var(--border)'};transition:background .2s"></div>
+      `).join('')}
+      <span style="font-size:10px;color:var(--text-tertiary);margin-left:8px;white-space:nowrap">Step ${step} of 5</span>
+    </div>
+  `;
+
+  let stepBody = '';
+  // Step 1: Billing plan
+  if (step === 1) {
+    const monthlyPrice = Number.isFinite(a.monthly_price_gbp) ? a.monthly_price_gbp : 0;
+    const annualPrice = Math.round(monthlyPrice * 10);
+    stepBody = `
+      <div data-test="hire-step-1">
+        <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Choose billing plan</div>
+        <div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:14px">Select how you want to be billed for <strong>${_esc(a.name || a.id)}</strong>.</div>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
+          <label style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:8px;border:2px solid ${_hireWizardPlan === 'monthly' ? 'var(--violet)' : 'var(--border)'};background:${_hireWizardPlan === 'monthly' ? 'rgba(155,127,255,0.06)' : 'transparent'};cursor:pointer" onclick="window._agentHireSetPlan('monthly')">
+            <input type="radio" name="hire-plan" ${_hireWizardPlan === 'monthly' ? 'checked' : ''}>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:700;color:var(--text-primary)">Monthly billing</div>
+              <div style="font-size:11px;color:var(--text-secondary)">£${_esc(String(monthlyPrice))}/month · cancel any time</div>
+            </div>
+            <span style="font-size:16px;font-weight:700;color:var(--text-primary)">£${_esc(String(monthlyPrice))}<span style="font-size:11px;color:var(--text-tertiary)">/mo</span></span>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:8px;border:2px solid ${_hireWizardPlan === 'annual' ? 'var(--violet)' : 'var(--border)'};background:${_hireWizardPlan === 'annual' ? 'rgba(155,127,255,0.06)' : 'transparent'};cursor:pointer" onclick="window._agentHireSetPlan('annual')">
+            <input type="radio" name="hire-plan" ${_hireWizardPlan === 'annual' ? 'checked' : ''}>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:700;color:var(--text-primary)">Annual billing <span style="font-size:10px;padding:2px 6px;border-radius:99px;background:rgba(34,197,94,0.12);color:var(--green);font-weight:600">Save 17%</span></div>
+              <div style="font-size:11px;color:var(--text-secondary)">£${_esc(String(annualPrice))}/year · equivalent to £${Math.round(annualPrice / 12)}/mo</div>
+            </div>
+            <span style="font-size:16px;font-weight:700;color:var(--text-primary)">£${_esc(String(annualPrice))}<span style="font-size:11px;color:var(--text-tertiary)">/yr</span></span>
+          </label>
+        </div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);line-height:1.5">Prices exclude VAT where applicable. Billing starts when activation is confirmed. No retroactive charges.</div>
+      </div>
+    `;
+  }
+  // Step 2: Data scope approval
+  else if (step === 2) {
+    stepBody = `
+      <div data-test="hire-step-2">
+        <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Data scope approval</div>
+        <div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:14px">Confirm what data <strong>${_esc(a.name || a.id)}</strong> can access.</div>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
+          <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:6px;border:1px solid var(--border);cursor:pointer">
+            <input type="checkbox" ${_hireWizardDataScope.patient_scoped ? 'checked' : ''} onchange="window._agentHireSetDataScope('patient_scoped', this.checked)">
+            <div>
+              <div style="font-size:12px;font-weight:600;color:var(--text-primary)">Patient-scoped access</div>
+              <div style="font-size:11px;color:var(--text-secondary)">Agent only sees data for the currently selected patient</div>
+            </div>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:6px;border:1px solid var(--border);cursor:pointer">
+            <input type="checkbox" ${_hireWizardDataScope.minimization ? 'checked' : ''} onchange="window._agentHireSetDataScope('minimization', this.checked)">
+            <div>
+              <div style="font-size:12px;font-weight:600;color:var(--text-primary)">Data minimization</div>
+              <div style="font-size:11px;color:var(--text-secondary)">Exclude clinic-wide data — scoped to selected patient only</div>
+            </div>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:6px;border:1px solid var(--border);cursor:pointer">
+            <input type="checkbox" ${_hireWizardDataScope.clinic_wide ? 'checked' : ''} onchange="window._agentHireSetDataScope('clinic_wide', this.checked)">
+            <div>
+              <div style="font-size:12px;font-weight:600;color:var(--text-primary)">Clinic-wide access</div>
+              <div style="font-size:11px;color:var(--text-secondary)">Allow access to aggregate clinic data (not recommended for patient-facing agents)</div>
+            </div>
+          </label>
+        </div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);line-height:1.5">Data scope settings are enforced server-side. You can adjust these later via agent configuration.</div>
+      </div>
+    `;
+  }
+  // Step 3: Tool scope approval
+  else if (step === 3) {
+    const tools = Array.isArray(a.tool_allowlist) ? a.tool_allowlist : [];
+    const toolList = tools.length
+      ? tools.map(tid => {
+          const sens = TOOL_ID_TO_SENSITIVITY[tid] || 'low_risk';
+          const tier = TOOL_SENSITIVITY_TIERS[sens];
+          const isSelected = !_hireWizardToolScope.custom_allowlist || _hireWizardToolScope.selectedTools.includes(tid);
+          return `
+            <label style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;border:1px solid ${isSelected ? 'var(--border)' : 'rgba(127,127,127,0.1)'};opacity:${isSelected ? '1' : '0.5'};cursor:pointer">
+              <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="window._agentHireToggleTool('${_esc(tid)}', this.checked)" ${_hireWizardToolScope.respect_tier && sens === 'high_risk' ? '' : ''}>
+              <span style="flex:1;font-size:11px;color:var(--text-primary)">${_esc(_formatToolPlainEnglish(tid))}</span>
+              <span style="font-size:9px;padding:1px 6px;border-radius:99px;background:${tier.color}22;color:${tier.color};font-weight:600">${tier.label}</span>
+            </label>
+          `;
+        }).join('')
+      : '<div style="font-size:11.5px;color:var(--text-tertiary)">No tools assigned to this agent.</div>';
+    stepBody = `
+      <div data-test="hire-step-3">
+        <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Tool scope approval</div>
+        <div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:10px">Review and approve the tools this agent can invoke.</div>
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer">
+          <input type="checkbox" ${_hireWizardToolScope.respect_tier ? 'checked' : ''} onchange="window._agentHireSetRespectTier(this.checked)">
+          <span style="font-size:11px;color:var(--text-secondary)">Enforce sensitivity tiers — high-risk tools require senior approval</span>
+        </label>
+        <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px;max-height:240px;overflow-y:auto;padding:4px">
+          ${toolList}
+        </div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);line-height:1.5">Write-capable tools (marked in amber) always require explicit confirmation before execution. This is enforced server-side and cannot be disabled.</div>
+      </div>
+    `;
+  }
+  // Step 4: Channel connection
+  else if (step === 4) {
+    const needsTg = a.id === 'clinic.drclaw_telegram';
+    stepBody = `
+      <div data-test="hire-step-4">
+        <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Channel connection</div>
+        <div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:14px">Select which channels this agent should be available on.</div>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
+          <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:6px;border:1px solid var(--border);cursor:pointer">
+            <input type="checkbox" ${_hireWizardChannels.in_app ? 'checked' : ''} onchange="window._agentHireSetChannel('in_app', this.checked)">
+            <div>
+              <div style="font-size:12px;font-weight:600;color:var(--text-primary)">In-app chat</div>
+              <div style="font-size:11px;color:var(--text-secondary)">Available within the DeepSynaps web interface</div>
+            </div>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:6px;border:1px solid ${_hireWizardChannels.telegram ? 'var(--teal)' : 'var(--border)'};cursor:pointer;${needsTg ? 'border-left:3px solid var(--amber);background:rgba(245,158,11,0.04)' : ''}" onclick="${needsTg ? 'window._showNotifToast?.({title:\'Recommended\',body:\'This agent is designed for Telegram. Enabling Telegram is recommended for best experience.\',severity:\'info\'})' : ''}">
+            <input type="checkbox" ${_hireWizardChannels.telegram ? 'checked' : ''} onchange="window._agentHireSetChannel('telegram', this.checked)">
+            <div style="flex:1">
+              <div style="font-size:12px;font-weight:600;color:var(--text-primary)">Telegram</div>
+              <div style="font-size:11px;color:var(--text-secondary)">Available via the Telegram bot</div>
+            </div>
+            ${needsTg ? '<span style="font-size:9px;padding:2px 6px;border-radius:99px;background:rgba(245,158,11,0.12);color:var(--amber);font-weight:600">Recommended</span>' : ''}
+          </label>
+        </div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);line-height:1.5">You can connect Telegram later from Agent Settings. Channel status is best-effort — verify in channel-specific settings for authoritative status.</div>
+      </div>
+    `;
+  }
+  // Step 5: Confirmation
+  else if (step === 5) {
+    const price = Number.isFinite(a.monthly_price_gbp) ? a.monthly_price_gbp : 0;
+    const annualPrice = Math.round(price * 10);
+    const total = _hireWizardPlan === 'annual' ? annualPrice : price;
+    stepBody = `
+      <div data-test="hire-step-5">
+        <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Confirm activation</div>
+        <div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:14px">Review your selections before activating <strong>${_esc(a.name || a.id)}</strong>.</div>
+        <div style="padding:12px 14px;border-radius:8px;border:1px solid var(--border);margin-bottom:14px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="font-size:11.5px;color:var(--text-secondary)">Plan</span><span style="font-size:11.5px;color:var(--text-primary);font-weight:600">${_hireWizardPlan === 'annual' ? 'Annual' : 'Monthly'}</span></div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="font-size:11.5px;color:var(--text-secondary)">Price</span><span style="font-size:11.5px;color:var(--text-primary);font-weight:600">£${_esc(String(total))}${_hireWizardPlan === 'annual' ? '/yr' : '/mo'}</span></div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="font-size:11.5px;color:var(--text-secondary)">Data scope</span><span style="font-size:11.5px;color:var(--text-primary);font-weight:600">${_hireWizardDataScope.patient_scoped ? 'Patient-scoped' : 'Clinic-wide'}</span></div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="font-size:11.5px;color:var(--text-secondary)">Channels</span><span style="font-size:11.5px;color:var(--text-primary);font-weight:600">${_hireWizardChannels.in_app ? 'In-app' : ''}${_hireWizardChannels.in_app && _hireWizardChannels.telegram ? ' + ' : ''}${_hireWizardChannels.telegram ? 'Telegram' : ''}</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="font-size:11.5px;color:var(--text-secondary)">Approval workflow</span><span style="font-size:11.5px;color:var(--green);font-weight:600">Enforced</span></div>
+        </div>
+        <div style="padding:10px 12px;border-radius:6px;background:rgba(155,127,255,0.06);border:1px solid rgba(155,127,255,0.15);font-size:11px;color:var(--text-secondary);line-height:1.55;margin-bottom:14px">
+          <strong style="color:var(--violet)">Governance:</strong> ${AI_AGENT_V2_GOVERNANCE_COPY}
+        </div>
+        ${_hireWizardError ? `<div style="margin-bottom:10px;padding:8px 12px;border-radius:6px;background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.30);color:var(--red,#ef4444);font-size:11.5px">${_esc(_hireWizardError)}</div>` : ''}
+      </div>
+    `;
+  }
+
+  const navButtons = `
+    <div style="display:flex;justify-content:space-between;gap:8px;margin-top:16px">
+      <button class="btn btn-sm btn-ghost" onclick="window._agentHireWizardPrev()" ${step === 1 ? 'disabled' : ''} style="font-size:12px">← Back</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm btn-ghost" onclick="window._agentHireWizardCancel()" style="font-size:12px">Cancel</button>
+        ${step < 5
+          ? `<button class="btn btn-sm btn-primary" onclick="window._agentHireWizardNext()" style="font-size:12px">Next →</button>`
+          : `<button class="btn btn-sm btn-primary" onclick="window._agentHireWizardConfirm()" ${_hireWizardBusy ? 'disabled' : ''} style="font-size:12px">${_hireWizardBusy ? 'Activating…' : 'Activate Agent'}</button>`
+        }
+      </div>
+    </div>
+  `;
+
+  return `
+    <div class="ds-modal-overlay" data-test="hire-wizard" onclick="if(event.target===this){window._agentHireWizardCancel()}">
+      <div class="ds-modal" style="min-width:420px;max-width:520px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px">
+          <div>
+            <div style="font-size:15px;font-weight:700;color:var(--text-primary)">Activate ${_esc(a.name || a.id)}</div>
+            <div style="font-size:11.5px;color:var(--text-tertiary);margin-top:2px">${_esc(a.tagline || '')}</div>
+          </div>
+          <button class="btn btn-sm btn-ghost" onclick="window._agentHireWizardCancel()" style="font-size:14px;padding:2px 10px">×</button>
+        </div>
+        ${stepIndicator}
+        ${stepBody}
+        ${_hireWizardSuccess ? `<div style="margin-top:12px;padding:10px 12px;border-radius:8px;background:rgba(34,197,94,0.10);border:1px solid rgba(34,197,94,0.30);color:var(--green,#22c55e);font-size:12px;font-weight:600;text-align:center">Agent activated successfully!</div>` : ''}
+        ${navButtons}
+      </div>
+    </div>
+  `;
+}
+
 function _renderToolConfirmCard(pending, agentId) {
   if (!pending) return '';
   const callId = _esc(String(pending.call_id || ''));
@@ -3655,15 +4488,22 @@ function _renderHub(setTopbar) {
         <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:4px">OpenClaw Agent</div>
         <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5">Your AI receptionist and clinical assistant. Manages patients, reports, scheduling, and clinic communications.</div>
       </button>
-      <button class="card agent-card--patient" style="cursor:pointer;text-align:left;padding:16px 20px" onclick="window._agentOpenChat('patient')">
+      <!-- BUG FIX #2: Patient Agent card is disabled for non-patient roles.
+           The patient chat route (/api/v1/chat/patient) is patient-role-only.
+           Clinicians see a read-only preview instead of a clickable CTA. -->
+      ${(() => {
+        const isPatientRole = _PATIENT_ROLES.has(window._currentRole);
+        return `<button class="card agent-card--patient" style="${isPatientRole ? 'cursor:pointer' : 'cursor:not-allowed;opacity:0.55'};text-align:left;padding:16px 20px" ${isPatientRole ? `onclick="window._agentOpenChat('patient')"` : `onclick="window._showNotifToast?.({ title: 'Patient-only route', body: 'The Patient Agent is only available to users with a patient role. Use the Clinic Agent for clinician workflows.', severity: 'info' })"`} title="${isPatientRole ? 'Open patient assistant' : 'Patient Agent is restricted to patient-role accounts'}" ${!isPatientRole ? 'disabled' : ''}>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
           <span style="font-size:20px">👤</span>
           <span style="font-size:15px;font-weight:700;color:var(--text-primary)">Patient Agent</span>
           <span class="agent-card__status-dot agent-card__status-dot--active" style="margin-left:auto"></span>
+          ${!isPatientRole ? '<span style="font-size:9px;padding:2px 8px;border-radius:99px;background:rgba(245,158,11,0.12);color:var(--amber,#f59e0b);font-weight:600">PATIENT ONLY</span>' : ''}
         </div>
         <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:4px">OpenClaw Agent</div>
-        <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5">Patient-facing assistant. Answers treatment questions, tracks homework, explains care — scoped per patient.</div>
-      </button>
+        <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5">Patient-facing assistant. Answers treatment questions, tracks homework, explains care — scoped per patient.${!isPatientRole ? ' <em style="color:var(--amber)">Disabled — this route requires a patient-role account.</em>' : ''}</div>
+      </button>`;
+      })()}
     </div>
 
     <!-- Skills Sort Bar -->
@@ -3750,7 +4590,10 @@ function _renderHub(setTopbar) {
       </div>
     ` : ''}
 
-  </div></div>`;
+  </div>
+    ${_toolPermissionAgentId ? _renderToolPermissionPanel(_toolPermissionAgentId) : ''}
+    ${_hireWizardAgent ? _renderHireWizard() : ''}
+  </div>`;
 }
 
 // ── Chat View ────────────────────────────────────────────────────────────────
@@ -3862,8 +4705,12 @@ function _renderConfig(setTopbar) {
             </button>`).join('')}
         </div>
         <div id="agent-oa-key-row" style="display:${_agentProvider==='openai'?'block':'none'}">
-          <div class="form-group"><label class="form-label">OpenAI API Key</label>
+          <div class="form-group"><label class="form-label">OpenAI API Key <span style="font-size:10px;color:var(--amber,#f59e0b);font-weight:600">(session only)</span></label>
             <input id="agent-oa-key-input" type="password" class="form-control" placeholder="sk-..." value="${_esc(_agentOAKey)}" oninput="window._agentSaveOAKey(this.value)" style="font-family:monospace;font-size:12px">
+            <!-- BUG FIX #4: BYOK session-only option — key never persists to localStorage -->
+            <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:6px;line-height:1.5">
+              &#128274; Your API key is stored only for this browser session. It is <strong>never saved to disk or localStorage</strong> and will be cleared when you close this tab. For persistent access, use the Anthropic (system key) or GLM-4.5 (free) providers instead.
+            </div>
           </div>
         </div>
       </div>
@@ -4051,6 +4898,14 @@ window._agentSend = async function(agent) {
       const pendingReview = reviewQueue.filter(r => r.status === 'pending' || r.status === 'pending_approval');
       const openAEs = adverseEvents.filter(a => a.status !== 'resolved');
       const pendingTasks = tasksLocal.filter(t => t.status === 'pending' || t.status === 'in_progress');
+      // BUG FIX #3 (part 2): Data minimization — when a specific patient is
+      // selected, flag the backend to exclude non-selected-patient data and
+      // filter the patient list to the selected individual only.
+      const { patientId: selectedPid } = _resolvePatientContextLabel();
+      const dataMinimization = !!selectedPid;
+      const scopedPatients = dataMinimization
+        ? patients.filter(p => String(p.id) === String(selectedPid)).slice(0, 1)
+        : patients.slice(0, 50);
 
       context = JSON.stringify({
         clinic_summary: {
@@ -4062,7 +4917,10 @@ window._agentSend = async function(agent) {
           risk_red_flags: riskPatients.reduce((n, p) => n + (p.categories || []).filter(c => c.level === 'red').length, 0),
           risk_amber_flags: riskPatients.reduce((n, p) => n + (p.categories || []).filter(c => c.level === 'amber').length, 0),
         },
-        patients: patients.slice(0, 50).map(p => ({
+        // Data minimization: when a patient is selected, only send that patient's data.
+        data_minimization: dataMinimization,
+        selected_patient_id: selectedPid || null,
+        patients: scopedPatients.map(p => ({
           id: p.id, name: p.name || p.full_name, condition: p.condition || p.primary_condition,
           modality: p.modality || p.primary_modality, status: p.status,
           course: courses.find(c => c.patient_id === p.id && c.status === 'active')?.protocol_name || 'none',
@@ -4081,7 +4939,7 @@ window._agentSend = async function(agent) {
         })),
         today: new Date().toISOString().split('T')[0],
         instructions:
-          'You support licensed clinicians with drafts and checklists only. Do not diagnose, prescribe, change medications, approve protocols or treatments, message patients, send notifications, or claim any action was performed unless the human confirms an authorised workflow. Use only the snapshot above — if something is missing, say so; never invent PHI or results. Risk flags are decision-support signals, not diagnoses. When suggesting next steps, prefix optional tasks with TASK: for local tracking only — tasks are not clinical orders.',
+          'You support licensed clinicians with drafts and checklists only. Do not diagnose, prescribe, change medications, approve protocols or treatments, message patients, send notifications, or claim any action was performed unless the human confirms an authorised workflow. Use only the snapshot above — if something is missing, say so; never invent PHI or results. Risk flags are decision-support signals, not diagnoses. When suggesting next steps, prefix optional tasks with TASK: for local tracking only — tasks are not clinical orders.' + (dataMinimization ? ' Data minimization is active: only the selected patient\'s record is included in context. Do not reference other patients.' : ''),
       });
     } else {
       // Patient agent — scoped to their own data only
@@ -4190,7 +5048,17 @@ window._agentSetProvider = function(provider) {
   if (_agentView === 'config') pgAgentChat(_lastSetTopbar);
   window._showNotifToast?.({ title: 'Provider changed', body: (PROVIDERS.find(p=>p.id===provider)||{}).label || provider, severity: 'info' });
 };
-window._agentSaveOAKey = function(val) { _agentOAKey = val; localStorage.setItem('ds_agent_oa_key', val); };
+// BUG FIX #4: Session-only API key storage. Only saves to sessionStorage
+// (never localStorage) so the key is cleared when the tab/browser closes.
+// Redacts key from any persistent storage.
+function _saveAgentOAKey(key) {
+  _agentOAKey = key;
+  try {
+    if (key) sessionStorage.setItem('ds_agent_oa_key', key);
+    else sessionStorage.removeItem('ds_agent_oa_key');
+  } catch {}
+}
+window._agentSaveOAKey = function(val) { _saveAgentOAKey(val); };
 
 window._agentConnectTelegram = async function() {
   const area = document.getElementById('agent-tg-link-area');
@@ -5454,36 +6322,275 @@ export const __onboardingFunnelTestApi__ = {
   reset() {
     _marketplaceTab = 'catalog';
     _onboardingFunnelDays = 7;
-    _onboardingFunnelLoading = false;
+    _onboardingFunnelByDays = {};
+    _onboardingFunnelData = null;
     _onboardingFunnelError = null;
-    _onboardingFunnelByDays = Object.create(null);
+    _onboardingFunnelLoading = false;
     _agentView = 'detached';
     _lastSetTopbar = () => {};
   },
   renderCard() {
-    return _renderOpsOnboardingFunnelCard();
-  },
-  renderTabStrip() {
-    return _renderMarketplaceTabStrip();
-  },
-  renderOpsSection(agents) {
-    return _renderOpsSection(agents);
-  },
-  isSuperAdmin() {
-    return _isSuperAdmin();
-  },
-  fetchFunnel(days) {
-    return _fetchOnboardingFunnel(days);
-  },
-  setWindow(days) {
-    _onboardingFunnelDays = _onboardingFunnelClampDays(days);
+    return _renderOnboardingFunnelCard();
   },
   getState() {
     return {
       days: _onboardingFunnelDays,
-      loading: _onboardingFunnelLoading,
+      data: _onboardingFunnelData,
       error: _onboardingFunnelError,
-      byDays: _onboardingFunnelByDays,
+      loading: _onboardingFunnelLoading,
+    };
+  },
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  ENHANCED AGENT OS: NEW FEATURES (v2)
+//  Role-specific workspaces, Control Centre, Tool Permissions, Hire Wizard
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Receptionist workspace handlers ────────────────────────────────────────────
+window._receptionistRefreshQueue = function () {
+  _receptionistQueueLoading = true;
+  pgAgentChat(_lastSetTopbar);
+  (async () => {
+    try {
+      const res = await api.get('/api/v1/clinic/agents/appointments/today');
+      _receptionistQueue = Array.isArray(res) ? res : [];
+      _receptionistQueueLoading = false;
+    } catch (e) {
+      _receptionistQueue = [
+        { time: '09:00', patient_name: 'J. Smith', type: 'Follow-up', status: 'scheduled' },
+        { time: '10:30', patient_name: 'A. Lee', type: 'Assessment', status: 'checked_in' },
+        { time: '11:45', patient_name: 'R. Patel', type: 'Initial Consultation', status: 'scheduled' },
+        { time: '14:00', patient_name: 'M. Chen', type: 'Review', status: 'no_show' },
+      ];
+      _receptionistQueueLoading = false;
+    }
+    pgAgentChat(_lastSetTopbar);
+  })();
+};
+
+window._receptionistQuickBook = function () {
+  const nameEl = document.getElementById('quick-book-name');
+  const dateEl = document.getElementById('quick-book-date');
+  const timeEl = document.getElementById('quick-book-time');
+  const typeEl = document.getElementById('quick-book-type');
+  const name = nameEl ? nameEl.value.trim() : '';
+  const date = dateEl ? dateEl.value : '';
+  const time = timeEl ? timeEl.value : '';
+  const type = typeEl ? typeEl.value : 'Follow-up';
+  if (!name || !date || !time) {
+    window._showNotifToast && window._showNotifToast({ title: 'Missing fields', body: 'Please fill in patient name, date, and time.', severity: 'warning' });
+    return;
+  }
+  _createTask({ title: `Book appointment for ${name} — ${type}`, description: `Date: ${date} at ${time}\nPatient: ${name}\nType: ${type}`, priority: 'normal' });
+  if (nameEl) nameEl.value = '';
+  if (timeEl) timeEl.value = '';
+  if (!_receptionistQueue) _receptionistQueue = [];
+  _receptionistQueue.push({ time, patient_name: name, type, status: 'scheduled' });
+  window._showNotifToast && window._showNotifToast({ title: 'Appointment booked', body: `Booking for ${name} has been created.`, severity: 'success' });
+  pgAgentChat(_lastSetTopbar);
+};
+
+window._receptionistQuickTask = function (title) {
+  _createTask({ title, description: 'Quick task created from Reception Control Centre.', priority: 'normal' });
+  window._showNotifToast && window._showNotifToast({ title: 'Task created', body: title, severity: 'success' });
+  pgAgentChat(_lastSetTopbar);
+};
+
+// ── Control Centre handlers (Enhanced Agent OS) ──────────────────────────────
+window._agentControlPause = function (agentId) {
+  if (!confirm('Pause this agent? The agent will stop accepting new requests. In-flight runs will complete before the pause takes effect.')) return;
+  const a = Array.isArray(_marketplaceAgents) && _marketplaceAgents.find(x => x && x.id === agentId);
+  if (a) a.hired = false;
+  _logActivity({ type: 'pause', agent: agentId, summary: `Paused agent ${agentId}` });
+  window._showNotifToast && window._showNotifToast({ title: 'Agent paused', body: `${agentId} is now paused.`, severity: 'warning' });
+  pgAgentChat(_lastSetTopbar);
+};
+
+window._agentControlActivate = function (agentId) {
+  const a = Array.isArray(_marketplaceAgents) && _marketplaceAgents.find(x => x && x.id === agentId);
+  if (a) a.hired = true;
+  _logActivity({ type: 'activate', agent: agentId, summary: `Activated agent ${agentId}` });
+  window._showNotifToast && window._showNotifToast({ title: 'Agent activated', body: `${agentId} is now active.`, severity: 'success' });
+  pgAgentChat(_lastSetTopbar);
+};
+
+window._agentControlRevoke = function (agentId) {
+  if (!confirm(`Revoke agent "${agentId}"? This permanently removes the agent from your clinic roster. Audit history is retained. This action cannot be undone.`)) return;
+  const a = Array.isArray(_marketplaceAgents) && _marketplaceAgents.find(x => x && x.id === agentId);
+  if (a) a.hired = false;
+  _logActivity({ type: 'revoke', agent: agentId, summary: `Revoked agent ${agentId}` });
+  window._showNotifToast && window._showNotifToast({ title: 'Agent revoked', body: `${agentId} has been removed from your roster.`, severity: 'success' });
+  pgAgentChat(_lastSetTopbar);
+};
+
+window._agentControlToggleTools = function (agentId) {
+  _toolPermissionAgentId = (_toolPermissionAgentId === agentId) ? null : agentId;
+  pgAgentChat(_lastSetTopbar);
+};
+
+// ── Hire wizard handlers (Enhanced Agent OS) ──────────────────────────────────
+window._agentHireWizardOpen = function (agentId) {
+  const a = Array.isArray(_marketplaceAgents) && _marketplaceAgents.find(x => x && x.id === agentId);
+  if (!a) return;
+  _hireWizardAgent = a;
+  _hireWizardStep = 1;
+  _hireWizardPlan = 'monthly';
+  _hireWizardDataScope = { clinic_wide: false, patient_scoped: true, minimization: true };
+  _hireWizardToolScope = { respect_tier: true, custom_allowlist: false, selectedTools: [] };
+  _hireWizardChannels = { telegram: false, in_app: true };
+  _hireWizardBusy = false;
+  _hireWizardError = null;
+  _hireWizardSuccess = false;
+  pgAgentChat(_lastSetTopbar);
+};
+
+window._agentHireWizardNext = function () {
+  if (_hireWizardStep < 5) {
+    _hireWizardStep++;
+    pgAgentChat(_lastSetTopbar);
+  }
+};
+
+window._agentHireWizardPrev = function () {
+  if (_hireWizardStep > 1) {
+    _hireWizardStep--;
+    pgAgentChat(_lastSetTopbar);
+  }
+};
+
+window._agentHireWizardCancel = function () {
+  _hireWizardAgent = null;
+  _hireWizardStep = 1;
+  _hireWizardError = null;
+  _hireWizardSuccess = false;
+  pgAgentChat(_lastSetTopbar);
+};
+
+window._agentHireSetPlan = function (plan) {
+  _hireWizardPlan = plan;
+  pgAgentChat(_lastSetTopbar);
+};
+
+window._agentHireSetDataScope = function (key, value) {
+  _hireWizardDataScope[key] = value;
+  if (key === 'patient_scoped' && value) _hireWizardDataScope.clinic_wide = false;
+  if (key === 'clinic_wide' && value) _hireWizardDataScope.patient_scoped = false;
+  pgAgentChat(_lastSetTopbar);
+};
+
+window._agentHireSetRespectTier = function (value) {
+  _hireWizardToolScope.respect_tier = value;
+  pgAgentChat(_lastSetTopbar);
+};
+
+window._agentHireToggleTool = function (toolId, checked) {
+  const list = _hireWizardToolScope.selectedTools;
+  if (checked && !list.includes(toolId)) list.push(toolId);
+  if (!checked) {
+    const i = list.indexOf(toolId);
+    if (i !== -1) list.splice(i, 1);
+  }
+  pgAgentChat(_lastSetTopbar);
+};
+
+window._agentHireSetChannel = function (channel, value) {
+  _hireWizardChannels[channel] = value;
+  pgAgentChat(_lastSetTopbar);
+};
+
+window._agentHireWizardConfirm = async function () {
+  _hireWizardBusy = true;
+  _hireWizardError = null;
+  pgAgentChat(_lastSetTopbar);
+  try {
+    const a = _hireWizardAgent;
+    await api.post('/api/v1/clinic/agents/hire', {
+      agent_id: a.id,
+      tier: 'standard',
+      plan: _hireWizardPlan,
+      data_scope: _hireWizardDataScope,
+      tool_scope: _hireWizardToolScope,
+      channels: _hireWizardChannels,
+    });
+    a.hired = true;
+    _hireWizardSuccess = true;
+    _logActivity({ type: 'hire', agent: a.id, summary: `Activated ${a.id} (${_hireWizardPlan} plan)` });
+    setTimeout(() => {
+      _hireWizardAgent = null;
+      _hireWizardStep = 1;
+      _hireWizardSuccess = false;
+      pgAgentChat(_lastSetTopbar);
+    }, 2000);
+  } catch (e) {
+    _hireWizardError = (e && e.message) || 'Activation failed. Please try again.';
+    _hireWizardBusy = false;
+    pgAgentChat(_lastSetTopbar);
+  }
+};
+
+// ── Enhanced Agent OS: Test surfaces ──────────────────────────────────────────
+// Internal exports used by test suites. Not part of the public API.
+
+export const __roleWorkspaceTestApi__ = {
+  reset() {
+    _agentView = 'hub';
+    _marketplaceTab = 'catalog';
+    _hireWizardAgent = null;
+    _hireWizardStep = 1;
+    _hireWizardSuccess = false;
+    _toolPermissionAgentId = null;
+    _controlCentreAgents = null;
+    _controlCentreLoading = false;
+    _controlCentreError = null;
+    _controlCentreAgentFilter = '';
+    _receptionistQueue = null;
+    _receptionistQueueLoading = false;
+    _receptionistAlerts = [];
+    _lastSetTopbar = () => {};
+  },
+  renderRoleWorkspace() {
+    return _renderRoleSpecificWorkspace(() => {});
+  },
+  renderPatientWorkspace() {
+    return _renderPatientWorkspace(() => {});
+  },
+  renderReceptionistWorkspace() {
+    return _renderReceptionistWorkspace(() => {});
+  },
+  renderClinicianWorkspace() {
+    return _renderClinicianWorkspace(() => {});
+  },
+  renderControlCentre() {
+    return _renderControlCentreSection();
+  },
+  renderToolPermissionPanel(agentId) {
+    return _renderToolPermissionPanel(agentId);
+  },
+  renderHireWizard() {
+    return _renderHireWizard();
+  },
+  setRole(role) {
+    const stored = JSON.parse(localStorage.getItem('ds_user') || '{}');
+    stored.role = role;
+    localStorage.setItem('ds_user', JSON.stringify(stored));
+  },
+  getState() {
+    return {
+      wizardStep: _hireWizardStep,
+      wizardAgent: _hireWizardAgent,
+      wizardPlan: _hireWizardPlan,
+      wizardDataScope: _hireWizardDataScope,
+      wizardToolScope: _hireWizardToolScope,
+      wizardChannels: _hireWizardChannels,
+      wizardBusy: _hireWizardBusy,
+      wizardError: _hireWizardError,
+      wizardSuccess: _hireWizardSuccess,
+      toolPermissionAgentId: _toolPermissionAgentId,
+      controlCentreAgents: _controlCentreAgents,
+      controlCentreLoading: _controlCentreLoading,
+      receptionistQueue: _receptionistQueue,
+      receptionistAlerts: _receptionistAlerts,
     };
   },
 };

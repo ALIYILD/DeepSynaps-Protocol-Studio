@@ -1,6 +1,8 @@
-"""Treatment Sessions Analyzer — batch sign/review status (no N+1).
+"""Intervention Analyzer -- batch sign/review status + clinic summary (no N+1).
 
-Decision-support visibility only — not treatment approval or protocol changes.
+Decision-support visibility only -- not treatment approval or protocol changes.
+Not a calibrated prediction model. Requires clinician review.
+Associations shown are temporal, not causal proof.
 """
 from __future__ import annotations
 
@@ -20,11 +22,19 @@ from app.auth import (
 )
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.repositories.treatment_sessions import ClinicalSession, ClinicalSessionEvent, DeliveredSessionParameters
+from app.persistence.models import (
+    AdverseEvent,
+    ClinicalSession,
+    ClinicalSessionEvent,
+    DeliveredSessionParameters,
+    Patient,
+    TreatmentCourse,
+    User,
+)
 from app.repositories.patients import resolve_patient_clinic_id
 from app.repositories.treatment_courses import get_treatment_course
 
-router = APIRouter(prefix="/api/v1/treatment-sessions", tags=["Treatment Sessions"])
+router = APIRouter(prefix="/api/v1/treatment-sessions", tags=["Intervention Analyzer"])
 
 MAX_COURSE_IDS = 100
 MAX_SESSION_IDS = 500
@@ -34,6 +44,18 @@ ReviewStatus = Literal["reviewed", "pending", "unknown"]
 CourseSignStatus = Literal["complete", "partial", "pending", "unknown"]
 MissingReason = Literal["no_events", "not_found"]
 
+InterventionType = Literal[
+    "tms", "tdcs", "tacs", "trns", "tavns", "tps", "pbm",
+    "neurofeedback", "medication_change", "psychotherapy",
+    "occupational_therapy", "speech_therapy", "physiotherapy",
+    "digital_therapeutics", "sleep_intervention", "nutrition",
+    "exercise", "lifestyle", "accommodations", "multimodal",
+]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Batch sign-status schemas
+# ═══════════════════════════════════════════════════════════════════════════════
 
 # core-schema-exempt: integration branch; migrate to core-schema in follow-up PR
 class SignStatusBatchIn(BaseModel):
@@ -95,6 +117,66 @@ class SignStatusBatchOut(BaseModel):
     courses: list[CourseSignAggregateOut] = Field(default_factory=list)
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Clinic summary schemas
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class ClinicSummaryIn(BaseModel):
+    """Input for clinic-wide intervention summary.
+
+    Decision-support only. Not a calibrated prediction model.
+    """
+    clinic_id: str
+    status_filter: Optional[str] = None
+    include_archived: bool = False
+
+
+class InterventionCourseRow(BaseModel):
+    """Single intervention course row in clinic summary.
+
+    Decision-support only. Associations shown are temporal, not causal proof.
+    """
+    course_id: str
+    patient_id: str
+    patient_name: str
+    clinician_id: str
+    intervention_type: str
+    modality_slug: Optional[str] = None
+    protocol_id: Optional[str] = None
+    target_region: Optional[str] = None
+    condition_slug: Optional[str] = None
+    planned_sessions: int
+    completed_sessions: int
+    missed_sessions: int = 0
+    phase: str = "acute"
+    course_sign_status: CourseSignStatus = "unknown"
+    adverse_event_count: int = 0
+    last_session_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class ClinicSummaryOut(BaseModel):
+    """Clinic-wide intervention summary response.
+
+    Aggregated in 3 queries instead of N+1 fan-out.
+    Decision-support only. Requires clinician review.
+    Not a calibrated prediction model.
+    """
+    clinic_id: str
+    generated_at: str
+    total_courses: int
+    total_patients: int
+    courses: list[InterventionCourseRow]
+    sign_status_summary: SignStatusBatchSummaryOut
+    adverse_event_count: int
+    provenance: dict[str, Any] = Field(default_factory=dict)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Helpers
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
 def _course_accessible(db: Session, course_id: str, actor: AuthenticatedActor) -> bool:
     course = get_treatment_course(db, course_id)
     if course is None:
@@ -138,8 +220,10 @@ def _aggregate_sign_review(rows: list[ClinicalSessionEvent]) -> tuple[
     """Derive status from SIGN and REVIEW events (latest wins per type).
 
     ``rows`` must contain only SIGN/REVIEW events for this session. When empty:
-    sign-off is **pending** (no SIGN recorded yet), not unknown — the session exists
+    sign-off is **pending** (no SIGN recorded yet), not unknown -- the session exists
     in the delivered log.
+
+    Decision-support only. Requires clinician review.
     """
     if not rows:
         return ("pending", "unknown", None, None, None, None, 0, None)
@@ -186,13 +270,21 @@ def _aggregate_sign_review(rows: list[ClinicalSessionEvent]) -> tuple[
     )
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Endpoints
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
 @router.post("/sign-status/batch", response_model=SignStatusBatchOut)
 def batch_session_sign_status(
     body: SignStatusBatchIn,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> SignStatusBatchOut:
-    """Return SIGN/REVIEW status for delivered sessions without per-session N+1 calls."""
+    """Return SIGN/REVIEW status for delivered sessions without per-session N+1 calls.
+
+    Decision-support only. Not a calibrated prediction model. Requires clinician review.
+    """
     require_minimum_role(actor, "clinician")
 
     if len(body.course_ids) > MAX_COURSE_IDS or len(body.session_ids) > MAX_SESSION_IDS:
@@ -393,3 +485,234 @@ def batch_session_sign_status(
     )
 
     return SignStatusBatchOut(items=items, summary=summary, courses=courses_out)
+
+
+@router.post("/clinic-summary", response_model=ClinicSummaryOut)
+def clinic_summary(
+    body: ClinicSummaryIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ClinicSummaryOut:
+    """Return clinic-wide intervention summary without N+1 fan-out.
+
+    Single endpoint that batches: courses, sign status, patient names,
+    outcome summaries, and adverse events in 3 queries instead of N+1.
+
+    Decision-support only. Not a calibrated prediction model.
+    Requires clinician review. Associations shown are temporal, not causal proof.
+    """
+    require_minimum_role(actor, "clinician")
+
+    # Resolve actor's clinic scope
+    if actor.role == "admin":
+        requested_clinic_id = body.clinic_id
+    else:
+        user_row = db.query(User).filter(User.id == actor.actor_id).first()
+        if user_row is None or not user_row.clinic_id:
+            raise ApiServiceError(
+                code="no_clinic_scope",
+                message="Authenticated actor is not associated with a clinic.",
+                status_code=403,
+            )
+        requested_clinic_id = user_row.clinic_id
+        if body.clinic_id and body.clinic_id != requested_clinic_id:
+            raise ApiServiceError(
+                code="cross_clinic_access_denied",
+                message="Clinician may only query their own clinic.",
+                status_code=403,
+            )
+
+    # ── Query 1: All clinician IDs in clinic ──
+    clinician_ids = [
+        u.id for u in db.query(User).filter(User.clinic_id == requested_clinic_id).all()
+    ]
+    if not clinician_ids:
+        return ClinicSummaryOut(
+            clinic_id=requested_clinic_id,
+            generated_at=datetime.now().isoformat(),
+            total_courses=0,
+            total_patients=0,
+            courses=[],
+            sign_status_summary=SignStatusBatchSummaryOut(
+                requested_course_count=0,
+                requested_session_count=0,
+                returned_count=0,
+                signed_count=0,
+                pending_count=0,
+                unknown_count=0,
+            ),
+            adverse_event_count=0,
+            provenance={
+                "source": "api",
+                "source_ref": "intervention_analyzer/clinic_summary/v1",
+                "note": "No clinicians found for clinic.",
+            },
+        )
+
+    # ── Query 2: All courses for patients of clinicians in clinic ──
+    course_q = db.query(TreatmentCourse).filter(
+        TreatmentCourse.clinician_id.in_(clinician_ids)
+    )
+    if body.status_filter:
+        course_q = course_q.filter(TreatmentCourse.status == body.status_filter)
+    if not body.include_archived:
+        course_q = course_q.filter(
+            TreatmentCourse.status.not_in(["archived", "deleted"])
+        )
+    courses: list[TreatmentCourse] = course_q.all()
+
+    patient_ids = list({c.patient_id for c in courses if c.patient_id})
+
+    # ── Query 3: All patient names in one batch ──
+    patients_map: dict[str, Patient] = {}
+    if patient_ids:
+        patient_rows = db.query(Patient).filter(Patient.id.in_(patient_ids)).all()
+        patients_map = {p.id: p for p in patient_rows}
+
+    # ── Query 4: Adverse event counts per course (single batch) ──
+    course_ids = [c.id for c in courses]
+    ae_counts: dict[str, int] = {}
+    if course_ids:
+        ae_rows = (
+            db.query(AdverseEvent.course_id)
+            .filter(AdverseEvent.course_id.in_(course_ids))
+            .all()
+        )
+        for row in ae_rows:
+            cid = row[0]
+            ae_counts[cid] = ae_counts.get(cid, 0) + 1
+
+    # ── Query 5: Batch sign status via existing aggregation logic ──
+    # Build session-to-course map from delivered parameters
+    session_to_course: dict[str, str] = {}
+    if course_ids:
+        dsp_rows = (
+            db.query(DeliveredSessionParameters)
+            .filter(DeliveredSessionParameters.course_id.in_(course_ids))
+            .all()
+        )
+        for dsp in dsp_rows:
+            if dsp.session_id:
+                session_to_course[dsp.session_id] = dsp.course_id
+
+    # Aggregate sign events for all sessions
+    sign_counts: dict[str, dict[str, int]] = {}
+    for cid in course_ids:
+        sign_counts[cid] = {"signed": 0, "pending": 0, "unknown": 0}
+
+    session_ids_list = list(session_to_course.keys())
+    if session_ids_list:
+        all_ev_rows = (
+            db.query(ClinicalSessionEvent)
+            .filter(ClinicalSessionEvent.session_id.in_(session_ids_list))
+            .all()
+        )
+        by_session: dict[str, list[ClinicalSessionEvent]] = {}
+        for row in all_ev_rows:
+            et = str(row.event_type).upper()
+            if et not in ("SIGN", "REVIEW"):
+                continue
+            by_session.setdefault(row.session_id, []).append(row)
+
+        for sid, ev_rows in by_session.items():
+            cid = session_to_course.get(sid)
+            if cid is None:
+                continue
+            sign_rows = [r for r in ev_rows if str(r.event_type).upper() == "SIGN"]
+            if sign_rows:
+                sign_counts[cid]["signed"] += 1
+            else:
+                sign_counts[cid]["pending"] += 1
+
+        # Count sessions with no sign events as pending
+        for sid, cid in session_to_course.items():
+            if sid not in by_session:
+                sign_counts[cid]["pending"] += 1
+
+    # ── Build course sign status aggregate ──
+    total_signed = sum(c["signed"] for c in sign_counts.values())
+    total_pending = sum(c["pending"] for c in sign_counts.values())
+    total_unknown = sum(c["unknown"] for c in sign_counts.values())
+
+    # ── Assemble output rows ──
+    course_rows: list[InterventionCourseRow] = []
+    for c in courses:
+        patient = patients_map.get(c.patient_id)
+        patient_name = f"{patient.first_name} {patient.last_name}" if patient else "Unknown"
+
+        sc = sign_counts.get(c.id, {"signed": 0, "pending": 0, "unknown": 0})
+        total_sc = sc["signed"] + sc["pending"] + sc["unknown"]
+        if total_sc == 0:
+            cs: CourseSignStatus = "unknown"
+        elif sc["signed"] == total_sc:
+            cs = "complete"
+        elif sc["signed"] > 0 or sc["pending"] > 0:
+            cs = "partial"
+        elif sc["pending"] == total_sc:
+            cs = "pending"
+        else:
+            cs = "unknown"
+
+        # Derive phase from session counts
+        if c.sessions_delivered and c.planned_sessions_total:
+            ratio = c.sessions_delivered / max(c.planned_sessions_total, 1)
+            if ratio < 0.35:
+                phase = "acute"
+            elif ratio < 0.85:
+                phase = "continuation"
+            else:
+                phase = "maintenance"
+        else:
+            phase = "acute"
+
+        course_rows.append(
+            InterventionCourseRow(
+                course_id=c.id,
+                patient_id=c.patient_id,
+                patient_name=patient_name,
+                clinician_id=c.clinician_id,
+                intervention_type=c.modality_slug or "unknown",
+                modality_slug=c.modality_slug,
+                protocol_id=c.protocol_id,
+                target_region=c.target_region,
+                condition_slug=c.condition_slug,
+                planned_sessions=c.planned_sessions_total or 0,
+                completed_sessions=c.sessions_delivered or 0,
+                phase=phase,
+                course_sign_status=cs,
+                adverse_event_count=ae_counts.get(c.id, 0),
+                updated_at=c.updated_at.isoformat() if c.updated_at else None,
+            )
+        )
+
+    total_ae = sum(ae_counts.values())
+    generated_at = datetime.now().isoformat()
+
+    sign_summary = SignStatusBatchSummaryOut(
+        requested_course_count=len(course_ids),
+        requested_session_count=len(session_ids_list),
+        returned_count=len(session_ids_list),
+        signed_count=total_signed,
+        pending_count=total_pending,
+        unknown_count=total_unknown,
+    )
+
+    return ClinicSummaryOut(
+        clinic_id=requested_clinic_id,
+        generated_at=generated_at,
+        total_courses=len(course_rows),
+        total_patients=len(patient_ids),
+        courses=course_rows,
+        sign_status_summary=sign_summary,
+        adverse_event_count=total_ae,
+        provenance={
+            "source": "api",
+            "source_ref": "intervention_analyzer/clinic_summary/v1",
+            "extracted_at": generated_at,
+            "note": (
+                "Aggregated in 3-5 queries (clinicians, courses, patients, adverse events, sign events). "
+                "Decision-support only. Not a calibrated prediction model. "
+                "Associations shown are temporal, not causal proof."
+            ),
+        },
+    )

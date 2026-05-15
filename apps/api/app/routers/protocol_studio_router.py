@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role, require_patient_owner
@@ -655,3 +656,317 @@ def protocol_studio_simulate(
         missing_data=["simulation_engine_not_wired_in_protocol_studio_preview"],
         safety_flags=["no_clinical_prediction_returned"],
     )
+
+
+# ── Research-derived evidence parameters & safety endpoints ───────────────────
+# These endpoints serve the 2024-2025 neuromodulation research findings
+# embedded in Protocol Studio for decision-support only.
+
+_PROTOCOL_EVIDENCE_PARAMS: dict[str, dict[str, dict[str, Any]]] = {
+    "major-depressive-disorder": {
+        "tms": {
+            "target": "Left DLPFC",
+            "frequency": "10 Hz",
+            "intensity": "120% RMT",
+            "pulses_per_session": "3000-4000",
+            "effective_dose": "34,773 total pulses (~2.8 weeks)",
+            "evidence_grade": "A",
+            "fda_status": "Approved (2008)",
+            "key_reference": "JAMA Network Open 2024 dose-response meta-analysis",
+        },
+        "tdcs": {
+            "target": "Left DLPFC (anode)",
+            "intensity": "2 mA",
+            "duration": "30 min",
+            "montage": "F3 anode / F4 cathode (or right orbit)",
+            "sessions": "typically 10+",
+            "evidence_grade": "B",
+            "fda_status": "Cleared (2022) — Flow/Sohi devices",
+            "effect_size": "SMD = -0.355 (p<0.001)",
+            "key_reference": "Zhang et al. 2024 meta-analysis (56 studies, 2349 pts)",
+        },
+        "itbs": {
+            "target": "Left DLPFC",
+            "intensity": "120% RMT",
+            "duration": "3 min/session (600 pulses)",
+            "note": "Equivalent efficacy to 10 Hz standard (FDA-cleared 3-min protocol)",
+            "evidence_grade": "A",
+            "fda_status": "Approved (2021)",
+            "key_reference": "Blumberger et al. 2018 THREE-D trial",
+        },
+        "rtms_tdcs_combined": {
+            "note": "RCT of 240 patients: combined superior to monotherapy for MDD with anxiety",
+            "anxiety_response_rate": "82.83% vs sham",
+            "evidence_grade": "B",
+            "key_reference": "BMJ Mental Health 2026",
+        },
+    },
+    "treatment-resistant-depression": {
+        "tms": {
+            "target": "Left DLPFC (deeper with H1 coil)",
+            "evidence_grade": "A",
+            "fda_status": "Approved (2013) — H1 coil",
+            "response_rate": "40-60%",
+            "effect_size": "SMD ~0.64",
+        },
+        "saint": {
+            "target": "fMRI-guided subgenual cingulate",
+            "schedule": "10 sessions/day x 5 days = 50 sessions",
+            "imaging": "fMRI-guided, neuronavigated",
+            "evidence_grade": "B",
+            "fda_status": "Cleared (2022) — Magnus Medical",
+            "key_reference": "Cole EJ et al. SAINT trial, Am J Psychiatry 2022",
+        },
+        "accelerated-itbs": {
+            "schedule": "5 sessions/day x 6 days = 30 sessions total",
+            "device": "BrainsWay Deep TMS",
+            "evidence_grade": "B",
+            "fda_status": "Cleared (Sep 2025)",
+            "note": "No fMRI needed; broader accessibility",
+        },
+        "hdtdcs": {
+            "schedule": "12 days, 20 min/day",
+            "approach": "Personalized neuronavigated HD-tDCS",
+            "effect_size": "Cohen's d = -0.50",
+            "evidence_grade": "B",
+            "key_reference": "JAMA Network Open 2025",
+            "note": "Faster onset than conventional approaches",
+        },
+    },
+    "ocd": {
+        "tms": {
+            "target": "dmPFC (H7 coil)",
+            "protocol": "H7 coil + symptom provocation before sessions",
+            "evidence_grade": "B",
+            "fda_status": "Approved (2018)",
+            "effect_size": "Hedges' g = 0.64; OR for response = 3.15",
+            "response_rate": "38-58%",
+        },
+    },
+    "ptsd": {
+        "tdcs": {
+            "approach": "Dual-tDCS (bilateral DLPFC)",
+            "effect_size": "SMD = -1.30 (strongest in network)",
+            "evidence_grade": "B",
+            "note": "Significant at endpoint but not sustained at follow-up",
+            "key_reference": "Liu et al. 2024 network meta-analysis (21 RCTs, 981 pts)",
+        },
+        "tms": {
+            "frequency_hf": "HF-rTMS SMD = -0.97",
+            "frequency_itbs": "iTBS SMD = -0.93",
+            "evidence_grade": "B",
+            "key_reference": "Liu et al. 2024 network meta-analysis",
+        },
+    },
+    "adhd-inattentive": {
+        "nf": {
+            "evidence_grade": "N",
+            "grade_label": "NEGATIVE",
+            "warning": "JAMA Psychiatry 2024: 38 RCTs, 2472 pts — probably-blinded SMD = 0.04 (no clinically meaningful benefit)",
+            "standard_protocol_smd": "0.21 (sub-clinical)",
+            "methylphenidate_comparison": "SMD -0.68 to -0.74 (significantly outperformed NF)",
+            "key_reference": "Janvier ME et al. JAMA Psychiatry 2024",
+        },
+    },
+    "adhd-combined": {
+        "nf": {
+            "evidence_grade": "N",
+            "grade_label": "NEGATIVE",
+            "warning": "JAMA Psychiatry 2024: 38 RCTs, 2472 pts — probably-blinded SMD = 0.04 (no clinically meaningful benefit)",
+            "standard_protocol_smd": "0.21 (sub-clinical)",
+            "key_reference": "Janvier ME et al. JAMA Psychiatry 2024",
+        },
+    },
+    "chronic-pain": {
+        "tms": {
+            "target": "M1 (primary motor cortex)",
+            "note": "Analgesic effects demonstrated",
+            "evidence_grade": "A",
+            "fda_status": "Off-label",
+        },
+        "tdcs": {
+            "target": "Left DLPFC + M1",
+            "note": "Reduces pain expectation and perception",
+            "evidence_grade": "C",
+        },
+    },
+    "fibromyalgia": {
+        "tacs": {
+            "frequency": "10 Hz bifrontal",
+            "note": "Reduced pain vs sham; increased somatosensory alpha power",
+            "evidence_grade": "C",
+        },
+        "tdcs": {
+            "target": "Left DLPFC or M1",
+            "evidence_grade": "C",
+        },
+    },
+}
+
+_SAFETY_LIMITS: dict[str, dict[str, Any]] = {
+    "tdcs": {
+        "max_duration_min": 40,
+        "max_intensity_ma": 4,
+        "max_charge_mc": 7.2,
+        "contraindications": [
+            "Metal implants in head/neck",
+            "Cardiac pacemaker or ICD",
+            "Skin lesions at electrode sites",
+        ],
+        "pediatric_note": "Well tolerated in 1080+ sessions (ages <10y); mild erythema most common AE. Shorter duration, lower intensity, smaller electrodes recommended.",
+    },
+    "tms": {
+        "max_pulses_per_session": 6000,
+        "max_sessions_per_day": 10,
+        "contraindications": [
+            "Ferromagnetic implants <30cm from coil",
+            "Seizure disorder (relative — risk ~0.01-0.1% per session)",
+            "Pregnancy (relative — limited data)",
+            "Cochlear implant",
+        ],
+        "pediatric_note": "Safe in <18y; only mild transient side effects reported. NeuroStar cleared ages 15-21 (2024).",
+    },
+    "tacs": {
+        "max_intensity_ma": 4,
+        "max_duration_min": 40,
+        "contraindications": [
+            "Seizure disorder or epilepsy (gamma frequency risk)",
+            "Cardiac pacemaker",
+        ],
+    },
+    "tavns": {
+        "max_intensity_ma": 5,
+        "max_duration_min": 60,
+        "contraindications": [
+            "Active implant in head/neck (including cochlear implant)",
+            "Bradycardia or arrhythmia",
+            "Cervical vagal nerve lesion",
+            "Recent (<3mo) TIA/stroke",
+        ],
+    },
+}
+
+
+@router.get("/evidence-params/{condition}/{modality}")
+def protocol_studio_evidence_params(
+    condition: str,
+    modality: str,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict[str, Any]:
+    """Return research-derived evidence parameters for a condition-modality pair.
+
+    Decision-support only: these are literature-summarised defaults, not
+    patient-specific prescriptions. Always requires clinician review.
+    """
+    require_minimum_role(actor, "clinician")
+    params = _PROTOCOL_EVIDENCE_PARAMS.get(condition, {}).get(modality)
+    if not params:
+        return {
+            "condition": condition,
+            "modality": modality,
+            "available": False,
+            "message": "No research-derived parameters available for this condition-modality pair.",
+        }
+    _audit(
+        db,
+        actor=actor,
+        action="protocol_studio.evidence_params_viewed",
+        target_id=f"{condition}/{modality}",
+        note=f"grade={params.get('evidence_grade', 'N/A')}; fda={bool(params.get('fda_status'))}",
+    )
+    return {"condition": condition, "modality": modality, "available": True, "params": params}
+
+
+class _SafetyCheckRequest(BaseModel):
+    modality: str
+    proposed_duration_min: float | None = None
+    proposed_intensity_ma: float | None = None
+    proposed_sessions_per_day: int | None = None
+    patient_has_pacemaker: bool = False
+    patient_has_seizure_history: bool = False
+    patient_age_years: int | None = None
+
+
+@router.post("/safety-check")
+def protocol_studio_safety_check(
+    body: _SafetyCheckRequest,
+    db: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict[str, Any]:
+    """Validate proposed protocol parameters against research-derived safety limits.
+
+    Returns warnings and contraindication flags. Decision-support only —
+    not a substitute for clinical judgment or manufacturer guidelines.
+    """
+    require_minimum_role(actor, "clinician")
+    limits = _SAFETY_LIMITS.get(body.modality)
+    warnings: list[str] = []
+    contraindications: list[str] = []
+
+    if not limits:
+        return {
+            "modality": body.modality,
+            "checked": False,
+            "message": f"No safety limits configured for modality '{body.modality}'.",
+        }
+
+    # Duration check
+    max_dur = limits.get("max_duration_min")
+    if max_dur and body.proposed_duration_min and body.proposed_duration_min > max_dur:
+        warnings.append(
+            f"Proposed duration ({body.proposed_duration_min} min) exceeds "
+            f"research safety limit ({max_dur} min)."
+        )
+
+    # Intensity check
+    max_int = limits.get("max_intensity_ma")
+    if max_int and body.proposed_intensity_ma and body.proposed_intensity_ma > max_int:
+        warnings.append(
+            f"Proposed intensity ({body.proposed_intensity_ma} mA) exceeds "
+            f"research safety limit ({max_int} mA)."
+        )
+
+    # Sessions per day check
+    max_ses = limits.get("max_sessions_per_day")
+    if max_ses and body.proposed_sessions_per_day and body.proposed_sessions_per_day > max_ses:
+        warnings.append(
+            f"Proposed sessions/day ({body.proposed_sessions_per_day}) exceeds "
+            f"research safety limit ({max_ses})."
+        )
+
+    # Patient-specific contraindications
+    if body.patient_has_pacemaker:
+        for c in limits.get("contraindications", []):
+            if "pacemaker" in c.lower() or "ICD" in c:
+                contraindications.append(c)
+    if body.patient_has_seizure_history:
+        for c in limits.get("contraindications", []):
+            if "seizure" in c.lower() or "epilepsy" in c.lower():
+                contraindications.append(c)
+
+    # Pediatric considerations
+    if body.patient_age_years is not None and body.patient_age_years < 18:
+        ped_note = limits.get("pediatric_note")
+        if ped_note:
+            warnings.append(f"Pediatric use: {ped_note}")
+
+    _audit(
+        db,
+        actor=actor,
+        action="protocol_studio.safety_check",
+        target_id=body.modality,
+        note=f"warnings={len(warnings)}; contras={len(contraindications)}; age={body.patient_age_years}",
+    )
+
+    return {
+        "modality": body.modality,
+        "checked": True,
+        "safety_limits": {k: v for k, v in limits.items() if k not in ("contraindications", "pediatric_note")},
+        "warnings": warnings,
+        "contraindications_triggered": contraindications,
+        "all_contraindications": limits.get("contraindications", []),
+        "pediatric_note": limits.get("pediatric_note"),
+        "passes": len(warnings) == 0 and len(contraindications) == 0,
+        "clinician_review_required": True,
+    }

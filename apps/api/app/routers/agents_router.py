@@ -64,6 +64,27 @@ from app.services.agents.registry import (
     AgentRoleRequired,
     list_visible_agents,
 )
+from app.services.agent_audit_service import (
+    get_audit_log,
+    get_audit_summary,
+    record_agent_paused,
+    record_agent_revoked,
+    record_agent_activated,
+    record_agent_viewed,
+)
+from app.services.agent_marketplace_service import (
+    MarketplaceError,
+    get_agent_billing_status,
+    get_agent_details,
+    get_control_centre_data,
+    pause_agent,
+    resume_agent,
+    revoke_agent,
+)
+from app.services.agent_tool_permission import (
+    classify_tools,
+    get_tool_approval_required,
+)
 
 router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
 
@@ -324,7 +345,7 @@ def hire_agent_endpoint(
     )
 
 
-@router.delete("/{agent_id}/hire", status_code=204)
+@router.delete("/{agent_id}/hire")
 def unhire_agent_endpoint(
     agent_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
@@ -1424,6 +1445,606 @@ def upsert_cost_cap(
     return CostCapOut(
         cap_pence=int(row.cap_pence or 0),
         spend_pence_mtd=spend,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 15 — AI Agent Operating System: Control Centre, Lifecycle, Audit
+# ---------------------------------------------------------------------------
+# The following endpoints implement the canonical Agent Contract model,
+# marketplace rental lifecycle, tool-permission queries, and structured
+# audit logging. All endpoints are clinic-scoped and require appropriate
+# role levels per the Agent Contract governance model.
+#
+# Clinical safety: every response carries the decision-support disclaimer.
+# Tool permissions are classified by risk tier (read_only / low_risk /
+# medium_risk / high_risk / forbidden). Forbidden-tier tools (autonomous
+# diagnosis, prescription, emergency triage, treatment change) are NEVER
+# permitted regardless of role.
+# ---------------------------------------------------------------------------
+
+
+# -- Pydantic schemas -------------------------------------------------------
+
+
+class ControlCentreAgentOut(BaseModel):
+    """One agent row in the control-centre dashboard."""
+
+    agent_id: str
+    agent_type: str
+    run_status: str
+    billing_status: str
+    billing_plan: str
+    monthly_price_gbp: int
+    role_scope: list[str]
+    tool_count: int
+    created_at: str  # ISO-8601 UTC
+
+
+class ControlCentreStatusBreakdown(BaseModel):
+    running: int
+    paused: int
+    idle: int
+    error: int
+    revoked: int
+
+
+class ControlCentreBillingSummary(BaseModel):
+    trial: int
+    active: int
+    paused: int
+    cancelled: int
+    expired: int
+    total_monthly_gbp: int
+
+
+class ControlCentreEventOut(BaseModel):
+    """One recent event in the control centre activity feed."""
+
+    agent_id: str
+    event_type: str
+    timestamp: str
+    actor_id: str
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class ControlCentreResponse(BaseModel):
+    """Aggregate data for the Agent Control Centre dashboard."""
+
+    clinic_id: str
+    total_agents: int
+    status_breakdown: ControlCentreStatusBreakdown
+    billing_summary: ControlCentreBillingSummary
+    agents: list[ControlCentreAgentOut]
+    recent_events: list[ControlCentreEventOut]
+    safety_disclaimer: str
+
+
+class AgentBillingResponse(BaseModel):
+    """Billing status for one agent."""
+
+    agent_id: str
+    billing_status: str
+    billing_plan: str
+    monthly_price_gbp: int
+    expires_at: str | None
+    is_expired: bool
+    trial_remaining_days: int | None
+    available_plans: list[dict[str, Any]]
+    safety_disclaimer: str
+
+
+class AgentLifecycleResponse(BaseModel):
+    """Response shape for pause / resume / revoke operations."""
+
+    agent_id: str
+    run_status: str
+    previous_status: str
+    actor_id: str
+    timestamp: str  # ISO-8601 UTC
+    safety_disclaimer: str
+
+
+class AgentAuditEventOut(BaseModel):
+    """One row of the structured agent audit log."""
+
+    event_type: str
+    agent_id: str
+    clinic_id: str
+    actor_id: str
+    actor_role: str
+    timestamp: str
+    patient_id: str | None = None
+    tool_id: str | None = None
+    channel: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    safety_flag: bool = False
+    evidence_grade: str | None = None
+    decision_support_disclaimer: str
+
+
+class AgentAuditResponse(BaseModel):
+    """Paginated audit log for one agent."""
+
+    agent_id: str
+    clinic_id: str
+    events: list[AgentAuditEventOut]
+    total_events: int
+    safety_disclaimer: str
+
+
+class ToolPermissionOut(BaseModel):
+    """Permission metadata for one tool."""
+
+    tool_id: str
+    tier: str
+    approval: str
+    evidence_grade: str
+    description: str
+    requires_human_approval: bool
+
+
+class AgentToolsResponse(BaseModel):
+    """Full tool permission breakdown for one agent."""
+
+    agent_id: str
+    tools: list[ToolPermissionOut]
+    tier_breakdown: dict[str, list[str]]
+    max_tier: str
+    safety_disclaimer: str
+
+
+# -- Helpers ----------------------------------------------------------------
+
+
+def _iso_utc_dt(dt: datetime | None) -> str:
+    """Render a possibly-naive UTC datetime as ISO-8601 with Z suffix."""
+    if dt is None:
+        return ""
+    if dt.tzinfo is None:
+        return dt.isoformat() + "Z"
+    return dt.isoformat()
+
+
+# -- Routes -----------------------------------------------------------------
+
+
+@router.get("/control-centre", response_model=ControlCentreResponse)
+def get_control_centre(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ControlCentreResponse:
+    """Return aggregate data for the Agent Control Centre dashboard.
+
+    Visibility
+    ----------
+    * Caller must be at least ``clinician``.
+    * Clinic-bound actors only see their own clinic's agents.
+    * A cross-clinic super-admin (``actor.clinic_id is None``) sees an
+      empty dashboard — this endpoint is tenant-scoped by design.
+
+    Decision-support disclaimer is included in every response.
+    """
+    require_minimum_role(actor, "clinician")
+
+    if actor.clinic_id is None:
+        # Unbound actor — return empty dashboard rather than 403
+        return ControlCentreResponse(
+            clinic_id="",
+            total_agents=0,
+            status_breakdown=ControlCentreStatusBreakdown(
+                running=0, paused=0, idle=0, error=0, revoked=0
+            ),
+            billing_summary=ControlCentreBillingSummary(
+                trial=0, active=0, paused=0, cancelled=0, expired=0,
+                total_monthly_gbp=0,
+            ),
+            agents=[],
+            recent_events=[],
+            safety_disclaimer=(
+                "This dashboard is decision-support only. All agent actions "
+                "require clinician review before clinical use."
+            ),
+        )
+
+    data = get_control_centre_data(clinic_id=actor.clinic_id, actor=actor)
+
+    agents = [
+        ControlCentreAgentOut(
+            agent_id=a["agent_id"],
+            agent_type=a["agent_type"],
+            run_status=a["run_status"],
+            billing_status=a["billing_status"],
+            billing_plan=a["billing_plan"],
+            monthly_price_gbp=a["monthly_price_gbp"],
+            role_scope=a["role_scope"],
+            tool_count=a["tool_count"],
+            created_at=a["created_at"],
+        )
+        for a in data["agents"]
+    ]
+
+    events = [
+        ControlCentreEventOut(
+            agent_id=e["agent_id"],
+            event_type=e.get("event_type", ""),
+            timestamp=e.get("timestamp", ""),
+            actor_id=e.get("actor_id", ""),
+            details=dict(e.get("details", {})),
+        )
+        for e in data["recent_events"]
+    ]
+
+    return ControlCentreResponse(
+        clinic_id=data["clinic_id"],
+        total_agents=data["total_agents"],
+        status_breakdown=ControlCentreStatusBreakdown(**data["status_breakdown"]),
+        billing_summary=ControlCentreBillingSummary(**data["billing_summary"]),
+        agents=agents,
+        recent_events=events,
+        safety_disclaimer=data["safety_disclaimer"],
+    )
+
+
+@router.get("/{agent_id}/billing", response_model=AgentBillingResponse)
+def get_agent_billing(
+    agent_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> AgentBillingResponse:
+    """Return billing status for one agent.
+
+    Visibility
+    ----------
+    * Caller must be at least ``clinician``.
+    * Clinic-bound actors only see their own clinic's agents.
+    * Returns 404 if the agent contract does not exist for this clinic.
+
+    Includes trial remaining days and available upgrade plans.
+    """
+    require_minimum_role(actor, "clinician")
+
+    if actor.clinic_id is None:
+        raise ApiServiceError(
+            code="clinic_scope_required",
+            message="Billing queries require a clinic-scoped actor.",
+            status_code=403,
+        )
+
+    try:
+        billing = get_agent_billing_status(agent_id, actor.clinic_id)
+    except MarketplaceError as exc:
+        raise ApiServiceError(
+            code=exc.code,
+            message=exc.message,
+            status_code=exc.status_code,
+        ) from exc
+
+    return AgentBillingResponse(
+        agent_id=billing["agent_id"],
+        billing_status=billing["billing_status"],
+        billing_plan=billing["billing_plan"],
+        monthly_price_gbp=billing["monthly_price_gbp"],
+        expires_at=billing["expires_at"],
+        is_expired=billing["is_expired"],
+        trial_remaining_days=billing["trial_remaining_days"],
+        available_plans=billing["available_plans"],
+        safety_disclaimer=billing["safety_disclaimer"],
+    )
+
+
+@router.post("/{agent_id}/pause", response_model=AgentLifecycleResponse)
+def pause_agent_endpoint(
+    agent_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> AgentLifecycleResponse:
+    """Pause a running agent.
+
+    Visibility
+    ----------
+    * Caller must be at least ``admin`` — pausing affects clinic operations.
+    * Clinic-bound actors only.
+
+    A paused agent retains its contract and billing status but does not
+    process new requests. Resume via ``POST /{agent_id}/resume``.
+    """
+    require_minimum_role(actor, "admin")
+
+    if actor.clinic_id is None:
+        raise ApiServiceError(
+            code="clinic_scope_required",
+            message="Agent lifecycle operations require a clinic-scoped admin actor.",
+            status_code=403,
+        )
+
+    try:
+        contract = pause_agent(agent_id, actor.clinic_id, actor.actor_id)
+    except MarketplaceError as exc:
+        raise ApiServiceError(
+            code=exc.code,
+            message=exc.message,
+            status_code=exc.status_code,
+        ) from exc
+
+    record_agent_paused(
+        agent_id=agent_id,
+        clinic_id=actor.clinic_id,
+        actor_id=actor.actor_id,
+        actor_role=actor.role,
+        reason="admin_pause",
+    )
+
+    return AgentLifecycleResponse(
+        agent_id=contract.agent_id,
+        run_status=contract.run_status,
+        previous_status="running",  # pause transitions from running/idle
+        actor_id=actor.actor_id,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        safety_disclaimer=contract.safety_disclaimer,
+    )
+
+
+@router.post("/{agent_id}/resume", response_model=AgentLifecycleResponse)
+def resume_agent_endpoint(
+    agent_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> AgentLifecycleResponse:
+    """Resume a paused agent.
+
+    Visibility
+    ----------
+    * Caller must be at least ``admin``.
+    * Clinic-bound actors only.
+
+    Transitions the agent from ``paused`` to ``idle``. The agent becomes
+    available for invocation immediately.
+    """
+    require_minimum_role(actor, "admin")
+
+    if actor.clinic_id is None:
+        raise ApiServiceError(
+            code="clinic_scope_required",
+            message="Agent lifecycle operations require a clinic-scoped admin actor.",
+            status_code=403,
+        )
+
+    try:
+        contract = resume_agent(agent_id, actor.clinic_id, actor.actor_id)
+    except MarketplaceError as exc:
+        raise ApiServiceError(
+            code=exc.code,
+            message=exc.message,
+            status_code=exc.status_code,
+        ) from exc
+
+    record_agent_activated(
+        agent_id=agent_id,
+        clinic_id=actor.clinic_id,
+        actor_id=actor.actor_id,
+        actor_role=actor.role,
+    )
+
+    return AgentLifecycleResponse(
+        agent_id=contract.agent_id,
+        run_status=contract.run_status,
+        previous_status="paused",
+        actor_id=actor.actor_id,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        safety_disclaimer=contract.safety_disclaimer,
+    )
+
+
+@router.post("/{agent_id}/revoke", response_model=AgentLifecycleResponse)
+def revoke_agent_endpoint(
+    agent_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> AgentLifecycleResponse:
+    """Permanently revoke an agent — the emergency off-switch.
+
+    Visibility
+    ----------
+    * Caller must be at least ``admin``.
+    * Clinic-bound actors only.
+
+    Revocation is **terminal** — the agent cannot be resumed. A new
+    rental must be created if the clinic wants to use the agent again.
+    This is the safety off-switch for compromised, misbehaving, or
+    no-longer-needed agents.
+
+    Audit: creates a safety-flagged event escalated to the clinical
+    review queue.
+    """
+    require_minimum_role(actor, "admin")
+
+    if actor.clinic_id is None:
+        raise ApiServiceError(
+            code="clinic_scope_required",
+            message="Agent lifecycle operations require a clinic-scoped admin actor.",
+            status_code=403,
+        )
+
+    try:
+        contract = revoke_agent(agent_id, actor.clinic_id, actor.actor_id)
+    except MarketplaceError as exc:
+        raise ApiServiceError(
+            code=exc.code,
+            message=exc.message,
+            status_code=exc.status_code,
+        ) from exc
+
+    record_agent_revoked(
+        agent_id=agent_id,
+        clinic_id=actor.clinic_id,
+        actor_id=actor.actor_id,
+        actor_role=actor.role,
+        reason="admin_revoked",
+    )
+
+    return AgentLifecycleResponse(
+        agent_id=contract.agent_id,
+        run_status=contract.run_status,
+        previous_status="paused",  # typical pre-revoke state
+        actor_id=actor.actor_id,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        safety_disclaimer=contract.safety_disclaimer,
+    )
+
+
+@router.get("/{agent_id}/audit", response_model=AgentAuditResponse)
+def get_agent_audit(
+    agent_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    limit: int = Query(100, ge=1, le=500),
+    event_type: str | None = Query(None),
+    safety_flag_only: bool = Query(False),
+) -> AgentAuditResponse:
+    """Return the structured audit log for one agent.
+
+    Visibility
+    ----------
+    * Caller must be at least ``clinician``.
+    * Clinic-bound actors only see their own clinic's audit rows.
+    * Returns 404 if the agent contract does not exist for this clinic.
+
+    Filters
+    -------
+    ``limit`` — maximum events to return, clamped [1, 500].
+    ``event_type`` — optional filter to a canonical event type.
+    ``safety_flag_only`` — when ``True``, return only safety-flagged
+    events (clinical review queue feed).
+
+    Every event carries a ``decision_support_disclaimer`` and an
+    ``evidence_grade`` where applicable.
+    """
+    require_minimum_role(actor, "clinician")
+
+    if actor.clinic_id is None:
+        raise ApiServiceError(
+            code="clinic_scope_required",
+            message="Audit queries require a clinic-scoped actor.",
+            status_code=403,
+        )
+
+    # Verify agent contract exists
+    from app.services.agent_contract import get_contract
+    if get_contract(actor.clinic_id, agent_id) is None:
+        raise ApiServiceError(
+            code="agent_not_found",
+            message=f"No contract for agent '{agent_id}' in clinic '{actor.clinic_id}'.",
+            status_code=404,
+        )
+
+    # Record the view event
+    record_agent_viewed(
+        agent_id=agent_id,
+        clinic_id=actor.clinic_id,
+        actor_id=actor.actor_id,
+        actor_role=actor.role,
+    )
+
+    raw_events = get_audit_log(
+        clinic_id=actor.clinic_id,
+        agent_id=agent_id,
+        limit=limit,
+        event_type=event_type,
+        safety_flag_only=safety_flag_only,
+    )
+
+    # Also get summary for total count
+    summary = get_audit_summary(actor.clinic_id, agent_id)
+
+    events = [
+        AgentAuditEventOut(
+            event_type=e["event_type"],
+            agent_id=e["agent_id"],
+            clinic_id=e["clinic_id"],
+            actor_id=e["actor_id"],
+            actor_role=e["actor_role"],
+            timestamp=e["timestamp"],
+            patient_id=e.get("patient_id"),
+            tool_id=e.get("tool_id"),
+            channel=e.get("channel"),
+            details=dict(e.get("details", {})),
+            safety_flag=e.get("safety_flag", False),
+            evidence_grade=e.get("evidence_grade"),
+            decision_support_disclaimer=e.get(
+                "decision_support_disclaimer",
+                "This output is decision-support only.",
+            ),
+        )
+        for e in raw_events
+    ]
+
+    return AgentAuditResponse(
+        agent_id=agent_id,
+        clinic_id=actor.clinic_id,
+        events=events,
+        total_events=summary.get("total_events", 0),
+        safety_disclaimer=(
+            "This audit log is decision-support only. All agent actions "
+            "require clinician review before clinical use."
+        ),
+    )
+
+
+@router.get("/{agent_id}/tools", response_model=AgentToolsResponse)
+def get_agent_tools(
+    agent_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> AgentToolsResponse:
+    """Return the tool permission breakdown for one agent.
+
+    Visibility
+    ----------
+    * Caller must be at least ``clinician``.
+    * Clinic-bound actors only.
+    * Returns 404 if the agent contract does not exist for this clinic.
+
+    Response includes per-tool metadata (tier, approval policy, evidence
+    grade) and an aggregate tier breakdown. The ``max_tier`` field tells
+    the UI which severity badge to display (forbidden > high_risk >
+    medium_risk > low_risk > read_only).
+
+    Forbidden-tier tools (autonomous diagnosis, prescription, emergency
+    triage, treatment change) are shown for transparency but are never
+    executable.
+    """
+    require_minimum_role(actor, "clinician")
+
+    if actor.clinic_id is None:
+        raise ApiServiceError(
+            code="clinic_scope_required",
+            message="Tool permission queries require a clinic-scoped actor.",
+            status_code=403,
+        )
+
+    from app.services.agent_contract import get_contract
+    from app.services.agent_tool_permission import get_max_tier_for_tools
+
+    contract = get_contract(actor.clinic_id, agent_id)
+    if contract is None:
+        raise ApiServiceError(
+            code="agent_not_found",
+            message=f"No contract for agent '{agent_id}' in clinic '{actor.clinic_id}'.",
+            status_code=404,
+        )
+
+    tools = [
+        ToolPermissionOut(**get_tool_approval_required(tid))
+        for tid in contract.tool_scopes
+    ]
+
+    tier_breakdown = classify_tools(contract.tool_scopes)
+    max_tier = get_max_tier_for_tools(contract.tool_scopes)
+
+    return AgentToolsResponse(
+        agent_id=agent_id,
+        tools=tools,
+        tier_breakdown=tier_breakdown,
+        max_tier=max_tier,
+        safety_disclaimer=(
+            "Tool permissions are decision-support only. Forbidden-tier "
+            "tools (diagnosis, prescription, emergency triage, treatment "
+            "change) are NEVER executed autonomously."
+        ),
     )
 
 

@@ -391,7 +391,7 @@ def stream_recording(
     )
 
 
-@router.delete("/{recording_id}", status_code=204)
+@router.delete("/{recording_id}")
 def delete_recording(
     recording_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

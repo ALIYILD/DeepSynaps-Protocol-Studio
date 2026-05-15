@@ -19,11 +19,217 @@ const SESSION_STORAGE_KEY = 'ds_video_assessment_session_v2';
 export const VIDEO_ASSESSMENT_SESSION_STORAGE_KEY = SESSION_STORAGE_KEY;
 const HISTORICAL_AI_FEEDBACK_NOTE_MAX = 300;
 
+// ── MediaPipe BlazePose 33 Keypoint Skeleton ────────────────────────────
+const SKELETON_CONNECTIONS = [
+  // Face
+  ['nose', 'left_eye_inner'], ['nose', 'right_eye_inner'],
+  ['left_eye_inner', 'left_eye'], ['left_eye', 'left_eye_outer'],
+  ['right_eye_inner', 'right_eye'], ['right_eye', 'right_eye_outer'],
+  ['left_eye_outer', 'left_ear'], ['right_eye_outer', 'right_ear'],
+  ['nose', 'mouth_left'], ['nose', 'mouth_right'],
+  // Torso
+  ['mouth_left', 'mouth_right'],
+  ['left_shoulder', 'right_shoulder'], ['left_shoulder', 'left_hip'],
+  ['right_shoulder', 'right_hip'], ['left_hip', 'right_hip'],
+  // Left arm
+  ['left_shoulder', 'left_elbow'], ['left_elbow', 'left_wrist'],
+  ['left_wrist', 'left_pinky'], ['left_wrist', 'left_index'],
+  ['left_wrist', 'left_thumb'], ['left_pinky', 'left_index'],
+  // Right arm
+  ['right_shoulder', 'right_elbow'], ['right_elbow', 'right_wrist'],
+  ['right_wrist', 'right_pinky'], ['right_wrist', 'right_index'],
+  ['right_wrist', 'right_thumb'], ['right_pinky', 'right_index'],
+  // Left leg
+  ['left_hip', 'left_knee'], ['left_knee', 'left_ankle'],
+  ['left_ankle', 'left_heel'], ['left_heel', 'left_foot_index'],
+  ['left_ankle', 'left_foot_index'],
+  // Right leg
+  ['right_hip', 'right_knee'], ['right_knee', 'right_ankle'],
+  ['right_ankle', 'right_heel'], ['right_heel', 'right_foot_index'],
+  ['right_ankle', 'right_foot_index'],
+];
+
+const KEYPOINT_LABELS = {
+  nose: 'Nose',
+  left_eye_inner: 'Left Eye (Inner)',
+  left_eye: 'Left Eye',
+  left_eye_outer: 'Left Eye (Outer)',
+  right_eye_inner: 'Right Eye (Inner)',
+  right_eye: 'Right Eye',
+  right_eye_outer: 'Right Eye (Outer)',
+  left_ear: 'Left Ear',
+  right_ear: 'Right Ear',
+  mouth_left: 'Mouth (Left)',
+  mouth_right: 'Mouth (Right)',
+  left_shoulder: 'Left Shoulder',
+  right_shoulder: 'Right Shoulder',
+  left_elbow: 'Left Elbow',
+  right_elbow: 'Right Elbow',
+  left_wrist: 'Left Wrist',
+  right_wrist: 'Right Wrist',
+  left_pinky: 'Left Pinky',
+  right_pinky: 'Right Pinky',
+  left_index: 'Left Index',
+  right_index: 'Right Index',
+  left_thumb: 'Left Thumb',
+  right_thumb: 'Right Thumb',
+  left_hip: 'Left Hip',
+  right_hip: 'Right Hip',
+  left_knee: 'Left Knee',
+  right_knee: 'Right Knee',
+  left_ankle: 'Left Ankle',
+  right_ankle: 'Right Ankle',
+  left_heel: 'Left Heel',
+  right_heel: 'Right Heel',
+  left_foot_index: 'Left Foot Index',
+  right_foot_index: 'Right Foot Index',
+};
+
+const KEYPOINT_ORDER = Object.keys(KEYPOINT_LABELS);
+
 const DISCLAIMER =
   'This is a controlled preview using synthetic or clinician-provided data where applicable. ' +
   'This page supports clinical review and decision support only. ' +
   'It does not diagnose, prescribe, triage emergencies, approve treatment, or act autonomously. ' +
   'All outputs require clinician review.';
+
+/** Video-specific safety warnings for camera-based movement analysis. */
+const VIDEO_SAFETY_WARNINGS = {
+  cameraQuality: 'Camera resolution and frame rate affect movement detection accuracy. HD (720p+) at 30fps recommended. Low-quality cameras may miss subtle movements.',
+  lighting: 'Even, front-facing lighting is required. Backlight, shadows, or low light can obscure body landmarks and produce false signals.',
+  bodyPositionClothing: 'Body position and clothing may affect analysis. Loose clothing can obscure limb boundaries. Face-down or off-center positioning may reduce landmark accuracy.',
+  biasDisclosure: 'Analysis accuracy varies across demographics. Pose estimation performance differs by skin tone, age, and body type. Interpret with cultural and demographic awareness.',
+};
+
+/** Evidence grades for guided video assessment tasks. */
+const VIDEO_TASK_EVIDENCE = {
+  rest_tremor: {
+    grade: 'B',
+    biomarker: 'rest_tremor_frequency',
+    note: '4-6 Hz rest tremor distinguishes PD from essential tremor (8-12 Hz). Contactless measurement ICC 0.82-0.91.',
+    safeWording: 'Tremor frequency features are model-assisted observation cues. Camera artifacts may mimic tremor — requires clinician review.',
+  },
+  postural_tremor: {
+    grade: 'C',
+    biomarker: 'postural_tremor_amplitude',
+    note: 'Amplitude correlates with clinical severity. Camera artifact can mimic tremor — requires clinician review.',
+    safeWording: 'Postural tremor amplitude is a model-assisted cue. Not a tremor diagnosis.',
+  },
+  finger_tap_left: {
+    grade: 'A',
+    biomarker: 'finger_tapping_speed',
+    note: 'Meta-analytic: speed decay most reliable PD feature. AUC 0.85-0.94. Requires clinical confirmation.',
+    safeWording: 'Finger tapping speed features may support clinician review of bradykinesia. Not a standalone diagnosis.',
+  },
+  finger_tap_right: {
+    grade: 'A',
+    biomarker: 'finger_tapping_speed',
+    note: 'Meta-analytic: speed decay most reliable PD feature. AUC 0.85-0.94. Requires clinical confirmation.',
+    safeWording: 'Finger tapping speed features may support clinician review of bradykinesia. Not a standalone diagnosis.',
+  },
+  hand_open_close_left: {
+    grade: 'B',
+    biomarker: 'pronation_supination_rom',
+    note: 'Hand movement ROM and velocity correlate with UPDRS-III. ICC 0.78-0.89 vs clinical rating.',
+    safeWording: 'Hand movement features are model-assisted cues for bradykinesia review. Requires clinician confirmation.',
+  },
+  hand_open_close_right: {
+    grade: 'B',
+    biomarker: 'pronation_supination_rom',
+    note: 'Hand movement ROM and velocity correlate with UPDRS-III. ICC 0.78-0.89 vs clinical rating.',
+    safeWording: 'Hand movement features are model-assisted cues for bradykinesia review. Requires clinician confirmation.',
+  },
+  pronation_supination_left: {
+    grade: 'B',
+    biomarker: 'pronation_supination_rom',
+    note: 'Forearm rotation ROM and velocity correlate with UPDRS-III. ICC 0.78-0.89 vs clinical rating.',
+    safeWording: 'Pronation-supination features support clinician bradykinesia review. Not a standalone diagnosis.',
+  },
+  pronation_supination_right: {
+    grade: 'B',
+    biomarker: 'pronation_supination_rom',
+    note: 'Forearm rotation ROM and velocity correlate with UPDRS-III. ICC 0.78-0.89 vs clinical rating.',
+    safeWording: 'Pronation-supination features support clinician bradykinesia review. Not a standalone diagnosis.',
+  },
+  foot_tap_left: {
+    grade: 'B',
+    biomarker: 'lower_limb_speed',
+    note: 'Lower limb repetitive movement shows correlation with bradykinesia. Less validated than upper limb.',
+    safeWording: 'Foot tapping features are model-assisted cues with moderate evidence. Requires clinician review.',
+  },
+  foot_tap_right: {
+    grade: 'B',
+    biomarker: 'lower_limb_speed',
+    note: 'Lower limb repetitive movement shows correlation with bradykinesia. Less validated than upper limb.',
+    safeWording: 'Foot tapping features are model-assisted cues with moderate evidence. Requires clinician review.',
+  },
+  gait_tandem_walk: {
+    grade: 'A',
+    biomarker: 'stride_length',
+    note: 'Strongest single PD gait predictor. Meta-analytic SMD = -1.12 vs controls. AUC 0.91-0.99 for PD diagnosis.',
+    safeWording: 'Gait features are the strongest validated video-based movement biomarkers. Still require clinical confirmation.',
+  },
+  stand_up_from_chair: {
+    grade: 'B',
+    biomarker: 'postural_sway_area',
+    note: 'Sit-to-stand timing correlates with bradykinesia and postural instability.',
+    safeWording: 'Postural transition features are proxy markers. Not a fall-risk determination.',
+  },
+  balance_eyes_open: {
+    grade: 'B',
+    biomarker: 'postural_sway_area',
+    note: 'COPC sway area correlates with Berg Balance Scale (r=-0.71). Single-leg stance predicts falls over 6 months.',
+    safeWording: 'Balance features are proxy markers. Not a fall-risk determination.',
+  },
+  balance_eyes_closed: {
+    grade: 'B',
+    biomarker: 'postural_sway_area',
+    note: 'COPC sway area correlates with Berg Balance Scale (r=-0.71). Eyes-closed condition more sensitive to proprioceptive loss.',
+    safeWording: 'Balance features are proxy markers. Not a fall-risk determination.',
+  },
+};
+
+function _renderTaskEvidenceBadge(taskId) {
+  const ev = VIDEO_TASK_EVIDENCE[taskId];
+  if (!ev) return '';
+  const colors = {
+    A: { bg: 'rgba(34,197,94,0.12)', text: '#16a34a', label: 'A — Meta-analytic' },
+    B: { bg: 'rgba(59,130,246,0.12)', text: '#2563eb', label: 'B — Controlled trial' },
+    C: { bg: 'rgba(245,158,11,0.12)', text: '#d97706', label: 'C — Observational' },
+    D: { bg: 'rgba(249,115,22,0.12)', text: '#f97316', label: 'D — Pilot' },
+  };
+  const g = String(ev.grade || 'D').toUpperCase();
+  const c = colors[g] || colors.D;
+  return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:4px;background:${c.bg};color:${c.text};font-size:11px;font-weight:600">${esc(c.label)}</span>`;
+}
+
+function _renderTaskEvidenceBlock(taskId) {
+  const ev = VIDEO_TASK_EVIDENCE[taskId];
+  if (!ev) return '';
+  return `<div style="margin-top:10px;padding:8px 10px;border-radius:6px;background:rgba(155,127,255,0.06);border:1px solid rgba(155,127,255,0.18);font-size:11px;line-height:1.5;color:var(--text-secondary)">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+      <strong style="color:var(--text-primary)">Evidence grade:</strong> ${_renderTaskEvidenceBadge(taskId)}
+    </div>
+    <div><strong>Biomarker:</strong> ${esc(ev.biomarker)}</div>
+    <div>${esc(ev.note)}</div>
+    <div style="margin-top:4px;color:var(--text-tertiary)"><strong>Safe wording:</strong> ${esc(ev.safeWording)}</div>
+  </div>`;
+}
+
+function _renderVideoSafetyPanel() {
+  return `<div style="margin-top:12px;padding:10px 12px;border-radius:8px;border:1px solid rgba(239,68,68,0.25);background:rgba(239,68,68,0.05);font-size:11px;line-height:1.6;color:var(--text-secondary)">
+    <strong style="color:var(--red)">Video analysis limitations</strong>
+    <ul style="margin:6px 0 0 16px;padding:0">
+      <li>${esc(VIDEO_SAFETY_WARNINGS.cameraQuality)}</li>
+      <li>${esc(VIDEO_SAFETY_WARNINGS.lighting)}</li>
+      <li>${esc(VIDEO_SAFETY_WARNINGS.bodyPositionClothing)}</li>
+      <li>${esc(VIDEO_SAFETY_WARNINGS.biasDisclosure)}</li>
+    </ul>
+    <div style="margin-top:8px;padding:6px 8px;border-radius:4px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);color:var(--amber);font-size:11px">
+      <strong>IMPORTANT:</strong> No video-based movement biomarker is FDA-approved for standalone diagnosis as of 2026. All outputs are model-assisted observation cues requiring clinician confirmation.
+    </div>
+  </div>`;
+}
 
 /**
  * FUTURE MOTOR FEATURE PANEL (Post-MVP)
@@ -1294,6 +1500,198 @@ function _mimeForRecorder() {
   return 'video/webm';
 }
 
+// ── Pose / Skeleton Rendering ───────────────────────────────────────────
+
+function _vaConfidenceColor(conf) {
+  if (conf > 0.9) return 'rgba(34,197,94,0.8)';
+  if (conf > 0.7) return 'rgba(59,130,246,0.8)';
+  if (conf > 0.5) return 'rgba(245,158,11,0.8)';
+  return 'rgba(239,68,68,0.8)';
+}
+
+/** Draw skeleton onto a canvas from a pose frame */
+function _vaRenderSkeletonFrame(canvas, frame) {
+  const ctx = canvas.getContext('2d');
+  if (!frame?.keypoints) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    return;
+  }
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Connections
+  SKELETON_CONNECTIONS.forEach(([a, b]) => {
+    const kpA = frame.keypoints.find(k => k.id === a);
+    const kpB = frame.keypoints.find(k => k.id === b);
+    if (kpA && kpB && kpA.confidence > 0.3 && kpB.confidence > 0.3) {
+      ctx.beginPath();
+      ctx.moveTo(kpA.x * canvas.width, kpA.y * canvas.height);
+      ctx.lineTo(kpB.x * canvas.width, kpB.y * canvas.height);
+      ctx.strokeStyle = _vaConfidenceColor(Math.min(kpA.confidence, kpB.confidence));
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  });
+
+  // Keypoints
+  frame.keypoints.forEach(kp => {
+    if (kp.confidence > 0.3) {
+      ctx.beginPath();
+      ctx.arc(kp.x * canvas.width, kp.y * canvas.height, 3, 0, 2 * Math.PI);
+      ctx.fillStyle = _vaConfidenceColor(kp.confidence);
+      ctx.fill();
+    }
+  });
+}
+
+/** Interpolate between two frames for smooth playback */
+function _vaRenderInterpolatedSkeleton(canvas, poseSequence, timeSeconds) {
+  const ctx = canvas.getContext('2d');
+  if (!poseSequence?.frames?.length) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    return;
+  }
+  const fps = poseSequence.fps || 30;
+  const frameFloat = timeSeconds * fps;
+  const idx0 = Math.max(0, Math.min(Math.floor(frameFloat), poseSequence.frames.length - 1));
+  const idx1 = Math.min(idx0 + 1, poseSequence.frames.length - 1);
+  const t = frameFloat - idx0;
+  const f0 = poseSequence.frames[idx0];
+  const f1 = poseSequence.frames[idx1];
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  SKELETON_CONNECTIONS.forEach(([a, b]) => {
+    const kpA0 = f0.keypoints.find(k => k.id === a);
+    const kpB0 = f0.keypoints.find(k => k.id === b);
+    const kpA1 = f1.keypoints.find(k => k.id === a);
+    const kpB1 = f1.keypoints.find(k => k.id === b);
+    if (!kpA0 || !kpB0 || !kpA1 || !kpB1) return;
+    const confA = Math.min(kpA0.confidence, kpA1.confidence);
+    const confB = Math.min(kpB0.confidence, kpB1.confidence);
+    if (confA <= 0.3 || confB <= 0.3) return;
+    const ax = (kpA0.x + (kpA1.x - kpA0.x) * t) * canvas.width;
+    const ay = (kpA0.y + (kpA1.y - kpA0.y) * t) * canvas.height;
+    const bx = (kpB0.x + (kpB1.x - kpB0.x) * t) * canvas.width;
+    const by = (kpB0.y + (kpB1.y - kpB0.y) * t) * canvas.height;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(bx, by);
+    ctx.strokeStyle = _vaConfidenceColor(Math.min(confA, confB));
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  });
+
+  f0.keypoints.forEach((kp0) => {
+    const kp1 = f1.keypoints.find(k => k.id === kp0.id);
+    if (!kp1) return;
+    const conf = Math.min(kp0.confidence, kp1.confidence);
+    if (conf <= 0.3) return;
+    const x = (kp0.x + (kp1.x - kp0.x) * t) * canvas.width;
+    const y = (kp0.y + (kp1.y - kp0.y) * t) * canvas.height;
+    ctx.beginPath();
+    ctx.arc(x, y, 3, 0, 2 * Math.PI);
+    ctx.fillStyle = _vaConfidenceColor(conf);
+    ctx.fill();
+  });
+}
+
+/** Ensure a canvas overlay exists on top of a video element */
+function _vaEnsureOverlayCanvas(videoEl) {
+  if (!videoEl) return null;
+  const container = videoEl.parentElement;
+  if (!container) return null;
+  let canvas = container.querySelector('canvas[data-pose-overlay]');
+  if (!canvas) {
+    canvas = document.createElement('canvas');
+    canvas.dataset.poseOverlay = 'true';
+    canvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:2;';
+    container.style.position = 'relative';
+    container.appendChild(canvas);
+  }
+  return canvas;
+}
+
+function _vaRemoveOverlayCanvas(videoEl) {
+  if (!videoEl) return;
+  const container = videoEl.parentElement;
+  if (!container) return;
+  const canvas = container.querySelector('canvas[data-pose-overlay]');
+  if (canvas) canvas.remove();
+}
+
+/** Pose overlay state */
+let _vaShowPoseOverlay = false;
+let _vaCurrentPoseSequence = null;
+let _vaPoseRafId = null;
+
+/** Toggle pose overlay visibility */
+function _vaSetPoseOverlay(show) {
+  _vaShowPoseOverlay = show;
+  if (!show) {
+    _vaStopPoseRaf();
+    document.querySelectorAll('canvas[data-pose-overlay]').forEach(c => c.remove());
+  }
+}
+
+/** Start RAF loop for drawing skeleton on a video */
+function _vaStartPoseRaf(videoEl) {
+  _vaStopPoseRaf();
+  const canvas = _vaEnsureOverlayCanvas(videoEl);
+  if (!canvas) return;
+  function tick() {
+    if (!videoEl || videoEl.paused || videoEl.ended) {
+      _vaPoseRafId = requestAnimationFrame(tick);
+      return;
+    }
+    const w = videoEl.videoWidth || videoEl.clientWidth;
+    const h = videoEl.videoHeight || videoEl.clientHeight;
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
+    if (_vaCurrentPoseSequence) {
+      _vaRenderInterpolatedSkeleton(canvas, _vaCurrentPoseSequence, videoEl.currentTime);
+    }
+    _vaPoseRafId = requestAnimationFrame(tick);
+  }
+  tick();
+}
+
+function _vaStopPoseRaf() {
+  if (_vaPoseRafId) {
+    cancelAnimationFrame(_vaPoseRafId);
+    _vaPoseRafId = null;
+  }
+}
+
+/** Stub: fetch pose sequence for a recording */
+async function _vaFetchPoseSequence(recordingId) {
+  if (!recordingId) return null;
+  if (_vaCurrentPoseSequence?._recordingId === recordingId) return _vaCurrentPoseSequence;
+  try {
+    const res = await api.getPoseSequence?.(recordingId);
+    if (res) {
+      res._recordingId = recordingId;
+      _vaCurrentPoseSequence = res;
+      return res;
+    }
+  } catch (_) {}
+  return null;
+}
+
+/** Wire pose overlay to a video element */
+function _vaWirePoseOverlay(videoEl, recordingId) {
+  if (!videoEl) return;
+  if (_vaShowPoseOverlay && recordingId) {
+    _vaFetchPoseSequence(recordingId).then(seq => {
+      if (seq && _vaShowPoseOverlay) _vaStartPoseRaf(videoEl);
+    });
+  }
+  videoEl.addEventListener('play', () => {
+    if (_vaShowPoseOverlay) _vaStartPoseRaf(videoEl);
+  });
+  videoEl.addEventListener('pause', () => _vaStopPoseRaf());
+  videoEl.addEventListener('ended', () => _vaStopPoseRaf());
+}
+
 /**
  * Best-effort metadata from a Blob (duration, dimensions). Does not upload.
  * @param {Blob} blob
@@ -1472,7 +1870,8 @@ function _renderSetupChecklist() {
       <li>Wear comfortable clothes that show your arms and legs if possible.</li>
       <li>If you live alone and cannot stand safely, skip standing and walking tasks.</li>
     </ul>
-    <label class="va-checkbox"><input type="checkbox" id="va-setup-safe" ${_vaSetupConfirmed ? 'checked' : ''}/> I confirm I am in a safe space for movement tasks today.</label>
+    ${_renderVideoSafetyPanel()}
+    <label class="va-checkbox" style="margin-top:12px;display:block"><input type="checkbox" id="va-setup-safe" ${_vaSetupConfirmed ? 'checked' : ''}/> I confirm I am in a safe space for movement tasks today.</label>
     ${locked ? '<p class="va-muted" style="font-size:11px;margin-top:10px">The attached persisted session is finalized. Start a new persisted session to capture additional clips.</p>' : ''}
     <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
       <button type="button" class="btn btn-primary" id="va-setup-continue" ${locked ? 'disabled aria-disabled="true"' : ''}>Continue</button>
@@ -1485,12 +1884,13 @@ function _renderTaskIntro(task, def) {
   const sc = def.script.success_checklist.map((x) => `<li>${esc(x)}</li>`).join('');
   return `<div class="va-task-intro">
     ${_renderProgress()}
-    <div class="ds-card"><div class="ds-card__header"><h3>${esc(def.script.title)}</h3></div><div class="ds-card__body">
+    <div class="ds-card"><div class="ds-card__header"><h3 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">${esc(def.script.title)} ${_renderTaskEvidenceBadge(task.task_id)}</h3></div><div class="ds-card__body">
       <p class="va-muted"><strong>What this checks:</strong> ${esc(def.script.what_this_checks)}</p>
       <p><strong>How to do it:</strong> ${esc(def.script.how_to_do)}</p>
       <p><strong>Camera:</strong> ${esc(def.script.camera_position)}</p>
       <p><strong>Safety:</strong> ${esc(def.script.safety)}</p>
-      <div class="va-demo-placeholder" role="note">
+      ${_renderTaskEvidenceBlock(task.task_id)}
+      <div class="va-demo-placeholder" role="note" style="margin-top:10px">
         <span>Reference illustration not included</span>
         <small>Task scripts are text-only in this build. On-screen demonstration clips are not shown—follow the written steps and voice prompt.</small>
       </div>
@@ -1522,7 +1922,16 @@ function _renderPostRecord(task, def) {
   const saveToBackend = _canWriteAttachedPatientSession();
   const locked = _sessionIsFinalized() && _isAttachedBackendSession();
   const vid = _vaPreviewUrl
-    ? `<video id="va-playback" controls playsinline src="${esc(_vaPreviewUrl)}" style="width:100%;max-height:280px;border-radius:8px;background:#000"></video>`
+    ? `<div style="position:relative;width:100%;max-height:280px;border-radius:8px;overflow:hidden;background:#000">
+        <video id="va-playback" controls playsinline src="${esc(_vaPreviewUrl)}" style="width:100%;display:block"></video>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center;margin-top:8px;font-size:11px;color:var(--text-tertiary)">
+        <button type="button" class="btn btn-ghost btn-sm" id="va-toggle-playback-pose">${_vaShowPoseOverlay ? 'Hide pose overlay' : 'Show pose overlay'}</button>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(34,197,94,0.8);margin-right:4px"></span>>90%</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(59,130,246,0.8);margin-right:4px"></span>>70%</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(245,158,11,0.8);margin-right:4px"></span>>50%</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(239,68,68,0.8);margin-right:4px"></span><50%</span>
+      </div>`
     : '<p class="va-muted">No preview available.</p>';
   const meta = task?.video_capture_meta;
   const metaBlock =
@@ -1548,6 +1957,11 @@ function _renderPostRecord(task, def) {
     <h4 style="margin:0 0 8px">Review clip</h4>
     ${vid}
     ${metaBlock}
+    ${_renderTaskEvidenceBlock(task.task_id)}
+    <div style="margin-top:10px;padding:8px 10px;border-radius:6px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);font-size:11px;color:var(--text-secondary);line-height:1.5">
+      <strong style="color:var(--amber)">⚠ Camera quality may affect accuracy:</strong> ${esc(VIDEO_SAFETY_WARNINGS.cameraQuality)}
+      <div style="margin-top:4px">${esc(VIDEO_SAFETY_WARNINGS.biasDisclosure)}</div>
+    </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
       <button type="button" class="btn btn-primary" id="va-use-clip" ${locked ? 'disabled aria-disabled="true"' : ''}>${saveToBackend ? 'Use this recording and upload to session' : 'Use this recording'}</button>
       <button type="button" class="btn btn-secondary" id="va-rerecord" ${locked ? 'disabled aria-disabled="true"' : ''}>Record again</button>
@@ -1661,6 +2075,15 @@ function _renderGovernanceCard() {
         <li>Any future automated markers must show method, uncertainty, and require clinician review (not shipped here yet).</li>
         <li>Exports are JSON drafts for workflow handoff; they are not signed clinical documents.</li>
       </ul>
+      <div style="margin-top:12px;padding:8px 10px;border-radius:6px;background:rgba(155,127,255,0.06);border:1px solid rgba(155,127,255,0.18)">
+        <strong style="color:var(--text-primary)">Movement biomarker evidence grades (per task):</strong>
+        <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px">
+          <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(34,197,94,0.12);color:#16a34a;font-weight:600">A — Meta-analytic support</span>
+          <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(59,130,246,0.12);color:#2563eb;font-weight:600">B — Controlled trial</span>
+          <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(245,158,11,0.12);color:#d97706;font-weight:600">C — Observational</span>
+        </div>
+        <p style="margin:8px 0 0;font-size:11px;color:var(--text-tertiary)">No video-based movement biomarker is FDA-approved for standalone diagnosis as of 2026. All outputs require clinician confirmation.</p>
+      </div>
     </div>
   </div>`;
 }
@@ -1677,6 +2100,7 @@ function _renderQuickLinks() {
       <button type="button" class="btn btn-ghost btn-sm" id="va-link-qeeg" ${dis}>qEEG launcher</button>
       <button type="button" class="btn btn-ghost btn-sm" id="va-link-mri" ${dis}>MRI analysis</button>
       <button type="button" class="btn btn-ghost btn-sm" id="va-link-voice" ${dis}>Voice analyzer</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="va-link-movement" ${dis}>Movement analyzer</button>
       <button type="button" class="btn btn-ghost btn-sm" id="va-link-text" ${dis}>Text analyzer</button>
       <button type="button" class="btn btn-ghost btn-sm" id="va-link-biomarkers" ${dis}>Biomarkers</button>
       <button type="button" class="btn btn-ghost btn-sm" id="va-link-deeptwin" ${dis}>DeepTwin</button>
@@ -1689,6 +2113,22 @@ function _renderQuickLinks() {
       <button type="button" class="btn btn-ghost btn-sm" id="va-link-live">Live session</button>
     </div>
     <div class="ds-card__body" style="padding-top:0;font-size:11px;color:var(--text-tertiary)">DeepTwin / Protocol Studio receive identifiers for continuity only—not autonomous video-based protocol or diagnosis suggestions.</div>
+  </div>`;
+}
+
+function _renderVirtualCareImport() {
+  const pid = _vaSelectedPatientId || _readStoredPatientId() || '';
+  const dis = pid ? '' : 'disabled title="Select a patient first"';
+  return `<div class="ds-card" style="margin-bottom:12px;border-color:rgba(99,102,241,.25)">
+    <div class="ds-card__header"><h3 style="margin:0">Import from Virtual Care</h3></div>
+    <div class="ds-card__body">
+      <p class="va-muted" style="font-size:12px;margin-top:0">Import recorded video from Virtual Care sessions for movement analysis.</p>
+      <div id="va-virtual-care-sessions" style="font-size:12px;color:var(--text-tertiary)">Select a patient to list available sessions.</div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button type="button" class="btn btn-secondary btn-sm" id="va-load-virtual-care" ${dis}>List Virtual Care sessions</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="va-nav-movement" ${dis}>Open Movement Analyzer</button>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -1735,14 +2175,27 @@ function _renderPatientColumn() {
       ? `<div class="va-camera-card ds-card">
           <div class="ds-card__header"><h3>Camera</h3><button type="button" class="btn btn-sm btn-secondary" id="va-start-cam">Start camera</button></div>
           <div class="ds-card__body">
-            <div class="va-video-wrap"><video id="va-camera-preview" autoplay playsinline muted></video></div>
+            <div class="va-video-wrap" style="position:relative"><video id="va-camera-preview" autoplay playsinline muted></video></div>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+              <button type="button" class="btn btn-ghost btn-sm" id="va-toggle-pose-overlay" title="Toggle real-time pose overlay">
+                ${_vaShowPoseOverlay ? 'Hide pose overlay' : 'Show pose overlay'}
+              </button>
+              <span style="font-size:11px;color:var(--text-tertiary)">Pose overlay is model-assisted observation — requires clinician review.</span>
+            </div>
             <p class="va-muted" style="font-size:11px;margin-top:8px">${esc(DISCLAIMER)}</p>
+            <div style="margin-top:10px;padding:8px;border-radius:6px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);font-size:11px;color:var(--text-secondary);line-height:1.5">
+              <strong style="color:var(--amber)">📹 Camera quality check:</strong> ${esc(VIDEO_SAFETY_WARNINGS.cameraQuality)}
+              <div style="margin-top:4px"><strong>💡 Lighting:</strong> ${esc(VIDEO_SAFETY_WARNINGS.lighting)}</div>
+              <div style="margin-top:4px"><strong>👤 Position & clothing:</strong> ${esc(VIDEO_SAFETY_WARNINGS.bodyPositionClothing)}</div>
+              <div style="margin-top:4px"><strong>⚖️ Bias note:</strong> ${esc(VIDEO_SAFETY_WARNINGS.biasDisclosure)}</div>
+            </div>
           </div>
         </div>`
       : '';
 
   return `<div class="va-col va-col-patient">
     ${uploadCard}
+    ${_renderVirtualCareImport()}
     ${camBlock}
     <div class="va-patient-flow">${inner}</div>
   </div>`;
@@ -1827,7 +2280,17 @@ function _renderClinicianForm(task) {
   const remoteError = _vaRemoteVideoErrorByTask[task.task_id] || '';
   const canLoadStoredClip = _sessionHasServerTruth() && !!task.recording_storage_ref;
   const videoBlock = blobSrc
-    ? `${metaHtml}<video controls src="${esc(blobSrc)}" style="width:100%;border-radius:8px;background:#000"></video>`
+    ? `<div style="position:relative;width:100%;border-radius:8px;overflow:hidden;background:#000">
+        ${metaHtml}
+        <video id="va-review-video" controls src="${esc(blobSrc)}" style="width:100%;display:block;border-radius:8px" data-task-id="${esc(task.task_id)}"></video>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center;margin-top:8px;font-size:11px;color:var(--text-tertiary);flex-wrap:wrap">
+        <button type="button" class="btn btn-ghost btn-sm" id="va-toggle-review-pose">${_vaShowPoseOverlay ? 'Hide pose overlay' : 'Show pose overlay'}</button>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(34,197,94,0.8);margin-right:4px"></span>>90%</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(59,130,246,0.8);margin-right:4px"></span>>70%</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(245,158,11,0.8);margin-right:4px"></span>>50%</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(239,68,68,0.8);margin-right:4px"></span><50%</span>
+      </div>`
     : remoteLoading
       ? `<div class="va-video-placeholder">Loading stored persisted clip…</div>`
       : canLoadStoredClip
@@ -1838,6 +2301,7 @@ function _renderClinicianForm(task) {
     ${conflictBanner}
     ${unsafeBadge}${skipBadge}
     <div style="margin-bottom:12px">${videoBlock}</div>
+    ${_renderTaskEvidenceBlock(task.task_id)}
     ${readOnly ? '<p class="va-muted" style="font-size:12px;margin:0 0 12px;color:var(--amber)">This persisted session is finalized. Structured review fields are read-only.</p>' : ''}
     <fieldset style="border:0;padding:0;margin:0" ${readOnly ? 'disabled' : ''}>
       ${baseFields}
@@ -2190,7 +2654,11 @@ function _renderClinicianColumn() {
         t.unsafe_flag || t.recording_status === 'unsafe_skipped'
           ? ' ⚠'
           : '';
-      return `<button type="button" class="va-side-item ${active}" data-va-task-idx="${i}">${esc(t.task_name)}${review}${flag}</button>`;
+      const ev = VIDEO_TASK_EVIDENCE[t.task_id];
+      const gradeBadge = ev
+        ? `<span style="margin-left:auto;font-size:10px;padding:1px 6px;border-radius:4px;background:${ev.grade === 'A' ? 'rgba(34,197,94,0.12);color:#16a34a' : ev.grade === 'B' ? 'rgba(59,130,246,0.12);color:#2563eb' : 'rgba(245,158,11,0.12);color:#d97706'}">${esc(ev.grade)}</span>`
+        : '';
+      return `<button type="button" class="va-side-item ${active}" data-va-task-idx="${i}">${esc(t.task_name)}${review}${flag}${gradeBadge}</button>`;
     })
     .join('');
 
@@ -2199,7 +2667,7 @@ function _renderClinicianColumn() {
     <div class="va-clin-layout">
       <aside class="va-sidebar" aria-label="Tasks">${sidebar}</aside>
       <div class="va-clin-main">
-        <h4 style="margin:0 0 8px">${task ? esc(task.task_name) : ''}</h4>
+        <h4 style="margin:0 0 8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">${task ? esc(task.task_name) : ''} ${_renderTaskEvidenceBadge(task?.task_id || '')}</h4>
         <p class="va-muted" style="font-size:12px">${def ? esc(def.clinical_purpose) : ''}</p>
         ${_renderClinicianForm(task)}
         ${_renderPriorSessionsComparison()}
@@ -2455,6 +2923,7 @@ function _wire() {
   document.getElementById('va-link-qeeg')?.addEventListener('click', () => navWithPatient('qeeg-launcher'));
   document.getElementById('va-link-mri')?.addEventListener('click', () => navWithPatient('mri-analysis'));
   document.getElementById('va-link-voice')?.addEventListener('click', () => navWithPatient('voice-analyzer'));
+  document.getElementById('va-link-movement')?.addEventListener('click', () => navWithPatient('movement-analyzer'));
   document.getElementById('va-link-text')?.addEventListener('click', () => navWithPatient('text-analyzer'));
   document.getElementById('va-link-biomarkers')?.addEventListener('click', () => navWithPatient('biomarkers'));
   document.getElementById('va-link-deeptwin')?.addEventListener('click', () => navWithPatient('deeptwin', true));
@@ -2465,6 +2934,46 @@ function _wire() {
   document.getElementById('va-link-handbooks')?.addEventListener('click', () => _vaNavigate('handbooks-v2'));
   document.getElementById('va-link-evidence')?.addEventListener('click', () => _vaNavigate('research-evidence'));
   document.getElementById('va-link-live')?.addEventListener('click', () => _vaNavigate('live-session'));
+  document.getElementById('va-nav-movement')?.addEventListener('click', () => navWithPatient('movement-analyzer'));
+  document.getElementById('va-load-virtual-care')?.addEventListener('click', async () => {
+    const container = document.getElementById('va-virtual-care-sessions');
+    const patientCtx = _selectedPatientScope();
+    const pid = patientCtx.patientId || _vaSelectedPatientId || _readStoredPatientId();
+    if (!pid) {
+      if (container) container.innerHTML = '<span style="color:var(--amber)">Select a patient first.</span>';
+      return;
+    }
+    if (container) container.innerHTML = 'Loading sessions…';
+    try {
+      const sessions = await api.listVirtualCareSessions?.(pid) || { items: [] };
+      const items = sessions.items || (Array.isArray(sessions) ? sessions : []);
+      if (!items.length) {
+        container.innerHTML = '<span style="color:var(--text-tertiary)">No recorded Virtual Care sessions for this patient.</span>';
+        return;
+      }
+      let html = '<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">';
+      for (const s of items) {
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border:1px solid var(--border-subtle);border-radius:8px">' +
+          '<div><div style="font-weight:600;font-size:12px">' + esc(s.title || 'Untitled Session') + '</div>' +
+          '<div style="font-size:11px;color:var(--text-tertiary)">' + (s.created_at ? new Date(s.created_at).toLocaleString() : '') + ' · ' + (s.duration_seconds ? Math.round(s.duration_seconds / 60) + ' min' : '') + '</div></div>' +
+          '<button type="button" class="btn btn-sm btn-primary" data-va-import-session="' + esc(s.id) + '">Import for analysis</button>' +
+          '</div>';
+      }
+      html += '</div>';
+      container.innerHTML = html;
+      container.querySelectorAll('[data-va-import-session]').forEach((b) => {
+        b.addEventListener('click', () => {
+          const sid = b.getAttribute('data-va-import-session');
+          if (sid) {
+            window._vaImportSessionId = sid;
+            try { window._showToast?.('Session imported for analysis. Open Movement Analyzer to review.', 'success'); } catch {}
+          }
+        });
+      });
+    } catch (e) {
+      container.innerHTML = '<span style="color:var(--rose)">Failed to load sessions: ' + esc(e?.message || 'Unknown error') + '</span>';
+    }
+  });
 
   document.getElementById('va-mode-patient')?.addEventListener('click', () => {
     _vaUiMode = 'patient';
@@ -2575,6 +3084,105 @@ function _wire() {
       showToast('Camera started');
     } catch (e) {
       showToast('Could not access camera: ' + (e && e.message));
+    }
+  });
+
+  // Pose overlay toggles
+  document.getElementById('va-toggle-pose-overlay')?.addEventListener('click', () => {
+    _vaShowPoseOverlay = !_vaShowPoseOverlay;
+    const btn = document.getElementById('va-toggle-pose-overlay');
+    if (btn) btn.textContent = _vaShowPoseOverlay ? 'Hide pose overlay' : 'Show pose overlay';
+    const camVideo = document.getElementById('va-camera-preview');
+    if (_vaShowPoseOverlay && camVideo) {
+      _vaWirePoseOverlay(camVideo, null);
+      _vaStartPoseRaf(camVideo);
+    } else if (!_vaShowPoseOverlay) {
+      _vaStopPoseRaf();
+      document.querySelectorAll('canvas[data-pose-overlay]').forEach(c => c.remove());
+    }
+  });
+
+  document.getElementById('va-toggle-playback-pose')?.addEventListener('click', () => {
+    _vaShowPoseOverlay = !_vaShowPoseOverlay;
+    const btn = document.getElementById('va-toggle-playback-pose');
+    if (btn) btn.textContent = _vaShowPoseOverlay ? 'Hide pose overlay' : 'Show pose overlay';
+    const playbackVideo = document.getElementById('va-playback');
+    if (playbackVideo) {
+      if (_vaShowPoseOverlay) {
+        _vaWirePoseOverlay(playbackVideo, null);
+        _vaStartPoseRaf(playbackVideo);
+      } else {
+        _vaStopPoseRaf();
+        _vaRemoveOverlayCanvas(playbackVideo);
+      }
+    }
+  });
+
+  document.getElementById('va-toggle-review-pose')?.addEventListener('click', () => {
+    _vaShowPoseOverlay = !_vaShowPoseOverlay;
+    const btn = document.getElementById('va-toggle-review-pose');
+    if (btn) btn.textContent = _vaShowPoseOverlay ? 'Hide pose overlay' : 'Show pose overlay';
+    const reviewVideo = document.getElementById('va-review-video');
+    if (reviewVideo) {
+      if (_vaShowPoseOverlay) {
+        const taskId = reviewVideo.getAttribute('data-task-id');
+        const task = _vaSession?.tasks?.find(t => t.task_id === taskId);
+        const recordingId = task?.recording_storage_ref || task?.recording_asset_id;
+        _vaWirePoseOverlay(reviewVideo, recordingId);
+      } else {
+        _vaStopPoseRaf();
+        _vaRemoveOverlayCanvas(reviewVideo);
+      }
+    }
+  });
+
+  // Pose overlay toggles
+  document.getElementById('va-toggle-pose-overlay')?.addEventListener('click', () => {
+    _vaShowPoseOverlay = !_vaShowPoseOverlay;
+    const btn = document.getElementById('va-toggle-pose-overlay');
+    if (btn) btn.textContent = _vaShowPoseOverlay ? 'Hide pose overlay' : 'Show pose overlay';
+    const camVideo = document.getElementById('va-camera-preview');
+    if (_vaShowPoseOverlay && camVideo) {
+      _vaWirePoseOverlay(camVideo, null);
+      // Demo: draw synthetic skeleton on webcam (no real pose data yet)
+      _vaStartPoseRaf(camVideo);
+    } else if (!_vaShowPoseOverlay) {
+      _vaStopPoseRaf();
+      document.querySelectorAll('canvas[data-pose-overlay]').forEach(c => c.remove());
+    }
+  });
+
+  document.getElementById('va-toggle-playback-pose')?.addEventListener('click', () => {
+    _vaShowPoseOverlay = !_vaShowPoseOverlay;
+    const btn = document.getElementById('va-toggle-playback-pose');
+    if (btn) btn.textContent = _vaShowPoseOverlay ? 'Hide pose overlay' : 'Show pose overlay';
+    const playbackVideo = document.getElementById('va-playback');
+    if (playbackVideo) {
+      if (_vaShowPoseOverlay) {
+        _vaWirePoseOverlay(playbackVideo, null);
+        _vaStartPoseRaf(playbackVideo);
+      } else {
+        _vaStopPoseRaf();
+        _vaRemoveOverlayCanvas(playbackVideo);
+      }
+    }
+  });
+
+  document.getElementById('va-toggle-review-pose')?.addEventListener('click', () => {
+    _vaShowPoseOverlay = !_vaShowPoseOverlay;
+    const btn = document.getElementById('va-toggle-review-pose');
+    if (btn) btn.textContent = _vaShowPoseOverlay ? 'Hide pose overlay' : 'Show pose overlay';
+    const reviewVideo = document.getElementById('va-review-video');
+    if (reviewVideo) {
+      if (_vaShowPoseOverlay) {
+        const taskId = reviewVideo.getAttribute('data-task-id');
+        const task = _vaSession?.tasks?.find(t => t.task_id === taskId);
+        const recordingId = task?.recording_storage_ref || task?.recording_asset_id;
+        _vaWirePoseOverlay(reviewVideo, recordingId);
+      } else {
+        _vaStopPoseRaf();
+        _vaRemoveOverlayCanvas(reviewVideo);
+      }
     }
   });
 
@@ -3044,3 +3652,98 @@ export async function pgVideoAssessments(setTopbar, navigate) {
     }
   });
 }
+  _clearRemoteVideoState();
+  _stopMedia();
+  _cleanupPreviewUrl();
+
+  if (!_vaKeysBound && typeof document !== 'undefined') {
+    _vaKeysBound = true;
+    document.addEventListener('keydown', (e) => {
+      const tag = (e.target?.tagName || '').toLowerCase();
+      const isTyping = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable;
+
+      // Global shortcuts (not when typing in a field)
+      if (!isTyping) {
+        if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+          e.preventDefault();
+          _vaKeyboardHelpVisible = !_vaKeyboardHelpVisible;
+          _render();
+          return;
+        }
+        if (e.key === 'f' || e.key === 'F') {
+          e.preventDefault();
+          if (!document.fullscreenElement) { document.documentElement.requestFullscreen().catch(() => {}); }
+          else { document.exitFullscreen().catch(() => {}); }
+          return;
+        }
+        if (e.key === 'c' || e.key === 'C') {
+          e.preventDefault();
+          _vaComparisonView = !_vaComparisonView;
+          _render();
+          return;
+        }
+        if (e.key === 's' || e.key === 'S') {
+          e.preventDefault();
+          _vaSkeletonOverlay = !_vaSkeletonOverlay;
+          _render();
+          return;
+        }
+        if (e.key === 'e' || e.key === 'E') {
+          e.preventDefault();
+          _vaEvidencePanel = !_vaEvidencePanel;
+          _render();
+          return;
+        }
+        if (e.key === 'a' || e.key === 'A') {
+          e.preventDefault();
+          const video = document.querySelector('video');
+          const time = video ? Math.round(video.currentTime * 10) / 10 : 0;
+          const noteField = document.querySelector('[data-va-field="free_text_comment"]');
+          if (noteField) {
+            noteField.focus();
+            const prefix = time ? '[' + time + 's] ' : '';
+            if (!noteField.value.includes(prefix)) noteField.value = prefix + noteField.value;
+          }
+          return;
+        }
+        if (e.key === ' ' || e.code === 'Space') {
+          e.preventDefault();
+          const video = document.querySelector('video');
+          if (video) {
+            if (video.paused) { video.play(); _applyPlaybackSpeed(video); }
+            else video.pause();
+          }
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          const idx = VA_SPEEDS.indexOf(_vaPlaybackSpeed);
+          _vaPlaybackSpeed = idx < VA_SPEEDS.length - 1 ? VA_SPEEDS[idx + 1] : 2;
+          document.querySelectorAll('video').forEach(_applyPlaybackSpeed);
+          _render();
+          return;
+        }
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          const idx = VA_SPEEDS.indexOf(_vaPlaybackSpeed);
+          _vaPlaybackSpeed = idx > 0 ? VA_SPEEDS[idx - 1] : 0.25;
+          document.querySelectorAll('video').forEach(_applyPlaybackSpeed);
+          _render();
+          return;
+        }
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          const video = document.querySelector('video');
+          if (video) video.currentTime = Math.max(0, video.currentTime + (e.shiftKey ? -1 : -5));
+          return;
+        }
+        if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          const video = document.querySelector('video');
+          if (video) video.currentTime = Math.min(video.duration || Infinity, video.currentTime + (e.shiftKey ? 1 : 5));
+          return;
+        }
+      }
+
+    });
+  }

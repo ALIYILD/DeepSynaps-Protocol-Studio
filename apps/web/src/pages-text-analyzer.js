@@ -25,6 +25,15 @@ const TEXT_HOW_TO_READ = "Extracted entities and indicators are decision-support
 
 const CLINICAL_TEXT_ANALYZER_ROLES = new Set(['clinician', 'admin']);
 
+/** Confidence threshold for entity display filtering (0.0–1.0). */
+let _currentConfidenceThreshold = 0.0;
+
+/** Stores the last raw API response for JSON export and threshold re-filtering. */
+let _lastRawResponse = null;
+
+/** Stores the last result HTML so the confidence slider can re-filter without re-calling the API. */
+let _lastResultInnerHTML = '';
+
 function esc(s) {
   return String(s ?? '')
     .replace(/&/g, '&amp;')
@@ -52,6 +61,17 @@ function _demoBuildBanner() {
     + 'This page does not store pasted text in the EHR unless a future documents '
     + 'integration is completed — text in the box is local to this browser session.'
     + '</div>';
+}
+
+function _renderDegradedModeBanner(backend) {
+  if (backend !== 'heuristic') return '';
+  return `<div id="ta-degraded-banner-inner" style="display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border-radius:10px;border:1px solid rgba(245,158,11,.35);background:rgba(245,158,11,.12);color:#b45309;font-size:13px;line-height:1.5;margin-bottom:16px" role="alert">
+    <span style="font-size:18px;flex-shrink:0" aria-hidden="true">&#x26A0;</span>
+    <div style="flex:1">
+      <strong style="color:#92400e">Rule-based extraction only</strong> &mdash; the backend is running in heuristic mode. Entity detection uses regular expressions and keyword matching, not a clinical NLP model. Results may miss subtle entities, novel phrasings, or context-dependent mentions. <strong>Review all output carefully before clinical use.</strong>
+    </div>
+    <button type="button" id="ta-dismiss-degraded" style="flex-shrink:0;background:none;border:none;color:#92400e;font-size:20px;cursor:pointer;padding:0 4px;line-height:1" aria-label="Dismiss degraded mode warning" title="Dismiss">&times;</button>
+  </div>`;
 }
 
 const DISCLAIMER = 'This workspace provides AI-assisted text review and rule-based or '
@@ -174,13 +194,17 @@ function _renderEntityTable(rows, opt = {}) {
   if (!rows.length) {
     return `<div style="color:var(--text-tertiary);font-size:12px;padding:8px 0">No spans returned for this pass.</div>`;
   }
-  const rowsHtml = rows.slice(0, 300).map((r) => `
-    <tr>
+  const rowsHtml = rows.slice(0, 300).map((r) => {
+    const confNum = _confidenceNum(r.confidence);
+    const isLow = confNum < _currentConfidenceThreshold;
+    return `
+    <tr data-confidence="${confNum.toFixed(3)}" style="opacity:${isLow ? '0.35' : '1'};display:${isLow ? 'none' : 'table-row'}">
       <td style="padding:8px;border-bottom:1px solid var(--border);font-size:12px;vertical-align:top">${esc(r.text)}</td>
       <td style="padding:8px;border-bottom:1px solid var(--border);color:var(--text-secondary);font-size:12px;vertical-align:top">${esc(r.label)}</td>
       <td style="padding:8px;border-bottom:1px solid var(--border);color:var(--text-tertiary);font-size:11px;vertical-align:top">${esc(r.span)}</td>
       <td style="padding:8px;border-bottom:1px solid var(--border);color:var(--text-tertiary);font-size:11px;text-align:right;vertical-align:top">${esc(r.confidence)}</td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
   return `
     <div style="margin-bottom:8px;font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.04em">${esc(titleHint)}</div>
     <div style="overflow:auto;border:1px solid var(--border);border-radius:10px">
@@ -223,7 +247,8 @@ function _renderGroupedClinicalEntities(rows) {
 function _deidentifiedBody(res) {
   const out = res?.redacted_text ?? res?.deidentified_text ?? res?.text ?? '';
   if (!out) return '<div style="color:var(--text-tertiary)">No de-identified text returned.</div>';
-  return `<pre style="margin:0;padding:12px;border-radius:8px;background:rgba(0,0,0,.2);font-size:12px;white-space:pre-wrap;line-height:1.5;max-height:320px;overflow:auto" role="region" aria-label="De-identified text">${esc(out)}</pre>`;
+  return `<pre id="ta-deidentified-text" style="margin:0 0 10px;padding:12px;border-radius:8px;background:rgba(0,0,0,.2);font-size:12px;white-space:pre-wrap;line-height:1.5;max-height:320px;overflow:auto" role="region" aria-label="De-identified text">${esc(out)}</pre>
+    <button type="button" class="btn btn-ghost btn-sm" id="ta-copy-deidentified">Copy to clipboard</button>`;
 }
 
 function _renderAnalyzeResult(res) {
@@ -339,6 +364,87 @@ function _renderJsonDetails(label, obj) {
   </details>`;
 }
 
+/** Render the confidence-threshold slider + Export JSON toolbar above results. */
+function _renderResultsToolbar() {
+  return `<div id="ta-result-toolbar-inner" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.02);border:1px solid var(--border)">
+    <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;flex:1;min-width:220px;margin:0">
+      <span style="white-space:nowrap">Confidence threshold</span>
+      <input type="range" id="ta-confidence-slider" min="0" max="1" step="0.05" value="${_currentConfidenceThreshold}" style="flex:1;max-width:200px;cursor:pointer" title="Filter entities by minimum confidence score (display only)" aria-label="Confidence threshold filter">
+      <span id="ta-confidence-value" style="font-variant-numeric:tabular-nums;min-width:36px;font-size:12px;color:var(--text-tertiary)">${_currentConfidenceThreshold.toFixed(2)}</span>
+    </label>
+    <button type="button" class="btn btn-ghost btn-sm" id="ta-export-json">Export JSON</button>
+  </div>`;
+}
+
+/** Parse a confidence string/number into a normalised 0–1 number. Returns 0 for unavailable scores. */
+function _confidenceNum(c) {
+  if (c == null || Number.isNaN(Number(c))) return 0;
+  const n = Number(c);
+  return n > 1 ? Math.min(n / 100, 1) : n;
+}
+
+/** Apply the current confidence threshold to all rendered entity rows. */
+function _applyConfidenceFilter() {
+  document.querySelectorAll('tr[data-confidence]').forEach((tr) => {
+    const conf = parseFloat(tr.dataset.confidence);
+    const isLow = conf < _currentConfidenceThreshold;
+    tr.style.opacity = isLow ? '0.35' : '1';
+    tr.style.display = isLow ? 'none' : 'table-row';
+  });
+}
+
+/** Wire events for the results toolbar (slider + export) and copy button. */
+function _wireResultEvents() {
+  const slider = document.getElementById('ta-confidence-slider');
+  if (slider) {
+    slider.addEventListener('input', (e) => {
+      _currentConfidenceThreshold = parseFloat(e.target.value);
+      const valEl = document.getElementById('ta-confidence-value');
+      if (valEl) valEl.textContent = _currentConfidenceThreshold.toFixed(2);
+      _applyConfidenceFilter();
+    });
+  }
+
+  const exportBtn = document.getElementById('ta-export-json');
+  if (exportBtn && _lastRawResponse) {
+    exportBtn.addEventListener('click', () => {
+      const blob = new Blob([JSON.stringify(_lastRawResponse, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `text-analyzer-export-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+  }
+
+  const copyBtn = document.getElementById('ta-copy-deidentified');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', async () => {
+      const pre = document.getElementById('ta-deidentified-text');
+      if (!pre) return;
+      try {
+        await navigator.clipboard.writeText(pre.textContent || '');
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => { copyBtn.textContent = 'Copy to clipboard'; }, 2000);
+      } catch {
+        copyBtn.textContent = 'Copy failed';
+        setTimeout(() => { copyBtn.textContent = 'Copy to clipboard'; }, 2000);
+      }
+    });
+  }
+
+  const dismissBtn = document.getElementById('ta-dismiss-degraded');
+  if (dismissBtn) {
+    dismissBtn.addEventListener('click', () => {
+      const banner = document.getElementById('ta-degraded-banner-inner');
+      if (banner) banner.remove();
+    });
+  }
+}
+
 function _demoFixtureResultsHtml() {
   const demo = ANALYZER_DEMO_FIXTURES.text;
   const ents = (demo.analyze.entities || []).map((e) => ({
@@ -421,6 +527,7 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
         <button type="button" class="btn btn-ghost btn-sm" id="ta-nav-qeeg">qEEG</button>
         <button type="button" class="btn btn-ghost btn-sm" id="ta-nav-mri">MRI</button>
         <button type="button" class="btn btn-ghost btn-sm" id="ta-nav-video">Video</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="ta-nav-movement">Movement</button>
         <button type="button" class="btn btn-ghost btn-sm" id="ta-nav-voice">Voice</button>
         <button type="button" class="btn btn-ghost btn-sm" id="ta-nav-biomarkers">Biomarkers</button>
         <button type="button" class="btn btn-ghost btn-sm" id="ta-nav-documents">Documents</button>
@@ -499,6 +606,8 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
         </p>
       </div>
 
+      <div id="ta-result-toolbar" style="margin-bottom:0"></div>
+      <div id="ta-degraded-banner" style="margin-bottom:16px"></div>
       <div id="ta-result" data-testid="text-analyzer-results"></div>
     </div>`;
   ensureAgentBrainStatus(el);
@@ -548,6 +657,7 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
   wireNav('ta-nav-qeeg', 'qeeg-launcher');
   wireNav('ta-nav-mri', 'mri-analysis');
   wireNav('ta-nav-video', 'video-assessments');
+  wireNav('ta-nav-movement', 'movement-analyzer');
   wireNav('ta-nav-voice', 'voice-analyzer');
   wireNav('ta-nav-biomarkers', 'biomarkers');
   wireNav('ta-nav-documents', 'documents-v2');
@@ -560,6 +670,38 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
   wireNav('ta-nav-live', 'live-session');
   wireNav('ta-nav-evidence', 'research-evidence');
 
+  // Check for incoming navigation params from movement analyzer (or other modules)
+  try {
+    const incomingNav = sessionStorage.getItem('nav_text-analyzer');
+    if (incomingNav) {
+      const navParams = JSON.parse(incomingNav);
+      if (navParams.patientId) {
+        window._selectedPatientId = navParams.patientId;
+        window._profilePatientId = navParams.patientId;
+        _refreshTaDrHero(navParams.patientId);
+      }
+      if (navParams.prefillText) {
+        const ta = $('ta-text');
+        if (ta) {
+          const header = navParams.note ? `[From ${navParams.sourceAnalyzer || 'movement analyzer'}] ${navParams.note}\n---\n` : '';
+          ta.value = header + navParams.prefillText;
+          updateMetaHint();
+        }
+      }
+      if (navParams.source_type) {
+        const sel = $('ta-source');
+        if (sel) {
+          const apiType = toApiSourceType(navParams.source_type);
+          const optionExists = Array.from(sel.options).some((o) => toApiSourceType(o.value) === apiType);
+          if (optionExists) sel.value = navParams.source_type;
+        }
+      }
+      sessionStorage.removeItem('nav_text-analyzer');
+      const statusEl = $('ta-status');
+      if (statusEl) statusEl.textContent = 'Prefilled from movement analysis — review before extracting.';
+    }
+  } catch (_) {}
+
   $('ta-load-sample')?.addEventListener('click', () => {
     const ta = $('ta-text');
     if (ta) ta.value = ILLUSTRATIVE_SAMPLE;
@@ -569,6 +711,9 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
     const ta = $('ta-text');
     if (ta) ta.value = '';
     if (resultEl()) resultEl().innerHTML = '';
+    const toolbarEl = $('ta-result-toolbar');
+    if (toolbarEl) toolbarEl.innerHTML = '';
+    _lastRawResponse = null;
     status('');
     updateMetaHint();
   });
@@ -622,6 +767,19 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
         const phiStatus = (h.backend === 'heuristic') ? 'heuristic' : (h.ok === false ? 'unavailable' : 'active');
         phiBadge.innerHTML = renderPHIWarningBadge(phiStatus);
       }
+      // Render degraded-mode banner when backend is heuristic
+      const bannerSlot = $('ta-degraded-banner');
+      if (bannerSlot) {
+        bannerSlot.innerHTML = _renderDegradedModeBanner(h.backend);
+        // Wire dismiss button after injecting banner HTML
+        const dismissBtn = document.getElementById('ta-dismiss-degraded');
+        if (dismissBtn) {
+          dismissBtn.addEventListener('click', () => {
+            const banner = document.getElementById('ta-degraded-banner-inner');
+            if (banner) banner.remove();
+          });
+        }
+      }
     } catch (e) {
       const code = e?.status || e?.code;
       slot.innerHTML = `<span style="color:var(--text-tertiary)">Could not load service metadata (${esc(String(code || e?.message || 'error'))}). `
@@ -652,13 +810,17 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
     status(`${label}…`);
     try {
       const res = await apiCall(payload);
+      _lastRawResponse = res;
       status(`${label} complete — review all spans before reuse.`);
       let inner = renderFn(res);
       if (includeRaw) {
         const auditPayload = typeof auditTransform === 'function' ? auditTransform(res) : res;
         inner += _renderJsonDetails('Raw API response (audit)', auditPayload);
       }
+      const toolbarEl = $('ta-result-toolbar');
+      if (toolbarEl) toolbarEl.innerHTML = _renderResultsToolbar();
       resultEl().innerHTML = inner;
+      _wireResultEvents();
       if (patientId && auditEvent && typeof api.recordPatientProfileAuditEvent === 'function') {
         try {
           await api.recordPatientProfileAuditEvent(patientId, {
@@ -731,7 +893,11 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
 
   $('ta-offline-demo')?.addEventListener('click', () => {
     status('Showing labelled offline demo panel.');
+    _lastRawResponse = ANALYZER_DEMO_FIXTURES.text;
+    const toolbarEl = $('ta-result-toolbar');
+    if (toolbarEl) toolbarEl.innerHTML = _renderResultsToolbar();
     resultEl().innerHTML = _demoFixtureResultsHtml();
+    _wireResultEvents();
   });
 
   await refreshBackendStatus();
@@ -745,11 +911,26 @@ export async function pgTextAnalyzer(setTopbar, navigate) {
       if (neuroTypes.includes(src) && ANALYZER_DEMO_FIXTURES.text.neuro) {
         ta.value = ANALYZER_DEMO_FIXTURES.text.neuro.source_text;
       } else {
-        ta.value = ANALYZER_DEMO_FIXTURES.text.source_text;
+
+        ta.value = ANALYZER_DEMO_FIXTURES.text.free_text.source_text;
       }
     }
-    updateMetaHint();
+  }
+
+  /* -- Incoming navigation from Movement Analyzer -- */
+  const movementNav = sessionStorage.getItem('nav_pages-text-analyzer');
+  if (movementNav) {
+    try {
+      const navData = JSON.parse(movementNav);
+      if (navData.source_type) {
+        const srcEl = document.getElementById('ta-source');
+        if (srcEl) srcEl.value = navData.source_type;
+      }
+      if (navData.clinician_notes) {
+        const ta = document.getElementById('ta-text');
+        if (ta) ta.value = navData.clinician_notes;
+      }
+      sessionStorage.removeItem('nav_pages-text-analyzer');
+    } catch (e) { /* ignore parse errors */ }
   }
 }
-
-export default { pgTextAnalyzer };

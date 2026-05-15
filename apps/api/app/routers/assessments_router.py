@@ -1065,7 +1065,7 @@ def approve_assessment_endpoint(
     return _assessment_out_from_record(record)
 
 
-@router.delete("/{assessment_id}", status_code=204)
+@router.delete("/{assessment_id}")
 def delete_assessment_endpoint(
     assessment_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
