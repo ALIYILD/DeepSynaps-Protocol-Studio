@@ -2579,6 +2579,24 @@ export function getEvidenceSummaryForCategory(category) {
   };
 }
 
+// ── Multimodal Integration Panel ─────────────────────────────────────────
+
+function _renderComplementaryIntegrationPanel(patientId) {
+  return `<div class="ch-card">
+    <div class="ch-card-title">Multimodal Integration</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;">
+      <a href="#/medication-analyzer?patient=${patientId}" class="ch-link">Medications</a>
+      <a href="#/research-evidence?topic=complementary" class="ch-link">Evidence Research</a>
+      <a href="#/biomarkers?patient=${patientId}" class="ch-link">Biomarkers</a>
+      <a href="#/risk?patient=${patientId}" class="ch-link">Risk Analyzer</a>
+      <a href="#/genetic-analyzer?patient=${patientId}" class="ch-link">Genetic Analysis</a>
+      <a href="#/nutrition-analyzer?patient=${patientId}" class="ch-link">Nutrition</a>
+      <a href="#/wellness?patient=${patientId}" class="ch-link">Wellness</a>
+      <a href="#/deeptwin?patient=${patientId}" class="ch-link">DeepTwin</a>
+    </div>
+  </div>`;
+}
+
 // Default export for module entry point
 export default {
   renderPage,
