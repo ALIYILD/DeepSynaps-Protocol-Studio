@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from config import DeepSynapsConfig
 from contracts import SynthesisRequest
+from materialized_views import MaterializedViews
 from deeptwin_contracts import DeepTwinSnapshot, ClinicianReview, DeepTwinAuditEvent, DeepTwinExport
 from knowledge_layer import KnowledgeLayer
 from access_control import AccessControl
@@ -339,8 +340,21 @@ app = FastAPI(
 # ── Startup Event ─────────────────────────────────────────────────────────────
 @app.on_event("startup")
 async def startup_event():
-    """Run startup validations."""
+    """Run startup validations and create materialized views (PostgreSQL only)."""
     _startup_demo_guard()
+
+    # Create materialized views if PostgreSQL — no-op on SQLite
+    # This is a best-effort call; failures are logged but not fatal
+    try:
+        results = MaterializedViews.create_views()
+        if results:
+            for view_name, success in results.items():
+                if success:
+                    logger.info("Materialized view ready: %s", view_name)
+                else:
+                    logger.warning("Materialized view creation failed: %s", view_name)
+    except Exception as e:
+        logger.info("Materialized views skipped: %s", e)
 
 # ── GZip Middleware ───────────────────────────────────────────────────────────
 # Added after app creation, before routes. Compresses JSON responses
@@ -379,6 +393,60 @@ async def runtime_config():
     Used by frontend to detect demo mode, env label, and build info.
     """
     return DeepSynapsConfig.runtime_config()
+
+
+@app.get("/api/v1/system/materialized-views/status", tags=["System"])
+async def materialized_views_status(
+    clinic_id: str = Header(..., alias="X-Clinic-ID"),
+    clinician_id: str = Query(...),
+    ac: Annotated[AccessControl, Depends(get_access_control)] = ...,
+):
+    """Materialized views status for admin monitoring.
+
+    Requires clinic_admin or super_admin role.
+    Returns: dialect, availability, view list, last refresh time.
+    No PHI exposed.
+    """
+    role = ac._lookup_user_role(clinician_id, clinic_id) or "clinician"
+    if role not in ("clinic_admin", "super_admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Materialized view status requires clinic_admin or super_admin role.",
+        )
+
+    mv = MaterializedViews()
+    status = mv.get_view_status()
+    status["generated_by"] = clinician_id
+    status["generated_at"] = datetime.now().isoformat()
+    return status
+
+
+@app.post("/api/v1/system/materialized-views/refresh", tags=["System"])
+async def refresh_materialized_views(
+    clinic_id: str = Header(..., alias="X-Clinic-ID"),
+    clinician_id: str = Query(...),
+    ac: Annotated[AccessControl, Depends(get_access_control)] = ...,
+):
+    """Manually refresh all materialized views.
+
+    Requires clinic_admin or super_admin role.
+    No-op on SQLite. Returns refresh status per view.
+    """
+    role = ac._lookup_user_role(clinician_id, clinic_id) or "clinician"
+    if role not in ("clinic_admin", "super_admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Materialized view refresh requires clinic_admin or super_admin role.",
+        )
+
+    mv = MaterializedViews()
+    results = mv.refresh_all()
+    return {
+        "refreshed_by": clinician_id,
+        "refreshed_at": datetime.now().isoformat(),
+        "dialect": mv.dialect,
+        "results": results,
+    }
 
 
 # ── Analyzer Evidence Links (PR #8) ───────────────────────────────────────────
