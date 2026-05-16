@@ -61,7 +61,16 @@ class MultimodalEvent:
 
 @dataclass
 class EvidenceLink:
-    """Evidence citation linked to an intelligence insight."""
+    """Evidence citation linked to an intelligence insight.
+
+    Fields stored in evidence_db (schema v1): evidence_id, source_type,
+    citation, evidence_grade, confidence, research_only, conflicting, url,
+    modality_scope, clinical_tags.
+
+    Enrichment fields (schema v2, optional): title, study_type, year, doi,
+    pmid, condition, relevance_score, caveat. These are populated from
+    external sources or parsed from citation text when available.
+    """
     evidence_id: str
     source_type: str  # internal_db, external_db, literature
     citation: str
@@ -71,13 +80,28 @@ class EvidenceLink:
     conflicting: bool = False
     url: Optional[str] = None
 
+    # ── Enrichment fields (optional, schema v2) ──────────────────────────
+    title: Optional[str] = None
+    study_type: Optional[str] = None  # RCT, systematic_review, observational, expert_opinion
+    year: Optional[int] = None
+    doi: Optional[str] = None
+    pmid: Optional[str] = None
+    condition: Optional[str] = None  # clinical condition this evidence relates to
+    modality: Optional[str] = None  # sensor/modality this evidence relates to
+    relevance_score: float = 0.0  # 0.0–1.0 relevance to the specific finding
+    caveat: Optional[str] = None  # clinical caveat or limitation
+
     def __post_init__(self):
         if not self.evidence_id:
             self.evidence_id = f"ev_{uuid.uuid4().hex[:12]}"
         self.research_only = self.research_only or self.evidence_grade in ("C", "D")
+        # Derive title from citation if not provided
+        if not self.title and self.citation:
+            # Use first 80 chars of citation as title
+            self.title = self.citation[:80] + ("..." if len(self.citation) > 80 else "")
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        result = {
             "evidence_id": self.evidence_id,
             "source_type": self.source_type,
             "citation": self.citation,
@@ -86,6 +110,41 @@ class EvidenceLink:
             "research_only": self.research_only,
             "conflicting": self.conflicting,
             "url": self.url,
+            "title": self.title,
+            "study_type": self.study_type,
+            "year": self.year,
+            "doi": self.doi,
+            "pmid": self.pmid,
+            "condition": self.condition,
+            "modality": self.modality,
+            "relevance_score": self.relevance_score,
+            "caveat": self.caveat,
+        }
+        # Omit None values for compact JSON
+        return {k: v for k, v in result.items() if v is not None}
+
+    def to_analyzer_link(self) -> Dict[str, Any]:
+        """Compact representation for analyzer evidence cards.
+
+        Returns only the fields needed for the frontend EvidenceLinksCard,
+        with safe defaults and no raw None values.
+        """
+        return {
+            "id": self.evidence_id,
+            "title": self.title or self.citation[:80],
+            "source": self.source_type,
+            "evidence_grade": self.evidence_grade,
+            "study_type": self.study_type or "unknown",
+            "year": self.year,
+            "doi": self.doi,
+            "pmid": self.pmid,
+            "url": self.url,
+            "condition": self.condition,
+            "modality": self.modality,
+            "relevance_score": round(self.relevance_score, 2) if self.relevance_score else 0.0,
+            "research_only": self.research_only,
+            "conflicting": self.conflicting,
+            "caveat": self.caveat,
         }
 
     @classmethod

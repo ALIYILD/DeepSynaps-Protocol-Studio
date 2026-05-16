@@ -198,6 +198,24 @@ export async function fetchPatientAnalyzerSummary(patientId, params = {}) {
 }
 
 /**
+ * Fetch evidence links for a specific analyzer type.
+ * Returns enriched evidence with study type, year, DOI, caveats.
+ * @param {string} analyzerType — "qeeg", "mri", "biomarker", "assessment", "medication", "voice", "wearable"
+ * @param {Object} params — { clinician_id, limit }
+ */
+export async function fetchAnalyzerEvidence(analyzerType, params = {}) {
+  const qs = buildQueryString(params);
+  const response = await fetch(
+    `/api/v1/analyzers/${encodeURIComponent(analyzerType)}/evidence${qs}`,
+    {
+      method: "GET",
+      headers: getAuthHeaders(),
+    }
+  );
+  return handleResponse(response);
+}
+
+/**
  * Health check.
  */
 export async function fetchHealth() {

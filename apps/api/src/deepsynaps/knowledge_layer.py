@@ -290,7 +290,7 @@ class KnowledgeLayer:
         )
 
     def _row_to_evidence(self, row, cursor=None) -> EvidenceLink:
-        return EvidenceLink(
+        ev = EvidenceLink(
             evidence_id=self._col_value(row, cursor, "evidence_id") or "",
             source_type=self._col_value(row, cursor, "source_type") or "",
             citation=self._col_value(row, cursor, "citation") or "",
@@ -299,4 +299,95 @@ class KnowledgeLayer:
             research_only=bool(self._col_value(row, cursor, "research_only")),
             conflicting=bool(self._col_value(row, cursor, "conflicting")),
             url=self._col_value(row, cursor, "url"),
+            modality=self._col_value(row, cursor, "modality_scope") or "",
         )
+        # Derive enrichment fields from citation text (schema v1 compatibility)
+        self._enrich_from_citation(ev)
+        return ev
+
+    def _enrich_from_citation(self, ev: EvidenceLink) -> None:
+        """Parse enrichment fields from citation text and URL.
+
+        Schema v1 evidence has citation + URL but no structured fields.
+        We extract what we can: year, DOI, PMID, study type.
+        """
+        import re
+        citation = ev.citation or ""
+
+        # Extract year from citation (e.g., "Jeste et al. 2015:")
+        year_match = re.search(r"\b(19|20)\d{2}\b", citation)
+        if year_match and not ev.year:
+            ev.year = int(year_match.group(0))
+
+        # Extract DOI from URL
+        if ev.url and not ev.doi:
+            doi_match = re.search(r"10\.\d{4,}/[^\s]+", ev.url)
+            if doi_match:
+                ev.doi = doi_match.group(0)
+
+        # Extract PMID from PubMed URL
+        if ev.url and "pubmed" in ev.url and not ev.pmid:
+            pmid_match = re.search(r"/(\d{5,})/?", ev.url)
+            if pmid_match:
+                ev.pmid = pmid_match.group(1)
+
+        # Infer study type from citation patterns
+        if not ev.study_type:
+            lower = citation.lower()
+            if "systematic review" in lower or "meta-analysis" in lower:
+                ev.study_type = "systematic_review"
+            elif "rct" in lower or "randomized" in lower:
+                ev.study_type = "RCT"
+            elif "observational" in lower or "cohort" in lower or "case-control" in lower:
+                ev.study_type = "observational"
+            elif "expert opinion" in lower or "consensus" in lower:
+                ev.study_type = "expert_opinion"
+            else:
+                ev.study_type = "unknown"
+
+        # Set caveat based on grade
+        if not ev.caveat:
+            if ev.evidence_grade == "C":
+                ev.caveat = "Limited evidence — expert opinion or small studies"
+            elif ev.evidence_grade == "D":
+                ev.caveat = "Preliminary findings — requires replication"
+            elif ev.research_only:
+                ev.caveat = "Research-grade evidence — requires clinician interpretation"
+
+        # Compute relevance score from confidence + grade
+        grade_weight = {"A": 1.0, "B": 0.8, "C": 0.5, "D": 0.3}
+        if not ev.relevance_score:
+            ev.relevance_score = ev.confidence * grade_weight.get(ev.evidence_grade, 0.5)
+
+    def get_evidence_for_analyzer(self, analyzer_type: str, limit: int = 5) -> List[EvidenceLink]:
+        """Retrieve evidence links for a specific analyzer type.
+
+        Args:
+            analyzer_type: "qeeg", "mri", "biomarker", "assessment", etc.
+            limit: Maximum number of evidence links to return (default 5).
+
+        Returns:
+            List of EvidenceLink objects sorted by relevance score descending.
+            Empty list if no evidence found for the analyzer.
+        """
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            ph = "%s" if self.dialect == "postgresql" else "?"
+            # Query by modality_scope (qeeg, mri, biomarker, etc.)
+            # Also search clinical_tags for broader matches
+            cur.execute(
+                f"SELECT * FROM evidence_db WHERE modality_scope LIKE {ph} "
+                f"OR clinical_tags LIKE {ph} ORDER BY confidence DESC LIMIT {ph}",
+                (f"%{analyzer_type}%", f"%{analyzer_type}%", limit)
+                if self.dialect == "postgresql" else
+                (f"%{analyzer_type}%", f"%{analyzer_type}%", limit)
+            )
+            results = []
+            for row in cur.fetchall():
+                results.append(self._row_to_evidence(row, cur))
+            return results
+        except Exception:
+            return []  # Graceful degradation — no crash
+        finally:
+            conn.close()

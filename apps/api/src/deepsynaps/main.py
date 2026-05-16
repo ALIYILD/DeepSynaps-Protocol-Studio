@@ -381,6 +381,73 @@ async def runtime_config():
     return DeepSynapsConfig.runtime_config()
 
 
+# ── Analyzer Evidence Links (PR #8) ───────────────────────────────────────────
+# Returns evidence citations for specific analyzer types (qeeg, mri, biomarker).
+# Bounded payload (max 5 links), includes enrichment fields, no PHI.
+
+ANALYZER_EVIDENCE_SAFETY = (
+    "Evidence links support clinician review and do not establish "
+    "diagnosis or treatment recommendations."
+)
+
+
+@app.get("/api/v1/analyzers/{analyzer_type}/evidence", tags=["Analyzers"])
+async def get_analyzer_evidence(
+    analyzer_type: str,
+    clinic_id: str = Header(..., alias="X-Clinic-ID"),
+    clinician_id: str = Query(...),
+    limit: int = Query(default=5, ge=1, le=10),
+    kl: Annotated[KnowledgeLayer, Depends(get_knowledge_layer)] = ...,
+    ac: Annotated[AccessControl, Depends(get_access_control)] = ...,
+):
+    """Get evidence links for a specific analyzer type.
+
+    Supported analyzer types: qeeg, mri, biomarker, assessment,
+    medication, voice, wearable.
+
+    Returns capped list (max 10) of enriched evidence links with
+    study type, year, DOI, PMID, relevance score, and caveats.
+
+    Requires clinician role. Clinic isolation enforced.
+    """
+    # Validate analyzer type
+    valid_analyzers = {"qeeg", "mri", "biomarker", "assessment", "medication", "voice", "wearable"}
+    if analyzer_type not in valid_analyzers:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid analyzer type: {analyzer_type}. Valid: {', '.join(sorted(valid_analyzers))}",
+        )
+
+    # Access control
+    role = ac._lookup_user_role(clinician_id, clinic_id) or "clinician"
+    auth = ac.authenticate_request(
+        patient_id="__analyzer__",
+        clinician_id=clinician_id,
+        clinic_id=clinic_id,
+        role=role,
+        ai_synthesis=False,
+    )
+    if not auth["authorized"]:
+        raise HTTPException(status_code=403, detail=auth["errors"])
+
+    # Fetch evidence from knowledge layer
+    evidence = kl.get_evidence_for_analyzer(analyzer_type, limit=limit)
+
+    # Convert to compact analyzer-link format
+    links = [ev.to_analyzer_link() for ev in evidence]
+
+    return {
+        "analyzer_type": analyzer_type,
+        "clinic_id": clinic_id,
+        "generated_by": clinician_id,
+        "generated_at": datetime.now().isoformat(),
+        "evidence_count": len(links),
+        "evidence_links": links,
+        "safety_disclaimer": ANALYZER_EVIDENCE_SAFETY,
+        "partial": False,
+    }
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # PHASE 3 ENDPOINTS ( preserved )
 # ═══════════════════════════════════════════════════════════════════════════════
