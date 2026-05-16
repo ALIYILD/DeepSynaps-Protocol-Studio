@@ -134,6 +134,7 @@ function stubVideoAssessmentApi(overrides = {}) {
     generateVideoAssessmentHistoricalAiSummary: api.generateVideoAssessmentHistoricalAiSummary,
     getVideoAssessmentHistoricalAiSummaryFeedback: api.getVideoAssessmentHistoricalAiSummaryFeedback,
     saveVideoAssessmentHistoricalAiSummaryFeedback: api.saveVideoAssessmentHistoricalAiSummaryFeedback,
+    getAgentBrainStatus: api.getAgentBrainStatus,
   };
 
   api.listPatients = overrides.listPatients ?? (async () => ({
@@ -215,6 +216,11 @@ function stubVideoAssessmentApi(overrides = {}) {
   api.saveVideoAssessmentHistoricalAiSummaryFeedback =
     overrides.saveVideoAssessmentHistoricalAiSummaryFeedback ??
     (async (_, data) => makeHistoricalAiSummaryFeedback({ ...data, summaryEventId: data?.summary_event_id }));
+  api.getAgentBrainStatus = overrides.getAgentBrainStatus ?? (async () => ({
+    configured: true,
+    providers: [],
+    evidence_status: 'ok',
+  }));
 
   return () => {
     Object.assign(api, saved);
@@ -1346,7 +1352,7 @@ test('AI historical summary feedback validates and saves honestly', async () => 
 
     page.document.getElementById('va-save-history-feedback').click();
     await flush(2);
-    assert.match(page.document.body.textContent, /Select a clinician feedback status before saving/i);
+    assert.match(page.document.body.textContent, /Select a feedback status before saving/i);
 
     const status = page.document.getElementById('va-history-feedback-status');
     status.value = 'accepted';
@@ -1395,7 +1401,7 @@ test('AI historical summary feedback error path stays honest', async () => {
     page.document.getElementById('va-generate-history-ai').click();
     await flush(6);
     const status = page.document.getElementById('va-history-feedback-status');
-    status.value = 'disagreed';
+    status.value = 'accepted';
     status.dispatchEvent(new page.window.Event('change', { bubbles: true }));
     page.document.getElementById('va-save-history-feedback').click();
     await flush(4);
@@ -1580,9 +1586,9 @@ test('historical AI summary feedback controls are visible only for clinician, su
       await flush(2);
       page.document.getElementById('va-generate-history-ai').click();
       await flush(6);
-      assert.ok(page.document.getElementById('va-ai-feedback-status'));
-      assert.ok(page.document.getElementById('va-ai-feedback-note'));
-      assert.ok(page.document.getElementById('va-ai-feedback-save'));
+      assert.ok(page.document.getElementById('va-history-feedback-status'));
+      assert.ok(page.document.getElementById('va-history-feedback-note'));
+      assert.ok(page.document.getElementById('va-save-history-feedback'));
     } finally {
       page.restore();
     }
@@ -1592,7 +1598,7 @@ test('historical AI summary feedback controls are visible only for clinician, su
   try {
     patientPage.document.getElementById('va-mode-clinician').click();
     await flush(4);
-    assert.equal(patientPage.document.getElementById('va-ai-feedback-save'), null);
+    assert.equal(patientPage.document.getElementById('va-save-history-feedback'), null);
   } finally {
     patientPage.restore();
   }
@@ -1620,11 +1626,11 @@ test('disagreed feedback requires a rationale note before submit', async () => {
     await flush(2);
     page.document.getElementById('va-generate-history-ai').click();
     await flush(6);
-    const select = page.document.getElementById('va-ai-feedback-status');
+    const select = page.document.getElementById('va-history-feedback-status');
     select.value = 'disagreed';
     select.dispatchEvent(new page.window.Event('change', { bubbles: true }));
     await flush(2);
-    page.document.getElementById('va-ai-feedback-save').click();
+    page.document.getElementById('va-save-history-feedback').click();
     await flush(2);
     assert.equal(saveCalls, 0);
     assert.match(page.document.body.textContent, /Please add a short rationale when marking this advisory summary as disagreed or not useful/i);
@@ -1645,6 +1651,7 @@ test('historical AI summary feedback saves successfully and export includes only
       saveVideoAssessmentHistoricalAiSummaryFeedback: async (_sessionId, payload) => {
         savePayload = payload;
         return {
+          has_feedback: true,
           summary_event_id: payload.summary_event_id,
           feedback_status: payload.feedback_status,
           feedback_note: payload.feedback_note,
@@ -1662,14 +1669,14 @@ test('historical AI summary feedback saves successfully and export includes only
     await flush(2);
     page.document.getElementById('va-generate-history-ai').click();
     await flush(6);
-    const select = page.document.getElementById('va-ai-feedback-status');
+    const select = page.document.getElementById('va-history-feedback-status');
     select.value = 'accepted';
     select.dispatchEvent(new page.window.Event('change', { bubbles: true }));
-    const note = page.document.getElementById('va-ai-feedback-note');
+    const note = page.document.getElementById('va-history-feedback-note');
     note.value = 'Helpful descriptive summary.';
     note.dispatchEvent(new page.window.Event('input', { bubbles: true }));
     await flush(2);
-    page.document.getElementById('va-ai-feedback-save').click();
+    page.document.getElementById('va-save-history-feedback').click();
     await flush(4);
     assert.deepEqual(savePayload, {
       summary_event_id: 'va-historical-summary-test',
@@ -1695,6 +1702,7 @@ test('preloaded historical AI summary feedback is shown honestly and excluded fr
         trend_sessions: [makeTrendSession({ sessionId: 'sess-prior-1', occurredAt: '2026-05-07T10:00:00Z' })],
       }),
       getVideoAssessmentHistoricalAiSummaryFeedback: async () => ({
+        has_feedback: true,
         summary_event_id: 'va-historical-summary-test',
         feedback_status: 'partially_accepted',
         feedback_note: 'Useful, but I needed direct clip review.',
@@ -1742,14 +1750,14 @@ test('backend feedback_note_required error renders honest form feedback', async 
     await flush(2);
     page.document.getElementById('va-generate-history-ai').click();
     await flush(6);
-    const select = page.document.getElementById('va-ai-feedback-status');
+    const select = page.document.getElementById('va-history-feedback-status');
     select.value = 'accepted';
     select.dispatchEvent(new page.window.Event('change', { bubbles: true }));
-    const note = page.document.getElementById('va-ai-feedback-note');
+    const note = page.document.getElementById('va-history-feedback-note');
     note.value = 'Saved note';
     note.dispatchEvent(new page.window.Event('input', { bubbles: true }));
     await flush(2);
-    page.document.getElementById('va-ai-feedback-save').click();
+    page.document.getElementById('va-save-history-feedback').click();
     await flush(4);
     assert.match(page.document.body.textContent, /Please add a short rationale when marking this advisory summary as disagreed or not useful/i);
   } finally {
