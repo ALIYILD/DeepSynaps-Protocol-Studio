@@ -896,6 +896,7 @@ async def post_deeptwin_export(
 # ── Summary Endpoints (PR #4) ─────────────────────────────────────────────────
 # Aggregate, bounded-payload summary queries for dashboard performance.
 # Uses SQL COUNT/aggregate instead of loading full records.
+# Enforces role gates, clinic isolation, and patient access.
 
 SUMMARY_SAFETY = (
     "Summary counts only. Requires clinician review. "
@@ -903,14 +904,113 @@ SUMMARY_SAFETY = (
 )
 
 
-@app.get("/api/v1/summary/clinic-dashboard", tags=["Summary"])
+class ClinicDashboardResponse(BaseModel):
+    scope: str = "clinic_dashboard"
+    clinic_id: str
+    generated_at: str
+    generated_by: str = ""
+    active_patients: int
+    recent_events_30d: int
+    recent_audits_30d: int
+    ai_consent_count: int
+    patients_missing_consent: int
+    high_risk_patients: int
+    pending_reviews: int
+    modality_breakdown: List[Dict[str, Any]]
+    quality_flags: Dict[str, int]
+    evidence_coverage: Dict[str, Any]
+    partial: bool
+    safety_disclaimer: str = SUMMARY_SAFETY
+
+
+class PatientDashboardResponse(BaseModel):
+    scope: str = "patient_dashboard"
+    patient_id: str
+    clinic_id: str = ""
+    generated_at: str
+    generated_by: str = ""
+    total_events: int
+    recent_events_30d: int
+    modality_breakdown: List[Dict[str, Any]]
+    latest_by_modality: List[Dict[str, Any]]
+    missing_modalities: List[str]
+    latest_event_at: Optional[str]
+    first_event_at: Optional[str]
+    data_quality_summary: Dict[str, int]
+    risk_signal_count: int
+    consent_status: Dict[str, Any]
+    partial: bool
+    safety_disclaimer: str = SUMMARY_SAFETY
+
+
+class AnalyzerStatusResponse(BaseModel):
+    scope: str = "analyzer_status"
+    clinic_id: str
+    generated_at: str
+    generated_by: str = ""
+    all_time_modality_counts: List[Dict[str, Any]]
+    recent_30d_modality_counts: List[Dict[str, Any]]
+    stale_modalities: List[str]
+    evidence_entries: int
+    partial: bool
+    safety_disclaimer: str = SUMMARY_SAFETY
+
+
+class PatientAnalyzerResponse(BaseModel):
+    scope: str = "patient_analyzer"
+    patient_id: str
+    generated_at: str
+    modality_stats: List[Dict[str, Any]]
+    missing_modalities: List[str]
+    evidence_linked_count: int
+    risk_signal_count: int
+    latest_risk_signal_at: Optional[str]
+    risk_status: str
+    avg_confidence: float
+    days_since_last_event: Optional[int]
+    partial: bool
+    safety_disclaimer: str = SUMMARY_SAFETY
+
+
+def _require_summary_access(
+    ac: AccessControl,
+    clinic_id: str,
+    clinician_id: str,
+    patient_id: str = "",
+) -> Dict[str, Any]:
+    """Shared access check for summary endpoints.
+
+    Summary endpoints require can_read_patient permission.
+    Clinic-scoped summaries check clinic access.
+    Patient-scoped summaries check patient-level access.
+    """
+    role = ac._lookup_user_role(clinician_id, clinic_id) or "clinician"
+    return ac.authenticate_request(
+        patient_id=patient_id or "__clinic__",
+        clinician_id=clinician_id,
+        clinic_id=clinic_id,
+        role=role,
+        ai_synthesis=False,
+    )
+
+
+@app.get("/api/v1/summary/clinic-dashboard", tags=["Summary"], response_model=ClinicDashboardResponse)
 async def clinic_dashboard_summary(
     clinic_id: str = Header(..., alias="X-Clinic-ID"),
     x_access_token: str = Header(..., alias="X-Patient-Access-Token"),
     clinician_id: str = Query(...),
     kl: Annotated[KnowledgeLayer, Depends(get_knowledge_layer)] = ...,
+    ac: Annotated[AccessControl, Depends(get_access_control)] = ...,
 ):
-    """Aggregate clinic-level dashboard. Bounded counts, no PHI."""
+    """Aggregate clinic-level dashboard. Bounded counts, no PHI.
+
+    Requires clinician, clinic_admin, or super_admin role.
+    Clinic isolation enforced.
+    """
+    auth = _require_summary_access(ac, clinic_id, clinician_id)
+    if not auth["authorized"]:
+        raise HTTPException(status_code=403, detail=auth["errors"])
+
     from summary_engine import SummaryEngine
     engine = SummaryEngine(kl)
     result = engine.clinic_dashboard_summary(clinic_id)
@@ -919,15 +1019,24 @@ async def clinic_dashboard_summary(
     return result
 
 
-@app.get("/api/v1/summary/patients/{patient_id}/dashboard", tags=["Summary"])
+@app.get("/api/v1/summary/patients/{patient_id}/dashboard", tags=["Summary"], response_model=PatientDashboardResponse)
 async def patient_dashboard_summary(
     patient_id: str,
     clinic_id: str = Header(..., alias="X-Clinic-ID"),
     x_access_token: str = Header(..., alias="X-Patient-Access-Token"),
     clinician_id: str = Query(...),
     kl: Annotated[KnowledgeLayer, Depends(get_knowledge_layer)] = ...,
+    ac: Annotated[AccessControl, Depends(get_access_control)] = ...,
 ):
-    """Aggregate patient-level dashboard. Bounded counts, no full records."""
+    """Enriched patient-level snapshot. Counts, latest per modality, risk flags, consent.
+
+    Requires clinician, clinic_admin, or super_admin role.
+    Patient access + clinic isolation enforced.
+    """
+    auth = _require_summary_access(ac, clinic_id, clinician_id, patient_id)
+    if not auth["authorized"]:
+        raise HTTPException(status_code=403, detail=auth["errors"])
+
     from summary_engine import SummaryEngine
     engine = SummaryEngine(kl)
     result = engine.patient_dashboard_summary(patient_id)
@@ -937,17 +1046,53 @@ async def patient_dashboard_summary(
     return result
 
 
-@app.get("/api/v1/summary/analyzer-status", tags=["Summary"])
+@app.get("/api/v1/summary/analyzer-status", tags=["Summary"], response_model=AnalyzerStatusResponse)
 async def analyzer_status_summary(
     clinic_id: str = Header(..., alias="X-Clinic-ID"),
     x_access_token: str = Header(..., alias="X-Patient-Access-Token"),
     clinician_id: str = Query(...),
     kl: Annotated[KnowledgeLayer, Depends(get_knowledge_layer)] = ...,
+    ac: Annotated[AccessControl, Depends(get_access_control)] = ...,
 ):
-    """Aggregate analyzer/data processing status. Counts and freshness."""
+    """Aggregate analyzer/data processing status. Counts and freshness.
+
+    Requires clinician, clinic_admin, or super_admin role.
+    Clinic isolation enforced.
+    """
+    auth = _require_summary_access(ac, clinic_id, clinician_id)
+    if not auth["authorized"]:
+        raise HTTPException(status_code=403, detail=auth["errors"])
+
     from summary_engine import SummaryEngine
     engine = SummaryEngine(kl)
     result = engine.analyzer_status_summary(clinic_id)
+    result["generated_by"] = clinician_id
+    result["safety_disclaimer"] = SUMMARY_SAFETY
+    return result
+
+
+@app.get("/api/v1/summary/patients/{patient_id}/analyzer", tags=["Summary"], response_model=PatientAnalyzerResponse)
+async def patient_analyzer_summary(
+    patient_id: str,
+    clinic_id: str = Header(..., alias="X-Clinic-ID"),
+    x_access_token: str = Header(..., alias="X-Patient-Access-Token"),
+    clinician_id: str = Query(...),
+    kl: Annotated[KnowledgeLayer, Depends(get_knowledge_layer)] = ...,
+    ac: Annotated[AccessControl, Depends(get_access_control)] = ...,
+):
+    """Per-patient analyzer summary. Modality counts, missing modalities, risk status.
+
+    Requires clinician, clinic_admin, or super_admin role.
+    Patient access + clinic isolation enforced.
+    Replaces N per-modality timeline calls with 1 aggregate call.
+    """
+    auth = _require_summary_access(ac, clinic_id, clinician_id, patient_id)
+    if not auth["authorized"]:
+        raise HTTPException(status_code=403, detail=auth["errors"])
+
+    from summary_engine import SummaryEngine
+    engine = SummaryEngine(kl)
+    result = engine.patient_analyzer_summary(patient_id)
     result["generated_by"] = clinician_id
     result["safety_disclaimer"] = SUMMARY_SAFETY
     return result

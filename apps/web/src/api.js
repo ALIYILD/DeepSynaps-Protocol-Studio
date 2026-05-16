@@ -180,6 +180,24 @@ export async function fetchAnalyzerStatus(params = {}) {
 }
 
 /**
+ * Fetch per-patient analyzer summary (modality counts, latest dates,
+ * missing modalities, risk status). Replaces N per-modality calls.
+ * @param {string} patientId
+ * @param {Object} params — { clinician_id }
+ */
+export async function fetchPatientAnalyzerSummary(patientId, params = {}) {
+  const qs = buildQueryString(params);
+  const response = await fetch(
+    `/api/v1/summary/patients/${encodeURIComponent(patientId)}/analyzer${qs}`,
+    {
+      method: "GET",
+      headers: getAuthHeaders(),
+    }
+  );
+  return handleResponse(response);
+}
+
+/**
  * Health check.
  */
 export async function fetchHealth() {

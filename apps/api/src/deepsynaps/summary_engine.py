@@ -5,7 +5,7 @@ Uses SQL COUNT/aggregate queries instead of loading full objects.
 All queries are dialect-aware (SQLite dev/test, PostgreSQL production).
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Set
 from datetime import datetime, timedelta
 import json
 import logging
@@ -27,6 +27,13 @@ class SummaryEngine:
     # How many days back to consider "recent"
     RECENT_DAYS = 30
     TODAY_DAYS = 1
+
+    # Expected modalities for a complete patient record
+    EXPECTED_MODALITIES: Set[str] = {
+        "assessment", "qeeg", "mri", "biomarker", "lab",
+        "medication", "intervention", "voice", "text",
+        "video", "wearable", "risk_signal", "report",
+    }
 
     # ── Constructor ──────────────────────────────────────────────
 
@@ -117,6 +124,32 @@ class SummaryEngine:
         # Data quality: count low/missing quality events
         quality_flags = self._quality_flags(clinic_id, recent_start)
 
+        # Pending DeepTwin reviews
+        pending_reviews = self._count(
+            f"SELECT COUNT(*) FROM deeptwin_reviews dr "
+            f"JOIN patient_access pa ON dr.patient_id = pa.patient_id "
+            f"WHERE pa.clinic_id = {ph} AND dr.action IN ({ph}, {ph}, {ph})",
+            (clinic_id, "accept", "reject", "note"),
+        ) if self._table_exists("deeptwin_reviews") else 0
+
+        # High-risk patients (patients with risk_signal events)
+        high_risk_patients = self._count(
+            f"SELECT COUNT(DISTINCT me.patient_id) FROM multimodal_events me "
+            f"JOIN patient_access pa ON me.patient_id = pa.patient_id "
+            f"WHERE pa.clinic_id = {ph} AND me.modality = {ph} AND me.timestamp >= {ph}",
+            (clinic_id, "risk_signal", recent_start),
+        )
+
+        # Patients missing AI consent
+        patients_missing_consent = self._count(
+            f"SELECT COUNT(DISTINCT patient_id) FROM patient_access "
+            f"WHERE clinic_id = {ph} AND ai_analysis_consent = 0",
+            (clinic_id,),
+        )
+
+        # Evidence coverage: which expected modalities have evidence
+        evidence_modalities = self._evidence_coverage()
+
         result = {
             "scope": "clinic_dashboard",
             "clinic_id": clinic_id,
@@ -125,8 +158,12 @@ class SummaryEngine:
             "recent_events_30d": recent_events,
             "recent_audits_30d": recent_audits,
             "ai_consent_count": ai_consent_count,
+            "patients_missing_consent": patients_missing_consent,
+            "high_risk_patients": high_risk_patients,
+            "pending_reviews": pending_reviews,
             "modality_breakdown": modality_counts,
             "quality_flags": quality_flags,
+            "evidence_coverage": evidence_modalities,
             "partial": False,
             "safety_disclaimer": (
                 "Decision support only. Requires clinician review. "
@@ -138,12 +175,13 @@ class SummaryEngine:
         self._cache.set_json(cache_key, result, ttl=CacheConfig.clinic_summary_ttl())
         return result
 
-    # ── Patient Dashboard Summary ────────────────────────────────
+    # ── Patient Dashboard Summary (enriched) ─────────────────────
 
     def patient_dashboard_summary(self, patient_id: str) -> Dict[str, Any]:
-        """Return aggregate patient-level dashboard data.
+        """Return enriched patient-level snapshot summary.
 
-        Bounded payload with counts and recency. No full records.
+        Bounded payload with counts, recency, missing modalities, risk flags,
+        and consent status. No full records or PHI.
         """
         # Check cache first
         cache_key = CacheService.build_key("patient_dashboard", patient_id=patient_id)
@@ -186,6 +224,22 @@ class SummaryEngine:
         # Data quality summary
         quality_summary = self._quality_summary_for_patient(patient_id)
 
+        # Latest event per modality (bounded — last 30 days)
+        latest_by_modality = self._latest_by_modality_for_patient(patient_id)
+
+        # Missing modalities (expected but not present)
+        present_modalities = {m["modality"] for m in modality_counts}
+        missing_modalities = sorted(self.EXPECTED_MODALITIES - present_modalities)
+
+        # Risk signal count
+        risk_count = self._count(
+            f"SELECT COUNT(*) FROM multimodal_events WHERE patient_id = {ph} AND modality = {ph}",
+            (patient_id, "risk_signal"),
+        )
+
+        # Consent status
+        consent_status = self._patient_consent_status(patient_id)
+
         result = {
             "scope": "patient_dashboard",
             "patient_id": patient_id,
@@ -193,9 +247,13 @@ class SummaryEngine:
             "total_events": total_events,
             "recent_events_30d": recent_count,
             "modality_breakdown": modality_counts,
+            "latest_by_modality": latest_by_modality,
+            "missing_modalities": missing_modalities,
             "latest_event_at": latest_event,
             "first_event_at": first_event,
             "data_quality_summary": quality_summary,
+            "risk_signal_count": risk_count,
+            "consent_status": consent_status,
             "partial": False,
             "safety_disclaimer": (
                 "Decision support only. Requires clinician review. "
@@ -328,6 +386,214 @@ class SummaryEngine:
             cur.execute(sql, (clinic_id, since))
             rows = cur.fetchall()
             return {r[0] or "unknown": r[1] for r in rows}
+        finally:
+            conn.close()
+
+    # ── Patient Analyzer Summary (NEW) ───────────────────────────
+
+    def patient_analyzer_summary(self, patient_id: str) -> Dict[str, Any]:
+        """Return per-patient analyzer/data processing summary.
+
+        Counts per modality, latest dates, missing modalities, risk status.
+        Designed for the analyzer status page — replaces per-modality
+        timeline filtering with a single aggregated call.
+        """
+        # Check cache first
+        cache_key = CacheService.build_key("patient_analyzer", patient_id=patient_id)
+        cached = self._cache.get_json(cache_key)
+        if cached is not None:
+            logger.debug("Cache hit for patient_analyzer: %s", patient_id)
+            return cached
+
+        now = datetime.now().isoformat()
+        ph = self._ph
+
+        # Modality counts with latest dates
+        modality_stats = self._modality_stats_for_patient(patient_id)
+
+        # Missing modalities
+        present = {m["modality"] for m in modality_stats}
+        missing_modalities = sorted(self.EXPECTED_MODALITIES - present)
+
+        # Evidence-linked event count
+        evidence_linked = self._count(
+            f"SELECT COUNT(*) FROM multimodal_events "
+            f"WHERE patient_id = {ph} AND evidence_links IS NOT NULL AND evidence_links != '' AND evidence_links != '[]'",
+            (patient_id,),
+        )
+
+        # Risk signal count and latest
+        risk_count = self._count(
+            f"SELECT COUNT(*) FROM multimodal_events "
+            f"WHERE patient_id = {ph} AND modality = {ph}",
+            (patient_id, "risk_signal"),
+        )
+        latest_risk = self._one(
+            f"SELECT MAX(timestamp) FROM multimodal_events "
+            f"WHERE patient_id = {ph} AND modality = {ph}",
+            (patient_id, "risk_signal"),
+        )
+
+        # Overall risk status
+        risk_status = "high" if risk_count >= 3 else "medium" if risk_count >= 1 else "low"
+
+        # Average confidence across all events
+        avg_confidence = self._one(
+            f"SELECT AVG(confidence) FROM multimodal_events WHERE patient_id = {ph}",
+            (patient_id,),
+        ) or 0.0
+
+        # Data freshness: days since last event
+        days_since_last = self._one(
+            f"SELECT ROUND((julianday('now') - julianday(MAX(timestamp)))) "
+            f"FROM multimodal_events WHERE patient_id = {ph}",
+            (patient_id,),
+        )
+        if self.dialect == "postgresql":
+            days_since_last = self._one(
+                f"SELECT EXTRACT(DAY FROM NOW() - MAX(timestamp)::timestamp) "
+                f"FROM multimodal_events WHERE patient_id = {ph}",
+                (patient_id,),
+            )
+
+        result = {
+            "scope": "patient_analyzer",
+            "patient_id": patient_id,
+            "generated_at": now,
+            "modality_stats": modality_stats,
+            "missing_modalities": missing_modalities,
+            "evidence_linked_count": evidence_linked,
+            "risk_signal_count": risk_count,
+            "latest_risk_signal_at": latest_risk,
+            "risk_status": risk_status,
+            "avg_confidence": round(float(avg_confidence), 3),
+            "days_since_last_event": int(days_since_last) if days_since_last is not None else None,
+            "partial": False,
+            "safety_disclaimer": (
+                "Decision support only. Requires clinician review. "
+                "Analyzer summary — not a diagnosis or risk assessment."
+            ),
+        }
+        # Store in cache with patient-scoped TTL
+        self._cache.set_json(cache_key, result, ttl=CacheConfig.patient_ttl())
+        return result
+
+    # ── Internal helpers ─────────────────────────────────────────
+
+    def _latest_by_modality_for_patient(self, patient_id: str) -> List[Dict[str, Any]]:
+        """Return the latest event timestamp per modality for a patient."""
+        ph = self._ph
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            sql = (
+                f"SELECT modality, MAX(timestamp) as latest "
+                f"FROM multimodal_events WHERE patient_id = {ph} "
+                f"GROUP BY modality ORDER BY latest DESC LIMIT 10"
+            )
+            if self.dialect == "postgresql":
+                sql = sql.replace("?", "%s")
+            cur.execute(sql, (patient_id,))
+            rows = cur.fetchall()
+            return [{"modality": r[0], "latest_at": r[1]} for r in rows]
+        finally:
+            conn.close()
+
+    def _patient_consent_status(self, patient_id: str) -> Dict[str, Any]:
+        """Return AI analysis consent status for a patient across clinics."""
+        ph = self._ph
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            sql = (
+                f"SELECT clinic_id, ai_analysis_consent, access_level "
+                f"FROM patient_access WHERE patient_id = {ph}"
+            )
+            if self.dialect == "postgresql":
+                sql = sql.replace("?", "%s")
+            cur.execute(sql, (patient_id,))
+            rows = cur.fetchall()
+            clinics = []
+            any_consent = False
+            for row in rows:
+                consent = bool(row[1])
+                if consent:
+                    any_consent = True
+                clinics.append({
+                    "clinic_id": row[0],
+                    "ai_analysis_consent": consent,
+                    "access_level": row[2],
+                })
+            return {
+                "has_any_consent": any_consent,
+                "clinic_count": len(clinics),
+                "clinics": clinics,
+            }
+        finally:
+            conn.close()
+
+    def _modality_stats_for_patient(self, patient_id: str) -> List[Dict[str, Any]]:
+        """Return per-modality counts + latest dates for a patient."""
+        ph = self._ph
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            sql = (
+                f"SELECT modality, COUNT(*) as cnt, MAX(timestamp) as latest "
+                f"FROM multimodal_events WHERE patient_id = {ph} "
+                f"GROUP BY modality ORDER BY cnt DESC LIMIT 15"
+            )
+            if self.dialect == "postgresql":
+                sql = sql.replace("?", "%s")
+            cur.execute(sql, (patient_id,))
+            rows = cur.fetchall()
+            return [{"modality": r[0], "count": r[1], "latest_at": r[2]} for r in rows]
+        finally:
+            conn.close()
+
+    def _table_exists(self, table_name: str) -> bool:
+        """Check if a table exists in the database."""
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            if self.dialect == "postgresql":
+                cur.execute(
+                    "SELECT 1 FROM information_schema.tables WHERE table_name = %s",
+                    (table_name,),
+                )
+            else:
+                cur.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                    (table_name,),
+                )
+            return cur.fetchone() is not None
+        except Exception:
+            return False
+        finally:
+            conn.close()
+
+    def _evidence_coverage(self) -> Dict[str, Any]:
+        """Return evidence coverage: which modalities have evidence entries."""
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT DISTINCT modality_scope FROM evidence_db")
+            rows = cur.fetchall()
+            covered = set()
+            for row in rows:
+                if row[0]:
+                    covered.update(row[0].split(","))
+            covered = {m.strip().lower() for m in covered if m.strip()}
+            total = len(self.EXPECTED_MODALITIES)
+            matched = len(covered & self.EXPECTED_MODALITIES)
+            return {
+                "modalities_with_evidence": sorted(covered & self.EXPECTED_MODALITIES),
+                "expected_modalities": total,
+                "covered_count": matched,
+                "coverage_percent": round((matched / total) * 100, 1) if total > 0 else 0,
+            }
+        except Exception:
+            return {"modalities_with_evidence": [], "expected_modalities": 13, "covered_count": 0, "coverage_percent": 0.0}
         finally:
             conn.close()
 
