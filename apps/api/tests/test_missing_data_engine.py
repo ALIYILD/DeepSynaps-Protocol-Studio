@@ -3,7 +3,7 @@
 import sys
 import os
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "deepsynaps"))
 
@@ -41,7 +41,7 @@ class TestMissingDataEngine(unittest.TestCase):
     ) -> MultimodalEvent:
         """Helper to insert a patient event."""
         if timestamp is None:
-            timestamp = datetime.utcnow() - timedelta(days=10)
+            timestamp = datetime.now(timezone.utc) - timedelta(days=10)
 
         evt = MultimodalEvent(
             patient_id=patient_id,
@@ -108,7 +108,7 @@ class TestMissingDataEngine(unittest.TestCase):
     def test_detect_gaps_stale_data_detected(self):
         """Old data should be flagged as stale."""
         # Insert very old qEEG data
-        old_time = datetime.utcnow() - timedelta(days=120)
+        old_time = datetime.now(timezone.utc) - timedelta(days=120)
         self._insert_event(
             patient_id="P_STALE",
             modality="qeeg",
@@ -210,7 +210,7 @@ class TestMissingDataEngine(unittest.TestCase):
             modality="qeeg",
             source_system="test",
             source_record_id="rec_1",
-            timestamp=datetime.utcnow() - timedelta(days=100),
+            timestamp=datetime.now(timezone.utc) - timedelta(days=100),
             value_summary="Old event",
         )
         self.assertTrue(self.engine.check_staleness(old_event, 90))
@@ -223,14 +223,14 @@ class TestMissingDataEngine(unittest.TestCase):
             modality="qeeg",
             source_system="test",
             source_record_id="rec_2",
-            timestamp=datetime.utcnow() - timedelta(days=5),
+            timestamp=datetime.now(timezone.utc) - timedelta(days=5),
             value_summary="Fresh event",
         )
         self.assertFalse(self.engine.check_staleness(fresh_event, 14))
 
     def test_check_staleness_exact_threshold(self):
         """Event exactly at threshold should not be stale."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         event = MultimodalEvent(
             patient_id="P_TEST",
             event_type="test",
@@ -250,7 +250,7 @@ class TestMissingDataEngine(unittest.TestCase):
             modality="qeeg",
             source_system="test",
             source_record_id="rec_4",
-            timestamp=datetime.utcnow() - timedelta(days=8),
+            timestamp=datetime.now(timezone.utc) - timedelta(days=8),
             value_summary="One day over",
         )
         self.assertTrue(self.engine.check_staleness(event, 7))
@@ -275,7 +275,7 @@ class TestMissingDataEngine(unittest.TestCase):
                 modality="qeeg",
                 source_system="test",
                 source_record_id="rec_1",
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 value_summary="qEEG today",
                 confidence=0.8,
                 data_quality="high",
@@ -286,7 +286,7 @@ class TestMissingDataEngine(unittest.TestCase):
                 modality="mri",
                 source_system="test",
                 source_record_id="rec_2",
-                timestamp=datetime.utcnow() - timedelta(days=10),
+                timestamp=datetime.now(timezone.utc) - timedelta(days=10),
                 value_summary="MRI 10 days ago",
                 confidence=0.7,
                 data_quality="medium",
@@ -300,7 +300,7 @@ class TestMissingDataEngine(unittest.TestCase):
 
     def test_check_completeness_quality_weighting(self):
         """High quality data should score higher than low quality."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         high_quality = [
             MultimodalEvent(
                 patient_id="P_TEST",
@@ -346,7 +346,7 @@ class TestMissingDataEngine(unittest.TestCase):
                 modality="qeeg",
                 source_system="test",
                 source_record_id="rec_recent",
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 value_summary="Recent qEEG",
                 confidence=0.8,
                 data_quality="high",
@@ -359,7 +359,7 @@ class TestMissingDataEngine(unittest.TestCase):
                 modality="qeeg",
                 source_system="test",
                 source_record_id="rec_old",
-                timestamp=datetime.utcnow() - timedelta(days=100),
+                timestamp=datetime.now(timezone.utc) - timedelta(days=100),
                 value_summary="Old qEEG",
                 confidence=0.8,
                 data_quality="high",

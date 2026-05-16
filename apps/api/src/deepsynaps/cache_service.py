@@ -12,7 +12,7 @@ import json
 import hashlib
 import logging
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ class _MockRedis:
         if key not in self._store:
             return True
         _, expires_at = self._store[key]
-        if expires_at is not None and datetime.utcnow().timestamp() > expires_at:
+        if expires_at is not None and datetime.now(timezone.utc).timestamp() > expires_at:
             del self._store[key]
             return True
         return False
@@ -87,7 +87,7 @@ class _MockRedis:
         return value.encode() if isinstance(value, str) else value
 
     def set(self, key: str, value, ex: Optional[int] = None) -> bool:
-        expires_at = datetime.utcnow().timestamp() + ex if ex else None
+        expires_at = datetime.now(timezone.utc).timestamp() + ex if ex else None
         self._store[key] = (value, expires_at)
         return True
 

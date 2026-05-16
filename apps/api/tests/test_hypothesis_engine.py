@@ -3,7 +3,7 @@
 import sys
 import os
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "deepsynaps"))
 
@@ -34,7 +34,7 @@ class TestHypothesisRankingEngine(unittest.TestCase):
     @classmethod
     def _seed_patient_events(cls, kl: KnowledgeLayer):
         """Insert sample events for patient P100."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         base_events = [
             ("medication", "medication", "med_change", "Dosage increased"),
             ("wearable", "wearable", "sleep", "Poor sleep detected"),
@@ -64,7 +64,7 @@ class TestHypothesisRankingEngine(unittest.TestCase):
             modality="qeeg",
             source_system="test_sys",
             source_record_id="obs_001",
-            timestamp=datetime.utcnow() - timedelta(days=3),
+            timestamp=datetime.now(timezone.utc) - timedelta(days=3),
             value_summary="Cognitive decline observed",
             confidence=0.75,
             data_quality="high",

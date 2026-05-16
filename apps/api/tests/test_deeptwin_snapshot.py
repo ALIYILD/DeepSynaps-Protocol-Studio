@@ -24,7 +24,7 @@ import sys
 import os
 import tempfile
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Generator
 
 # Ensure the source package is importable
@@ -96,7 +96,7 @@ def audit_logger(knowledge_layer: KnowledgeLayer) -> DeepTwinAuditLogger:
 @pytest.fixture
 def sample_events(knowledge_layer: KnowledgeLayer) -> List[MultimodalEvent]:
     """Seed the knowledge layer with realistic sample events."""
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     patient_id = "P_test_001"
     events = [
         MultimodalEvent(
@@ -309,7 +309,7 @@ class TestModalityCoverage:
 
     def test_all_18_modalities_present(self, snapshot_engine: DeepTwinSnapshotEngine) -> None:
         """Coverage map must contain exactly all 18 modalities."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         events = [
             MultimodalEvent(
                 patient_id="P_cov",
@@ -336,7 +336,7 @@ class TestModalityCoverage:
 
     def test_coverage_true_for_present(self, snapshot_engine: DeepTwinSnapshotEngine) -> None:
         """Present modalities must map to True."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         events = [
             MultimodalEvent(
                 patient_id="P_cov",
@@ -353,7 +353,7 @@ class TestModalityCoverage:
 
     def test_coverage_false_for_absent(self, snapshot_engine: DeepTwinSnapshotEngine) -> None:
         """Absent modalities must map to False."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         events = [
             MultimodalEvent(
                 patient_id="P_cov",
@@ -404,7 +404,7 @@ class TestRecencyStatus:
 
     def test_recency_all_18_modalities(self, snapshot_engine: DeepTwinSnapshotEngine) -> None:
         """Recency status must cover all 18 modalities."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         events = [
             MultimodalEvent(
                 patient_id="P_rec",
@@ -421,7 +421,7 @@ class TestRecencyStatus:
 
     def test_recency_fresh(self, snapshot_engine: DeepTwinSnapshotEngine) -> None:
         """Event < 14 days old → "fresh"."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         events = [
             MultimodalEvent(
                 patient_id="P_rec",
@@ -438,7 +438,7 @@ class TestRecencyStatus:
 
     def test_recency_stale(self, snapshot_engine: DeepTwinSnapshotEngine) -> None:
         """Event 14–90 days old → "stale"."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         events = [
             MultimodalEvent(
                 patient_id="P_rec",
@@ -455,7 +455,7 @@ class TestRecencyStatus:
 
     def test_recency_old(self, snapshot_engine: DeepTwinSnapshotEngine) -> None:
         """Event > 90 days old → "old"."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         events = [
             MultimodalEvent(
                 patient_id="P_rec",
@@ -472,7 +472,7 @@ class TestRecencyStatus:
 
     def test_recency_missing(self, snapshot_engine: DeepTwinSnapshotEngine) -> None:
         """No events for modality → "missing"."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         events = [
             MultimodalEvent(
                 patient_id="P_rec",

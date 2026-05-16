@@ -1,7 +1,7 @@
 """Canonical data contracts for the Multimodal Intelligence Engine."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 import uuid
 import json
@@ -255,7 +255,7 @@ class SynthesisResponse:
     """Full synthesis response combining all intelligence modules."""
     patient_id: str
     synthesis_id: str = ""
-    generated_at: datetime = field(default_factory=datetime.utcnow)
+    generated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     timeline: List[Dict[str, Any]] = field(default_factory=list)
     correlations: List[Dict[str, Any]] = field(default_factory=list)
     confounders: List[Dict[str, Any]] = field(default_factory=list)

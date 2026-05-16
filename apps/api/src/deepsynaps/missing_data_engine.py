@@ -1,8 +1,9 @@
 """Missing Data Engine — detects gaps, staleness, and completeness issues."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 import uuid
+from time_utils import utc_now
 
 from contracts import (
     ConfounderCandidate,
@@ -74,7 +75,7 @@ class MissingDataEngine:
         list[IntelligenceOutput]
             One ``IntelligenceOutput`` per detected gap.
         """
-        now = datetime.utcnow()
+        now = utc_now()
 
         # Retrieve all events for the patient
         all_events = self.knowledge_layer.get_events_for_patient(patient_id)
@@ -127,7 +128,7 @@ class MissingDataEngine:
         bool
             True if the event is older than ``threshold_days``.
         """
-        now = datetime.utcnow()
+        now = utc_now()
         age = now - event.timestamp
         return age > timedelta(days=threshold_days)
 
@@ -172,7 +173,7 @@ class MissingDataEngine:
 
                 avg_quality = sum(quality_scores) / len(quality_scores)
                 # Scale by recency: more recent events count more
-                now = datetime.utcnow()
+                now = utc_now()
                 recency_scores = []
                 for e in modality_events:
                     age_days = (now - e.timestamp).total_seconds() / 86400.0

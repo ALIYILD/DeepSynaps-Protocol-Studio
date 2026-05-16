@@ -4,7 +4,7 @@ import os
 import sys
 import sqlite3
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # Ensure the deepsynaps package is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "deepsynaps"))
@@ -23,7 +23,7 @@ def client(tmp_path):
     kl = KnowledgeLayer(db_file)
     # Seed test data
     from contracts import MultimodalEvent
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     events = [
         MultimodalEvent(
             event_id="evt_test_001",
@@ -191,7 +191,7 @@ def test_timeline_with_modality_filter(client):
 
 
 def test_timeline_with_date_range(client):
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     from_date = (now - timedelta(days=30)).isoformat()
     to_date = now.isoformat()
     response = client.get(

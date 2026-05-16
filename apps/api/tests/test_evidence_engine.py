@@ -3,7 +3,7 @@
 import sys
 import os
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List
 
 # Add src to path
@@ -42,7 +42,7 @@ class TestEvidenceLinkingEngine(unittest.TestCase):
         supporting_events: List[str] = None,
         evidence_links: List[dict] = None,
     ) -> IntelligenceOutput:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         return IntelligenceOutput(
             patient_id="P001",
             insight_type="correlation",

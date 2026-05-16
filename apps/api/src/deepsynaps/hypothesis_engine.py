@@ -1,8 +1,9 @@
 """Hypothesis Ranking Engine — ranks clinical hypotheses for observed changes."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 import uuid
+from time_utils import utc_now
 
 from contracts import (
     ConfounderCandidate,
@@ -65,7 +66,7 @@ class HypothesisRankingEngine:
           - clinician_review_required = True
           - confidence < 0.95
         """
-        now = datetime.utcnow()
+        now = utc_now()
         window_start = now - timedelta(days=180)
 
         # Retrieve patient's recent events

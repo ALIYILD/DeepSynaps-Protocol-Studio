@@ -3,7 +3,7 @@
 import os
 import sqlite3
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -22,7 +22,7 @@ def test_db():
         os.remove(db_path)
     kl = KnowledgeLayer(db_path)
     conn = sqlite3.connect(db_path)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     events = [
         MultimodalEvent(
             patient_id="patient-001", event_type="cognitive_assessment",
