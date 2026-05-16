@@ -2576,7 +2576,7 @@ export async function pgSettings(setTopbar, currentUser) {
             } else {
               try { localStorage.setItem('ds_user_avatar', dataUrl); } catch {}
             }
-            toast('Avatar updated.');
+            toast('Avatar updated in this browser view.');
           } catch (err) {
             try { localStorage.setItem('ds_user_avatar', dataUrl); } catch {}
             toast('Avatar saved locally (upload failed: ' + (err?.message || 'retry') + ')', 'warning');
@@ -2615,7 +2615,7 @@ export async function pgSettings(setTopbar, currentUser) {
         if (currentUser) currentUser.display_name = val;
         try { window.updateUserBar && window.updateUserBar(); } catch {}
         if (msg) { msg.textContent = 'Saved.'; msg.style.color = 'var(--green)'; }
-        toast('Display name saved.');
+        toast('Display name saved locally.');
       } catch (e) {
         if (msg) { msg.textContent = 'Not saved — retry. (' + (e?.message || 'network') + ')'; msg.style.color = 'var(--amber)'; }
         toast('Could not save display name.', 'warning');
@@ -2658,7 +2658,7 @@ export async function pgSettings(setTopbar, currentUser) {
       try {
         await api.updateProfile({ credentials: val });
         try { localStorage.setItem('ds_user_credentials', val); } catch {}
-        toast('Credentials saved.');
+        toast('Credentials saved locally.');
       } catch (e) {
         try { localStorage.setItem('ds_user_credentials', val); } catch {}
         toast('Not saved to server — cached locally. (' + (e?.message || 'retry') + ')', 'warning');
@@ -2677,7 +2677,7 @@ export async function pgSettings(setTopbar, currentUser) {
       try {
         await api.updateProfile({ license_number: val });
         try { localStorage.setItem('ds_user_license', val); } catch {}
-        toast('License / NPI saved.');
+        toast('License / NPI saved locally.');
       } catch (e) {
         try { localStorage.setItem('ds_user_license', val); } catch {}
         toast('Not saved to server — cached locally. (' + (e?.message || 'retry') + ')', 'warning');
@@ -2704,8 +2704,8 @@ export async function pgSettings(setTopbar, currentUser) {
         await api.changePassword(cur, n1);
         try { localStorage.setItem('ds_user_password_updated_at', new Date().toISOString()); } catch {}
         ['acc-pw-current','acc-pw-new','acc-pw-confirm'].forEach(id => { const f = document.getElementById(id); if (f) f.value = ''; });
-        setMsg('Password updated.', 'var(--green)');
-        toast('Password updated.');
+        setMsg('Password updated on server.', 'var(--green)');
+        toast('Password updated on server.');
       } catch (e) {
         setMsg('Not updated: ' + (e?.message || 'retry'), 'var(--red)');
         toast('Password change failed.', 'warning');
@@ -2940,7 +2940,7 @@ export async function pgSettings(setTopbar, currentUser) {
             } else {
               persist('ds_clinic_logo', dataUrl);
             }
-            toast('Clinic logo updated.');
+            toast('Clinic logo updated in this browser view.');
           } catch (err) {
             persist('ds_clinic_logo', dataUrl);
             toast('Logo saved locally (upload failed: ' + (err?.message || 'retry') + ')', 'warning');
@@ -2971,7 +2971,7 @@ export async function pgSettings(setTopbar, currentUser) {
       try {
         const ok = await _saveClinicField({ [apiKey]: apiVal });
         persist(lsKey, raw);
-        toast(ok ? `${label} saved.` : `${label} updated in this browser view.`, ok ? 'success' : 'info');
+        toast(ok ? `${label} saved to server.` : `${label} saved locally only.`, ok ? 'success' : 'info');
       } catch {
         persist(lsKey, raw);
       } finally {
@@ -3014,7 +3014,7 @@ export async function pgSettings(setTopbar, currentUser) {
     try {
       await api.updateWorkingHours(data);
       persist('ds_clinic_hours', JSON.stringify(data));
-      toast('Working hours saved.');
+      toast('Working hours saved locally.');
     } catch (e) {
       persist('ds_clinic_hours', JSON.stringify(data));
       toast('Working hours saved locally (server sync failed: ' + (e?.message || 'retry') + ')', 'warning');
@@ -3059,8 +3059,8 @@ export async function pgSettings(setTopbar, currentUser) {
     try { await api.updateWorkingHours(hours); } catch (e) { ok = false; if (msg) { msg.textContent = 'Hours save failed: ' + (e?.message || 'retry'); msg.style.color = 'var(--amber)'; } }
     saveAllBtn.disabled = false;
     if (ok) {
-      if (msg) { msg.textContent = 'All clinic settings saved.'; msg.style.color = 'var(--green)'; setTimeout(() => { if (msg) msg.textContent = ''; }, 3000); }
-      toast('All clinic settings saved.', 'success');
+      if (msg) { msg.textContent = 'All clinic settings synced to server.'; msg.style.color = 'var(--green)'; setTimeout(() => { if (msg) msg.textContent = ''; }, 3000); }
+      toast('All clinic settings synced to server.', 'success');
     } else {
       toast('Some clinic settings did not sync to server — cached locally.', 'warning');
     }
@@ -4751,7 +4751,7 @@ function getClinicConfig() {
     termsOfService: 'Standard terms of service apply. All patient data is protected under HIPAA.',
     privacyPolicy: 'Patient privacy is our priority. Data is encrypted and never sold.',
     appointmentReminderTemplate: 'Hi {patient_name}, this is a reminder for your appointment on {date} at {time}.',
-    sessionCompleteTemplate: 'Hi {patient_name}, your session on {date} has been recorded. See you next time!',
+    sessionCompleteTemplate: 'Hi {patient_name}, your session on {date} has been completed. See you next time!',
     showBrandingInPatientPortal: true,
     showPoweredBy: true,
     customCss: '',
@@ -9352,7 +9352,7 @@ export async function pgMediaQueue(setTopbar) {
         method: 'POST',
         body:   JSON.stringify({ action, reason: reason || undefined }),
       });
-      if (msgEl) { msgEl.className = 'notice notice-success'; msgEl.style.display = ''; msgEl.textContent = 'Action recorded. Returning to queue\u2026'; }
+      if (msgEl) { msgEl.className = 'notice notice-success'; msgEl.style.display = ''; msgEl.textContent = 'Action submitted. Returning to queue\u2026'; }
       await window._mqRefresh();
       window._mqBack();
     } catch (err) {

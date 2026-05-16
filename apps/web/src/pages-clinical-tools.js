@@ -4087,7 +4087,7 @@ export async function pgFormsBuilder(setTopbar) {
     const prev = all.slice(1).find(s => s.scaleId === scaleId && s.patientId === pt.id);
     const delta = prev != null ? (total - prev.total) : null;
     const deltaStr = delta != null ? (delta < 0 ? ' (' + delta + ' vs previous, improved)' : delta > 0 ? ' (+' + delta + ' vs previous, worsened)' : ' (no change vs previous)') : '';
-    window._showNotifToast?.({ title: scaleDef.name + ' Score Saved', body: pt.name + ' — ' + total + (scaleDef.maxScore?'/'+scaleDef.maxScore:'') + ' ' + sev + deltaStr, severity: sev.toLowerCase().includes('severe') ? 'warn' : 'info' });
+    window._showNotifToast?.({ title: scaleDef.name + ' Score Recorded (local-only)', body: pt.name + ' — ' + total + (scaleDef.maxScore?'/'+scaleDef.maxScore:'') + ' ' + sev + deltaStr, severity: sev.toLowerCase().includes('severe') ? 'warn' : 'info' });
     document.getElementById('vscale-modal')?.remove();
     // Re-render if on scales tab
     if (_fbTab === 'scales') { el.innerHTML = _renderBuilder(); }
@@ -6786,7 +6786,7 @@ export async function pgAssessmentsHub(setTopbar) {
           severity: critical ? 'critical' : 'warning',
         });
       } else if (!failures.length) {
-        window._showNotifToast?.({ title: 'Scores saved', body: 'Totals synced to patient assessments and clinic metrics.', severity: 'success' });
+        window._showNotifToast?.({ title: 'Scores recorded locally', body: 'Scale totals recorded in this browser view; pending sync to assessments.', severity: 'success' });
       }
       await hydrate();
       render();
@@ -11602,7 +11602,7 @@ export async function pgDocumentsHub(setTopbar) {
       docs=loadDocs().filter(x => String(x.id) !== String(newDoc.id));
       docs.push(newDoc);
       saveDocs(docs); activePid=pid; activeTab='uploaded'; window._dhCloseModal(); renderPage();
-      window._showNotifToast?.({ title:'Uploaded', body:`${name} uploaded and stored.`, severity:'success' });
+      window._showNotifToast?.({ title:'Upload started', body:`${name} upload started; confirm in document history.`, severity:'success' });
     } catch (err) {
       window._showNotifToast?.({ title:'Upload failed', body: err?.message || 'Document upload failed.', severity:'error' });
     }
@@ -12363,7 +12363,7 @@ export async function pgReportsHub(setTopbar) {
     const r = reports.find(x => x.id === id);
     const el2 = document.getElementById('rh-card-' + id);
     if (el2 && r) el2.outerHTML = reportCardHTML(r);
-    window._showNotifToast?.({ title:'Links Saved', body:'Report associations updated in this browser view.', severity:'success' });
+    window._showNotifToast?.({ title:'Links updated locally', body:'Report associations updated in this browser view (not synced).', severity:'success' });
   };
 
   window._rhDelete = function(id) {
@@ -14645,7 +14645,7 @@ export async function pgHomePrograms(setTopbar, navigate) {
     comps[tid] = new Date().toISOString();
     _lsSet(_compKey(pid), comps);
     _allTasks = _loadAllTasks(); renderPage();
-    window._showNotifToast?.({ title:'Task updated', body:'Task marked complete in this browser view.', severity:'success' });
+    window._showNotifToast?.({ title:'Task marked locally', body:'Task marked complete in this browser view (pending save).', severity:'success' });
   };
 
   window._hpArchive = (tid, pid) => {
@@ -14736,7 +14736,7 @@ export async function pgHomePrograms(setTopbar, navigate) {
         return sdk.postHomeProgramAuditAction({ external_task_id: tid, action: 'take_server' }).catch(() => {});
       }
     }).catch(() => {});
-    window._showNotifToast?.({ title: 'Using server copy', body: 'Local list updated to match the server.', severity: 'success' });
+    window._showNotifToast?.({ title: 'Server version loaded', body: 'Local list refreshed from server copy (your changes lost).', severity: 'success' });
   };
 
   window._hpConflictForceLocal = async (tid, pid) => {
@@ -14757,7 +14757,7 @@ export async function pgHomePrograms(setTopbar, navigate) {
       _bridgeToPatient(pid, merged);
       _allTasks = _loadAllTasks();
       renderPage();
-      window._showNotifToast?.({ title: 'Saved', body: 'Server overwritten with your copy.', severity: 'success' });
+      window._showNotifToast?.({ title: 'Local copy prepared', body: 'Your copy prepared to overwrite server on next sync.', severity: 'success' });
     } catch (_) {
       window._showNotifToast?.({ title: 'Sync failed', body: 'Could not overwrite server.', severity: 'warn' });
     }
