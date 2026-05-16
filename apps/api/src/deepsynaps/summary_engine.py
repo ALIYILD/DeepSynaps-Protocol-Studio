@@ -11,6 +11,7 @@ import json
 import logging
 
 import database
+from cache_service import CacheService, CacheConfig
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ class SummaryEngine:
         self.kl = knowledge_layer
         self.dialect = database.check_dialect()
         self._ph = "%s" if self.dialect == "postgresql" else "?"
+        self._cache = CacheService()
 
     def _connect(self):
         return self.kl._connect()
@@ -70,6 +72,13 @@ class SummaryEngine:
 
         Bounded payload with counts and flags. No PHI.
         """
+        # Check cache first
+        cache_key = CacheService.build_key("clinic_dashboard", clinic_id=clinic_id)
+        cached = self._cache.get_json(cache_key)
+        if cached is not None:
+            logger.debug("Cache hit for clinic_dashboard: %s", clinic_id)
+            return cached
+
         now = datetime.now().isoformat()
         today_start = (datetime.now() - timedelta(days=1)).isoformat()
         recent_start = (datetime.now() - timedelta(days=self.RECENT_DAYS)).isoformat()
@@ -108,7 +117,7 @@ class SummaryEngine:
         # Data quality: count low/missing quality events
         quality_flags = self._quality_flags(clinic_id, recent_start)
 
-        return {
+        result = {
             "scope": "clinic_dashboard",
             "clinic_id": clinic_id,
             "generated_at": now,
@@ -124,6 +133,10 @@ class SummaryEngine:
                 "Counts are aggregates, not diagnoses."
             ),
         }
+        # Store in cache with clinic-scoped TTL
+        from cache_service import CacheConfig
+        self._cache.set_json(cache_key, result, ttl=CacheConfig.clinic_summary_ttl())
+        return result
 
     # ── Patient Dashboard Summary ────────────────────────────────
 
@@ -132,6 +145,13 @@ class SummaryEngine:
 
         Bounded payload with counts and recency. No full records.
         """
+        # Check cache first
+        cache_key = CacheService.build_key("patient_dashboard", patient_id=patient_id)
+        cached = self._cache.get_json(cache_key)
+        if cached is not None:
+            logger.debug("Cache hit for patient_dashboard: %s", patient_id)
+            return cached
+
         now = datetime.now().isoformat()
         recent_start = (datetime.now() - timedelta(days=self.RECENT_DAYS)).isoformat()
         ph = self._ph
@@ -166,7 +186,7 @@ class SummaryEngine:
         # Data quality summary
         quality_summary = self._quality_summary_for_patient(patient_id)
 
-        return {
+        result = {
             "scope": "patient_dashboard",
             "patient_id": patient_id,
             "generated_at": now,
@@ -182,6 +202,9 @@ class SummaryEngine:
                 "Patient summary — not a diagnosis."
             ),
         }
+        # Store in cache with patient-scoped TTL
+        self._cache.set_json(cache_key, result, ttl=CacheConfig.patient_ttl())
+        return result
 
     # ── Analyzer Status Summary ──────────────────────────────────
 
@@ -190,6 +213,13 @@ class SummaryEngine:
 
         Counts of events by modality, freshness indicators, and flags.
         """
+        # Check cache first
+        cache_key = CacheService.build_key("analyzer_status", clinic_id=clinic_id)
+        cached = self._cache.get_json(cache_key)
+        if cached is not None:
+            logger.debug("Cache hit for analyzer_status: %s", clinic_id)
+            return cached
+
         now = datetime.now().isoformat()
         recent_start = (datetime.now() - timedelta(days=self.RECENT_DAYS)).isoformat()
         ph = self._ph
@@ -220,7 +250,7 @@ class SummaryEngine:
             "SELECT COUNT(*) FROM evidence_db", (),
         )
 
-        return {
+        result = {
             "scope": "analyzer_status",
             "clinic_id": clinic_id,
             "generated_at": now,
@@ -234,6 +264,9 @@ class SummaryEngine:
                 "Analyzer counts do not indicate clinical significance."
             ),
         }
+        # Store in cache with clinic-scoped TTL
+        self._cache.set_json(cache_key, result, ttl=CacheConfig.clinic_summary_ttl())
+        return result
 
     # ── Internal helpers ─────────────────────────────────────────
 

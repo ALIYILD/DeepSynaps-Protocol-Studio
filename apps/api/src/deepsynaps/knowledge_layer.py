@@ -153,6 +153,13 @@ class KnowledgeLayer:
                      json.dumps(event.evidence_links), event.audit_reference)
                 )
             conn.commit()
+            # Invalidate patient cache on data mutation
+            try:
+                from cache_service import get_cache_service
+                cache = get_cache_service()
+                cache.invalidate_patient(event.patient_id)
+            except Exception:
+                pass  # Cache invalidation is best-effort
             return event.event_id
         finally:
             conn.close()
@@ -212,6 +219,14 @@ class KnowledgeLayer:
                 (endpoint, clinician_id, clinic_id, patient_id, action, request_hash, response_status)
             )
             conn.commit()
+            # Invalidate clinic cache on audit log (activity changes affect summaries)
+            try:
+                from cache_service import get_cache_service
+                cache = get_cache_service()
+                if clinic_id:
+                    cache.invalidate_clinic(clinic_id)
+            except Exception:
+                pass  # Cache invalidation is best-effort
         finally:
             conn.close()
 
