@@ -580,7 +580,7 @@ async def get_deeptwin_snapshot(
     dt_audit: Annotated[DeepTwinAuditLogger, Depends(get_deeptwin_audit_logger)] = ...,
 ):
     """Get a DeepTwin snapshot with all synthesis data for a patient."""
-    snapshot = engine.get_snapshot(patient_id=patient_id)
+    snapshot = engine.generate_snapshot(patient_id=patient_id)
 
     audit.log_intelligence_request(
         endpoint=f"/api/v1/deeptwin/patients/{patient_id}/snapshot",
@@ -621,7 +621,7 @@ async def get_deeptwin_timeline(
     audit: Annotated[AuditLogger, Depends(get_audit_logger)] = ...,
 ):
     """Get DeepTwin timeline view with modality coverage and events."""
-    snapshot = engine.get_snapshot(patient_id=patient_id)
+    snapshot = engine.generate_snapshot(patient_id=patient_id)
 
     audit.log_intelligence_request(
         endpoint=f"/api/v1/deeptwin/patients/{patient_id}/timeline",
@@ -660,7 +660,7 @@ async def get_deeptwin_hypotheses(
     audit: Annotated[AuditLogger, Depends(get_audit_logger)] = ...,
 ):
     """Get ranked hypotheses for a patient."""
-    snapshot = engine.get_snapshot(patient_id=patient_id)
+    snapshot = engine.generate_snapshot(patient_id=patient_id)
 
     audit.log_intelligence_request(
         endpoint=f"/api/v1/deeptwin/patients/{patient_id}/hypotheses",
