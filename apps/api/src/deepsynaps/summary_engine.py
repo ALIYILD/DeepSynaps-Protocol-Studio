@@ -84,6 +84,9 @@ class SummaryEngine:
         cached = self._cache.get_json(cache_key)
         if cached is not None:
             logger.debug("Cache hit for clinic_dashboard: %s", clinic_id)
+            cached["cache_status"] = "hit"
+            if "cache_ttl_seconds" not in cached:
+                cached["cache_ttl_seconds"] = CacheConfig.clinic_summary_ttl()
             return cached
 
         now = datetime.now().isoformat()
@@ -150,6 +153,7 @@ class SummaryEngine:
         # Evidence coverage: which expected modalities have evidence
         evidence_modalities = self._evidence_coverage()
 
+        ttl = CacheConfig.clinic_summary_ttl()
         result = {
             "scope": "clinic_dashboard",
             "clinic_id": clinic_id,
@@ -164,6 +168,8 @@ class SummaryEngine:
             "modality_breakdown": modality_counts,
             "quality_flags": quality_flags,
             "evidence_coverage": evidence_modalities,
+            "cache_status": "miss",
+            "cache_ttl_seconds": ttl,
             "partial": False,
             "safety_disclaimer": (
                 "Decision support only. Requires clinician review. "
@@ -171,8 +177,7 @@ class SummaryEngine:
             ),
         }
         # Store in cache with clinic-scoped TTL
-        from cache_service import CacheConfig
-        self._cache.set_json(cache_key, result, ttl=CacheConfig.clinic_summary_ttl())
+        self._cache.set_json(cache_key, result, ttl=ttl)
         return result
 
     # ── Patient Dashboard Summary (enriched) ─────────────────────
@@ -188,6 +193,9 @@ class SummaryEngine:
         cached = self._cache.get_json(cache_key)
         if cached is not None:
             logger.debug("Cache hit for patient_dashboard: %s", patient_id)
+            cached["cache_status"] = "hit"
+            if "cache_ttl_seconds" not in cached:
+                cached["cache_ttl_seconds"] = CacheConfig.patient_ttl()
             return cached
 
         now = datetime.now().isoformat()
@@ -240,6 +248,7 @@ class SummaryEngine:
         # Consent status
         consent_status = self._patient_consent_status(patient_id)
 
+        ttl = CacheConfig.patient_ttl()
         result = {
             "scope": "patient_dashboard",
             "patient_id": patient_id,
@@ -254,6 +263,8 @@ class SummaryEngine:
             "data_quality_summary": quality_summary,
             "risk_signal_count": risk_count,
             "consent_status": consent_status,
+            "cache_status": "miss",
+            "cache_ttl_seconds": ttl,
             "partial": False,
             "safety_disclaimer": (
                 "Decision support only. Requires clinician review. "
@@ -261,7 +272,7 @@ class SummaryEngine:
             ),
         }
         # Store in cache with patient-scoped TTL
-        self._cache.set_json(cache_key, result, ttl=CacheConfig.patient_ttl())
+        self._cache.set_json(cache_key, result, ttl=ttl)
         return result
 
     # ── Analyzer Status Summary ──────────────────────────────────
@@ -276,6 +287,9 @@ class SummaryEngine:
         cached = self._cache.get_json(cache_key)
         if cached is not None:
             logger.debug("Cache hit for analyzer_status: %s", clinic_id)
+            cached["cache_status"] = "hit"
+            if "cache_ttl_seconds" not in cached:
+                cached["cache_ttl_seconds"] = CacheConfig.clinic_summary_ttl()
             return cached
 
         now = datetime.now().isoformat()
@@ -308,6 +322,7 @@ class SummaryEngine:
             "SELECT COUNT(*) FROM evidence_db", (),
         )
 
+        ttl = CacheConfig.clinic_summary_ttl()
         result = {
             "scope": "analyzer_status",
             "clinic_id": clinic_id,
@@ -316,6 +331,8 @@ class SummaryEngine:
             "recent_30d_modality_counts": recent_modality,
             "stale_modalities": stale_modalities,
             "evidence_entries": evidence_count,
+            "cache_status": "miss",
+            "cache_ttl_seconds": ttl,
             "partial": False,
             "safety_disclaimer": (
                 "Decision support only. Requires clinician review. "
@@ -323,7 +340,7 @@ class SummaryEngine:
             ),
         }
         # Store in cache with clinic-scoped TTL
-        self._cache.set_json(cache_key, result, ttl=CacheConfig.clinic_summary_ttl())
+        self._cache.set_json(cache_key, result, ttl=ttl)
         return result
 
     # ── Internal helpers ─────────────────────────────────────────
@@ -403,6 +420,9 @@ class SummaryEngine:
         cached = self._cache.get_json(cache_key)
         if cached is not None:
             logger.debug("Cache hit for patient_analyzer: %s", patient_id)
+            cached["cache_status"] = "hit"
+            if "cache_ttl_seconds" not in cached:
+                cached["cache_ttl_seconds"] = CacheConfig.patient_ttl()
             return cached
 
         now = datetime.now().isoformat()
@@ -456,6 +476,7 @@ class SummaryEngine:
                 (patient_id,),
             )
 
+        ttl = CacheConfig.patient_ttl()
         result = {
             "scope": "patient_analyzer",
             "patient_id": patient_id,
@@ -468,6 +489,8 @@ class SummaryEngine:
             "risk_status": risk_status,
             "avg_confidence": round(float(avg_confidence), 3),
             "days_since_last_event": int(days_since_last) if days_since_last is not None else None,
+            "cache_status": "miss",
+            "cache_ttl_seconds": ttl,
             "partial": False,
             "safety_disclaimer": (
                 "Decision support only. Requires clinician review. "
@@ -475,7 +498,7 @@ class SummaryEngine:
             ),
         }
         # Store in cache with patient-scoped TTL
-        self._cache.set_json(cache_key, result, ttl=CacheConfig.patient_ttl())
+        self._cache.set_json(cache_key, result, ttl=ttl)
         return result
 
     # ── Internal helpers ─────────────────────────────────────────

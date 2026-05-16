@@ -919,6 +919,8 @@ class ClinicDashboardResponse(BaseModel):
     modality_breakdown: List[Dict[str, Any]]
     quality_flags: Dict[str, int]
     evidence_coverage: Dict[str, Any]
+    cache_status: str = "miss"
+    cache_ttl_seconds: int = 30
     partial: bool
     safety_disclaimer: str = SUMMARY_SAFETY
 
@@ -939,6 +941,8 @@ class PatientDashboardResponse(BaseModel):
     data_quality_summary: Dict[str, int]
     risk_signal_count: int
     consent_status: Dict[str, Any]
+    cache_status: str = "miss"
+    cache_ttl_seconds: int = 60
     partial: bool
     safety_disclaimer: str = SUMMARY_SAFETY
 
@@ -952,6 +956,8 @@ class AnalyzerStatusResponse(BaseModel):
     recent_30d_modality_counts: List[Dict[str, Any]]
     stale_modalities: List[str]
     evidence_entries: int
+    cache_status: str = "miss"
+    cache_ttl_seconds: int = 30
     partial: bool
     safety_disclaimer: str = SUMMARY_SAFETY
 
@@ -968,6 +974,8 @@ class PatientAnalyzerResponse(BaseModel):
     risk_status: str
     avg_confidence: float
     days_since_last_event: Optional[int]
+    cache_status: str = "miss"
+    cache_ttl_seconds: int = 60
     partial: bool
     safety_disclaimer: str = SUMMARY_SAFETY
 

@@ -425,18 +425,29 @@ class TestCacheIntegration:
     """Summary results are cached and retrievable."""
 
     def test_second_call_is_cached(self, seeded_engine):
-        # First call populates cache
+        # First call populates cache (cache_status="miss")
         r1 = seeded_engine.patient_dashboard_summary("patient-000")
-        # Second call should hit cache
+        # Second call should hit cache (cache_status="hit")
         r2 = seeded_engine.patient_dashboard_summary("patient-000")
-        assert r1 == r2
+        # cache_status differs (miss vs hit) but all data fields match
+        assert r2["cache_status"] == "hit"
+        assert r1["cache_ttl_seconds"] == r2["cache_ttl_seconds"]
+        assert r1["total_events"] == r2["total_events"]
+        assert r1["modality_breakdown"] == r2["modality_breakdown"]
+        assert r1["missing_modalities"] == r2["missing_modalities"]
 
     def test_second_analyzer_call_is_cached(self, seeded_engine):
         r1 = seeded_engine.patient_analyzer_summary("patient-000")
         r2 = seeded_engine.patient_analyzer_summary("patient-000")
-        assert r1 == r2
+        assert r2["cache_status"] == "hit"
+        assert r1["risk_status"] == r2["risk_status"]
+        assert r1["modality_stats"] == r2["modality_stats"]
+        assert r1["avg_confidence"] == r2["avg_confidence"]
 
     def test_clinic_dashboard_cached(self, seeded_engine):
         r1 = seeded_engine.clinic_dashboard_summary("clinic-0")
         r2 = seeded_engine.clinic_dashboard_summary("clinic-0")
-        assert r1 == r2
+        assert r2["cache_status"] == "hit"
+        assert r1["active_patients"] == r2["active_patients"]
+        assert r1["recent_events_30d"] == r2["recent_events_30d"]
+        assert r1["modality_breakdown"] == r2["modality_breakdown"]
