@@ -727,23 +727,32 @@ export function sweepSafetyWording(payload) {
  * Detect whether the application is running in demo / mock-data mode.
  *
  * Checks, in order:
- *  1. `import.meta.env.VITE_DEMO_MODE === "true"`
- *  2. URL query parameter `?demo=1`
- *  3. localStorage flag `deepsynaps-demo-mode` === `"true"`
- *  4. Patient ID starts with `"demo-"` (fallback heuristic)
+ *  1. `import.meta.env.VITE_ENABLE_DEMO === "1"` or `"true"`  (canonical)
+ *  2. `import.meta.env.VITE_DEMO_MODE === "true"`             (legacy)
+ *  3. URL query parameter `?demo=1`
+ *  4. localStorage flag `deepsynaps-demo-mode` === `"true"`
+ *  5. Patient ID starts with `"demo-"` (fallback heuristic)
  *
  * @param {Object} options — { patientId?: string }
  * @returns {boolean}
  */
 export function isDemoMode(options = {}) {
   try {
-    // 1. Vite env var
+    // 1. Canonical Vite env var (VITE_ENABLE_DEMO)
+    const viteDemo = import.meta.env?.VITE_ENABLE_DEMO;
+    if (viteDemo === "1" || viteDemo === "true") return true;
+  } catch {
+    // import.meta may not be available in test environments
+  }
+
+  try {
+    // 2. Legacy Vite env var (VITE_DEMO_MODE)
     if (import.meta.env?.VITE_DEMO_MODE === "true") return true;
   } catch {
     // import.meta may not be available in test environments
   }
 
-  // 2. URL query param
+  // 3. URL query param
   try {
     if (typeof window !== "undefined" && window.location) {
       const params = new URLSearchParams(window.location.search);
@@ -753,7 +762,7 @@ export function isDemoMode(options = {}) {
     // SSR / node environment
   }
 
-  // 3. localStorage flag
+  // 4. localStorage flag
   try {
     if (typeof localStorage !== "undefined" && localStorage.getItem("deepsynaps-demo-mode") === "true") {
       return true;
@@ -762,12 +771,40 @@ export function isDemoMode(options = {}) {
     // localStorage may be unavailable (private mode, SSR)
   }
 
-  // 4. Patient-ID heuristic
+  // 5. Patient-ID heuristic
   if (options.patientId && String(options.patientId).startsWith("demo-")) {
     return true;
   }
 
   return false;
+}
+
+/**
+ * Get the demo mode label to display in the banner.
+ * Falls back to "DEMO BUILD" if env var not set.
+ * @returns {string}
+ */
+export function getDemoModeLabel() {
+  try {
+    return import.meta.env?.VITE_DEMO_MODE_LABEL || "DEMO BUILD";
+  } catch {
+    return "DEMO BUILD";
+  }
+}
+
+/**
+ * Check if the non-PHI banner should be shown.
+ * Controlled by VITE_DEMO_NON_PHI_BANNER env var (default: true in demo).
+ * @returns {boolean}
+ */
+export function shouldShowNonPhiBanner() {
+  try {
+    const val = import.meta.env?.VITE_DEMO_NON_PHI_BANNER;
+    if (val === "0" || val === "false" || val === "no") return false;
+    return true; // Default: show banner
+  } catch {
+    return true;
+  }
 }
 
 /* ------------------------------------------------------------------ */

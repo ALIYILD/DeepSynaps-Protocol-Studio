@@ -7,6 +7,7 @@ from fastapi import FastAPI, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from config import DeepSynapsConfig
 from contracts import SynthesisRequest
 from deeptwin_contracts import DeepTwinSnapshot, ClinicianReview, DeepTwinAuditEvent, DeepTwinExport
 from knowledge_layer import KnowledgeLayer
@@ -305,7 +306,20 @@ def require_clinician_auth(
 # ── GZip Compression Config ───────────────────────────────────────────────────
 
 import os
+import logging
 from starlette.middleware.gzip import GZipMiddleware
+
+# ── Startup: Production Demo Guard ────────────────────────────────────────────
+# Validate that production env does not have dangerous demo settings.
+# Logs warnings at startup — does not crash, but makes issues visible.
+
+def _startup_demo_guard():
+    warnings = DeepSynapsConfig.validate_production_demo_guard()
+    if warnings:
+        for warning in warnings:
+            logging.getLogger(__name__).warning("[DEMO GUARD] %s", warning)
+
+# ── FastAPI App ───────────────────────────────────────────────────────────────
 
 _gzip_enabled = os.environ.get("DEEPSYNAPS_ENABLE_GZIP", "true").lower() not in ("false", "0", "no")
 _gzip_min_size = int(os.environ.get("DEEPSYNAPS_GZIP_MINIMUM_SIZE", "1024"))
@@ -321,6 +335,12 @@ app = FastAPI(
     ),
     version="4.0.0",
 )
+
+# ── Startup Event ─────────────────────────────────────────────────────────────
+@app.on_event("startup")
+async def startup_event():
+    """Run startup validations."""
+    _startup_demo_guard()
 
 # ── GZip Middleware ───────────────────────────────────────────────────────────
 # Added after app creation, before routes. Compresses JSON responses
@@ -350,6 +370,15 @@ async def health_check():
             "deeptwin_export",
         ],
     }
+
+
+@app.get("/api/v1/system/runtime-config", tags=["System"])
+async def runtime_config():
+    """Safe runtime configuration. No secrets exposed.
+
+    Used by frontend to detect demo mode, env label, and build info.
+    """
+    return DeepSynapsConfig.runtime_config()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

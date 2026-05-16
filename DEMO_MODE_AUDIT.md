@@ -1,246 +1,95 @@
-# Demo Mode Audit Report
+# Demo Mode Audit — DeepSynaps Protocol Studio
 
-**Auditor:** Clinical AI Safety Engineering
-**Date:** 2025-01-21
-**Scope:** All frontend and backend source files
-**Status:** ACTION REQUIRED -- Demo mode not explicitly labeled
-
----
-
-## 1. Executive Summary
-
-The DeepSynaps Protocol Studio codebase contains **hardcoded demo/synthetic data** and **fake API call simulations** that are not explicitly labeled as "DEMO MODE" to the user. While the data itself is clinically realistic (based on standard patterns), the lack of explicit demo labeling could mislead users into believing they are viewing real patient data.
-
-**Risk Level: MEDIUM** -- No clinical harm from demo data itself, but UI honesty principle is violated.
+**Date:** 2026-05-17  
+**Auditor:** Automated Architecture Audit  
+**Scope:** Frontend + backend demo flags, synthetic data, demo fallbacks
 
 ---
 
-## 2. Findings
+## 1. Current Demo Flags
 
-### 2.1 Hardcoded Demo Data in Frontend
+### Backend
 
-#### Finding DM-001: DeepTwinPage.jsx -- Hardcoded Snapshot
-**File:** `apps/web/src/pages-deeptwin/DeepTwinPage.jsx`
-**Lines:** 45-91
-**Severity:** MEDIUM
+| Flag | Location | Type | Default | Used By |
+|------|----------|------|---------|---------|
+| `DEEPSYNAPS_DEMO_MODE` | `config.py:90-91` | bool | `""` (false) | `debug_info()`, access control |
+| `DEEPSYNAPS_APP_ENV` | `config.py:19-20` | string | `"development"` | `is_production()`, `is_test()` |
 
-```jsx
-setTimeout(() => {
-  setSnapshot({
-    patient_id: patientId,
-    snapshot_id: "dts_demo_001",  // <-- Hardcoded demo ID
-    generated_at: new Date().toISOString(),
-    modality_coverage: { ... },  // <-- Hardcoded coverage data
-    correlation_findings: [ ... ],  // <-- Hardcoded correlation
-    confounders: [ ... ],  // <-- Hardcoded confounder
-    ranked_hypotheses: [ ... ],  // <-- Hardcoded hypothesis
-    forecast_status: "unavailable: no calibrated model",
-    ...
-  });
-  setLoading(false);
-}, 300);
-```
+### Frontend
 
-**Issue:** The entire DeepTwin snapshot is hardcoded with synthetic data. The `snapshot_id` even contains "demo" in its name (`dts_demo_001`), but this is not surfaced to the user in the UI. The `setTimeout` simulates a network request without actually calling the API.
+| Flag | Location | Type | Detection Method |
+|------|----------|------|-----------------|
+| `VITE_DEMO_MODE` | `contracts.js:741` | env | `import.meta.env.VITE_DEMO_MODE === "true"` |
+| URL param `?demo=1` | `contracts.js:750` | runtime | `URLSearchParams` |
+| `localStorage` | `contracts.js:758` | persistent | `deepsynaps-demo-mode` key |
+| Patient ID heuristic | `contracts.js:766` | runtime | Patient ID starts with `"demo-"` |
+
+### Env Files
+
+| File | Has Demo Vars? |
+|------|---------------|
+| `.env.example` | YES — `DEEPSYNAPS_DEMO_MODE=false` |
+| `apps/api/.env.example` | NO (file does not exist) |
+| `apps/web/.env.example` | NO (file does not exist) |
 
 ---
 
-#### Finding DM-002: SynthesisDashboard.jsx -- Default Demo Patient
-**File:** `apps/web/src/pages-deeptwin/SynthesisDashboard.jsx`
-**Lines:** 48-51
-**Severity:** LOW
+## 2. Demo Data Sources
 
-```jsx
-export default function SynthesisDashboard({
-  patientId = "demo-patient-001",
-  clinicianId = "clinician-001",
-}) {
-```
+### Backend Synthetic Data
 
-**Issue:** Default patient ID contains "demo" but this is not displayed as a demo mode banner.
+| Function | File | Description | Production Risk |
+|----------|------|-------------|----------------|
+| `_seed_evidence()` | `knowledge_layer.py:44-69` | Seeds 6 evidence DB rows on DB init | **LOW** — always seeded, no PHI |
+| `seed_sample_events()` | `timeline_engine.py:43+` | Seeds 5 sample events per patient | **MEDIUM** — called on demand, may be confused with real |
 
----
+### Frontend Demo References
 
-### 2.2 Fake API Call Simulations (setTimeout)
+| File | Line | Demo Reference |
+|------|------|----------------|
+| `SynthesisDashboard.jsx:49` | `patientId = "demo-patient-001"` | Hardcoded demo patient ID |
+| `DeepTwinPage.jsx:48` | `snapshot_id: "dts_demo_001"` | Hardcoded demo snapshot ID |
 
-#### Finding DM-003: ReportHandoff.jsx -- Fake Async Operations
-**File:** `apps/web/src/pages-deeptwin/ReportHandoff.jsx`
-**Lines:** 23, 39, 47
-**Severity:** LOW
+### Data Console / Dashboard
 
-```jsx
-const handleExport = async () => {
-  setBusy(true);
-  await new Promise((r) => setTimeout(r, 500));  // <-- Fake delay
-  ...
-};
-
-const handleReportHandoff = async () => {
-  setBusy(true);
-  await new Promise((r) => setTimeout(r, 500));  // <-- Fake delay
-  ...
-};
-
-const handleProtocolHandoff = async () => {
-  setBusy(true);
-  await new Promise((r) => setTimeout(r, 500));  // <-- Fake delay
-  ...
-};
-```
-
-**Issue:** These functions simulate async API calls with `setTimeout` but never actually call the backend. The "Export" button triggers a client-side JSON download of the current snapshot data only.
+| Page | Has Demo Fallback? | Labeled? |
+|------|-------------------|----------|
+| SynthesisDashboard | YES (demo-patient-001) | Partial (patient ID implies demo) |
+| DeepTwinPage | YES (dts_demo_001) | Partial (ID implies demo) |
+| Dashboard | NO explicit demo | N/A |
+| Patient Dashboard | NO explicit demo | N/A |
 
 ---
 
-#### Finding DM-004: ClinicianReview.jsx -- setTimeout for Success Messages
-**File:** `apps/web/src/pages-deeptwin/ClinicianReview.jsx`
-**Lines:** 30, 47, 62
-**Severity:** INFO
+## 3. Pages Missing Demo Labels
 
-```jsx
-setTimeout(() => setSuccess(null), 3000);
-```
-
-**Assessment:** **ACCEPTABLE** -- These `setTimeout` calls are for auto-dismissing success toast messages (standard UX pattern), not for faking API calls. The review actions are correctly implemented as local state updates since the demo doesn't persist to a backend.
-
----
-
-#### Finding DM-005: DeepTwinPage.jsx -- setTimeout for Fake Loading
-**File:** `apps/web/src/pages-deeptwin/DeepTwinPage.jsx`
-**Line:** 45
-**Severity:** MEDIUM
-
-```jsx
-setTimeout(() => {
-  // set hardcoded snapshot data
-}, 300);
-```
-
-**Issue:** Simulates a 300ms API loading delay but serves hardcoded data instead of calling the real API.
+| Page | Risk | Needs Label? |
+|------|------|-------------|
+| SynthesisDashboard | Hardcoded demo patient | YES — global banner covers |
+| DeepTwinPage | Hardcoded demo snapshot | YES — global banner covers |
+| Dashboard | No explicit demo | NO |
+| Patient Dashboard | No explicit demo | NO |
+| Analyzer Status | No explicit demo | NO |
 
 ---
 
-### 2.3 Missing DEMO_MODE Environment Variable
+## 4. Production Risk Areas
 
-#### Finding DM-006: No Environment Variable for Demo Mode
-**Severity:** MEDIUM
-
-**Current State:**
-- No `DEMO_MODE` or `VITE_DEMO_MODE` environment variable exists
-- No conditional rendering based on demo mode
-- No visual "DEMO MODE" banner or badge
-- The comment `// In production, this calls the API` (DeepTwinPage.jsx:43) is the only hint
-
----
-
-## 3. Backend Assessment
-
-### Finding DM-007: Backend Timeline Engine -- seed_sample_events
-**File:** `apps/api/src/deepsynaps/timeline_engine.py`
-**Lines:** 43-386
-**Severity:** LOW
-
-The `seed_sample_events()` method generates realistic sample patient data for testing. This is a legitimate testing utility. **No issue** -- test data generators are standard practice and the data is never labeled as real.
-
-### Finding DM-008: Backend -- No Demo Mode Flag
-**Severity:** LOW
-
-The backend API does not have a `demo_mode` configuration flag. All endpoints are production-ready with proper auth, consent checks, and audit logging.
+| Risk | Severity | Mitigation |
+|------|----------|------------|
+| Demo seed enabled silently in production | **HIGH** | Add production guard in `config.py` |
+| Frontend shows demo data without banner | **MEDIUM** | Global `DemoModeBanner` component |
+| `VITE_DEMO_MODE` set in production build | **MEDIUM** | Build-time check / env validation |
+| Demo patient IDs mixed with real data | **LOW** | Naming convention `"demo-"` prefix |
+| No runtime-config endpoint for demo status | **LOW** | Add `/api/v1/system/runtime-config` |
 
 ---
 
-## 4. Recommendations
+## 5. Recommendations (PR #6 Scope)
 
-### Immediate Actions
-
-| Priority | ID | Action | Files to Modify |
-|----------|----|--------|----------------|
-| HIGH | R1 | Add `DEMO_MODE` environment variable support | `.env`, `api.js`, all page components |
-| HIGH | R2 | Add visible "DEMO MODE" banner when in demo mode | `DeepTwinPage.jsx`, `SynthesisDashboard.jsx` |
-| MEDIUM | R3 | Replace `setTimeout` fake calls with actual API calls behind demo guard | `DeepTwinPage.jsx`, `ReportHandoff.jsx` |
-| MEDIUM | R4 | Add demo data watermark/badge to snapshot ID display | `DeepTwinPage.jsx` |
-| LOW | R5 | Document demo mode in README | `README.md` |
-
-### Implementation Guide
-
-#### R1: Environment Variable Setup
-
-```env
-# .env
-VITE_DEMO_MODE=true
-```
-
-```javascript
-// apps/web/src/api.js
-export const IS_DEMO_MODE = import.meta.env?.VITE_DEMO_MODE === "true";
-```
-
-#### R2: Demo Mode Banner Component
-
-```jsx
-// Add to DeepTwinPage.jsx header section
-{IS_DEMO_MODE && (
-  <div className="bg-orange-100 border-b border-orange-300 px-6 py-2">
-    <div className="max-w-7xl mx-auto flex items-center gap-2">
-      <span className="text-orange-600 font-bold text-sm">DEMO MODE</span>
-      <span className="text-orange-700 text-xs">
-        Displaying synthetic patient data for demonstration purposes only.
-      </span>
-    </div>
-  </div>
-)}
-```
-
-#### R3: API Call with Demo Fallback
-
-```jsx
-// DeepTwinPage.jsx useEffect
-useEffect(() => {
-  if (!patientId) return;
-  setLoading(true);
-  
-  if (IS_DEMO_MODE) {
-    // Use demo data with slight delay for UX
-    setTimeout(() => {
-      setSnapshot(getDemoSnapshot(patientId));
-      setLoading(false);
-    }, 300);
-  } else {
-    // Real API call
-    fetch(`/api/v1/deeptwin/patients/${patientId}/snapshot?clinician_id=${clinicianId}`, {
-      headers: getAuthHeaders(),
-    })
-      .then(handleResponse)
-      .then(data => setSnapshot(data.snapshot))
-      .catch(setError)
-      .finally(() => setLoading(false));
-  }
-}, [patientId]);
-```
-
----
-
-## 5. Compliance Checklist
-
-| # | Requirement | Status | Notes |
-|---|-------------|--------|-------|
-| 1 | Demo mode clearly labeled | FAIL | No visual demo indicator |
-| 2 | `DEMO_MODE` env var exists | FAIL | Not implemented |
-| 3 | Demo data uses "demo" prefix | PASS | `demo-patient-001`, `dts_demo_001` |
-| 4 | No demo data in production builds | PASS | Only in frontend fallback |
-| 5 | Backend does not serve demo data | PASS | API is production-ready |
-| 6 | Comments indicate demo status | PARTIAL | One comment at line 43 |
-| 7 | Export includes demo watermark | FAIL | Not implemented |
-
----
-
-## 6. Final Verdict
-
-**ACTION REQUIRED** (3 items)
-
-The demo mode implementation needs explicit labeling to maintain "demo mode honesty." The hardcoded data itself is not a clinical safety risk (it carries all proper safety labels and disclaimers), but users should be explicitly informed when viewing synthetic data.
-
-**Required Actions:**
-1. Add `VITE_DEMO_MODE` environment variable (HIGH)
-2. Add visible "DEMO MODE" banner to all pages showing synthetic data (HIGH)
-3. Gate all `setTimeout` fake calls behind `IS_DEMO_MODE` check (MEDIUM)
+1. **Centralize env flags** — canonical `VITE_ENABLE_DEMO`, `VITE_DEMO_MODE_LABEL`, `DEEPSYNAPS_DEMO_CLINIC_SEED`
+2. **Global banner** — `DemoModeBanner.jsx`, visible on all pages when demo enabled
+3. **Production guard** — fail/warn if demo seed in production env
+4. **Runtime config endpoint** — `GET /api/v1/system/runtime-config` with safe metadata
+5. **Update env examples** — `.env.example`, `apps/web/.env.example`
+6. **Tests** — banner render, config guards, no secrets in runtime config

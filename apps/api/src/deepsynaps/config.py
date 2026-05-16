@@ -90,6 +90,35 @@ class DeepSynapsConfig:
     def demo_mode(cls) -> bool:
         return os.environ.get("DEEPSYNAPS_DEMO_MODE", "").lower() in ("1", "true", "yes")
 
+    @classmethod
+    def demo_seed_enabled(cls) -> bool:
+        return os.environ.get("DEEPSYNAPS_DEMO_CLINIC_SEED", "").lower() in ("1", "true", "yes")
+
+    @classmethod
+    def demo_mode_label(cls) -> str:
+        return os.environ.get("DEEPSYNAPS_DEMO_MODE_LABEL", "DEMO BUILD")
+
+    @classmethod
+    def validate_production_demo_guard(cls) -> list:
+        """Validate that production env does not have dangerous demo settings.
+
+        Returns a list of warnings (empty list means safe).
+        Does NOT raise — callers decide whether to crash or warn.
+        """
+        warnings = []
+        if cls.is_production() and cls.demo_seed_enabled():
+            warnings.append(
+                "CRITICAL: DEEPSYNAPS_DEMO_CLINIC_SEED is enabled in production. "
+                "Demo seed must not run in production. "
+                "Set DEEPSYNAPS_DEMO_CLINIC_SEED=false or change APP_ENV."
+            )
+        if cls.is_production() and cls.demo_mode():
+            warnings.append(
+                "WARNING: DEEPSYNAPS_DEMO_MODE is enabled in production. "
+                "Demo mode should be disabled for live clinical deployments."
+            )
+        return warnings
+
     # ── Logging ──────────────────────────────────────────────────
     @classmethod
     def log_level(cls) -> str:
@@ -97,11 +126,19 @@ class DeepSynapsConfig:
 
     # ── Debug Info ───────────────────────────────────────────────
     @classmethod
-    def debug_info(cls) -> dict:
+    def runtime_config(cls) -> dict:
+        """Safe runtime configuration for the frontend.
+
+        Exposes ONLY non-sensitive demo-mode and env metadata.
+        NEVER exposes: DB URLs, API keys, passwords, tokens.
+        """
         return {
             "app_env": cls.app_env(),
             "dialect": "postgresql" if cls.is_postgres() else "sqlite",
-            "demo_mode": cls.demo_mode(),
+            "demo_mode_enabled": cls.demo_mode(),
+            "demo_seed_enabled": cls.demo_seed_enabled(),
+            "demo_mode_label": cls.demo_mode_label(),
+            "is_production": cls.is_production(),
             "log_level": cls.log_level(),
             "pool_size": cls.postgres_pool_size() if cls.is_postgres() else None,
             "sslmode": cls.postgres_sslmode() if cls.is_postgres() else None,
