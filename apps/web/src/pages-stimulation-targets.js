@@ -112,7 +112,7 @@ const styles = `
 
 
 import { api } from './api.js';
-import { currentUser } from './state.js';
+import { currentUser } from './auth.js';
 
 /**
  * Target dataset — 15 brain stimulation targets with MNI coordinates.

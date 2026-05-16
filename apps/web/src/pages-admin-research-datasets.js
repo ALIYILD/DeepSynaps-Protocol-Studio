@@ -1,8 +1,4 @@
-/
-import { api } from './api.js';
-import { currentUser } from './state.js';
-
-**
+/**
  * DeepSynaps Protocol Studio — Admin Research Datasets Page
  * Research Dataset Management for super-admins.
  * Handles study data governance, consent tracking, de-identified exports,
@@ -13,6 +9,9 @@ import { currentUser } from './state.js';
  *              .kpi-grid .kpi-card .kpi-value .kpi-label .data-table
  *              .filter-tabs .filter-tab.active .btn-export .restricted-card
  */
+
+import { api } from './api.js';
+import { currentUser } from './auth.js';
 
 const DEMO_DATASETS_FALLBACK = [
   { id: "RDS-2024-001", name: "Cognitive Load in Surgical Training", study: "SurgTrain-2024", participants: 142, dateRange: "2024-01-15 — 2024-06-30", status: "Active", consentRate: 98.6, deidentLevel: "k-anonymity (k=5)", pi: "Dr. Sarah Chen", ethicsId: "IRB-2024-0042" },

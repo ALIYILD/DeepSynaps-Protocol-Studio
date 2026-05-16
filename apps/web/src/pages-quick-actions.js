@@ -1,8 +1,7 @@
-/
 import { api } from './api.js';
-import { currentUser } from './state.js';
+import { currentUser } from './auth.js';
 
-* ============================================================
+/* ============================================================
    DeepSynaps Protocol Studio — Quick Actions Panel (Today Page)
    ============================================================ */
 

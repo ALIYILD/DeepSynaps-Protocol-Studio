@@ -335,7 +335,7 @@ function _renderDashboard(state) {
   const safetyAlerts = patients.reduce((s, p) => s + (p.safety_alerts || 0), 0);
 
   const kpiCards = [
-    { label: 'Active Therapies', value: totalActive, sub: `${patients.length} patients enrolled', color: 'var(--teal)' },
+    { label: 'Active Therapies', value: totalActive, sub: `${patients.length} patients enrolled`, color: 'var(--teal)' },
     { label: 'Sessions This Week', value: sessionsWeek, sub: 'Across all modalities', color: 'var(--blue)' },
     { label: 'Avg. Patient-Reported Outcome', value: avgPro, sub: '0–10 scale', color: 'var(--violet)' },
     { label: 'Safety Alerts', value: safetyAlerts, sub: safetyAlerts === 0 ? 'All clear' : 'Requires review', color: safetyAlerts > 0 ? 'var(--red)' : 'var(--green)' },

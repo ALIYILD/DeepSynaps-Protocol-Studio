@@ -1,11 +1,11 @@
-/
+//
 
 
 let devicesData = DEMO_DEVICES_FALLBACK;
-mport { api } from './api.js';
-import { currentUser } from './state.js';
+import { api } from './api.js';
+import { currentUser } from './auth.js';
 
-**
+/**
  * pages-device-planning.js
  * DeepSynaps Protocol Studio — Neuromodulation Device Parameter Planning + Montage Design
  *

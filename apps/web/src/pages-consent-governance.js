@@ -1,11 +1,11 @@
-/
+//
 
 
 let consentData = CONSENT_DATA_FALLBACK;
-mport { api } from './api.js';
-import { currentUser } from './state.js';
+import { api } from './api.js';
+import { currentUser } from './auth.js';
 
-**
+/**
  * pages-consent-governance.js — Patient Consent Status + Governance Dashboard
  *
  * Scope: comprehensive consent tracking across all patients in a clinic.
