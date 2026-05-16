@@ -305,6 +305,11 @@ from .complementary_models import (
     ComplementaryProtocol,
     TherapyLibraryEntry,
 )
+from .movement_fusion import (
+    MovementBiomarkerTrend,
+    MovementMultimodalCorrelation,
+    MovementFallRiskScore,
+)
 
 # Slice C scaffold — ResearchDataset lives outside the persistence/models
 # package on disk (in ``app.models.research_dataset``) so the research
@@ -411,6 +416,9 @@ __all__ = [
     "MedicationInteractionLog",
     "MovementAnalyzerAudit",
     "MovementAnalyzerSnapshot",
+    "MovementBiomarkerTrend",
+    "MovementMultimodalCorrelation",
+    "MovementFallRiskScore",
     "NutritionAnalyzerAudit",
     "Message",
     "MriAnalysis",
