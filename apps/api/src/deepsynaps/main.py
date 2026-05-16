@@ -893,6 +893,66 @@ async def post_deeptwin_export(
     }
 
 
+# ── Summary Endpoints (PR #4) ─────────────────────────────────────────────────
+# Aggregate, bounded-payload summary queries for dashboard performance.
+# Uses SQL COUNT/aggregate instead of loading full records.
+
+SUMMARY_SAFETY = (
+    "Summary counts only. Requires clinician review. "
+    "Not a diagnosis or clinical assessment."
+)
+
+
+@app.get("/api/v1/summary/clinic-dashboard", tags=["Summary"])
+async def clinic_dashboard_summary(
+    clinic_id: str = Header(..., alias="X-Clinic-ID"),
+    x_access_token: str = Header(..., alias="X-Patient-Access-Token"),
+    clinician_id: str = Query(...),
+    kl: Annotated[KnowledgeLayer, Depends(get_knowledge_layer)] = ...,
+):
+    """Aggregate clinic-level dashboard. Bounded counts, no PHI."""
+    from summary_engine import SummaryEngine
+    engine = SummaryEngine(kl)
+    result = engine.clinic_dashboard_summary(clinic_id)
+    result["generated_by"] = clinician_id
+    result["safety_disclaimer"] = SUMMARY_SAFETY
+    return result
+
+
+@app.get("/api/v1/summary/patients/{patient_id}/dashboard", tags=["Summary"])
+async def patient_dashboard_summary(
+    patient_id: str,
+    clinic_id: str = Header(..., alias="X-Clinic-ID"),
+    x_access_token: str = Header(..., alias="X-Patient-Access-Token"),
+    clinician_id: str = Query(...),
+    kl: Annotated[KnowledgeLayer, Depends(get_knowledge_layer)] = ...,
+):
+    """Aggregate patient-level dashboard. Bounded counts, no full records."""
+    from summary_engine import SummaryEngine
+    engine = SummaryEngine(kl)
+    result = engine.patient_dashboard_summary(patient_id)
+    result["generated_by"] = clinician_id
+    result["clinic_id"] = clinic_id
+    result["safety_disclaimer"] = SUMMARY_SAFETY
+    return result
+
+
+@app.get("/api/v1/summary/analyzer-status", tags=["Summary"])
+async def analyzer_status_summary(
+    clinic_id: str = Header(..., alias="X-Clinic-ID"),
+    x_access_token: str = Header(..., alias="X-Patient-Access-Token"),
+    clinician_id: str = Query(...),
+    kl: Annotated[KnowledgeLayer, Depends(get_knowledge_layer)] = ...,
+):
+    """Aggregate analyzer/data processing status. Counts and freshness."""
+    from summary_engine import SummaryEngine
+    engine = SummaryEngine(kl)
+    result = engine.analyzer_status_summary(clinic_id)
+    result["generated_by"] = clinician_id
+    result["safety_disclaimer"] = SUMMARY_SAFETY
+    return result
+
+
 # ── Error Handlers ────────────────────────────────────────────────────────────
 
 @app.exception_handler(ValueError)

@@ -131,6 +131,55 @@ export async function requestSynthesis(patientId, body = {}) {
 }
 
 /**
+ * Fetch clinic dashboard summary (aggregate counts, bounded payload).
+ * @param {Object} params — { clinician_id }
+ */
+export async function fetchClinicDashboard(params = {}) {
+  const qs = buildQueryString(params);
+  const response = await fetch(
+    `/api/v1/summary/clinic-dashboard${qs}`,
+    {
+      method: "GET",
+      headers: getAuthHeaders(),
+    }
+  );
+  return handleResponse(response);
+}
+
+/**
+ * Fetch patient dashboard summary (aggregate counts, bounded payload).
+ * @param {string} patientId
+ * @param {Object} params — { clinician_id }
+ */
+export async function fetchPatientDashboard(patientId, params = {}) {
+  const qs = buildQueryString(params);
+  const response = await fetch(
+    `/api/v1/summary/patients/${encodeURIComponent(patientId)}/dashboard${qs}`,
+    {
+      method: "GET",
+      headers: getAuthHeaders(),
+    }
+  );
+  return handleResponse(response);
+}
+
+/**
+ * Fetch analyzer status summary (modality counts, freshness flags).
+ * @param {Object} params — { clinician_id }
+ */
+export async function fetchAnalyzerStatus(params = {}) {
+  const qs = buildQueryString(params);
+  const response = await fetch(
+    `/api/v1/summary/analyzer-status${qs}`,
+    {
+      method: "GET",
+      headers: getAuthHeaders(),
+    }
+  );
+  return handleResponse(response);
+}
+
+/**
  * Health check.
  */
 export async function fetchHealth() {
