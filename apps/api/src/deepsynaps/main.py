@@ -302,6 +302,14 @@ def require_clinician_auth(
     return auth_result
 
 
+# ── GZip Compression Config ───────────────────────────────────────────────────
+
+import os
+from starlette.middleware.gzip import GZipMiddleware
+
+_gzip_enabled = os.environ.get("DEEPSYNAPS_ENABLE_GZIP", "true").lower() not in ("false", "0", "no")
+_gzip_min_size = int(os.environ.get("DEEPSYNAPS_GZIP_MINIMUM_SIZE", "1024"))
+
 # ── FastAPI App ───────────────────────────────────────────────────────────────
 
 app = FastAPI(
@@ -313,6 +321,15 @@ app = FastAPI(
     ),
     version="4.0.0",
 )
+
+# ── GZip Middleware ───────────────────────────────────────────────────────────
+# Added after app creation, before routes. Compresses JSON responses
+# >= 1024 bytes when client sends Accept-Encoding: gzip.
+# Does NOT compress: small responses (<1KB), streaming responses, or
+# already-compressed binary payloads.
+
+if _gzip_enabled:
+    app.add_middleware(GZipMiddleware, minimum_size=_gzip_min_size)
 
 
 @app.get("/health", response_model=HealthResponse)
