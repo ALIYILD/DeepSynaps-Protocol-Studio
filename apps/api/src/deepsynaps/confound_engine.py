@@ -14,6 +14,11 @@ class ConfoundEngine:
     def __init__(self, knowledge_layer: KnowledgeLayer):
         self.kl = knowledge_layer
 
+    @staticmethod
+    def _naive(dt: datetime) -> datetime:
+        """Strip timezone info for robust comparison."""
+        return dt.replace(tzinfo=None) if dt.tzinfo else dt
+
     def detect_confounders(
         self,
         patient_id: str,
@@ -34,7 +39,7 @@ class ConfoundEngine:
             One IntelligenceOutput per detected confounder category with evidence.
         """
         events = context_events or self.kl.get_events_for_patient(patient_id)
-        now = datetime.now(timezone.utc)
+        now = datetime.now()
 
         outputs: List[IntelligenceOutput] = []
 
@@ -67,7 +72,7 @@ class ConfoundEngine:
         med_events = [e for e in events if e.modality == "medications"]
         outputs = []
         for evt in med_events:
-            evt_age_days = (now - evt.timestamp).total_seconds() / 86400.0
+            evt_age_days = (self._naive(now) - self._naive(evt.timestamp)).total_seconds() / 86400.0
             if evt_age_days > 90:
                 continue
             conf = ConfounderCandidate(
@@ -167,7 +172,7 @@ class ConfoundEngine:
             text_lower = (evt.textual_summary or "").lower()
             combined = summary_lower + " " + text_lower
             if any(kw in combined for kw in ae_keywords):
-                evt_age_days = (now - evt.timestamp).total_seconds() / 86400.0
+                evt_age_days = (self._naive(now) - self._naive(evt.timestamp)).total_seconds() / 86400.0
                 if evt_age_days < 90:
                     ae_events.append(evt)
 
@@ -301,7 +306,7 @@ class ConfoundEngine:
     def _check_poor_quality(
         self, events: List[MultimodalEvent], patient_id: str, now: datetime
     ) -> List[IntelligenceOutput]:
-        recent = [e for e in events if (now - e.timestamp).total_seconds() / 86400.0 < 30]
+        recent = [e for e in events if (self._naive(now) - self._naive(e.timestamp)).total_seconds() / 86400.0 < 30]
         poor = [e for e in recent if e.data_quality in ("low", "missing")]
         if not poor:
             return []
@@ -338,7 +343,7 @@ class ConfoundEngine:
             return [self._confounder_to_intelligence(conf, patient_id, ["assessments"], now - timedelta(days=90), now)]
 
         latest = max(e.timestamp for e in assessments)
-        days_since = (now - latest).total_seconds() / 86400.0
+        days_since = (self._naive(now) - self._naive(latest)).total_seconds() / 86400.0
         if days_since > 90:
             conf = ConfounderCandidate(
                 confounder_type="missing_assessments",
@@ -370,7 +375,7 @@ class ConfoundEngine:
             return [self._confounder_to_intelligence(conf, patient_id, ["all"], now - timedelta(days=30), now)]
 
         latest = max(e.timestamp for e in events)
-        days_since = (now - latest).total_seconds() / 86400.0
+        days_since = (self._naive(now) - self._naive(latest)).total_seconds() / 86400.0
         if days_since > 30:
             conf = ConfounderCandidate(
                 confounder_type="stale_data",
@@ -446,7 +451,7 @@ class ConfoundEngine:
         for evt in param_events:
             combined = ((evt.value_summary or "") + " " + (evt.textual_summary or "")).lower()
             if any(kw in combined for kw in change_keywords):
-                evt_age_days = (now - evt.timestamp).total_seconds() / 86400.0
+                evt_age_days = (self._naive(now) - self._naive(evt.timestamp)).total_seconds() / 86400.0
                 if evt_age_days < 90:
                     changed.append(evt)
 

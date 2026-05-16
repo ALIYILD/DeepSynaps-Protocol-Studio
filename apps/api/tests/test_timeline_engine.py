@@ -3,7 +3,7 @@
 import os
 import sys
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 # Ensure deepsynaps package is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "deepsynaps"))
@@ -63,13 +63,13 @@ class TestMultimodalTimelineEngine(unittest.TestCase):
 
     def test_modality_filter_single(self):
         self.engine.seed_sample_events(self.patient_id)
-        filtered = self.engine.build_timeline(self.patient_id, modality_filter=["wearables"])
-        self.assertTrue(all(e.modality == "wearables" for e in filtered))
+        filtered = self.engine.build_timeline(self.patient_id, modality_filter=["wearable"])
+        self.assertTrue(all(e.modality == "wearable" for e in filtered))
 
     def test_modality_filter_multiple(self):
         self.engine.seed_sample_events(self.patient_id)
-        filtered = self.engine.build_timeline(self.patient_id, modality_filter=["wearables", "medications"])
-        self.assertTrue(all(e.modality in ("wearables", "medications") for e in filtered))
+        filtered = self.engine.build_timeline(self.patient_id, modality_filter=["wearable", "medication"])
+        self.assertTrue(all(e.modality in ("wearable", "medication") for e in filtered))
 
     def test_modality_filter_unknown_raises(self):
         with self.assertRaises(ValueError) as ctx:
@@ -80,7 +80,7 @@ class TestMultimodalTimelineEngine(unittest.TestCase):
 
     def test_date_range_filter(self):
         self.engine.seed_sample_events(self.patient_id)
-        now = datetime.now(timezone.utc)
+        now = datetime.now()
         start = now - timedelta(days=45)
         end = now - timedelta(days=25)
         filtered = self.engine.build_timeline(self.patient_id, date_range=(start, end))
@@ -90,7 +90,7 @@ class TestMultimodalTimelineEngine(unittest.TestCase):
 
     def test_date_range_no_overlap(self):
         self.engine.seed_sample_events(self.patient_id)
-        now = datetime.now(timezone.utc)
+        now = datetime.now()
         start = now - timedelta(days=365)
         end = now - timedelta(days=300)
         filtered = self.engine.build_timeline(self.patient_id, date_range=(start, end))
@@ -100,15 +100,15 @@ class TestMultimodalTimelineEngine(unittest.TestCase):
 
     def test_combined_modality_and_date_filter(self):
         self.engine.seed_sample_events(self.patient_id)
-        now = datetime.now(timezone.utc)
+        now = datetime.now()
         start = now - timedelta(days=45)
         end = now - timedelta(days=25)
         filtered = self.engine.build_timeline(
             self.patient_id,
-            modality_filter=["wearables"],
+            modality_filter=["wearable"],
             date_range=(start, end),
         )
-        self.assertTrue(all(e.modality == "wearables" for e in filtered))
+        self.assertTrue(all(e.modality == "wearable" for e in filtered))
         for e in filtered:
             self.assertGreaterEqual(e.timestamp, start)
             self.assertLessEqual(e.timestamp, end)
@@ -133,7 +133,7 @@ class TestMultimodalTimelineEngine(unittest.TestCase):
     # ── deterministic ordering with tie-breaker ──
 
     def test_deterministic_order_same_timestamp(self):
-        base = datetime.now(timezone.utc) - timedelta(days=10)
+        base = datetime.now() - timedelta(days=10)
         for i in range(3):
             self.kl.insert_event(MultimodalEvent(
                 patient_id=self.patient_id,

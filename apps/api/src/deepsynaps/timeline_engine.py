@@ -11,10 +11,10 @@ class MultimodalTimelineEngine:
     """Builds unified, sorted patient timelines from all multimodal data sources."""
 
     ALL_MODALITIES = [
-        "assessments", "qeeg", "mri", "biomarkers", "labs",
-        "medications", "interventions", "sessions", "voice", "text",
-        "video", "movement", "wearables", "digital_phenotyping",
-        "risk_signals", "reports", "documents", "patient_checkins",
+        "assessment", "qeeg", "mri", "biomarker", "lab",
+        "medication", "intervention", "session", "voice", "text",
+        "video", "movement", "wearable", "digital_phenotyping",
+        "risk_signal", "report", "document", "patient_checkin",
     ]
 
     def __init__(self, knowledge_layer: KnowledgeLayer):
@@ -42,14 +42,14 @@ class MultimodalTimelineEngine:
 
     def seed_sample_events(self, patient_id: str) -> List[str]:
         """Insert realistic sample events across 7+ modalities with varied timestamps."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now()
         base = now - timedelta(days=60)
 
         seed_events = [
             {
                 "patient_id": patient_id,
                 "event_type": "cognitive_assessment",
-                "modality": "assessments",
+                "modality": "assessment",
                 "source_system": "redcap",
                 "source_record_id": f"mmse_{patient_id}_001",
                 "timestamp": base + timedelta(days=0, hours=9),
@@ -64,7 +64,7 @@ class MultimodalTimelineEngine:
             {
                 "patient_id": patient_id,
                 "event_type": "mood_assessment",
-                "modality": "assessments",
+                "modality": "assessment",
                 "source_system": "redcap",
                 "source_record_id": f"phq9_{patient_id}_002",
                 "timestamp": base + timedelta(days=0, hours=9, minutes=30),
@@ -109,7 +109,7 @@ class MultimodalTimelineEngine:
             {
                 "patient_id": patient_id,
                 "event_type": "blood_draw",
-                "modality": "biomarkers",
+                "modality": "biomarker",
                 "source_system": "labcorp",
                 "source_record_id": f"nfl_{patient_id}_001",
                 "timestamp": base + timedelta(days=5, hours=8),
@@ -139,7 +139,7 @@ class MultimodalTimelineEngine:
             {
                 "patient_id": patient_id,
                 "event_type": "medication_start",
-                "modality": "medications",
+                "modality": "medication",
                 "source_system": "ehr",
                 "source_record_id": f"rx_{patient_id}_001",
                 "timestamp": base + timedelta(days=7, hours=10),
@@ -154,7 +154,7 @@ class MultimodalTimelineEngine:
             {
                 "patient_id": patient_id,
                 "event_type": "medication_change",
-                "modality": "medications",
+                "modality": "medication",
                 "source_system": "ehr",
                 "source_record_id": f"rx_{patient_id}_002",
                 "timestamp": base + timedelta(days=21, hours=10),
@@ -169,7 +169,7 @@ class MultimodalTimelineEngine:
             {
                 "patient_id": patient_id,
                 "event_type": "tms_session",
-                "modality": "interventions",
+                "modality": "intervention",
                 "source_system": "magventure",
                 "source_record_id": f"tms_{patient_id}_001",
                 "timestamp": base + timedelta(days=10, hours=11),
@@ -259,7 +259,7 @@ class MultimodalTimelineEngine:
             {
                 "patient_id": patient_id,
                 "event_type": "sleep_summary",
-                "modality": "wearables",
+                "modality": "wearable",
                 "source_system": "oura",
                 "source_record_id": f"oura_{patient_id}_001",
                 "timestamp": base + timedelta(days=17, hours=6),
@@ -274,7 +274,7 @@ class MultimodalTimelineEngine:
             {
                 "patient_id": patient_id,
                 "event_type": "activity_summary",
-                "modality": "wearables",
+                "modality": "wearable",
                 "source_system": "oura",
                 "source_record_id": f"oura_{patient_id}_002",
                 "timestamp": base + timedelta(days=35, hours=6),

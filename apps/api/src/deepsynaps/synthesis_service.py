@@ -174,5 +174,5 @@ class SynthesisService:
             "quality_flags": len(quality_flags),
             "evidence_grades": grade_distribution,
             "average_confidence": avg_confidence,
-            "generated_at": datetime.utcnow().isoformat(),
+            "generated_at": datetime.now().isoformat(),
         }

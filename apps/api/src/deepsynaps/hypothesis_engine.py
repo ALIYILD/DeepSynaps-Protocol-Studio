@@ -226,7 +226,7 @@ class HypothesisRankingEngine:
         self,
         hyp_type: str,
         events: List[MultimodalEvent],
-        observation_event: MultimodalEvent,
+        observation_event: Optional[MultimodalEvent],
         now: datetime,
     ) -> float:
         """Score 0.0-1.0 based on how close relevant events are in time."""
@@ -242,6 +242,16 @@ class HypothesisRankingEngine:
         if not relevant:
             return 0.1
 
+        if observation_event is None:
+            # Score based on recency when no observation event
+            total_days = 0.0
+            for e in relevant:
+                diff = abs((now - e.timestamp).total_seconds()) / 86400.0
+                total_days += diff
+            avg_days = total_days / len(relevant)
+            score = max(0.0, 1.0 - (avg_days / window_days))
+            return min(score, 1.0)
+
         # Compute average days from observation event
         obs_time = observation_event.timestamp
         total_days = 0.0
@@ -252,7 +262,6 @@ class HypothesisRankingEngine:
         avg_days = total_days / len(relevant)
 
         # Score inversely proportional to average distance
-        # Perfect score at same day, decays exponentially
         score = max(0.0, 1.0 - (avg_days / window_days))
         return min(score, 1.0)
 
@@ -260,9 +269,11 @@ class HypothesisRankingEngine:
         self,
         hyp_type: str,
         events: List[MultimodalEvent],
-        observation_event: MultimodalEvent,
+        observation_event: Optional[MultimodalEvent],
     ) -> float:
         """Score 0.0-1.0 based on cross-modal agreement."""
+        if observation_event is None:
+            return 0.5  # neutral when no specific observation is provided
         observed_modality = observation_event.modality
 
         # Count events from different modalities that support the hypothesis
@@ -288,57 +299,58 @@ class HypothesisRankingEngine:
     def _hypothesis_summary(
         self,
         hyp_type: str,
-        observation_event: MultimodalEvent,
+        observation_event: Optional[MultimodalEvent],
         evidence_score: float,
         temporal_score: float,
         modal_score: float,
     ) -> str:
         """Generate a human-readable hypothesis summary."""
+        event_desc = observation_event.value_summary if observation_event else "clinical changes"
         summaries = {
             "intervention_related_change": (
-                f"Observed {observation_event.value_summary} may be related to a "
+                f"Observed {event_desc} may be related to a "
                 f"recent intervention. Evidence score: {evidence_score:.2f}, "
                 f"temporal score: {temporal_score:.2f}, modal agreement: {modal_score:.2f}."
             ),
             "medication_related_change": (
-                f"Observed {observation_event.value_summary} may be related to a "
+                f"Observed {event_desc} may be related to a "
                 f"recent medication change. Evidence score: {evidence_score:.2f}, "
                 f"temporal score: {temporal_score:.2f}, modal agreement: {modal_score:.2f}."
             ),
             "biomarker_lab_confound": (
                 f"Abnormal lab values may confound the observed "
-                f"{observation_event.value_summary}. Evidence score: {evidence_score:.2f}, "
+                f"{event_desc}. Evidence score: {evidence_score:.2f}, "
                 f"temporal score: {temporal_score:.2f}, modal agreement: {modal_score:.2f}."
             ),
             "sleep_circadian_contribution": (
                 f"Sleep pattern data suggests a contribution to the observed "
-                f"{observation_event.value_summary}. Evidence score: {evidence_score:.2f}, "
+                f"{event_desc}. Evidence score: {evidence_score:.2f}, "
                 f"temporal score: {temporal_score:.2f}, modal agreement: {modal_score:.2f}."
             ),
             "adherence_issue": (
                 f"Patient adherence gaps detected that may explain the observed "
-                f"{observation_event.value_summary}. Evidence score: {evidence_score:.2f}, "
+                f"{event_desc}. Evidence score: {evidence_score:.2f}, "
                 f"temporal score: {temporal_score:.2f}, modal agreement: {modal_score:.2f}."
             ),
             "measurement_artifact": (
                 f"Data quality issues suggest the observed "
-                f"{observation_event.value_summary} may be a measurement artifact. "
+                f"{event_desc} may be a measurement artifact. "
                 f"Evidence score: {evidence_score:.2f}, temporal score: {temporal_score:.2f}, "
                 f"modal agreement: {modal_score:.2f}."
             ),
             "data_sparsity": (
                 f"Too few data points for reliable inference about the observed "
-                f"{observation_event.value_summary}. Evidence score: {evidence_score:.2f}, "
+                f"{event_desc}. Evidence score: {evidence_score:.2f}, "
                 f"temporal score: {temporal_score:.2f}, modal agreement: {modal_score:.2f}."
             ),
             "multimodal_agreement": (
                 f"Cross-modal analysis of the observed "
-                f"{observation_event.value_summary} shows variable agreement. "
+                f"{event_desc} shows variable agreement. "
                 f"Evidence score: {evidence_score:.2f}, temporal score: {temporal_score:.2f}, "
                 f"modal agreement: {modal_score:.2f}."
             ),
         }
-        return summaries.get(hyp_type, f"Hypothesis {hyp_type} for {observation_event.value_summary}")
+        return summaries.get(hyp_type, f"Hypothesis {hyp_type} for {event_desc}")
 
     def _hypothesis_uncertainty(
         self,
@@ -389,10 +401,11 @@ class HypothesisRankingEngine:
     def _hypothesis_modalities(
         self,
         hyp_type: str,
-        observation_event: MultimodalEvent,
+        observation_event: Optional[MultimodalEvent],
     ) -> List[str]:
         """Determine which modalities are involved for the hypothesis."""
-        base = [observation_event.modality]
+        base_mod = observation_event.modality if observation_event else "unknown"
+        base = [base_mod]
 
         modality_map = {
             "intervention_related_change": ["intervention", "assessment"],
@@ -400,10 +413,10 @@ class HypothesisRankingEngine:
             "biomarker_lab_confound": ["biomarker", "lab", "bloodwork"],
             "sleep_circadian_contribution": ["wearable", "sleep", "qeeg"],
             "adherence_issue": ["medication", "wearable", "assessment"],
-            "measurement_artifact": [observation_event.modality, "quality"],
-            "data_sparsity": [observation_event.modality],
+            "measurement_artifact": [base_mod, "quality"],
+            "data_sparsity": [base_mod],
             "multimodal_agreement": [
-                observation_event.modality,
+                base_mod,
                 "qeeg", "mri", "biomarker", "wearable", "voice",
             ],
         }
