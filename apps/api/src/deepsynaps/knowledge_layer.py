@@ -1,95 +1,109 @@
-"""Phase 0-2 Knowledge Layer — governed data access with provenance and confidence."""
+"""Phase 0-2 Knowledge Layer — governed data access with provenance and confidence.
+
+Dialect-aware: works with both SQLite (dev/test) and PostgreSQL (production).
+"""
 
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
 import json
-import sqlite3
 import os
 
 from contracts import MultimodalEvent, EvidenceLink
+import database
 
 
 class KnowledgeLayer:
-    """Governed knowledge layer with provenance, confidence, and audit tracking."""
+    """Governed knowledge layer with provenance, confidence, and audit tracking.
 
-    def __init__(self, db_path: Optional[str] = None):
-        self.db_path = db_path or os.environ.get("DEEPSYNAPS_DB", ":memory:")
+    Works with both SQLite (development / testing) and PostgreSQL (production).
+    Set DATABASE_URL=postgresql://... for production, or leave unset for SQLite.
+    """
+
+    def __init__(self, db_url: Optional[str] = None, db_path: Optional[str] = None):
+        """Initialize with db_url (preferred) or db_path (backward-compatible)."""
+        self.db_url = db_url or db_path or database._db_url()
+        self.db_path = self.db_url  # backward compatibility for tests
+        self.dialect = database.check_dialect()
         self._init_db()
 
+    def _connect(self):
+        """Return a dialect-aware connection."""
+        return database.connect(self.db_url)
+
     def _init_db(self):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
 
-        # Events table with full provenance
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS multimodal_events (
-                event_id TEXT PRIMARY KEY,
-                patient_id TEXT NOT NULL,
-                event_type TEXT NOT NULL,
-                modality TEXT NOT NULL,
-                source_system TEXT NOT NULL,
-                source_record_id TEXT NOT NULL,
-                timestamp TEXT NOT NULL,
-                value_summary TEXT NOT NULL,
-                numeric_features TEXT,
-                textual_summary TEXT,
-                confidence REAL DEFAULT 0.0,
-                data_quality TEXT DEFAULT 'unknown',
-                provenance TEXT,
-                evidence_links TEXT,
-                audit_reference TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+            # Events table
+            cur.execute(database.adapt_sql("""
+                CREATE TABLE IF NOT EXISTS multimodal_events (
+                    event_id TEXT PRIMARY KEY,
+                    patient_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    modality TEXT NOT NULL,
+                    source_system TEXT NOT NULL,
+                    source_record_id TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    value_summary TEXT NOT NULL,
+                    numeric_features TEXT,
+                    textual_summary TEXT,
+                    confidence REAL DEFAULT 0.0,
+                    data_quality TEXT DEFAULT 'unknown',
+                    provenance TEXT,
+                    evidence_links TEXT,
+                    audit_reference TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """, self.dialect))
 
-        # Evidence database
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS evidence_db (
-                evidence_id TEXT PRIMARY KEY,
-                source_type TEXT NOT NULL,
-                citation TEXT NOT NULL,
-                evidence_grade TEXT,
-                confidence REAL DEFAULT 0.0,
-                research_only INTEGER DEFAULT 1,
-                conflicting INTEGER DEFAULT 0,
-                url TEXT,
-                modality_scope TEXT,
-                clinical_tags TEXT
-            )
-        """)
+            # Evidence database
+            cur.execute(database.adapt_sql("""
+                CREATE TABLE IF NOT EXISTS evidence_db (
+                    evidence_id TEXT PRIMARY KEY,
+                    source_type TEXT NOT NULL,
+                    citation TEXT NOT NULL,
+                    evidence_grade TEXT,
+                    confidence REAL DEFAULT 0.0,
+                    research_only INTEGER DEFAULT 1,
+                    conflicting INTEGER DEFAULT 0,
+                    url TEXT,
+                    modality_scope TEXT,
+                    clinical_tags TEXT
+                )
+            """, self.dialect))
 
-        # Patient access control
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS patient_access (
-                patient_id TEXT NOT NULL,
-                clinic_id TEXT NOT NULL,
-                clinician_id TEXT NOT NULL,
-                access_level TEXT DEFAULT 'read',
-                ai_analysis_consent INTEGER DEFAULT 0,
-                PRIMARY KEY (patient_id, clinic_id, clinician_id)
-            )
-        """)
+            # Patient access control
+            cur.execute(database.adapt_sql("""
+                CREATE TABLE IF NOT EXISTS patient_access (
+                    patient_id TEXT NOT NULL,
+                    clinic_id TEXT NOT NULL,
+                    clinician_id TEXT NOT NULL,
+                    access_level TEXT DEFAULT 'read',
+                    ai_analysis_consent INTEGER DEFAULT 0,
+                    PRIMARY KEY (patient_id, clinic_id, clinician_id)
+                )
+            """, self.dialect))
 
-        # Audit log
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS audit_log (
-                audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
-                endpoint TEXT,
-                clinician_id TEXT,
-                clinic_id TEXT,
-                patient_id TEXT,
-                action TEXT,
-                request_hash TEXT,
-                response_status TEXT
-            )
-        """)
+            # Audit log
+            cur.execute(database.adapt_sql("""
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                    endpoint TEXT,
+                    clinician_id TEXT,
+                    clinic_id TEXT,
+                    patient_id TEXT,
+                    action TEXT,
+                    request_hash TEXT,
+                    response_status TEXT
+                )
+            """, self.dialect))
 
-        # Seed sample evidence
-        self._seed_evidence(cursor)
-
-        conn.commit()
-        conn.close()
+            self._seed_evidence(cur)
+            conn.commit()
+        finally:
+            conn.close()
 
     def _seed_evidence(self, cursor):
         """Seed evidence database with starter citations."""
@@ -112,10 +126,17 @@ class KnowledgeLayer:
              "B", 0.65, 1, 1, "https://pubmed.ncbi.nlm.nih.gov/1268288/", "assessment", "cognitive_assessment,sensitivity"),
         ]
         try:
-            cursor.executemany(
-                "INSERT OR IGNORE INTO evidence_db VALUES (?,?,?,?,?,?,?,?,?,?)",
-                seed
-            )
+            if self.dialect == "postgresql":
+                cursor.executemany(
+                    "INSERT INTO evidence_db VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                    "ON CONFLICT (evidence_id) DO NOTHING",
+                    seed
+                )
+            else:
+                cursor.executemany(
+                    "INSERT OR IGNORE INTO evidence_db VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    seed
+                )
         except Exception:
             pass
 
@@ -126,146 +147,205 @@ class KnowledgeLayer:
         date_range: Optional[Tuple[datetime, datetime]] = None,
     ) -> List[MultimodalEvent]:
         """Retrieve events for a patient with optional filtering."""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            ph = "%s" if self.dialect == "postgresql" else "?"
 
-        query = "SELECT * FROM multimodal_events WHERE patient_id = ?"
-        params = [patient_id]
+            query = f"SELECT * FROM multimodal_events WHERE patient_id = {ph}"
+            params = [patient_id]
 
-        if modality_filter:
-            placeholders = ",".join("?" * len(modality_filter))
-            query += f" AND modality IN ({placeholders})"
-            params.extend(modality_filter)
+            if modality_filter:
+                placeholders = ",".join([ph] * len(modality_filter))
+                query += f" AND modality IN ({placeholders})"
+                params.extend(modality_filter)
 
-        if date_range:
-            query += " AND timestamp >= ? AND timestamp <= ?"
-            params.extend([date_range[0].isoformat(), date_range[1].isoformat()])
+            if date_range:
+                query += f" AND timestamp >= {ph} AND timestamp <= {ph}"
+                params.extend([date_range[0].isoformat(), date_range[1].isoformat()])
 
-        query += " ORDER BY timestamp ASC"
+            query += " ORDER BY timestamp ASC"
 
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-        conn.close()
+            cur.execute(query, tuple(params))
+            rows = cur.fetchall()
 
-        events = []
-        for row in rows:
-            events.append(self._row_to_event(row))
-        return events
+            events = []
+            for row in rows:
+                events.append(self._row_to_event(row, cur))
+            return events
+        finally:
+            conn.close()
 
     def insert_event(self, event: MultimodalEvent) -> str:
         """Insert a multimodal event into the knowledge layer."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT OR REPLACE INTO multimodal_events
-            (event_id, patient_id, event_type, modality, source_system, source_record_id,
-             timestamp, value_summary, numeric_features, textual_summary, confidence,
-             data_quality, provenance, evidence_links, audit_reference)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            event.event_id, event.patient_id, event.event_type, event.modality,
-            event.source_system, event.source_record_id, event.timestamp.isoformat(),
-            event.value_summary, json.dumps(event.numeric_features), event.textual_summary,
-            event.confidence, event.data_quality, json.dumps(event.provenance),
-            json.dumps(event.evidence_links), event.audit_reference,
-        ))
-        conn.commit()
-        conn.close()
-        return event.event_id
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            ph = "%s" if self.dialect == "postgresql" else "?"
+            if self.dialect == "postgresql":
+                cur.execute(
+                    f"INSERT INTO multimodal_events "
+                    f"(event_id, patient_id, event_type, modality, source_system, source_record_id, "
+                    f"timestamp, value_summary, numeric_features, textual_summary, confidence, "
+                    f"data_quality, provenance, evidence_links, audit_reference) "
+                    f"VALUES ({ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph}) "
+                    f"ON CONFLICT (event_id) DO UPDATE SET "
+                    f"patient_id=EXCLUDED.patient_id, event_type=EXCLUDED.event_type, "
+                    f"modality=EXCLUDED.modality, source_system=EXCLUDED.source_system, "
+                    f"source_record_id=EXCLUDED.source_record_id, timestamp=EXCLUDED.timestamp, "
+                    f"value_summary=EXCLUDED.value_summary, numeric_features=EXCLUDED.numeric_features, "
+                    f"textual_summary=EXCLUDED.textual_summary, confidence=EXCLUDED.confidence, "
+                    f"data_quality=EXCLUDED.data_quality, provenance=EXCLUDED.provenance, "
+                    f"evidence_links=EXCLUDED.evidence_links, audit_reference=EXCLUDED.audit_reference",
+                    (event.event_id, event.patient_id, event.event_type, event.modality,
+                     event.source_system, event.source_record_id, event.timestamp.isoformat(),
+                     event.value_summary, json.dumps(event.numeric_features), event.textual_summary,
+                     event.confidence, event.data_quality, json.dumps(event.provenance),
+                     json.dumps(event.evidence_links), event.audit_reference)
+                )
+            else:
+                cur.execute(
+                    "INSERT OR REPLACE INTO multimodal_events "
+                    "(event_id, patient_id, event_type, modality, source_system, source_record_id, "
+                    "timestamp, value_summary, numeric_features, textual_summary, confidence, "
+                    "data_quality, provenance, evidence_links, audit_reference) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (event.event_id, event.patient_id, event.event_type, event.modality,
+                     event.source_system, event.source_record_id, event.timestamp.isoformat(),
+                     event.value_summary, json.dumps(event.numeric_features), event.textual_summary,
+                     event.confidence, event.data_quality, json.dumps(event.provenance),
+                     json.dumps(event.evidence_links), event.audit_reference)
+                )
+            conn.commit()
+            return event.event_id
+        finally:
+            conn.close()
 
     def get_evidence_for_modalities(self, modalities: List[str]) -> List[EvidenceLink]:
         """Retrieve relevant evidence for given modalities."""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-
-        evidence = []
-        for modality in modalities:
-            cursor.execute(
-                "SELECT * FROM evidence_db WHERE modality_scope LIKE ? OR modality_scope = ?",
-                (f"%{modality}%", modality)
-            )
-            for row in cursor.fetchall():
-                evidence.append(self._row_to_evidence(row))
-
-        conn.close()
-        return evidence
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            evidence = []
+            ph = "%s" if self.dialect == "postgresql" else "?"
+            for modality in modalities:
+                if self.dialect == "postgresql":
+                    cur.execute(
+                        "SELECT * FROM evidence_db WHERE modality_scope LIKE %s OR modality_scope = %s",
+                        (f"%{modality}%", modality)
+                    )
+                else:
+                    cur.execute(
+                        "SELECT * FROM evidence_db WHERE modality_scope LIKE ? OR modality_scope = ?",
+                        (f"%{modality}%", modality)
+                    )
+                for row in cur.fetchall():
+                    evidence.append(self._row_to_evidence(row, cur))
+            return evidence
+        finally:
+            conn.close()
 
     def get_evidence_by_grade(self, min_grade: str = "C") -> List[EvidenceLink]:
         """Get evidence meeting minimum grade threshold."""
         grade_order = {"A": 4, "B": 3, "C": 2, "D": 1}
         min_val = grade_order.get(min_grade, 1)
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM evidence_db")
-        results = []
-        for row in cursor.fetchall():
-            if grade_order.get(row["evidence_grade"], 0) >= min_val:
-                results.append(self._row_to_evidence(row))
-        conn.close()
-        return results
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM evidence_db")
+            results = []
+            for row in cur.fetchall():
+                grade = self._col_value(row, cur, "evidence_grade")
+                if grade_order.get(grade, 0) >= min_val:
+                    results.append(self._row_to_evidence(row, cur))
+            return results
+        finally:
+            conn.close()
 
     def log_audit(self, endpoint: str, clinician_id: str, clinic_id: str,
                   patient_id: str, action: str, request_hash: str = "",
                   response_status: str = ""):
         """Log an audit entry."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO audit_log (endpoint, clinician_id, clinic_id, patient_id, action, request_hash, response_status)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (endpoint, clinician_id, clinic_id, patient_id, action, request_hash, response_status))
-        conn.commit()
-        conn.close()
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            ph = "%s" if self.dialect == "postgresql" else "?"
+            cur.execute(
+                f"INSERT INTO audit_log (endpoint, clinician_id, clinic_id, patient_id, action, request_hash, response_status) "
+                f"VALUES ({ph},{ph},{ph},{ph},{ph},{ph},{ph})",
+                (endpoint, clinician_id, clinic_id, patient_id, action, request_hash, response_status)
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
     def check_patient_access(self, patient_id: str, clinic_id: str,
                              clinician_id: str) -> Dict[str, Any]:
         """Check if clinician has access to patient."""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT * FROM patient_access WHERE patient_id = ? AND clinic_id = ? AND clinician_id = ?
-        """, (patient_id, clinic_id, clinician_id))
-        row = cursor.fetchone()
-        conn.close()
-        if row:
-            return {
-                "has_access": True,
-                "access_level": row["access_level"],
-                "ai_analysis_consent": bool(row["ai_analysis_consent"]),
-            }
-        return {"has_access": False, "access_level": None, "ai_analysis_consent": False}
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            ph = "%s" if self.dialect == "postgresql" else "?"
+            cur.execute(
+                f"SELECT * FROM patient_access WHERE patient_id = {ph} AND clinic_id = {ph} AND clinician_id = {ph}",
+                (patient_id, clinic_id, clinician_id)
+            )
+            row = cur.fetchone()
+            if row:
+                return {
+                    "has_access": True,
+                    "access_level": self._col_value(row, cur, "access_level"),
+                    "ai_analysis_consent": bool(self._col_value(row, cur, "ai_analysis_consent")),
+                }
+            return {"has_access": False, "access_level": None, "ai_analysis_consent": False}
+        finally:
+            conn.close()
 
-    def _row_to_event(self, row: sqlite3.Row) -> MultimodalEvent:
+    # ── Column value helpers (dialect-agnostic) ──────────────────
+
+    def _col_value(self, row, cursor, name: str):
+        """Get column value by name from a row."""
+        if hasattr(row, name):
+            return getattr(row, name)
+        if hasattr(row, "__getitem__"):
+            if hasattr(cursor, "description") and cursor.description:
+                for i, desc in enumerate(cursor.description):
+                    if desc[0] == name:
+                        return row[i]
+            # Fallback for psycopg2 RealDictRow
+            try:
+                return row[name]
+            except (KeyError, TypeError):
+                pass
+        return None
+
+    def _row_to_event(self, row, cursor=None) -> MultimodalEvent:
         return MultimodalEvent(
-            event_id=row["event_id"],
-            patient_id=row["patient_id"],
-            event_type=row["event_type"],
-            modality=row["modality"],
-            source_system=row["source_system"],
-            source_record_id=row["source_record_id"],
-            timestamp=datetime.fromisoformat(row["timestamp"]),
-            value_summary=row["value_summary"],
-            numeric_features=json.loads(row["numeric_features"] or "{}"),
-            textual_summary=row["textual_summary"] or "",
-            confidence=row["confidence"] or 0.0,
-            data_quality=row["data_quality"] or "unknown",
-            provenance=json.loads(row["provenance"] or "{}"),
-            evidence_links=json.loads(row["evidence_links"] or "[]"),
-            audit_reference=row["audit_reference"] or "",
+            event_id=self._col_value(row, cursor, "event_id") or "",
+            patient_id=self._col_value(row, cursor, "patient_id") or "",
+            event_type=self._col_value(row, cursor, "event_type") or "",
+            modality=self._col_value(row, cursor, "modality") or "",
+            source_system=self._col_value(row, cursor, "source_system") or "",
+            source_record_id=self._col_value(row, cursor, "source_record_id") or "",
+            timestamp=datetime.fromisoformat(self._col_value(row, cursor, "timestamp")),
+            value_summary=self._col_value(row, cursor, "value_summary") or "",
+            numeric_features=json.loads(self._col_value(row, cursor, "numeric_features") or "{}"),
+            textual_summary=self._col_value(row, cursor, "textual_summary") or "",
+            confidence=self._col_value(row, cursor, "confidence") or 0.0,
+            data_quality=self._col_value(row, cursor, "data_quality") or "unknown",
+            provenance=json.loads(self._col_value(row, cursor, "provenance") or "{}"),
+            evidence_links=json.loads(self._col_value(row, cursor, "evidence_links") or "[]"),
+            audit_reference=self._col_value(row, cursor, "audit_reference") or "",
         )
 
-    def _row_to_evidence(self, row: sqlite3.Row) -> EvidenceLink:
+    def _row_to_evidence(self, row, cursor=None) -> EvidenceLink:
         return EvidenceLink(
-            evidence_id=row["evidence_id"],
-            source_type=row["source_type"],
-            citation=row["citation"],
-            evidence_grade=row["evidence_grade"],
-            confidence=row["confidence"] or 0.0,
-            research_only=bool(row["research_only"]),
-            conflicting=bool(row["conflicting"]),
-            url=row["url"],
+            evidence_id=self._col_value(row, cursor, "evidence_id") or "",
+            source_type=self._col_value(row, cursor, "source_type") or "",
+            citation=self._col_value(row, cursor, "citation") or "",
+            evidence_grade=self._col_value(row, cursor, "evidence_grade"),
+            confidence=self._col_value(row, cursor, "confidence") or 0.0,
+            research_only=bool(self._col_value(row, cursor, "research_only")),
+            conflicting=bool(self._col_value(row, cursor, "conflicting")),
+            url=self._col_value(row, cursor, "url"),
         )

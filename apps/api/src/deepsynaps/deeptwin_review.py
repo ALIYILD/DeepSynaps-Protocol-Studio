@@ -7,8 +7,8 @@ All outputs carry: "Decision support only. Requires clinician review."
 from __future__ import annotations
 
 import json
-import sqlite3
 import uuid
+import database
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -90,15 +90,20 @@ class DeepTwinReviewEngine:
 
     def __init__(self, knowledge_layer: KnowledgeLayer) -> None:
         self.kl = knowledge_layer
-        self.db_path = knowledge_layer.db_path
+        self.db_url = knowledge_layer.db_url
+        self.dialect = database.check_dialect()
         self._init_tables()
+
+    def _connect(self):
+        return database.connect(self.db_url)
 
     # ------------------------------------------------------------------
     # Schema
     # ------------------------------------------------------------------
     def _init_tables(self) -> None:
-        conn = sqlite3.connect(self.db_path, timeout=10.0)
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn = self._connect()
+        if self.dialect == "sqlite":
+            conn.raw.execute("PRAGMA journal_mode=WAL")
         cursor = conn.cursor()
 
         # -- Immutable review records (append-only) --------------------
@@ -180,7 +185,7 @@ class DeepTwinReviewEngine:
             },
         )
 
-        conn = sqlite3.connect(self.db_path, timeout=10.0)
+        conn = self._connect()
         try:
             cursor = conn.cursor()
 
@@ -238,8 +243,7 @@ class DeepTwinReviewEngine:
     # ------------------------------------------------------------------
     def get_reviews_for_patient(self, patient_id: str) -> List[ClinicianReview]:
         """Retrieve all reviews for a patient."""
-        conn = sqlite3.connect(self.db_path, timeout=10.0)
-        conn.row_factory = sqlite3.Row
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             "SELECT * FROM deeptwin_reviews WHERE patient_id = ? ORDER BY reviewed_at ASC",
@@ -251,8 +255,7 @@ class DeepTwinReviewEngine:
 
     def get_reviews_for_snapshot(self, snapshot_id: str) -> List[ClinicianReview]:
         """Retrieve all reviews for a snapshot."""
-        conn = sqlite3.connect(self.db_path, timeout=10.0)
-        conn.row_factory = sqlite3.Row
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             "SELECT * FROM deeptwin_reviews WHERE snapshot_id = ? ORDER BY reviewed_at ASC",
@@ -434,7 +437,7 @@ class DeepTwinReviewEngine:
             },
         )
 
-        conn = sqlite3.connect(self.db_path, timeout=10.0)
+        conn = self._connect()
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -480,8 +483,7 @@ class DeepTwinReviewEngine:
 
     def get_tasks_for_patient(self, patient_id: str) -> List[FollowUpTask]:
         """Retrieve follow-up tasks for a patient."""
-        conn = sqlite3.connect(self.db_path, timeout=10.0)
-        conn.row_factory = sqlite3.Row
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             "SELECT * FROM deeptwin_tasks WHERE patient_id = ? ORDER BY created_at ASC",
@@ -493,7 +495,7 @@ class DeepTwinReviewEngine:
 
     def complete_task(self, task_id: str) -> bool:
         """Mark a follow-up task as completed."""
-        conn = sqlite3.connect(self.db_path, timeout=10.0)
+        conn = self._connect()
         cursor = conn.cursor()
         now = datetime.now().isoformat()
         cursor.execute(
@@ -514,8 +516,7 @@ class DeepTwinReviewEngine:
         snapshot_id: Optional[str] = None,
     ) -> List[DeepTwinAuditEvent]:
         """Retrieve DeepTwin audit events, optionally filtered."""
-        conn = sqlite3.connect(self.db_path, timeout=10.0)
-        conn.row_factory = sqlite3.Row
+        conn = self._connect()
         cursor = conn.cursor()
 
         query = "SELECT * FROM deeptwin_audit_events WHERE 1=1"
@@ -552,7 +553,7 @@ class DeepTwinReviewEngine:
             snapshot_id=snapshot_id,
             details=details or {},
         )
-        conn = sqlite3.connect(self.db_path, timeout=10.0)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             """
