@@ -36,7 +36,6 @@ from app.auth import (
 )
 from app.database import get_db_session
 from app.repositories.audit import create_audit_event
-from app.services.access_control_service import require_clinical_role, require_admin_role
 from app.services.analyzer_v2_service import (
     get_cognitive_demo_data,
     get_fnirs_demo_data,
