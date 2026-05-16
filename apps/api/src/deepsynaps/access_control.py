@@ -528,7 +528,7 @@ class AccessControlDecorators:
         Parameters
         ----------
         allowed_roles : list of str
-            Minimum required roles.
+            Minimum required roles. More-privileged roles are auto-allowed.
         require_ai_consent : bool
             Whether AI consent is required for this endpoint.
         require_clinic_isolation : bool
@@ -549,7 +549,40 @@ class AccessControlDecorators:
             ai_synthesis: bool = False,
             endpoint: str = "",
         ) -> Dict[str, Any]:
-            # Use the main authenticate_request method for consistency
+            # First: check role is in the allowed set (with hierarchy)
+            if role not in ROLE_HIERARCHY:
+                return {
+                    "authorized": False,
+                    "errors": [
+                        f"Role '{role}' is not recognized. "
+                        f"Valid roles: {', '.join(ROLE_HIERARCHY)}"
+                    ],
+                }
+
+            # Check role hierarchy: role must be at least one of allowed_roles
+            role_ok = any(
+                _is_role_at_least(role, required_role)
+                for required_role in allowed_roles
+            )
+            if not role_ok:
+                return {
+                    "authorized": False,
+                    "errors": [
+                        f"Role '{role}' not authorized for this operation. "
+                        f"Required one of: {', '.join(allowed_roles)}"
+                    ],
+                }
+
+            # Check required permission: can_read_patient
+            if not _role_has_permission(role, "can_read_patient"):
+                return {
+                    "authorized": False,
+                    "errors": [
+                        f"Role '{role}' does not have permission to read patient data"
+                    ],
+                }
+
+            # Second: use the main authenticate_request for clinic isolation + consent
             return ac.authenticate_request(
                 patient_id=patient_id,
                 clinician_id=clinician_id,
