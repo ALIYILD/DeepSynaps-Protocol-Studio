@@ -28,7 +28,6 @@ from app.auth import (
 )
 from app.database import get_db_session
 from app.repositories.audit import create_audit_event
-from app.services.access_control_service import require_clinical_role, require_admin_role
 
 router = APIRouter(prefix="/api/v1/ecosystem", tags=["ecosystem"])
 

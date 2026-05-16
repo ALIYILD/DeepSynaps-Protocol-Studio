@@ -273,7 +273,6 @@ from app.routers.rotation_policy_advisor_threshold_tuning_router import (
 from app.routers.treatment_sessions_router import router as treatment_sessions_router
 from app.routers.rehab_router import router as rehab_router
 from app.routers.wellness_router import router as wellness_router
-from app.routers.complementary_router import router as complementary_router
 from app.routers.analyzer_v2_router import router as analyzer_v2_router
 from app.routers.intelligence_hub_router import router as intelligence_hub_router
 from app.routers.admin_governance_router import router as admin_governance_router
@@ -766,7 +765,6 @@ app.include_router(crm_router)
 # wellness coaching, and complementary therapy management.
 app.include_router(rehab_router)
 app.include_router(wellness_router)
-app.include_router(complementary_router)
 app.include_router(analyzer_v2_router)
 app.include_router(intelligence_hub_router)
 app.include_router(admin_governance_router)
