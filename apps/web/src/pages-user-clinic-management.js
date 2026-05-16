@@ -1,11 +1,11 @@
-/
+//
 
 
 let clinicData = DEMO_DATA_FALLBACK;
-mport { api } from './api.js';
-import { currentUser } from './state.js';
+import { api } from './api.js';
+import { currentUser } from './auth.js';
 
-**
+/**
  * DeepSynaps Protocol Studio — Clinic User & Staff Management Page
  * Super-admin page for managing clinic users, roles, MFA status,
  * account activation/deactivation, and password resets.

@@ -1,11 +1,11 @@
-/
+//
 
 
 let auditData = AUDIT_DATA_FALLBACK;
-mport { api } from './api.js';
-import { currentUser } from './state.js';
+import { api } from './api.js';
+import { currentUser } from './auth.js';
 
-**
+/**
  * DeepSynaps Protocol Studio — PHI Access Audit Trail Page
  * Full audit log viewer for PHI access, exports, role changes, and anomalies.
  * Provides immutable audit chain visualization with governance checks.

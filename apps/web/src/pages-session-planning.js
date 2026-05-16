@@ -1,11 +1,11 @@
-/
+//
 
 
 let sessionsData = DEMO_SESSIONS_FALLBACK;
-mport { api } from './api.js';
-import { currentUser } from './state.js';
+import { api } from './api.js';
+import { currentUser } from './auth.js';
 
-**
+/**
  * pages-session-planning.js
  * DeepSynaps Protocol Studio — Session Scheduling + Protocol Sequencing
  *

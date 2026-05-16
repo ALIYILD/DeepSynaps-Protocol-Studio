@@ -1,8 +1,7 @@
-/
 import { api } from './api.js';
-import { currentUser } from './state.js';
+import { currentUser } from './auth.js';
 
-**
+/**
  * pages-home-program.js — Home Therapy Task Assignment + Tracking
  *
  * Scope: home exercise program management, task assignment to patients,

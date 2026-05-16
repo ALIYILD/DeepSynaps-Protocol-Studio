@@ -96,7 +96,7 @@ const styles = `
 
 
 import { api } from './api.js';
-import { currentUser } from './state.js';
+import { currentUser } from './auth.js';
 
 /**
  * Surgical case dataset — 13 cases across DBS, VNS, RNS, SCS.

@@ -1,11 +1,11 @@
-/
+//
 
 
 let groupsData = DEMO_GROUPS_FALLBACK;
-mport { api } from './api.js';
-import { currentUser } from './state.js';
+import { api } from './api.js';
+import { currentUser } from './auth.js';
 
-**
+/**
  * pages-group-therapy.js — Group/Cohort Therapy Session Management
  *
  * Scope: group therapy program tracking, participant rosters,

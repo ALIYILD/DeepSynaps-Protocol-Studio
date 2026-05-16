@@ -1,11 +1,11 @@
-/
+//
 
 
 let goalsData = DEMO_GOALS_FALLBACK;
-mport { api } from './api.js';
-import { currentUser } from './state.js';
+import { api } from './api.js';
+import { currentUser } from './auth.js';
 
-**
+/**
  * pages-patient-goals.js — Patient Goal-Setting + Care Plan
  *
  * Scope: SMART goal tracking for patients across clinical domains.
