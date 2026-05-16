@@ -1,0 +1,10 @@
+# E2E test artifacts (auto-generated)
+.auth/
+results/
+test-results/
+e2e-results/
+report/
+e2e-report/
+playwright-report/
+*.png
+*.webm

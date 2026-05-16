@@ -5,3 +5,8 @@ __pycache__/
 *.db
 .env
 
+# E2E artifacts
+apps/web/e2e-results/
+apps/web/e2e-report/
+apps/web/playwright-report/
+apps/web/.auth/
