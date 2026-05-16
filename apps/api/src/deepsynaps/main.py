@@ -1,4 +1,4 @@
-"""DeepSynaps Protocol Studio — Phase 3 Multimodal Intelligence Engine API."""
+"""DeepSynaps Protocol Studio — Phase 4 DeepTwin API + Phase 3 Multimodal Intelligence Engine."""
 
 from datetime import datetime
 from typing import Annotated, Any, Dict, List, Optional
@@ -8,11 +8,15 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from contracts import SynthesisRequest
+from deeptwin_contracts import DeepTwinSnapshot, ClinicianReview, DeepTwinAuditEvent, DeepTwinExport
 from knowledge_layer import KnowledgeLayer
 from access_control import AccessControl
 from audit_logger import AuditLogger
 from synthesis_service import SynthesisService
 from safety_governance import SafetyGovernance
+from deeptwin_snapshot import DeepTwinSnapshotEngine as DeepTwinSnapshotEngineModule
+from deeptwin_export import DeepTwinExportEngine as DeepTwinExportEngineModule
+from deeptwin_audit import DeepTwinAuditLogger as DeepTwinAuditLoggerModule
 
 # ── Dependency Injection ──────────────────────────────────────────────────────
 
@@ -48,11 +52,103 @@ def get_synthesis_service(
     return SynthesisService(kl)
 
 
+# ── DeepTwin Dependency Injectors (Phase 4) ───────────────────────────────────
+# Phase 4 engines are imported from their dedicated modules:
+#   deeptwin_snapshot  → DeepTwinSnapshotEngine
+#   deeptwin_export    → DeepTwinExportEngine
+#   deeptwin_audit     → DeepTwinAuditLogger
+
+class DeepTwinSnapshotEngine(DeepTwinSnapshotEngineModule):
+    """Re-export from dedicated module with FastAPI-compatible interface."""
+    pass
+
+
+class DeepTwinReviewEngine:
+    """Engine for clinician reviews on DeepTwin snapshots."""
+
+    def __init__(self, knowledge_layer: KnowledgeLayer):
+        self.kl = knowledge_layer
+        self._reviews: Dict[str, ClinicianReview] = {}
+
+    def create_review(
+        self,
+        patient_id: str,
+        clinician_id: str,
+        snapshot_id: str,
+        hypothesis_id: str,
+        action: str,
+        note: str = "",
+        requested_modalities: Optional[List[str]] = None,
+    ) -> ClinicianReview:
+        """Create a clinician review record."""
+        review = ClinicianReview(
+            patient_id=patient_id,
+            clinician_id=clinician_id,
+            snapshot_id=snapshot_id,
+            hypothesis_id=hypothesis_id,
+            action=action,
+            note=note,
+            requested_modalities=requested_modalities or [],
+        )
+        self._reviews[review.review_id] = review
+        return review
+
+    def get_reviews_for_patient(self, patient_id: str) -> List[ClinicianReview]:
+        """Get all reviews for a patient."""
+        return [
+            r for r in self._reviews.values()
+            if r.patient_id == patient_id
+        ]
+
+
+class DeepTwinExportEngine(DeepTwinExportEngineModule):
+    """Re-export from dedicated module with FastAPI-compatible interface."""
+    pass
+
+
+class DeepTwinAuditLogger(DeepTwinAuditLoggerModule):
+    """Re-export from dedicated module with FastAPI-compatible interface."""
+    pass
+
+
+def get_deeptwin_snapshot_engine(
+    kl: Annotated[KnowledgeLayer, Depends(get_knowledge_layer)]
+) -> DeepTwinSnapshotEngine:
+    """FastAPI dependency: DeepTwinSnapshotEngine with injected KnowledgeLayer."""
+    return DeepTwinSnapshotEngine(kl)
+
+
+def get_deeptwin_review_engine(
+    kl: Annotated[KnowledgeLayer, Depends(get_knowledge_layer)]
+) -> DeepTwinReviewEngine:
+    """FastAPI dependency: DeepTwinReviewEngine with injected KnowledgeLayer."""
+    return DeepTwinReviewEngine(kl)
+
+
+def get_deeptwin_export_engine(
+    kl: Annotated[KnowledgeLayer, Depends(get_knowledge_layer)]
+) -> DeepTwinExportEngine:
+    """FastAPI dependency: DeepTwinExportEngine with injected KnowledgeLayer."""
+    return DeepTwinExportEngine(kl)
+
+
+def get_deeptwin_audit_logger(
+    kl: Annotated[KnowledgeLayer, Depends(get_knowledge_layer)]
+) -> DeepTwinAuditLogger:
+    """FastAPI dependency: DeepTwinAuditLogger with injected KnowledgeLayer."""
+    return DeepTwinAuditLogger(kl)
+
+
 # ── Pydantic Models ───────────────────────────────────────────────────────────
 
 SAFETY_DISCLAIMER = (
     "This output is decision support only and requires clinician review. "
     "It does not constitute a diagnosis or treatment recommendation."
+)
+
+DEEPTWIN_SAFETY_DISCLAIMER = (
+    "Decision support only. Requires clinician review. "
+    "DeepTwin does not diagnose, prescribe, or prove causality."
 )
 
 
@@ -108,6 +204,69 @@ class HealthResponse(BaseModel):
     modules: List[str]
 
 
+# ── DeepTwin Pydantic Models ──────────────────────────────────────────────────
+
+class DeepTwinSnapshotResponse(BaseModel):
+    snapshot: Dict[str, Any]
+    safety_disclaimer: str = DEEPTWIN_SAFETY_DISCLAIMER
+
+
+class DeepTwinTimelineResponse(BaseModel):
+    patient_id: str
+    modality_coverage: Dict[str, bool]
+    recency_status: Dict[str, str]
+    events: List[Dict[str, Any]]
+    event_count: int
+    safety_disclaimer: str = DEEPTWIN_SAFETY_DISCLAIMER
+
+
+class DeepTwinHypothesesResponse(BaseModel):
+    patient_id: str
+    ranked_hypotheses: List[Dict[str, Any]]
+    hypothesis_count: int
+    safety_disclaimer: str = DEEPTWIN_SAFETY_DISCLAIMER
+
+
+class DeepTwinSynthesisBody(BaseModel):
+    include_modalities: Optional[List[str]] = None
+    date_range: Optional[List[str]] = None
+    max_hypotheses: int = 5
+
+
+class DeepTwinSynthesisResponse(BaseModel):
+    snapshot: Dict[str, Any]
+    safety_disclaimer: str = DEEPTWIN_SAFETY_DISCLAIMER
+
+
+class DeepTwinReviewBody(BaseModel):
+    clinician_id: str
+    snapshot_id: str
+    hypothesis_id: str
+    action: str = Field(..., pattern=r"^(accept|reject|note|request_data|mark_reviewed)$")
+    note: str = ""
+    requested_modalities: List[str] = Field(default_factory=list)
+
+
+class DeepTwinReviewResponse(BaseModel):
+    review_id: str
+    action: str
+    status: str = "recorded"
+    safety_disclaimer: str = DEEPTWIN_SAFETY_DISCLAIMER
+
+
+class DeepTwinExportBody(BaseModel):
+    clinician_id: str
+    snapshot_id: str
+    export_type: str = Field(..., pattern=r"^(json|pdf|report_handoff|protocol_handoff)$")
+
+
+class DeepTwinExportResponse(BaseModel):
+    export_id: str
+    export_type: str
+    audit_reference: str
+    safety_disclaimer: str = DEEPTWIN_SAFETY_DISCLAIMER
+
+
 # ── Auth Dependency ───────────────────────────────────────────────────────────
 
 def require_clinician_auth(
@@ -146,13 +305,13 @@ def require_clinician_auth(
 # ── FastAPI App ───────────────────────────────────────────────────────────────
 
 app = FastAPI(
-    title="DeepSynaps Protocol Studio — Phase 3 Multimodal Intelligence Engine",
+    title="DeepSynaps Protocol Studio — Phase 4 DeepTwin + Phase 3 Multimodal Intelligence",
     description=(
-        "API for multimodal intelligence synthesis across patient data. "
+        "API for DeepTwin patient-level synthesis and multimodal intelligence. "
         "All endpoints require clinician role and clinic isolation. "
-        "All outputs include safety disclaimers."
+        "All outputs include safety disclaimers. DeepTwin does not diagnose."
     ),
-    version="3.0.0",
+    version="4.0.0",
 )
 
 
@@ -161,7 +320,7 @@ async def health_check():
     """Health check endpoint."""
     return {
         "status": "ok",
-        "phase": "3",
+        "phase": "4",
         "modules": [
             "timeline",
             "correlation",
@@ -169,9 +328,16 @@ async def health_check():
             "evidence",
             "hypothesis",
             "missing_data",
+            "deeptwin_snapshot",
+            "deeptwin_review",
+            "deeptwin_export",
         ],
     }
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PHASE 3 ENDPOINTS ( preserved )
+# ═══════════════════════════════════════════════════════════════════════════════
 
 @app.get(
     "/api/v1/multimodal/patients/{patient_id}/timeline",
@@ -347,7 +513,6 @@ async def post_patient_synthesis(
     svc: Annotated[SynthesisService, Depends(get_synthesis_service)] = ...,
 ):
     """Generate full multimodal synthesis for a patient. Requires ai_analysis_consent."""
-    # Additional consent check for synthesis
     auth_result = ac.authenticate_request(
         patient_id=patient_id,
         clinician_id=clinician_id,
@@ -393,11 +558,329 @@ async def post_patient_synthesis(
     return response.to_dict()
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# PHASE 4 DEEPTWIN ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── GET /api/v1/deeptwin/patients/{patient_id}/snapshot ───────────────────────
+
+@app.get(
+    "/api/v1/deeptwin/patients/{patient_id}/snapshot",
+    response_model=DeepTwinSnapshotResponse,
+)
+async def get_deeptwin_snapshot(
+    request: Request,
+    patient_id: str,
+    clinician_id: Annotated[str, Query(..., description="Clinician ID")],
+    x_clinic_id: Annotated[str, Header(..., description="Clinic ID")] = ...,
+    x_patient_access_token: Annotated[str, Header(..., description="Patient access token")] = ...,
+    auth: Annotated[Dict[str, Any], Depends(require_clinician_auth)] = ...,
+    engine: Annotated[DeepTwinSnapshotEngine, Depends(get_deeptwin_snapshot_engine)] = ...,
+    audit: Annotated[AuditLogger, Depends(get_audit_logger)] = ...,
+    dt_audit: Annotated[DeepTwinAuditLogger, Depends(get_deeptwin_audit_logger)] = ...,
+):
+    """Get a DeepTwin snapshot with all synthesis data for a patient."""
+    snapshot = engine.get_snapshot(patient_id=patient_id)
+
+    audit.log_intelligence_request(
+        endpoint=f"/api/v1/deeptwin/patients/{patient_id}/snapshot",
+        patient_id=patient_id,
+        clinician_id=clinician_id,
+        clinic_id=x_clinic_id,
+        request_params={},
+        response_status="success",
+        insight_count=len(snapshot.ranked_hypotheses),
+    )
+    dt_audit.log_deeptwin_event(
+        patient_id=patient_id,
+        clinician_id=clinician_id,
+        event_type="deeptwin_opened",
+        snapshot_id=snapshot.snapshot_id,
+    )
+
+    return {
+        "snapshot": snapshot.to_dict(),
+        "safety_disclaimer": DEEPTWIN_SAFETY_DISCLAIMER,
+    }
+
+
+# ── GET /api/v1/deeptwin/patients/{patient_id}/timeline ───────────────────────
+
+@app.get(
+    "/api/v1/deeptwin/patients/{patient_id}/timeline",
+    response_model=DeepTwinTimelineResponse,
+)
+async def get_deeptwin_timeline(
+    request: Request,
+    patient_id: str,
+    clinician_id: Annotated[str, Query(..., description="Clinician ID")],
+    x_clinic_id: Annotated[str, Header(..., description="Clinic ID")] = ...,
+    x_patient_access_token: Annotated[str, Header(..., description="Patient access token")] = ...,
+    auth: Annotated[Dict[str, Any], Depends(require_clinician_auth)] = ...,
+    engine: Annotated[DeepTwinSnapshotEngine, Depends(get_deeptwin_snapshot_engine)] = ...,
+    audit: Annotated[AuditLogger, Depends(get_audit_logger)] = ...,
+):
+    """Get DeepTwin timeline view with modality coverage and events."""
+    snapshot = engine.get_snapshot(patient_id=patient_id)
+
+    audit.log_intelligence_request(
+        endpoint=f"/api/v1/deeptwin/patients/{patient_id}/timeline",
+        patient_id=patient_id,
+        clinician_id=clinician_id,
+        clinic_id=x_clinic_id,
+        request_params={},
+        response_status="success",
+        insight_count=len(snapshot.timeline_events),
+    )
+
+    return {
+        "patient_id": patient_id,
+        "modality_coverage": snapshot.modality_coverage,
+        "recency_status": snapshot.recency_status,
+        "events": snapshot.timeline_events,
+        "event_count": len(snapshot.timeline_events),
+        "safety_disclaimer": DEEPTWIN_SAFETY_DISCLAIMER,
+    }
+
+
+# ── GET /api/v1/deeptwin/patients/{patient_id}/hypotheses ─────────────────────
+
+@app.get(
+    "/api/v1/deeptwin/patients/{patient_id}/hypotheses",
+    response_model=DeepTwinHypothesesResponse,
+)
+async def get_deeptwin_hypotheses(
+    request: Request,
+    patient_id: str,
+    clinician_id: Annotated[str, Query(..., description="Clinician ID")],
+    x_clinic_id: Annotated[str, Header(..., description="Clinic ID")] = ...,
+    x_patient_access_token: Annotated[str, Header(..., description="Patient access token")] = ...,
+    auth: Annotated[Dict[str, Any], Depends(require_clinician_auth)] = ...,
+    engine: Annotated[DeepTwinSnapshotEngine, Depends(get_deeptwin_snapshot_engine)] = ...,
+    audit: Annotated[AuditLogger, Depends(get_audit_logger)] = ...,
+):
+    """Get ranked hypotheses for a patient."""
+    snapshot = engine.get_snapshot(patient_id=patient_id)
+
+    audit.log_intelligence_request(
+        endpoint=f"/api/v1/deeptwin/patients/{patient_id}/hypotheses",
+        patient_id=patient_id,
+        clinician_id=clinician_id,
+        clinic_id=x_clinic_id,
+        request_params={},
+        response_status="success",
+        insight_count=len(snapshot.ranked_hypotheses),
+    )
+
+    return {
+        "patient_id": patient_id,
+        "ranked_hypotheses": snapshot.ranked_hypotheses,
+        "hypothesis_count": len(snapshot.ranked_hypotheses),
+        "safety_disclaimer": DEEPTWIN_SAFETY_DISCLAIMER,
+    }
+
+
+# ── POST /api/v1/deeptwin/patients/{patient_id}/synthesis ─────────────────────
+
+@app.post(
+    "/api/v1/deeptwin/patients/{patient_id}/synthesis",
+    response_model=DeepTwinSynthesisResponse,
+)
+async def post_deeptwin_synthesis(
+    request: Request,
+    patient_id: str,
+    clinician_id: Annotated[str, Query(..., description="Clinician ID")],
+    body: DeepTwinSynthesisBody,
+    x_clinic_id: Annotated[str, Header(..., description="Clinic ID")] = ...,
+    x_patient_access_token: Annotated[str, Header(..., description="Patient access token")] = ...,
+    kl: Annotated[KnowledgeLayer, Depends(get_knowledge_layer)] = ...,
+    ac: Annotated[AccessControl, Depends(get_access_control)] = ...,
+    audit: Annotated[AuditLogger, Depends(get_audit_logger)] = ...,
+    engine: Annotated[DeepTwinSnapshotEngine, Depends(get_deeptwin_snapshot_engine)] = ...,
+    dt_audit: Annotated[DeepTwinAuditLogger, Depends(get_deeptwin_audit_logger)] = ...,
+):
+    """Generate full DeepTwin synthesis. Requires ai_analysis_consent."""
+    auth_result = ac.authenticate_request(
+        patient_id=patient_id,
+        clinician_id=clinician_id,
+        clinic_id=x_clinic_id,
+        role="clinician",
+        ai_synthesis=True,
+    )
+    if not auth_result["authorized"]:
+        audit.log_intelligence_request(
+            endpoint=f"/api/v1/deeptwin/patients/{patient_id}/synthesis",
+            patient_id=patient_id,
+            clinician_id=clinician_id,
+            clinic_id=x_clinic_id,
+            request_params=body.model_dump(),
+            response_status="denied",
+            insight_count=0,
+        )
+        raise HTTPException(status_code=403, detail=auth_result["errors"])
+
+    snapshot = engine.generate_snapshot(
+        patient_id=patient_id,
+        include_modalities=body.include_modalities,
+        date_range=body.date_range,
+        max_hypotheses=body.max_hypotheses,
+    )
+
+    audit.log_synthesis_request(
+        patient_id=patient_id,
+        clinician_id=clinician_id,
+        clinic_id=x_clinic_id,
+        synthesis_id=snapshot.snapshot_id,
+        modalities_used=body.include_modalities or ["all"],
+        hypothesis_count=len(snapshot.ranked_hypotheses),
+    )
+    dt_audit.log_deeptwin_event(
+        patient_id=patient_id,
+        clinician_id=clinician_id,
+        event_type="synthesis_requested",
+        snapshot_id=snapshot.snapshot_id,
+        details={"modalities": body.include_modalities, "max_hypotheses": body.max_hypotheses},
+    )
+
+    return {
+        "snapshot": snapshot.to_dict(),
+        "safety_disclaimer": DEEPTWIN_SAFETY_DISCLAIMER,
+    }
+
+
+# ── POST /api/v1/deeptwin/patients/{patient_id}/review ────────────────────────
+
+@app.post(
+    "/api/v1/deeptwin/patients/{patient_id}/review",
+    response_model=DeepTwinReviewResponse,
+)
+async def post_deeptwin_review(
+    request: Request,
+    patient_id: str,
+    clinician_id: Annotated[str, Query(..., description="Clinician ID")],
+    body: DeepTwinReviewBody,
+    x_clinic_id: Annotated[str, Header(..., description="Clinic ID")] = ...,
+    x_patient_access_token: Annotated[str, Header(..., description="Patient access token")] = ...,
+    auth: Annotated[Dict[str, Any], Depends(require_clinician_auth)] = ...,
+    engine: Annotated[DeepTwinReviewEngine, Depends(get_deeptwin_review_engine)] = ...,
+    audit: Annotated[AuditLogger, Depends(get_audit_logger)] = ...,
+    dt_audit: Annotated[DeepTwinAuditLogger, Depends(get_deeptwin_audit_logger)] = ...,
+):
+    """Record a clinician review action on a DeepTwin snapshot/hypothesis.
+
+    Actions: accept, reject, note, request_data, mark_reviewed
+    """
+    review = engine.create_review(
+        patient_id=patient_id,
+        clinician_id=body.clinician_id,
+        snapshot_id=body.snapshot_id,
+        hypothesis_id=body.hypothesis_id,
+        action=body.action,
+        note=body.note,
+        requested_modalities=body.requested_modalities,
+    )
+
+    # Map action to audit event type
+    event_type_map = {
+        "accept": "hypothesis_accepted",
+        "reject": "hypothesis_rejected",
+        "note": "hypothesis_noted",
+        "request_data": "data_requested",
+        "mark_reviewed": "review_completed",
+    }
+
+    audit.log_intelligence_request(
+        endpoint=f"/api/v1/deeptwin/patients/{patient_id}/review",
+        patient_id=patient_id,
+        clinician_id=body.clinician_id,
+        clinic_id=x_clinic_id,
+        request_params=body.model_dump(),
+        response_status="success",
+        insight_count=1,
+    )
+    dt_audit.log_deeptwin_event(
+        patient_id=patient_id,
+        clinician_id=body.clinician_id,
+        event_type=event_type_map.get(body.action, "review_completed"),
+        snapshot_id=body.snapshot_id,
+        details={"hypothesis_id": body.hypothesis_id, "action": body.action, "note": body.note},
+    )
+
+    return {
+        "review_id": review.review_id,
+        "action": body.action,
+        "status": "recorded",
+        "safety_disclaimer": DEEPTWIN_SAFETY_DISCLAIMER,
+    }
+
+
+# ── POST /api/v1/deeptwin/patients/{patient_id}/export ────────────────────────
+
+@app.post(
+    "/api/v1/deeptwin/patients/{patient_id}/export",
+    response_model=DeepTwinExportResponse,
+)
+async def post_deeptwin_export(
+    request: Request,
+    patient_id: str,
+    clinician_id: Annotated[str, Query(..., description="Clinician ID")],
+    body: DeepTwinExportBody,
+    x_clinic_id: Annotated[str, Header(..., description="Clinic ID")] = ...,
+    x_patient_access_token: Annotated[str, Header(..., description="Patient access token")] = ...,
+    auth: Annotated[Dict[str, Any], Depends(require_clinician_auth)] = ...,
+    engine: Annotated[DeepTwinExportEngine, Depends(get_deeptwin_export_engine)] = ...,
+    audit: Annotated[AuditLogger, Depends(get_audit_logger)] = ...,
+    dt_audit: Annotated[DeepTwinAuditLogger, Depends(get_deeptwin_audit_logger)] = ...,
+):
+    """Export or hand off a DeepTwin snapshot.
+
+    Types: json, pdf, report_handoff, protocol_handoff
+    """
+    export = engine.create_export(
+        patient_id=patient_id,
+        clinician_id=body.clinician_id,
+        snapshot_id=body.snapshot_id,
+        export_type=body.export_type,
+    )
+
+    # Map export type to audit event type
+    event_type_map = {
+        "json": "export_generated",
+        "pdf": "export_generated",
+        "report_handoff": "report_handoff",
+        "protocol_handoff": "protocol_handoff",
+    }
+
+    audit.log_intelligence_request(
+        endpoint=f"/api/v1/deeptwin/patients/{patient_id}/export",
+        patient_id=patient_id,
+        clinician_id=body.clinician_id,
+        clinic_id=x_clinic_id,
+        request_params=body.model_dump(),
+        response_status="success",
+        insight_count=1,
+    )
+    dt_audit.log_deeptwin_event(
+        patient_id=patient_id,
+        clinician_id=body.clinician_id,
+        event_type=event_type_map.get(body.export_type, "export_generated"),
+        snapshot_id=body.snapshot_id,
+        details={"export_type": body.export_type, "export_id": export.export_id},
+    )
+
+    return {
+        "export_id": export.export_id,
+        "export_type": body.export_type,
+        "audit_reference": export.audit_reference,
+        "safety_disclaimer": DEEPTWIN_SAFETY_DISCLAIMER,
+    }
+
+
 # ── Error Handlers ────────────────────────────────────────────────────────────
 
 @app.exception_handler(ValueError)
 async def value_error_handler(request: Request, exc: ValueError):
     return JSONResponse(
         status_code=400,
-        content={"detail": str(exc), "safety_disclaimer": SAFETY_DISCLAIMER},
+        content={"detail": str(exc), "safety_disclaimer": DEEPTWIN_SAFETY_DISCLAIMER},
     )

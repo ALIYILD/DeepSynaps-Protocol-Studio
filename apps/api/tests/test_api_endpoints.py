@@ -119,7 +119,7 @@ def test_health_check(client):
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ok"
-    assert data["phase"] == "3"
+    assert data["phase"] == "4"
     assert "timeline" in data["modules"]
     assert "correlation" in data["modules"]
     assert "confound" in data["modules"]

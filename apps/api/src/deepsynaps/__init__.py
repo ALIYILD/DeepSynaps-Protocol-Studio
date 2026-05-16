@@ -19,6 +19,15 @@ from evidence_engine import EvidenceLinkingEngine
 from hypothesis_engine import HypothesisRankingEngine
 from missing_data_engine import MissingDataEngine
 from synthesis_service import SynthesisService
+from deeptwin_contracts import (
+    DeepTwinSnapshot,
+    ClinicianReview,
+    DeepTwinAuditEvent,
+    DeepTwinExport,
+)
+from deeptwin_snapshot import DeepTwinSnapshotEngine
+from deeptwin_export import DeepTwinExportEngine
+from deeptwin_audit import DeepTwinAuditLogger
 
 __all__ = [
     "MultimodalEvent",
@@ -38,4 +47,11 @@ __all__ = [
     "HypothesisRankingEngine",
     "MissingDataEngine",
     "SynthesisService",
+    "DeepTwinSnapshot",
+    "ClinicianReview",
+    "DeepTwinAuditEvent",
+    "DeepTwinExport",
+    "DeepTwinSnapshotEngine",
+    "DeepTwinExportEngine",
+    "DeepTwinAuditLogger",
 ]
