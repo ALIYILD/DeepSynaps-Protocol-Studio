@@ -743,7 +743,7 @@ class AdapterRegistry:
 
         if violations:
             raise LicenseViolationError(
-                f"License violation for adapter '{name}': {"; ".join(violations)}",
+                f"License violation for adapter '{name}': {'; '.join(violations)}",
                 adapter_name=name,
                 details={
                     "license_type": lic.license_type,
