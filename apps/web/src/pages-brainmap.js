@@ -1298,6 +1298,10 @@ export function renderQeegAnnotationCard(item, actor) {
     flag === 'evidence_gap'
       ? `<div class="dv2bm-ann-disclaimer">Evidence-gap flags help track FDA-questioned findings — see qEEG evidence gaps doc.</div>`
       : '';
+  // Every user-controlled value below is run through _qeegAnnEsc (defined
+  // above in this file — escapes & < > " ' to HTML entities). semgrep's
+  // raw-html-format rule does not recognize ad-hoc escape helpers.
+  // nosemgrep: javascript.express.security.injection.raw-html-format.raw-html-format
   return `
     <div class="dv2bm-ann-card${resolved ? ' dv2bm-ann-card--resolved' : ''}" data-ann-id="${_qeegAnnEsc(item.id)}">
       <div class="dv2bm-ann-card-head">

@@ -67,7 +67,12 @@ def _fernet():
         _FERNET_CACHE = Fernet(key.encode())
         return _FERNET_CACHE
     except Exception as exc:
-        _logger.warning("Invalid WEARABLE_TOKEN_ENC_KEY — tokens will be stored as plaintext: %s", exc)
+        # Log only the exception type, not its message — Fernet error messages
+        # can echo the raw (bad) key material we just tried to load.
+        _logger.warning(
+            "Invalid WEARABLE_TOKEN_ENC_KEY — wearable credentials will be stored as plaintext (error=%s)",
+            type(exc).__name__,
+        )
         _FERNET_CACHE = None
         return None
 

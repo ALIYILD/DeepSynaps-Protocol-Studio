@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import os
 import time
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 from typing import Any
 
 import requests

@@ -668,7 +668,7 @@ def forgot_password(
     # leaves this process via the email payload and we drop all on-disk
     # references.
     logger.info(
-        "Password reset token issued (user_id=%s, expires=%s)",
+        "Password reset request accepted (user_id=%s, expires=%s)",
         user.id,
         expires_at.isoformat(),
     )

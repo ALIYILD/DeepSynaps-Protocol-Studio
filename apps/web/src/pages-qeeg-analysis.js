@@ -1880,7 +1880,7 @@ function _bindBrainRingFrames() {
     if (!payload) return;
     var send = function () {
       try {
-        if (frame.contentWindow) frame.contentWindow.postMessage(payload, '*');
+        if (frame.contentWindow) frame.contentWindow.postMessage(payload, window.location.origin);
       } catch (_) {}
     };
     frame.addEventListener('load', send);
