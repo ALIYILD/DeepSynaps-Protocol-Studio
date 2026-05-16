@@ -192,6 +192,51 @@ def row_to_dict(row: Any, columns: List[str]) -> Dict[str, Any]:
 
 # ── Init All Tables ────────────────────────────────────────────
 
+_INDEX_STATEMENTS = {
+    # ── multimodal_events (CRITICAL) ──────────────────────────
+    "idx_me_patient_timestamp": """
+        CREATE INDEX IF NOT EXISTS idx_me_patient_timestamp
+        ON multimodal_events (patient_id, timestamp)
+    """,
+    "idx_me_patient_modality_timestamp": """
+        CREATE INDEX IF NOT EXISTS idx_me_patient_modality_timestamp
+        ON multimodal_events (patient_id, modality, timestamp)
+    """,
+    # ── audit_log (HIGH) ──────────────────────────────────────
+    "idx_al_clinic_timestamp": """
+        CREATE INDEX IF NOT EXISTS idx_al_clinic_timestamp
+        ON audit_log (clinic_id, timestamp DESC)
+    """,
+    "idx_al_patient_timestamp": """
+        CREATE INDEX IF NOT EXISTS idx_al_patient_timestamp
+        ON audit_log (patient_id, timestamp DESC)
+    """,
+    "idx_al_clinician_timestamp": """
+        CREATE INDEX IF NOT EXISTS idx_al_clinician_timestamp
+        ON audit_log (clinician_id, timestamp DESC)
+    """,
+    # ── evidence_db (LOW — small table, cheap) ────────────────
+    "idx_edb_modality": """
+        CREATE INDEX IF NOT EXISTS idx_edb_modality
+        ON evidence_db (modality_scope)
+    """,
+    # ── deeptwin_reviews (MEDIUM) ─────────────────────────────
+    "idx_dtr_patient": """
+        CREATE INDEX IF NOT EXISTS idx_dtr_patient
+        ON deeptwin_reviews (patient_id)
+    """,
+    "idx_dtr_snapshot": """
+        CREATE INDEX IF NOT EXISTS idx_dtr_snapshot
+        ON deeptwin_reviews (snapshot_id)
+    """,
+    # ── patient_access (MEDIUM — clinic-scoped lookups) ───────
+    "idx_pa_clinic_clinician": """
+        CREATE INDEX IF NOT EXISTS idx_pa_clinic_clinician
+        ON patient_access (clinic_id, clinician_id)
+    """,
+}
+
+
 _CREATE_STATEMENTS = {
     "multimodal_events": """
         CREATE TABLE IF NOT EXISTS multimodal_events (
@@ -281,13 +326,21 @@ _CREATE_STATEMENTS = {
 
 
 def init_all_tables(conn: ConnectionProxy) -> None:
-    """Initialize all tables with dialect-adapted SQL."""
+    """Initialize all tables and indexes with dialect-adapted SQL."""
+    cur = conn.cursor()
+    # Create tables
     for name, sql in _CREATE_STATEMENTS.items():
         adapted = adapt_sql(sql, conn.dialect)
-        cur = conn.cursor()
+        cur.execute(adapted)
+    # Create indexes
+    for name, sql in _INDEX_STATEMENTS.items():
+        adapted = adapt_sql(sql, conn.dialect)
         cur.execute(adapted)
     conn.commit()
-    logger.info(f"Initialized tables for dialect: {conn.dialect}")
+    logger.info(
+        f"Initialized {len(_CREATE_STATEMENTS)} tables + "
+        f"{len(_INDEX_STATEMENTS)} indexes for dialect: {conn.dialect}"
+    )
 
 
 def check_dialect() -> str:

@@ -33,73 +33,9 @@ class KnowledgeLayer:
     def _init_db(self):
         conn = self._connect()
         try:
+            # Use the centralized init for tables + indexes
+            database.init_all_tables(conn)
             cur = conn.cursor()
-
-            # Events table
-            cur.execute(database.adapt_sql("""
-                CREATE TABLE IF NOT EXISTS multimodal_events (
-                    event_id TEXT PRIMARY KEY,
-                    patient_id TEXT NOT NULL,
-                    event_type TEXT NOT NULL,
-                    modality TEXT NOT NULL,
-                    source_system TEXT NOT NULL,
-                    source_record_id TEXT NOT NULL,
-                    timestamp TEXT NOT NULL,
-                    value_summary TEXT NOT NULL,
-                    numeric_features TEXT,
-                    textual_summary TEXT,
-                    confidence REAL DEFAULT 0.0,
-                    data_quality TEXT DEFAULT 'unknown',
-                    provenance TEXT,
-                    evidence_links TEXT,
-                    audit_reference TEXT,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            """, self.dialect))
-
-            # Evidence database
-            cur.execute(database.adapt_sql("""
-                CREATE TABLE IF NOT EXISTS evidence_db (
-                    evidence_id TEXT PRIMARY KEY,
-                    source_type TEXT NOT NULL,
-                    citation TEXT NOT NULL,
-                    evidence_grade TEXT,
-                    confidence REAL DEFAULT 0.0,
-                    research_only INTEGER DEFAULT 1,
-                    conflicting INTEGER DEFAULT 0,
-                    url TEXT,
-                    modality_scope TEXT,
-                    clinical_tags TEXT
-                )
-            """, self.dialect))
-
-            # Patient access control
-            cur.execute(database.adapt_sql("""
-                CREATE TABLE IF NOT EXISTS patient_access (
-                    patient_id TEXT NOT NULL,
-                    clinic_id TEXT NOT NULL,
-                    clinician_id TEXT NOT NULL,
-                    access_level TEXT DEFAULT 'read',
-                    ai_analysis_consent INTEGER DEFAULT 0,
-                    PRIMARY KEY (patient_id, clinic_id, clinician_id)
-                )
-            """, self.dialect))
-
-            # Audit log
-            cur.execute(database.adapt_sql("""
-                CREATE TABLE IF NOT EXISTS audit_log (
-                    audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
-                    endpoint TEXT,
-                    clinician_id TEXT,
-                    clinic_id TEXT,
-                    patient_id TEXT,
-                    action TEXT,
-                    request_hash TEXT,
-                    response_status TEXT
-                )
-            """, self.dialect))
-
             self._seed_evidence(cur)
             conn.commit()
         finally:
