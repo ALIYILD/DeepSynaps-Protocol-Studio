@@ -20,6 +20,7 @@ from ._base import (  # noqa: F401 — re-export surface for class definitions
     ForeignKey,
     Index,
     Integer,
+    JSON,
     Mapped,
     Optional,
     String,
@@ -36,6 +37,7 @@ from ._base import (  # noqa: F401 — re-export surface for class definitions
     _embedding_column,
     _embedding_column_1536,
 )
+from sqlalchemy import func  # noqa: E402
 
 
 class Subscription(Base):
@@ -486,6 +488,19 @@ class ClinicMonthlyCostCap(Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+
+
+class AgentConfig(Base):
+    __tablename__ = "agent_configs"
+    __table_args__ = (
+        UniqueConstraint("clinic_id", "agent_id", name="uq_agent_configs_clinic_agent"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinic_id: Mapped[str] = mapped_column(String(36), ForeignKey("clinics.id", ondelete="CASCADE"), nullable=False)
+    agent_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    config: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 # ── Fusion Workbench Models (migration 054) ───────────────────────────────────

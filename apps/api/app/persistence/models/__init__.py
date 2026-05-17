@@ -81,6 +81,7 @@ from .auth import (
     UserSession,
 )
 from .billing import (
+    AgentConfig,
     AgentHire,
     AgentPromptOverride,
     AgentSubscription,
@@ -321,6 +322,7 @@ from app.models.research_dataset import ResearchDataset  # noqa: F401, E402
 __all__ = [
     "Base",
     "AdverseEvent",
+    "AgentConfig",
     "AgentHire",
     "AgentPromptOverride",
     "AgentRunAudit",
