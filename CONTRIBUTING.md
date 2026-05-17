@@ -41,6 +41,16 @@ See **`tests/fixtures/eeg_studio/README.md`**. Do not commit identifiable PHI; d
 - Keep scope to the module or bugfix at hand; avoid unrelated refactors.
 - Link to the module prompt or issue describing acceptance criteria.
 - Ensure new user-visible strings go through i18n keys when studio i18n is wired for that surface.
+- For salvage / recovery PRs (recovering work from a stash, untracked file, stale clone, or dropped branch), use the opt-in template by appending `?template=salvage.md` to the New PR URL. The template prompts for `## Provenance`, `## Drift`, and `## Files intentionally untouched` sections — see `docs/engineering/pr-hygiene-and-drift-disclosure.md`.
+- For changes touching clinical safety, evidence policy, API contracts, scheduling, courses, overlays, CI workflows, or Alembic migrations, include a `## Runtime surface impact` section in the PR body — see `docs/engineering/runtime-critical-surface-protection.md` for the full surface list.
+
+## Engineering process docs
+
+Process documentation for the multi-agent workflow used in this repo lives under `docs/engineering/`. New contributors should skim the index at `docs/engineering/README.md`. Key references:
+
+- Worktree-per-PR discipline: `docs/engineering/worktree-discipline.md`
+- Concurrent-agent safety (Cursor / Codex / Hermes / OpenClaw): `docs/engineering/concurrent-agent-safety.md`
+- Salvage / stranded-work recovery: `docs/engineering/salvage-pr-governance.md`
 
 ## Cleaning local artifacts
 
