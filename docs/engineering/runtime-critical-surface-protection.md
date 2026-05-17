@@ -163,3 +163,17 @@ If you are an AI agent (Claude, Cursor, Codex, Hermes, OpenClaw) and the user as
 > Critical surfaces are not where you do exploratory work.
 
 A bug in a clinical surface costs more than every "while I'm here" cleanup ever saved. When in doubt, leave it alone and file an issue.
+
+## Wave-closing anchor (2026-05-17)
+
+The salvage stabilization wave is formally closed at tag `post-salvage-stabilization-2026-05-17` (commit `76c51a6d`, PR #981).
+
+See [`post-salvage-governance-lock-2026-05-17.md`](./post-salvage-governance-lock-2026-05-17.md) for:
+- The explicit "abandoned / DO NOT RESURRECT" wizard-symbol list
+- The explicit "preserved / live" overlay + window-handler list
+- Approved future workstream lanes + prohibited mixing rules
+- Mandatory PR checklist for stabilization-sensitive work
+- Audit traceability map
+- Known remaining drift (intentionally unresolved)
+
+That doc takes precedence over this one when their guidance overlaps for the wave-specific symbols and lanes; this doc remains the canonical source for the general surface list.
