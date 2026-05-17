@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .._safe_torch import load_state_dict_safely
 from .loader import ModelSpec
 
 
@@ -50,7 +51,9 @@ def load_model_from_spec(spec: ModelSpec, weights_path: str | Path) -> Any:
         n_times = int(spec.metadata["n_times"])
 
     model = _build_model(spec.model_class, n_times=n_times)
-    state = torch.load(str(weights_path), map_location="cpu")
+    # Checkpoint is a plain state_dict (only tensor data), so the safe
+    # weights_only=True path applies — CVE-2025-32434 mitigation.
+    state = load_state_dict_safely(str(weights_path), map_location="cpu")
     model.load_state_dict(state)
     model.eval()
     return model

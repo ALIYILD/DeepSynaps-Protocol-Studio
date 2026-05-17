@@ -314,9 +314,26 @@ def compute_embedding(
 
         # Load the encoder.
         import torch  # type: ignore[import-not-found]
+        from .._safe_torch import load_trusted_full_checkpoint
 
         ckpt = _default_checkpoint_path()
-        state = torch.load(ckpt, map_location=resolved_device)  # noqa: S614
+        # weights_only=False is required: the LaBraM-Base checkpoint stores a
+        # pickled torch.nn.Module under state["encoder"]. The checkpoint path
+        # is the fixed cache location returned by _default_checkpoint_path()
+        # (~/.deepsynaps/models/labram_base.pt), populated only by trusted
+        # operator code gated on the DEEPSYNAPS_ALLOW_MODEL_DOWNLOAD env flag.
+        # There is no public API that lets a user write or substitute this file.
+        # CVE-2025-32434 acceptance is recorded in
+        # docs/security/torch-deserialization-audit.md (callsite #4).
+        state = load_trusted_full_checkpoint(
+            ckpt,
+            map_location=resolved_device,
+            reason=(
+                "internal vendored LaBraM-Base checkpoint in fixed cache "
+                "(~/.deepsynaps/models/), gated by DEEPSYNAPS_ALLOW_MODEL_DOWNLOAD; "
+                "not user-controlled — see docs/security/torch-deserialization-audit.md"
+            ),
+        )
         encoder = state.get("encoder") if isinstance(state, dict) else None
         if encoder is None:  # pragma: no cover — real-path fallback
             log.warning(

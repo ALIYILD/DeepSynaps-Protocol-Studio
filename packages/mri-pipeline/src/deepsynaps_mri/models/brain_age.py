@@ -227,7 +227,12 @@ def _load_model(torch_mod: Any, weights_path: Path | None) -> Any:
 
     try:
         model = _LightResNet3D()
-        state = torch_mod.load(str(candidate), map_location="cpu")
+        # weights_only=True (CVE-2025-32434 mitigation): this checkpoint is
+        # always a state_dict (the caller below only ever calls
+        # model.load_state_dict on it), so the safe path applies even though
+        # `candidate` resolves to a fixed cache location populated by trusted
+        # code. See docs/security/torch-deserialization-audit.md (callsite #6).
+        state = torch_mod.load(str(candidate), map_location="cpu", weights_only=True)
         if isinstance(state, dict) and "state_dict" in state:
             state = state["state_dict"]
         model.load_state_dict(state, strict=False)

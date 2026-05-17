@@ -338,8 +338,25 @@ def predict_brain_age(
         x = np.asarray(vec_rows, dtype=np.float32)  # (n_ch, 7)
 
         import torch  # type: ignore[import-not-found]
+        from .._safe_torch import load_trusted_full_checkpoint
 
-        state = torch.load(Path(model_path), map_location="cpu")  # noqa: S614
+        # weights_only=False is required: the brain-age checkpoint stores
+        # pickled nn.Module instances under state["model"] and a per-channel
+        # importance dict under state["lrp_channel_importance"]. The model_path
+        # kwarg is NEVER set from an HTTP request — the only public surface is
+        # qeeg_ai_bridge.run_predict_brain_age_safe, which does not forward
+        # model_path (see apps/api/app/services/qeeg_ai_bridge.py). When
+        # model_path is None the caller falls back to the deterministic stub
+        # path above. CVE-2025-32434 acceptance is recorded in
+        # docs/security/torch-deserialization-audit.md (callsite #3).
+        state = load_trusted_full_checkpoint(
+            Path(model_path),
+            map_location="cpu",
+            reason=(
+                "internal vendored brain-age checkpoint; model_path is not "
+                "user-controlled — see docs/security/torch-deserialization-audit.md"
+            ),
+        )
         net = state.get("model") if isinstance(state, dict) else None
         if net is None:  # pragma: no cover — real-path guard
             log.warning("Checkpoint %s missing 'model' — stub.", model_path)
