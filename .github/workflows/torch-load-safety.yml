@@ -1,0 +1,42 @@
+# Torch deserialization safety gate.
+#
+# Runs scripts/check_torch_load_safety.py against the whole tree on every PR
+# that touches Python. The script uses stdlib only (no pip install needed)
+# and exits non-zero if any torch.load(...) call lacks an explicit
+# weights_only= kwarg or an approved helper wrapper.
+#
+# See docs/security/torch-load-governance.md for the policy and PR #980 for
+# the underlying helpers.
+name: torch-load-safety
+
+on:
+  pull_request:
+    paths:
+      - "**/*.py"
+      - "scripts/check_torch_load_safety.py"
+      - ".github/workflows/torch-load-safety.yml"
+  push:
+    branches: [main]
+    paths:
+      - "**/*.py"
+      - "scripts/check_torch_load_safety.py"
+      - ".github/workflows/torch-load-safety.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: scan for unsafe torch.load
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Stdlib-only — no pip install required.
+      - name: Run torch.load safety scanner
+        run: python scripts/check_torch_load_safety.py
