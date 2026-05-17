@@ -21,17 +21,38 @@ RUN npm run build:web
 FROM python:3.11-slim
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    ffmpeg \
-    libcairo2 \
-    libgdk-pixbuf-2.0-0 \
-    libharfbuzz0b \
-    libpango-1.0-0 \
-    libpangoft2-1.0-0 \
-    shared-mime-info \
+# Install system dependencies.
+#
+# `apt-get upgrade` is run BEFORE `install` so the resulting image picks up
+# Debian point releases (deb13u3+) for libc6/libc-bin, libudev1/libsystemd0,
+# libcap2, sed, libpcre, libxml2 etc. The base `python:3.11-slim` tag is
+# rebuilt on a cadence and lags behind security advisories — this layer
+# closes the gap on each rebuild. See PR body for the specific CVEs.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get -y --no-install-recommends upgrade \
+    && apt-get install -y --no-install-recommends \
+        gcc \
+        ffmpeg \
+        libcairo2 \
+        libgdk-pixbuf-2.0-0 \
+        libharfbuzz0b \
+        libpango-1.0-0 \
+        libpangoft2-1.0-0 \
+        shared-mime-info \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Bump pip / setuptools / wheel BEFORE any other pip install so all wheels
+# below are built and unpacked by the patched toolchain:
+#   - pip>=25.3 closes CVE-2025-8869 (tar extraction symlink, medium)
+#   - wheel>=0.46.2 closes CVE-2026-24049 (high)
+#   - setuptools>=80.9.0 ships jaraco.context>=6.1.0, closing CVE-2026-23949
+#     (high; the vulnerable copy is the one vendored INSIDE setuptools)
+# Pins are minimum-only so future patch releases roll forward.
+RUN pip install --no-cache-dir --upgrade \
+        'pip>=25.3,<26.0' \
+        'setuptools>=80.9.0' \
+        'wheel>=0.46.2'
 
 COPY packages ./packages
 COPY apps/api ./apps/api
@@ -54,6 +75,17 @@ ENV EVIDENCE_DB_PATH=/data/evidence.db
 
 # Install torch CPU-only wheels first to avoid pulling ~2 GB CUDA binaries.
 # Pin 2.2.2 — compatible with speechbrain >=1.0 and torchaudio 2.2.2.
+#
+# SECURITY NOTE: torch 2.2.2 is affected by CVE-2025-32434 (critical,
+# torch.load arbitrary code execution via pickle when `weights_only=False`).
+# The fix in torch 2.6.0 flips the `weights_only` default to True, which is
+# a behavioural breaking change for 4 of 5 in-repo torch.load callers (only
+# packages/qeeg-encoder/.../labram.py already passes weights_only=True).
+# The CVE is NOT currently reachable from production: every torch.load path
+# loads vendored model weights mounted at /opt/models/<backbone> at deploy
+# time — never user-uploaded .pth files. Upgrade is deferred to a separate
+# PR that audits each callsite and either adopts weights_only=True or
+# explicitly trusts the source. See PR body "Deferred items" for detail.
 RUN pip install --no-cache-dir \
     --index-url https://download.pytorch.org/whl/cpu \
     torch==2.2.2 \

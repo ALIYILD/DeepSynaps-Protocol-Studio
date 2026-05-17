@@ -24,7 +24,13 @@ WORKDIR /app
 # It depends on Pango, Cairo, GDK-PixBuf, and HarfBuzz at the C level — without
 # these the PDF endpoint returns HTTP 503. Keep this layer near the top so the
 # slow apt install is cached across most rebuilds.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+#
+# `apt-get upgrade` runs before install so Debian point-release security
+# patches (libc6, libudev1, libsystemd0, libcap2, libpcre, libxml2, sed, ...)
+# land on each rebuild — see PR body for CVE list.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get -y --no-install-recommends upgrade \
+    && apt-get install -y --no-install-recommends \
         libpango-1.0-0 \
         libpangoft2-1.0-0 \
         libcairo2 \
@@ -34,7 +40,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         shared-mime-info \
         fonts-liberation \
         fonts-dejavu-core \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Bump pip / setuptools / wheel BEFORE any other pip install so all wheels
+# below are built and unpacked by the patched toolchain. See apps/api/Dockerfile
+# for the same block — kept consistent so both images share a CVE posture.
+#   pip>=25.3        → CVE-2025-8869 (medium)
+#   wheel>=0.46.2    → CVE-2026-24049 (high)
+#   setuptools>=80.9 → CVE-2026-23949 (high; via bundled jaraco.context>=6.1.0)
+RUN pip install --no-cache-dir --upgrade \
+        'pip>=25.3,<26.0' \
+        'setuptools>=80.9.0' \
+        'wheel>=0.46.2'
 
 COPY packages ./packages
 COPY apps/api ./apps/api
