@@ -123,8 +123,27 @@ def _real_inference(
     and uses the stub.
     """
     import torch
+    from .._safe_torch import load_trusted_full_checkpoint
 
-    model = torch.load(str(model_path), map_location="cpu")
+    # weights_only=False is required: this checkpoint is a fully-pickled
+    # nn.Module (the call site immediately does model.train() and model(x)
+    # without going through load_state_dict). The model_path kwarg is NEVER
+    # forwarded by qeeg_ai_bridge.run_score_conditions_safe — score_conditions_endpoint
+    # only passes `features`, so model_path stays at its default (None) in
+    # production today, and compute_risk_scores() short-circuits to the stub
+    # before calling _real_inference. If a future caller starts passing
+    # model_path, the trust boundary must be re-audited.
+    # CVE-2025-32434 acceptance is recorded in
+    # docs/security/torch-deserialization-audit.md (callsite #5).
+    model = load_trusted_full_checkpoint(
+        str(model_path),
+        map_location="cpu",
+        reason=(
+            "internal classifier checkpoint; model_path is not user-controlled "
+            "(currently never set in production) — see "
+            "docs/security/torch-deserialization-audit.md"
+        ),
+    )
     model.train()  # keep dropout active for MC-dropout
 
     x = torch.tensor([embedding], dtype=torch.float32)
