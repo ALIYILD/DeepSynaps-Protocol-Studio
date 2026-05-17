@@ -49,10 +49,17 @@ def _env_truthy(name: str) -> bool:
 
 
 def demo_seed_enabled(app_env: str) -> bool:
-    """Enable demo clinic seeding only when explicitly requested in non-prod envs."""
-    if (app_env or "production").lower() not in {"development", "test"}:
+    """Check if demo clinic seeding is enabled for this environment.
+
+    SAFETY: Demo seeding is ONLY allowed in development and test environments.
+    Production and staging can NEVER seed demo data, even if the env var is set.
+    This prevents accidental contamination of production with synthetic patient data.
+    """
+    # Hard gate: only dev/test environments can ever seed demo data
+    if app_env not in ("development", "test"):
         return False
-    return _env_truthy("DEEPSYNAPS_DEMO_CLINIC_SEED")
+    # Even in dev/test, require explicit opt-in via env var
+    return os.getenv("DEEPSYNAPS_DEMO_CLINIC_SEED") == "1"
 
 
 def demo_seed_env_ok() -> bool:
