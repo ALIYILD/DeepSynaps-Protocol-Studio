@@ -11,6 +11,20 @@ bash scripts/deploy-preview.sh --api      # web + API (Fly)
 bash scripts/deploy-preview.sh --api-only # API only
 ```
 
+For web-only deploys when `main` is already pushed, prefer the build-hook
+script — no local Netlify auth or local build required, Netlify pulls and
+builds server-side:
+
+```
+bash scripts/deploy-via-hook.sh                # trigger build of main
+bash scripts/deploy-via-hook.sh --clear-cache  # bust Netlify build cache
+```
+
+Hook URL is read from macOS Keychain (`security -s deepsynaps-netlify-hook
+-a preview`) or `$NETLIFY_BUILD_HOOK_URL`. Never paste the hook URL into
+chat — it is the credential. One-time setup is documented in the script's
+`--help`.
+
 Preview URLs:
 
 - Web: https://deepsynaps-studio-preview.netlify.app
