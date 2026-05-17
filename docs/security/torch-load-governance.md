@@ -132,24 +132,46 @@ following bypass patterns:
    patterns actually used in this repo today). New aliases require
    extending `MATCHED_RECEIVER_NAMES` in the scanner — or, better,
    removing the alias.
-2. **`from torch import load`.** A direct import of the function would
-   bypass the receiver check. This pattern is not used anywhere in the
-   repo. If added, the scanner needs to be extended.
-3. **Dynamic dispatch.** `getattr(torch, "load")(x)`,
+2. **Alias via `import ... as`.** `import torch as T; T.load(x)` — same
+   root cause as #1: receiver name `T` is not in `MATCHED_RECEIVER_NAMES`.
+   Convention here is to always `import torch` (no rename); if you need
+   a rename, add the new receiver name to the scanner and to this list.
+3. **`from torch import load`.** A direct import of the function would
+   bypass the receiver check (the call becomes a bare `load(x)`). This
+   pattern is not used anywhere in the repo today. If added, the scanner
+   needs to be extended.
+4. **First-class function reference.** `fn = torch.load; fn(x)` — once
+   `torch.load` is bound to a different name, the scanner can't follow
+   it. Rare in this codebase but possible. Same mitigation: convention
+   over scanner.
+5. **Dynamic dispatch.** `getattr(torch, "load")(x)`,
    `importlib.import_module("torch").load(x)`, or any `eval`/`exec` code
    is unscannable. Out of scope.
-4. **Vendored / third-party code.** The scanner skips `site-packages`,
+6. **Kwargs splat false positive.** `torch.load(x, **kwargs)` is FLAGGED
+   even when `kwargs` happens to contain `weights_only` at runtime — the
+   scanner is static and cannot resolve runtime dict contents. The
+   workaround is one line: `torch.load(x, weights_only=True, **kwargs)`
+   (the explicit kwarg satisfies the gate and overrides any duplicate
+   in `**kwargs` per Python's call semantics). This fails in the
+   *safe* direction — it over-flags rather than missing real risk.
+7. **Vendored / third-party code.** The scanner skips `site-packages`,
    `.venv`, `node_modules`, `dist`, `build`, `__pycache__`,
    `.pytest_cache`, `.tox`, `.cache`, `.claude`. Third-party torch
    callers in those trees are not our risk to govern.
-5. **String / comment mentions** of `torch.load(` are correctly ignored
+8. **String / comment mentions** of `torch.load(` are correctly ignored
    because the scanner parses via `ast`, not regex. This is verified by
    the test suite.
+9. **Unparsable files** (Python 2 syntax, fragments) are silently
+   treated as non-violations rather than fatal so one bad file can't
+   take down the whole gate. Counterpart risk: an attacker who could
+   submit deliberately-malformed Python could in theory hide a real
+   `torch.load` inside an unparsable file — but if that file ever runs
+   Python would also fail to import it, so the bypass is degenerate.
 
-The first two limitations are recorded as **explicit `xfail`-style
-regression tests** in `test_torch_load_governance.py` so they cannot
-silently start to be enforced (which would change the meaning of the
-gate without code review).
+Limitations #1–#4 are recorded as **explicit `xfail`-style regression
+tests** in `test_torch_load_governance.py` so they cannot silently start
+to be enforced (which would change the meaning of the gate without code
+review).
 
 Why no AST framework beyond stdlib `ast`? `tree-sitter`, `libcst`,
 `asttokens` etc. would add a third-party dependency without meaningfully

@@ -251,3 +251,71 @@ def test_known_limitation_from_torch_import_load_is_NOT_detected(tmp_path, scann
         "Scanner unexpectedly detected `from torch import load`. If this was "
         "added, update this test AND the docs."
     )
+
+
+def test_known_limitation_import_torch_as_alias_is_NOT_detected(tmp_path, scanner):
+    """Documented limitation: ``import torch as T`` (any receiver name not
+    in ``MATCHED_RECEIVER_NAMES``) bypasses the scanner.
+
+    Convention in this repo is to always ``import torch`` (no rename).
+    If a new alias is ever added to the allowed receiver list, this
+    test must be updated alongside the docs."""
+    root = tmp_path
+    pkg = root / "packages"
+    pkg.mkdir()
+    (pkg / "renamed.py").write_text(
+        "import torch as T\nT.load('x.pt')\n",
+        encoding="utf-8",
+    )
+    violations = scanner.find_violations(root, roots=("packages",))
+    assert violations == [], (
+        "Scanner unexpectedly detected `import torch as T`. If T (or another "
+        "alias) was added to MATCHED_RECEIVER_NAMES, update this test AND the "
+        "Known Limitations section of docs/security/torch-load-governance.md."
+    )
+
+
+def test_known_limitation_first_class_load_reference_is_NOT_detected(tmp_path, scanner):
+    """Documented limitation: ``fn = torch.load; fn(x)`` bypasses because
+    once the bound attribute is re-named the AST walk cannot follow it.
+
+    Rare in this codebase but possible — code review is the backstop."""
+    root = tmp_path
+    pkg = root / "packages"
+    pkg.mkdir()
+    (pkg / "bound.py").write_text(
+        "import torch\nfn = torch.load\nfn('x.pt')\n",
+        encoding="utf-8",
+    )
+    violations = scanner.find_violations(root, roots=("packages",))
+    assert violations == [], (
+        "Scanner unexpectedly detected `fn = torch.load; fn(x)`. If the "
+        "scanner was extended to track first-class function references, "
+        "update this test AND the docs."
+    )
+
+
+def test_kwargs_splat_without_explicit_weights_only_is_flagged(tmp_path, scanner):
+    """Documented false-positive: ``torch.load(x, **kwargs)`` is FLAGGED
+    even when ``kwargs`` contains ``weights_only`` at runtime.
+
+    The scanner is static and cannot inspect runtime dict contents. This
+    is a deliberate trade-off — the gate fails in the SAFE direction
+    (over-flag rather than miss real risk). The one-line workaround is
+    ``torch.load(x, weights_only=True, **kwargs)``.
+
+    If you reach this test because you're surprised by the failure, see
+    docs/security/torch-load-governance.md Known Limitations #6."""
+    root = tmp_path
+    pkg = root / "packages"
+    pkg.mkdir()
+    (pkg / "splat.py").write_text(
+        "import torch\nkw = {'weights_only': True}\ntorch.load('x.pt', **kw)\n",
+        encoding="utf-8",
+    )
+    violations = scanner.find_violations(root, roots=("packages",))
+    # We DO expect this to fire — the false positive is intentional.
+    assert len(violations) == 1, (
+        f"Expected the scanner to over-flag the kwargs-splat pattern "
+        f"(deliberate safe-direction false positive). Got: {violations}"
+    )

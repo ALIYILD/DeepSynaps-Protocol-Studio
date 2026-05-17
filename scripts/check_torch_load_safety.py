@@ -34,18 +34,32 @@ DeepSynaps tree.
 
 Limitations (kept honest)
 -------------------------
-1. **Alias detection is limited.** A binding like ``t = torch`` followed by
+1. **Alias via assignment.** A binding like ``t = torch`` followed by
    ``t.load(...)`` is NOT detected. The script matches the literal
    attribute chains ``torch.load`` and ``torch_mod.load`` (the only alias
    pattern present in this repo today). New aliases require either adding
    them to ``MATCHED_RECEIVER_NAMES`` or, better, removing the alias.
-2. **Dynamic dispatch can bypass detection.** ``getattr(torch, 'load')(x)``
-   or ``importlib`` shenanigans are not caught. These are not idiomatic in
-   this codebase; if they ever appear, code review is the backstop.
+2. **Alias via ``import ... as``.** ``import torch as T; T.load(x)`` is
+   NOT detected — same root cause as #1.
 3. **Aliased imports** like ``from torch import load`` are NOT detected.
-   This pattern does not appear anywhere in the repo. If added, the script
-   should be extended.
-4. **Eval/exec'd code** is unscannable. Out of scope.
+   This pattern does not appear anywhere in the repo. If added, the
+   script should be extended.
+4. **First-class function reference.** ``fn = torch.load; fn(x)`` is NOT
+   detected — once torch.load is bound to a different name, the AST walk
+   cannot follow it.
+5. **Dynamic dispatch can bypass detection.** ``getattr(torch, 'load')(x)``
+   or ``importlib.import_module('torch').load(x)`` are not caught. Not
+   idiomatic here; code review is the backstop.
+6. **Eval/exec'd code** is unscannable. Out of scope.
+7. **Kwargs splat false positive.** ``torch.load(x, **kwargs)`` is
+   FLAGGED even when ``kwargs`` contains ``weights_only`` at runtime —
+   the scanner is static. Workaround: add ``weights_only=True`` as an
+   explicit kwarg alongside the splat. Fails in the safe direction.
+
+Limitations #1–#4 are pinned by ``test_known_limitation_*`` regression
+tests in ``packages/qeeg-pipeline/tests/test_torch_load_governance.py``
+so they cannot silently start to be enforced. See
+``docs/security/torch-load-governance.md`` for the full policy.
 
 Exit codes
 ----------
