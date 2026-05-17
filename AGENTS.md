@@ -122,3 +122,20 @@ Keep **this root file** as the default; nested files **override or specialize** 
 - API contract: `packages/mri-pipeline/portal_integration/api_contract.md`
 - Session/deploy notes: `CLAUDE.md` (repo root)
 - **12-prompt MRI audit (what is merged vs missing):** `packages/mri-pipeline/docs/PROMPT_AUDIT_MRI.md`
+
+---
+
+## Engineering process governance
+
+Multi-agent, concurrent-session workflow has produced a set of process docs under `docs/engineering/`. Agents working in this repo are expected to know these exist and follow them when relevant:
+
+| Doc | When to read |
+|-----|--------------|
+| [`docs/engineering/salvage-pr-governance.md`](./docs/engineering/salvage-pr-governance.md) | Before recovering work from a stash, untracked file, or stale clone |
+| [`docs/engineering/concurrent-agent-safety.md`](./docs/engineering/concurrent-agent-safety.md) | Before spawning subagents or coordinating with Cursor / Codex / Hermes / OpenClaw |
+| [`docs/engineering/worktree-discipline.md`](./docs/engineering/worktree-discipline.md) | Before any non-trivial change — always branch + worktree off `origin/main` |
+| [`docs/engineering/pr-hygiene-and-drift-disclosure.md`](./docs/engineering/pr-hygiene-and-drift-disclosure.md) | Before opening any PR — single-concern, additive, honest about scope |
+| [`docs/engineering/runtime-critical-surface-protection.md`](./docs/engineering/runtime-critical-surface-protection.md) | Before touching qEEG, evidence, scheduling, courses, overlays, CI/Dockerfile, or migrations |
+| [`docs/engineering/future-safeguards.md`](./docs/engineering/future-safeguards.md) | Design space for CI checks — currently advisory-only, not enforced |
+
+Short version: worktree per PR, foreground-only writes when subagents are denied Bash, abort > unsafe salvage, `## Provenance` + `## Drift` sections in PR bodies when recovering work. Critical clinical / contract surfaces are additive-only unless the task explicitly names them.
