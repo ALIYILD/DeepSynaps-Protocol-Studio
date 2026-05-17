@@ -163,3 +163,25 @@ If you are an AI agent (Claude, Cursor, Codex, Hermes, OpenClaw) and the user as
 > Critical surfaces are not where you do exploratory work.
 
 A bug in a clinical surface costs more than every "while I'm here" cleanup ever saved. When in doubt, leave it alone and file an issue.
+
+---
+
+## Stabilization-sensitive surfaces (added 2026-05-17)
+
+The 2026-05-17 post-salvage governance lock (`docs/stabilization/governance-lock-2026-05-17.md`) introduces a stronger discipline for a subset of surfaces. A surface is **stabilization-sensitive** if it is one of the following:
+
+1. A symbol named in `docs/stabilization/governance-lock-2026-05-17.md` § 1.1 ABANDONED — must not be re-introduced without explicit architectural-reversal scope.
+2. A symbol named in `docs/stabilization/governance-lock-2026-05-17.md` § 1.2 PRESERVED — must not be removed, rewritten, or "cleaned up" without explicit scope. The live marketplace / hire-wizard / tool-permission overlay system on `pages-agents.js` lives here.
+3. Any surface in this doc's § "Frontend overlay surface (concurrent-edit hotspot)" table.
+4. Any routing entry under `apps/web/src/navigation/` that points at an agent surface or marketplace surface.
+5. The operational resilience layer (Hermes — pending separate workstream; treat any Hermes-touching change as stabilization-sensitive until that workstream's own governance ships).
+6. Any DeepSynaps clinical-runtime surface: clinical-hub renderers, evidence DB read path, patient hub renderers, scheduling engine, course lifecycle, monitoring + wearables, AE submission.
+7. Any security-governance enforcement layer: banned-language enforcement, claim governance, cross-clinic tenant gates, role gates, auth contracts.
+
+For each of these:
+
+- **Additive-only unless the PR's stated task explicitly names the surface.**
+- **Cleanup PRs may NEVER touch stabilization-sensitive surfaces.** If a cleanup PR's diff brushes against one of these, the PR is misscoped — split or abort per `salvage-pr-governance.md` § Abort conditions.
+- **Mandatory PR checklist applies.** See `docs/stabilization/governance-lock-2026-05-17.md` § 4.2 + the opt-in template at `.github/PULL_REQUEST_TEMPLATE/stabilization-sensitive.md`.
+
+The stabilization-sensitive subset is enforced by **human review at the PR gate**, not by CI. Reviewers must reject PRs that touch these surfaces without the checklist and the explicit governance-lock acknowledgement.
