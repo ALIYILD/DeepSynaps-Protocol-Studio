@@ -30,7 +30,8 @@ primary_region = "lhr"
   # MRI Analyzer: when ``1``, ``POST /api/v1/mri/analyze`` persists the canned
   # ``demo/sample_mri_report.json`` payload. Set to ``0`` when the full
   # ``deepsynaps_mri`` neuro stack is deployed.
-  MRI_DEMO_MODE = "1"
+  # SAFETY: NEVER set to "1" in production — demo data must not mix with real patient data.
+  MRI_DEMO_MODE = "0"
   # Evidence pipeline DB lives on the mounted volume below. Evidence routes
   # return 503 with a clear message until the file exists.
   EVIDENCE_DB_PATH = "/data/evidence.db"
@@ -81,7 +82,7 @@ primary_region = "lhr"
   # With auto_stop_machines = true, machines may sleep and cut open SSE streams.
   # The frontend EventSource must handle reconnects on EventSource.CLOSED / onerror.
   [[http_service.checks]]
-    grace_period = "60s"
+    grace_period = "10s"
     interval = "15s"
     method = "GET"
     timeout = "5s"
