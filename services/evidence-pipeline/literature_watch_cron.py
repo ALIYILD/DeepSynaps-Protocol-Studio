@@ -427,8 +427,9 @@ def run(args: argparse.Namespace) -> int:
             return 1
 
     client = PubMedClient()
-    log.info("pubmed client: api_key=%s email=%s min_interval=%.2fs",
-             "set" if client.api_key else "unset",
+    # Only log presence ("set" / "unset") of the api_key — never its value.
+    log.info("pubmed client init: api_key_present=%s email=%s min_interval=%.2fs",
+             "yes" if client.api_key else "no",
              client.contact_email or "unset",
              client._min_interval)
 

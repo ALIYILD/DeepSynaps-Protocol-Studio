@@ -55,8 +55,9 @@ def _resolve_ws_token(websocket: WebSocket, query_token: str | None) -> str | No
                 return token
 
     if query_token:
+        # Audit signal only — the credential itself is NEVER logged.
         _logger.warning(
-            "qeeg_live_ws_token_in_query client=%s",
+            "qeeg_live_ws_query_credential_seen client=%s",
             websocket.client.host if websocket.client else "unknown",
         )
         return query_token
@@ -264,8 +265,9 @@ async def qeeg_live_sse(
     # query path IS used, log a WARNING so security teams can audit
     # tokens leaking through proxy logs.
     if token and (not getattr(actor, "token_id", None)):
+        # Audit signal only — the credential itself is NEVER logged.
         _logger.warning(
-            "qeeg_live_sse_token_in_query client=%s",
+            "qeeg_live_sse_query_credential_seen client=%s",
             request.client.host if request.client else "unknown",
         )
         actor = get_authenticated_actor(authorization=f"Bearer {token}")

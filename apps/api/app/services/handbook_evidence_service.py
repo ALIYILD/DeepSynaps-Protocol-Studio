@@ -245,7 +245,7 @@ async def query_pubmed(
 
 def _parse_pubmed_xml(xml_text: str) -> List[PubMedResult]:
     """Parse PubMed XML (efetch) into PubMedResult objects."""
-    from xml.etree import ElementTree as ET
+    import defusedxml.ElementTree as ET
     root = ET.fromstring(xml_text.encode("utf-8"))
     results: List[PubMedResult] = []
     for article in root.findall(".//PubMedArticle"):

@@ -108,25 +108,33 @@ jobs:
       - name: Run Locust (headless)
         id: locust
         continue-on-error: true
+        env:
+          LOAD_TEST_HOST: ${{ env.LOAD_TEST_HOST }}
+          LOAD_TEST_PROFILE: ${{ env.LOAD_TEST_PROFILE }}
+          INPUT_USERS: ${{ github.event.inputs.users }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
           mkdir -p load-results
 
           # Build command
           CMD="locust \
             -f tests/load/locustfile.py \
-            --host ${{ env.LOAD_TEST_HOST }} \
+            --host $LOAD_TEST_HOST \
             --headless \
             --config tests/load/load-test-config.yml \
             --csv load-results/run"
 
-          # Override users if provided
-          if [ -n "${{ github.event.inputs.users }}" ]; then
-            CMD="$CMD --users ${{ github.event.inputs.users }}"
+          # Override users if provided (validate numeric to keep shell safe)
+          if [ -n "$INPUT_USERS" ]; then
+            case "$INPUT_USERS" in
+              *[!0-9]*) echo "✗ users input must be numeric, got: $INPUT_USERS" >&2; exit 1 ;;
+            esac
+            CMD="$CMD --users $INPUT_USERS"
           fi
 
           # Set profile env var
-          export LOAD_PROFILE=${{ env.LOAD_TEST_PROFILE }}
-          export TEST_DATA_SEED=${{ github.run_number }}
+          export LOAD_PROFILE="$LOAD_TEST_PROFILE"
+          export TEST_DATA_SEED="$RUN_NUMBER"
 
           echo "Running: $CMD"
           $CMD 2>&1 | tee load-results/locust.log

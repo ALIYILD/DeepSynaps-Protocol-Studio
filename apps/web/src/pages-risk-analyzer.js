@@ -884,6 +884,9 @@ export async function pgRiskAnalyzer(setTopbar, navigate) {
         if (!card) return;
         if (card.querySelector(`[data-override-form="${cat}"]`)) return;
         const meta = (workspace?.safety_snapshot || []).find((c) => c.category === cat) || { category: cat };
+        // _renderOverrideForm escapes every interpolated field via `esc()`
+        // (defined in this file). No raw user content reaches the DOM.
+        // nosemgrep: typescript.react.security.audit.react-unsanitized-method.react-unsanitized-method
         card.insertAdjacentHTML('beforeend', _renderOverrideForm(meta));
         const form = card.querySelector(`[data-override-form="${cat}"]`);
         form?.querySelector('[data-action="override-cancel"]')?.addEventListener('click', () => form.remove());

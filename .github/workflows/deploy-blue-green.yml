@@ -94,11 +94,20 @@ jobs:
 
       - name: Determine deployment configuration
         id: config
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GIT_REF: ${{ github.ref }}
+          INPUT_ENV: ${{ github.event.inputs.environment }}
+          INPUT_SUFFIX: ${{ github.event.inputs.app_suffix }}
+          ENV_APP_BLUE: ${{ env.APP_BLUE }}
+          ENV_APP_GREEN: ${{ env.APP_GREEN }}
+          ENV_APP_BLUE_STAGING: ${{ env.APP_BLUE_STAGING }}
+          ENV_APP_GREEN_STAGING: ${{ env.APP_GREEN_STAGING }}
         run: |
           # Determine environment
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            ENV="${{ github.event.inputs.environment }}"
-          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            ENV="$INPUT_ENV"
+          elif [ "$GIT_REF" = "refs/heads/main" ]; then
             ENV="staging"
           else
             ENV="staging"
@@ -107,15 +116,15 @@ jobs:
 
           # Determine app names based on environment
           if [ "$ENV" = "production" ]; then
-            APP_BLUE="${{ env.APP_BLUE }}"
-            APP_GREEN="${{ env.APP_GREEN }}"
+            APP_BLUE="$ENV_APP_BLUE"
+            APP_GREEN="$ENV_APP_GREEN"
           else
-            APP_BLUE="${{ env.APP_BLUE_STAGING }}"
-            APP_GREEN="${{ env.APP_GREEN_STAGING }}"
+            APP_BLUE="$ENV_APP_BLUE_STAGING"
+            APP_GREEN="$ENV_APP_GREEN_STAGING"
           fi
 
           # Apply optional suffix
-          SUFFIX="${{ github.event.inputs.app_suffix }}"
+          SUFFIX="$INPUT_SUFFIX"
           if [ -n "$SUFFIX" ]; then
             APP_BLUE="${APP_BLUE}-${SUFFIX}"
             APP_GREEN="${APP_GREEN}-${SUFFIX}"
@@ -536,9 +545,11 @@ jobs:
       - name: Schedule blue environment cleanup
         env:
           FLY_ACCESS_TOKEN: ${{ secrets.FLY_ACCESS_TOKEN }}
+          NEEDS_APP_GREEN: ${{ needs.pre-deploy-checks.outputs.app_green }}
+          INPUT_KEEP_HOURS: ${{ github.event.inputs.keep_blue_hours }}
         run: |
-          APP_GREEN="${{ needs.pre-deploy-checks.outputs.app_green }}"
-          KEEP_HOURS="${{ github.event.inputs.keep_blue_hours || '24' }}"
+          APP_GREEN="$NEEDS_APP_GREEN"
+          KEEP_HOURS="${INPUT_KEEP_HOURS:-24}"
 
           echo "=== Scheduling cleanup of green app in ${KEEP_HOURS}h ==="
           echo "Green app '$APP_GREEN' will be kept for rollback until $(date -d "+${KEEP_HOURS} hours")"

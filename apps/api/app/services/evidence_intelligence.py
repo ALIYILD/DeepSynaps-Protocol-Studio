@@ -430,7 +430,7 @@ def stable_finding_id(query: EvidenceQuery) -> str:
         ",".join(sorted(query.diagnosis_filters)),
         ",".join(sorted(query.intervention_filters)),
     ])
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
 def normalize_target_name(target_name: str) -> str:

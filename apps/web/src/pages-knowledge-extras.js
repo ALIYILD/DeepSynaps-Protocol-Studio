@@ -3419,6 +3419,10 @@ export async function pgClinicalTrials(setTopbar) {
         + '<tbody>' + enrollRows + '</tbody></table></div></div>'
         + '<div style="margin-top:14px;font-size:11px;color:var(--text-muted)">Closed trials are immutable and cannot be reopened. Withdrawals require a non-empty reason.</div>'
         + '</div></div>';
+      // Every trial-supplied field above is wrapped with _ctEsc(...) (defined
+      // in this file). Static markup is the rest. semgrep can't trace ad-hoc
+      // escape helpers, so suppress the false positive explicitly.
+      // nosemgrep: typescript.react.security.audit.react-unsanitized-method.react-unsanitized-method
       document.body.insertAdjacentHTML('beforeend', html);
     }
 

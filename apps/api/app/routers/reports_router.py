@@ -2147,7 +2147,7 @@ def request_patient_report_share_back(
 
     now_iso = _filename_safe_iso()
     meta = _patient_meta_for(record)
-    requests = list(meta.get("patient_share_back_requests") or [])
+    share_back_requests = list(meta.get("patient_share_back_requests") or [])
     new_request = {
         "requested_at": now_iso,
         "requested_by": actor.actor_id,
@@ -2155,12 +2155,12 @@ def request_patient_report_share_back(
         "note": body.note.strip()[:512],
         "status": "pending",
     }
-    requests.append(new_request)
+    share_back_requests.append(new_request)
     # Cap to last 5 requests so the metadata blob stays compact; older
     # requests stay in the umbrella audit_events history.
-    if len(requests) > 5:
-        requests = requests[-5:]
-    meta["patient_share_back_requests"] = requests
+    if len(share_back_requests) > 5:
+        share_back_requests = share_back_requests[-5:]
+    meta["patient_share_back_requests"] = share_back_requests
     _save_meta(record, meta)
     db.commit()
     db.refresh(record)

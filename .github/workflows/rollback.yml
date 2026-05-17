@@ -94,11 +94,19 @@ jobs:
 
       - name: Determine configuration
         id: config
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_ENV: ${{ github.event.inputs.environment }}
+          INPUT_ROLLBACK_TYPE: ${{ github.event.inputs.rollback_type }}
+          ENV_APP_BLUE: ${{ env.APP_BLUE }}
+          ENV_APP_GREEN: ${{ env.APP_GREEN }}
+          ENV_APP_BLUE_STAGING: ${{ env.APP_BLUE_STAGING }}
+          ENV_APP_GREEN_STAGING: ${{ env.APP_GREEN_STAGING }}
         run: |
           # Determine environment
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            ENV="${{ github.event.inputs.environment }}"
-            ROLLBACK_TYPE="${{ github.event.inputs.rollback_type }}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            ENV="$INPUT_ENV"
+            ROLLBACK_TYPE="$INPUT_ROLLBACK_TYPE"
           else
             # Auto-triggered from failed deploy — read from triggering workflow
             ENV="staging"  # Default; could be parsed from workflow_run payload
@@ -107,11 +115,11 @@ jobs:
 
           # Determine app names
           if [ "$ENV" = "production" ]; then
-            APP_BLUE="${{ env.APP_BLUE }}"
-            APP_GREEN="${{ env.APP_GREEN }}"
+            APP_BLUE="$ENV_APP_BLUE"
+            APP_GREEN="$ENV_APP_GREEN"
           else
-            APP_BLUE="${{ env.APP_BLUE_STAGING }}"
-            APP_GREEN="${{ env.APP_GREEN_STAGING }}"
+            APP_BLUE="$ENV_APP_BLUE_STAGING"
+            APP_GREEN="$ENV_APP_GREEN_STAGING"
           fi
 
           echo "environment=$ENV" >> "$GITHUB_OUTPUT"
@@ -127,12 +135,17 @@ jobs:
 
       - name: Verify rollback authorization
         id: auth
+        env:
+          STEP_ENV: ${{ steps.config.outputs.environment }}
+          INPUT_CONFIRMATION: ${{ github.event.inputs.confirmation }}
+          INPUT_REASON: ${{ github.event.inputs.reason }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          ENV="${{ steps.config.outputs.environment }}"
+          ENV="$STEP_ENV"
 
           # Production requires explicit confirmation
           if [ "$ENV" = "production" ]; then
-            CONFIRMATION="${{ github.event.inputs.confirmation }}"
+            CONFIRMATION="$INPUT_CONFIRMATION"
             if [ "$CONFIRMATION" != "ROLLBACK" ]; then
               echo "✗ Production rollback requires confirmation code 'ROLLBACK'" >&2
               echo "  Received: '$CONFIRMATION'" >&2
@@ -143,8 +156,8 @@ jobs:
           fi
 
           # Require rollback reason
-          REASON="${{ github.event.inputs.reason }}"
-          if [ -z "$REASON" ] && [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          REASON="$INPUT_REASON"
+          if [ -z "$REASON" ] && [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             echo "✗ Rollback reason is required" >&2
             echo "authorized=false" >> "$GITHUB_OUTPUT"
             exit 1
@@ -154,13 +167,20 @@ jobs:
           echo "✓ Rollback authorized"
 
       - name: Audit log rollback request
+        env:
+          STEP_ENV: ${{ steps.config.outputs.environment }}
+          STEP_ROLLBACK_TYPE: ${{ steps.config.outputs.rollback_type }}
+          INPUT_REASON: ${{ github.event.inputs.reason }}
+          ACTOR: ${{ github.actor }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
         run: |
-          ENV="${{ steps.config.outputs.environment }}"
-          ROLLBACK_TYPE="${{ steps.config.outputs.rollback_type }}"
-          REASON="${{ github.event.inputs.reason || 'Auto-triggered from failed deployment' }}"
-          ACTOR="${{ github.actor }}"
+          ENV="$STEP_ENV"
+          ROLLBACK_TYPE="$STEP_ROLLBACK_TYPE"
+          REASON="${INPUT_REASON:-Auto-triggered from failed deployment}"
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          RUN_URL="$SERVER_URL/$REPOSITORY/actions/runs/$RUN_ID"
 
           echo "=== ROLLBACK AUDIT LOG ==="
           echo "Timestamp : $TIMESTAMP"
@@ -472,19 +492,27 @@ jobs:
         if: github.event.inputs.notify_slack != 'false'
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_DEPLOY_WEBHOOK }}
+          NEEDS_ENV: ${{ needs.authorize.outputs.environment }}
+          NEEDS_APP_BLUE: ${{ needs.authorize.outputs.app_blue }}
+          NEEDS_ROLLBACK_TYPE: ${{ needs.authorize.outputs.rollback_type }}
+          INPUT_REASON: ${{ github.event.inputs.reason }}
+          ACTOR: ${{ github.actor }}
+          VERIFY_RESULT: ${{ needs.verify-rollback.result }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           if [ -z "$SLACK_WEBHOOK" ]; then
             echo "⚠ No Slack webhook configured"
             exit 0
           fi
 
-          ENV="${{ needs.authorize.outputs.environment }}"
-          APP_BLUE="${{ needs.authorize.outputs.app_blue }}"
-          ROLLBACK_TYPE="${{ needs.authorize.outputs.rollback_type }}"
-          REASON="${{ github.event.inputs.reason || 'Auto-triggered from failed deployment' }}"
-          ACTOR="${{ github.actor }}"
-          STATUS="${{ needs.verify-rollback.result }}"
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          ENV="$NEEDS_ENV"
+          APP_BLUE="$NEEDS_APP_BLUE"
+          ROLLBACK_TYPE="$NEEDS_ROLLBACK_TYPE"
+          REASON="${INPUT_REASON:-Auto-triggered from failed deployment}"
+          STATUS="$VERIFY_RESULT"
+          RUN_URL="$SERVER_URL/$REPOSITORY/actions/runs/$RUN_ID"
 
           if [ "$STATUS" = "success" ]; then
             STATUS_EMOJI="✅"
@@ -510,10 +538,14 @@ jobs:
             }" || echo "⚠ Slack notification failed (non-critical)"
 
       - name: Final audit log
+        env:
+          NEEDS_ENV: ${{ needs.authorize.outputs.environment }}
+          NEEDS_ROLLBACK_TYPE: ${{ needs.authorize.outputs.rollback_type }}
+          VERIFY_RESULT: ${{ needs.verify-rollback.result }}
         run: |
-          ENV="${{ needs.authorize.outputs.environment }}"
-          ROLLBACK_TYPE="${{ needs.authorize.outputs.rollback_type }}"
-          STATUS="${{ needs.verify-rollback.result }}"
+          ENV="$NEEDS_ENV"
+          ROLLBACK_TYPE="$NEEDS_ROLLBACK_TYPE"
+          STATUS="$VERIFY_RESULT"
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
           echo "=== ROLLBACK COMPLETE — AUDIT TRAIL ==="

@@ -436,9 +436,12 @@ def invite_member(
     db.refresh(invite)
 
     # Stub email delivery — replace with real SMTP once settings.SMTP_* is wired.
+    # IMPORTANT: never log the raw invite token. A log dump would let anyone
+    # accept the invite. Log a short prefix only so we can correlate with the
+    # DB row but not redeem it.
     logger.info(
-        "[email stub] invite URL: /accept-invite?token=%s (to %s, role=%s, clinic=%s)",
-        token,
+        "[email stub] invite issued (prefix=%s, to=%s, role=%s, clinic=%s)",
+        token[:6],
         email_norm,
         role,
         clinic_id,

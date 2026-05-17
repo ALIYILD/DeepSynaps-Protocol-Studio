@@ -22,7 +22,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
 from aiohttp import ClientTimeout, ClientResponseError
-import xml.etree.ElementTree as ET
+# defusedxml.ElementTree mirrors the stdlib API but rejects entity-expansion
+# and external-entity attacks (billion laughs etc). NCBI XML is untrusted input.
+import defusedxml.ElementTree as ET
 
 from ..base_adapter import (
     ConfidenceTier,

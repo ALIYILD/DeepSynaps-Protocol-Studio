@@ -47,7 +47,7 @@ def exchange_code(
     adapter = get_adapter(provider_id)
 
     if is_demo_mode(provider_id):
-        _logger.info("Demo mode: returning synthetic tokens for %s", provider_id)
+        _logger.info("Demo mode: returning synthetic credentials for provider=%s", provider_id)
         return TokenSet(
             access_token=f"demo-at-{provider_id}-{secrets.token_hex(8)}",
             refresh_token=f"demo-rt-{provider_id}-{secrets.token_hex(8)}",

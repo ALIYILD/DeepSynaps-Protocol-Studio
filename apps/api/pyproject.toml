@@ -49,6 +49,10 @@ dependencies = [
     "pyotp>=2.9",
     "cryptography>=42",
     "pillow>=10",
+    # Safe XML parsing — used by clinvar adapter and handbook evidence
+    # services that consume external XML (NCBI E-utilities, EuropePMC).
+    # Stdlib xml.etree is vulnerable to billion-laughs / external entity attacks.
+    "defusedxml>=0.7.1",
     # qEEG analysis pipeline — EDF parsing + spectral analysis
     "mne>=1.7.0,<2.0.0",
     "edfio>=0.4",
