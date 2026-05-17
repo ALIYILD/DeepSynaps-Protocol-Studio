@@ -36,10 +36,35 @@ function makeNode(id = '') {
     hidden: false,
     children: [],
     parentNode: null,
+    firstChild: null,
     classList: { add() {}, remove() {}, contains() { return false; } },
-    appendChild(child) { this.children.push(child); if (child && typeof child === 'object') child.parentNode = this; return child; },
-    removeChild(child) { const i = this.children.indexOf(child); if (i !== -1) this.children.splice(i, 1); return child; },
-    remove() {},
+    appendChild(child) {
+      this.children.push(child);
+      if (child && typeof child === 'object') child.parentNode = this;
+      return child;
+    },
+    insertBefore(newNode, refNode) {
+      if (newNode && typeof newNode === 'object') newNode.parentNode = this;
+      const idx = this.children.indexOf(refNode);
+      if (idx === -1) this.children.push(newNode);
+      else this.children.splice(idx, 0, newNode);
+      return newNode;
+    },
+    removeChild(child) {
+      const idx = this.children.indexOf(child);
+      if (idx !== -1) this.children.splice(idx, 1);
+      if (child && typeof child === 'object') child.parentNode = null;
+      return child;
+    },
+    replaceChild(newNode, oldNode) {
+      const idx = this.children.indexOf(oldNode);
+      if (idx !== -1) this.children[idx] = newNode;
+      if (newNode && typeof newNode === 'object') newNode.parentNode = this;
+      if (oldNode && typeof oldNode === 'object') oldNode.parentNode = null;
+      return oldNode;
+    },
+    contains() { return false; },
+    remove() { if (this.parentNode) this.parentNode.removeChild(this); },
     addEventListener() {},
     querySelector() { return null; },
     querySelectorAll() { return []; },
