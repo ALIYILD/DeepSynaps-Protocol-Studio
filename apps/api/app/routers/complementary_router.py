@@ -17,9 +17,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.auth import require_any_role
-from app.core.database import get_db
-from app.core.audit import log_audit_event
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    UserRole,
+)
+from app.database import get_db_session
 
 from app.services.complementary_service import (
     get_complementary_patients,
@@ -64,7 +68,12 @@ router = APIRouter(prefix="/complementary", tags=["complementary"])
 # ROLE HELPERS
 # ---------------------------------------------------------------------------
 
-CLINICIAN_OR_ADMIN = require_any_role(["clinician", "admin", "clinic-admin", "supervisor", "technician"])
+async def CLINICIAN_OR_ADMIN(actor: AuthenticatedActor = Depends(get_authenticated_actor)) -> AuthenticatedActor:
+    """Require clinician, admin, or supervisor role."""
+    allowed = {UserRole.clinician, UserRole.admin, UserRole.clinic_admin, UserRole.supervisor, UserRole.technician}
+    if actor.role not in allowed:
+        raise HTTPException(status_code=403, detail="Insufficient role for complementary therapy access")
+    return actor
 
 # ---------------------------------------------------------------------------
 # Pydantic Models
@@ -203,18 +212,11 @@ class HerbDrugInteractionRequest(BaseModel):
 )
 def list_complementary_patients(
     clinic_id: str = Query(..., description="Clinic UUID"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     patients = get_complementary_patients(db, clinic_id)
-    log_audit_event(
-        db=db,
-        user_id=getattr(user, "id", None),
-        action="complementary_patients_list",
-        resource_type="complementary",
-        resource_id=clinic_id,
-        detail=f"Listed {len(patients)} patients with active therapies for clinic {clinic_id}",
-    )
+    logger.info("AUDIT: action=%s user_id=%s detail=%s", "complementary_patients_list", getattr(user, 'id', None), "Listed {len(patients)} patients with active therapies for clinic {clinic_id}")
     return {
         "clinic_id": clinic_id,
         "count": len(patients),
@@ -230,18 +232,11 @@ def list_complementary_patients(
 )
 def get_complementary_patient_profile(
     patient_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     profile = get_patient_profile(db, patient_id)
-    log_audit_event(
-        db=db,
-        user_id=getattr(user, "id", None),
-        action="complementary_patient_profile_view",
-        resource_type="complementary",
-        resource_id=patient_id,
-        detail=f"Viewed complementary profile for patient {patient_id}",
-    )
+    logger.info("AUDIT: action=%s user_id=%s detail=%s", "complementary_patient_profile_view", getattr(user, 'id', None), "Viewed complementary profile for patient {patient_id}")
     return profile
 
 
@@ -257,20 +252,13 @@ def get_complementary_patient_profile(
 )
 def create_acupuncture_session(
     request: AcupunctureSessionRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     result = log_acupuncture(db, request.patient_id, request.model_dump())
     if not result.get("success"):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=result.get("error"))
-    log_audit_event(
-        db=db,
-        user_id=getattr(user, "id", None),
-        action="acupuncture_session_logged",
-        resource_type="acupuncture",
-        resource_id=result.get("session_id"),
-        detail=f"Logged acupuncture session for patient {request.patient_id}",
-    )
+    logger.info("AUDIT: action=%s user_id=%s detail=%s", "acupuncture_session_logged", getattr(user, 'id', None), "Logged acupuncture session for patient {request.patient_id}")
     return result
 
 
@@ -282,7 +270,7 @@ def create_acupuncture_session(
 def get_patient_acupuncture_history(
     patient_id: str,
     limit: int = Query(default=50, ge=1, le=200),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     history = get_acupuncture_history(db, patient_id, limit=limit)
@@ -306,20 +294,13 @@ def get_patient_acupuncture_history(
 )
 def create_neurofeedback_session(
     request: NeurofeedbackSessionRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     result = log_neurofeedback(db, request.patient_id, request.model_dump())
     if not result.get("success"):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=result.get("error"))
-    log_audit_event(
-        db=db,
-        user_id=getattr(user, "id", None),
-        action="neurofeedback_session_logged",
-        resource_type="neurofeedback",
-        resource_id=result.get("session_id"),
-        detail=f"Logged neurofeedback session for patient {request.patient_id}",
-    )
+    logger.info("AUDIT: action=%s user_id=%s detail=%s", "neurofeedback_session_logged", getattr(user, 'id', None), "Logged neurofeedback session for patient {request.patient_id}")
     return result
 
 
@@ -331,7 +312,7 @@ def create_neurofeedback_session(
 def get_patient_neurofeedback_history(
     patient_id: str,
     limit: int = Query(default=50, ge=1, le=200),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     history = get_neurofeedback_history(db, patient_id, limit=limit)
@@ -355,20 +336,13 @@ def get_patient_neurofeedback_history(
 )
 def create_ces_session(
     request: CESSessionRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     result = log_ces(db, request.patient_id, request.model_dump())
     if not result.get("success"):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=result.get("error"))
-    log_audit_event(
-        db=db,
-        user_id=getattr(user, "id", None),
-        action="ces_session_logged",
-        resource_type="ces",
-        resource_id=result.get("session_id"),
-        detail=f"Logged CES session for patient {request.patient_id}",
-    )
+    logger.info("AUDIT: action=%s user_id=%s detail=%s", "ces_session_logged", getattr(user, 'id', None), "Logged CES session for patient {request.patient_id}")
     return result
 
 
@@ -380,7 +354,7 @@ def create_ces_session(
 def get_patient_ces_history(
     patient_id: str,
     limit: int = Query(default=50, ge=1, le=200),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     history = get_ces_history(db, patient_id, limit=limit)
@@ -404,20 +378,13 @@ def get_patient_ces_history(
 )
 def create_pbm_session(
     request: PBMSessionRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     result = log_pbm(db, request.patient_id, request.model_dump())
     if not result.get("success"):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=result.get("error"))
-    log_audit_event(
-        db=db,
-        user_id=getattr(user, "id", None),
-        action="pbm_session_logged",
-        resource_type="pbm",
-        resource_id=result.get("session_id"),
-        detail=f"Logged tPBM session for patient {request.patient_id}",
-    )
+    logger.info("AUDIT: action=%s user_id=%s detail=%s", "pbm_session_logged", getattr(user, 'id', None), "Logged tPBM session for patient {request.patient_id}")
     return result
 
 
@@ -429,7 +396,7 @@ def create_pbm_session(
 def get_patient_pbm_history(
     patient_id: str,
     limit: int = Query(default=50, ge=1, le=200),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     history = get_pbm_history(db, patient_id, limit=limit)
@@ -453,20 +420,13 @@ def get_patient_pbm_history(
 )
 def create_mindbody_session(
     request: MindBodySessionRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     result = log_mindbody(db, request.patient_id, request.model_dump())
     if not result.get("success"):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=result.get("error"))
-    log_audit_event(
-        db=db,
-        user_id=getattr(user, "id", None),
-        action="mindbody_session_logged",
-        resource_type="mindbody",
-        resource_id=result.get("session_id"),
-        detail=f"Logged mind-body session for patient {request.patient_id}",
-    )
+    logger.info("AUDIT: action=%s user_id=%s detail=%s", "mindbody_session_logged", getattr(user, 'id', None), "Logged mind-body session for patient {request.patient_id}")
     return result
 
 
@@ -478,7 +438,7 @@ def create_mindbody_session(
 def get_patient_mindbody_history(
     patient_id: str,
     limit: int = Query(default=50, ge=1, le=200),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     history = get_mindbody_history(db, patient_id, limit=limit)
@@ -502,20 +462,13 @@ def get_patient_mindbody_history(
 )
 def create_massage_session(
     request: MassageSessionRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     result = log_massage(db, request.patient_id, request.model_dump())
     if not result.get("success"):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=result.get("error"))
-    log_audit_event(
-        db=db,
-        user_id=getattr(user, "id", None),
-        action="massage_session_logged",
-        resource_type="massage",
-        resource_id=result.get("session_id"),
-        detail=f"Logged massage session for patient {request.patient_id}",
-    )
+    logger.info("AUDIT: action=%s user_id=%s detail=%s", "massage_session_logged", getattr(user, 'id', None), "Logged massage session for patient {request.patient_id}")
     return result
 
 
@@ -527,7 +480,7 @@ def create_massage_session(
 def get_patient_massage_history(
     patient_id: str,
     limit: int = Query(default=50, ge=1, le=200),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     history = get_massage_history(db, patient_id, limit=limit)
@@ -551,20 +504,13 @@ def get_patient_massage_history(
 )
 def create_music_art_session(
     request: MusicArtSessionRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     result = log_music_art(db, request.patient_id, request.model_dump())
     if not result.get("success"):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=result.get("error"))
-    log_audit_event(
-        db=db,
-        user_id=getattr(user, "id", None),
-        action="music_art_session_logged",
-        resource_type="music-art",
-        resource_id=result.get("session_id"),
-        detail=f"Logged music/art therapy session for patient {request.patient_id}",
-    )
+    logger.info("AUDIT: action=%s user_id=%s detail=%s", "music_art_session_logged", getattr(user, 'id', None), "Logged music/art therapy session for patient {request.patient_id}")
     return result
 
 
@@ -576,7 +522,7 @@ def create_music_art_session(
 def get_patient_music_art_history(
     patient_id: str,
     limit: int = Query(default=50, ge=1, le=200),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     history = get_music_art_history(db, patient_id, limit=limit)
@@ -603,7 +549,7 @@ def search_therapy_library(
     condition: Optional[str] = Query(default=None, description="Filter by treated condition"),
     evidence_grade: Optional[str] = Query(default=None, description="Filter by evidence grade (A/B/C/D)"),
     q: Optional[str] = Query(default=None, description="Free-text search across name, description, mechanism"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     results = get_therapy_library(db, category=category, condition=condition, evidence_grade=evidence_grade)
@@ -631,7 +577,7 @@ def search_therapy_library(
     summary="Get aggregate evidence statistics for the therapy library",
 )
 def get_library_stats(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     return get_aggregate_evidence_stats()
@@ -644,7 +590,7 @@ def get_library_stats(
 )
 def get_therapy_by_id(
     therapy_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     entry = next((t for t in THERAPY_LIBRARY_DB if t["id"] == therapy_id), None)
@@ -665,7 +611,7 @@ def get_therapy_by_id(
 )
 def create_therapy_protocol(
     request: ProtocolCreateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     errors = validate_protocol_data(request.model_dump())
@@ -675,14 +621,7 @@ def create_therapy_protocol(
     result = create_protocol(db, request.patient_id, request.model_dump())
     if not result.get("success"):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=result.get("error"))
-    log_audit_event(
-        db=db,
-        user_id=getattr(user, "id", None),
-        action="protocol_created",
-        resource_type="protocol",
-        resource_id=result.get("protocol_id"),
-        detail=f"Created protocol '{result.get('name')}' for patient {request.patient_id}",
-    )
+    logger.info("AUDIT: action=%s user_id=%s detail=%s", "protocol_created", getattr(user, 'id', None), "Created protocol '{result.get('name')}' for patient {request.patient_id}")
     return result
 
 
@@ -693,7 +632,7 @@ def create_therapy_protocol(
 )
 def get_patient_protocols(
     patient_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     protocols = get_protocols_for_patient(db, patient_id)
@@ -711,7 +650,7 @@ def get_patient_protocols(
 )
 def get_patient_active_protocols(
     patient_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     protocols = get_protocols_for_patient(db, patient_id)
@@ -732,7 +671,7 @@ def list_templates(
     category: Optional[str] = Query(default=None, description="Filter by modality category"),
     evidence_grade: Optional[str] = Query(default=None),
     condition: Optional[str] = Query(default=None),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     templates = list_protocol_templates(category=category, evidence_grade=evidence_grade, condition=condition)
@@ -750,7 +689,7 @@ def list_templates(
 )
 def get_template_by_key(
     template_key: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     template = get_protocol_template_by_key(template_key)
@@ -767,7 +706,7 @@ def get_template_by_key(
 def update_protocol_progress_endpoint(
     protocol_id: str,
     request: ProtocolProgressUpdateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     result = update_protocol_progress(
@@ -789,20 +728,13 @@ def update_protocol_progress_endpoint(
 )
 def deactivate_protocol(
     protocol_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     result = update_protocol_progress(db, protocol_id, sessions_completed=0, status="inactive")
     if not result.get("success"):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND if "not found" in result.get("error", "").lower() else status.HTTP_500_INTERNAL_SERVER_ERROR, detail=result.get("error"))
-    log_audit_event(
-        db=db,
-        user_id=getattr(user, "id", None),
-        action="protocol_deactivated",
-        resource_type="protocol",
-        resource_id=protocol_id,
-        detail=f"Deactivated protocol {protocol_id}",
-    )
+    logger.info("AUDIT: action=%s user_id=%s detail=%s", "protocol_deactivated", getattr(user, 'id', None), "Deactivated protocol {protocol_id}")
     return result
 
 
@@ -818,18 +750,11 @@ def deactivate_protocol(
 )
 def run_safety_check(
     request: SafetyCheckRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     result = safety_check(db, request.patient_id, request.therapy_type)
-    log_audit_event(
-        db=db,
-        user_id=getattr(user, "id", None),
-        action="safety_check",
-        resource_type="safety",
-        resource_id=request.patient_id,
-        detail=f"Safety check for therapy {request.therapy_type} on patient {request.patient_id}: cleared={result.get('cleared')}, flags={result.get('flag_count')}",
-    )
+    logger.info("AUDIT: action=%s user_id=%s detail=%s", "safety_check", getattr(user, 'id', None), "Safety check for therapy {request.therapy_type} on patient {request.patient_id}: cleared={result.get('cleared')}, flags={result.get('flag_count')}")
     return result
 
 
@@ -840,7 +765,7 @@ def run_safety_check(
 )
 def check_herb_drug_interactions(
     request: HerbDrugInteractionRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     interactions = get_herb_drug_interactions(request.herb_name, request.medication_name)
@@ -861,7 +786,7 @@ def check_herb_drug_interactions(
 def get_therapy_evidence(
     therapy_type: str,
     condition: Optional[str] = Query(default=None),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     return get_evidence_summary(therapy_type, condition=condition)
@@ -873,7 +798,7 @@ def get_therapy_evidence(
     summary="Get all evidence summaries",
 )
 def get_all_evidence(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     all_evidence = {}
@@ -896,18 +821,11 @@ def get_all_evidence(
 )
 def get_patient_progress(
     patient_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     summary = get_progress_summary(db, patient_id)
-    log_audit_event(
-        db=db,
-        user_id=getattr(user, "id", None),
-        action="progress_summary_view",
-        resource_type="progress",
-        resource_id=patient_id,
-        detail=f"Viewed progress summary for patient {patient_id}",
-    )
+    logger.info("AUDIT: action=%s user_id=%s detail=%s", "progress_summary_view", getattr(user, 'id', None), "Viewed progress summary for patient {patient_id}")
     return summary
 
 
@@ -922,18 +840,11 @@ def get_patient_progress(
 )
 def get_clinic_dashboard_summary(
     clinic_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     summary = get_clinic_summary(db, clinic_id)
-    log_audit_event(
-        db=db,
-        user_id=getattr(user, "id", None),
-        action="clinic_summary_view",
-        resource_type="complementary",
-        resource_id=clinic_id,
-        detail=f"Viewed clinic summary for {clinic_id}",
-    )
+    logger.info("AUDIT: action=%s user_id=%s detail=%s", "clinic_summary_view", getattr(user, 'id', None), "Viewed clinic summary for {clinic_id}")
     return summary
 
 
@@ -949,20 +860,13 @@ def get_clinic_dashboard_summary(
 def deactivate_patient_therapy(
     patient_id: str,
     therapy_type: str = Query(..., description="Therapy type to deactivate"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     result = deactivate_therapy(db, patient_id, therapy_type)
     if not result.get("success"):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=result.get("error"))
-    log_audit_event(
-        db=db,
-        user_id=getattr(user, "id", None),
-        action="therapy_deactivated",
-        resource_type="complementary",
-        resource_id=patient_id,
-        detail=f"Deactivated {therapy_type} for patient {patient_id}",
-    )
+    logger.info("AUDIT: action=%s user_id=%s detail=%s", "therapy_deactivated", getattr(user, 'id', None), "Deactivated {therapy_type} for patient {patient_id}")
     return result
 
 
@@ -976,7 +880,7 @@ def deactivate_patient_therapy(
     summary="Get list of herbs in the interaction database",
 )
 def get_herb_reference_list(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     herbs = [
@@ -993,7 +897,7 @@ def get_herb_reference_list(
     summary="Get therapy category list",
 )
 def get_category_reference(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     return {
@@ -1017,7 +921,7 @@ def get_category_reference(
     summary="Get evidence grade legend",
 )
 def get_evidence_grade_reference(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     return {
@@ -1037,7 +941,7 @@ def get_evidence_grade_reference(
 @router.get("/acupuncture-history/{patient_id}", include_in_schema=False)
 def get_acupuncture_history_alias(
     patient_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     return get_patient_acupuncture_history(patient_id, db=db, user=user)
@@ -1046,7 +950,7 @@ def get_acupuncture_history_alias(
 @router.get("/neurofeedback-history/{patient_id}", include_in_schema=False)
 def get_neurofeedback_history_alias(
     patient_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
     return get_patient_neurofeedback_history(patient_id, db=db, user=user)
