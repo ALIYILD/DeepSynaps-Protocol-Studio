@@ -104,13 +104,50 @@ function _renderAiAgentV2PatientContextPanel() {
   const statusLine = missing
     ? '<strong>Clinic-wide context</strong> — no patient selected. Assistant uses clinic-wide summaries only. Pick a patient from Patients or an analyzer to scope drafts.'
     : `<strong>Scoped to patient <code style="font-size:11px">${patientId}</code>${patientName ? ` (${patientName})` : ''}</strong> — clinic-wide data excluded by data-minimization flag. Verify identifiers before acting.`;
+  // Patient picker dropdown — opt-in when window._patientRoster is populated.
+  // Pure read+localStorage write; no overlay state, no orchestration.
+  const roster = (typeof window !== 'undefined' && Array.isArray(window._patientRoster)) ? window._patientRoster : [];
+  const patientSelect = roster.length ? `
+      <select id="agent-patient-select" data-test="ai-agent-v2-patient-select"
+        style="font:inherit;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text-primary);font-size:12px;cursor:pointer;margin-bottom:8px;max-width:320px"
+        onchange="window._agentSelectPatient && window._agentSelectPatient(this.value)">
+        <option value="" ${!patientId ? 'selected' : ''}>— Select patient —</option>
+        ${roster.map(p => {
+          const val = _esc(String(p.id || p.patient_id || ''));
+          const label = _esc(String(p.name || p.full_name || p.display_name || val || 'Unknown'));
+          return `<option value="${val}" ${patientId === val ? 'selected' : ''}>${label}</option>`;
+        }).join('')}
+      </select>` : '';
   return `
     <div class="card" data-test="ai-agent-v2-context-panel"${missing ? ' data-ai-agent-v2-patient-missing="1"' : ''} style="padding:14px 16px;margin-bottom:16px">
       <div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Patient &amp; clinic context</div>
       <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.55;margin-bottom:8px">${statusLine}</div>
+      ${patientSelect}
       <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:11px;color:var(--text-tertiary)">
         ${clinicId ? `<span>Clinic: <code style="font-size:11px">${_esc(clinicId)}</code></span>` : '<span>Clinic: not loaded</span>'}
         ${demo ? '<span data-test="ai-agent-v2-demo-badge" style="padding:2px 8px;border-radius:99px;background:rgba(245,158,11,0.12);color:var(--amber,#f59e0b);font-weight:600">Demo / synthetic</span>' : ''}
+      </div>
+    </div>`;
+}
+
+function _renderAgentV2WelcomeBanner() {
+  // Dismissable onboarding banner. Renders once until the user dismisses it
+  // via window._agentDismissWelcome. localStorage-only, no server state.
+  try {
+    if (localStorage.getItem('ds_agent_v2_welcome_dismissed') === '1') return '';
+  } catch { /* ignore */ }
+  return `
+    <div id="agent-v2-welcome-banner" class="card" data-test="ai-agent-v2-welcome-banner" style="padding:14px 16px;margin-bottom:16px;border-left:3px solid var(--teal);background:rgba(0,212,188,0.06)">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:6px">Welcome to AI Agents</div>
+          <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
+            1) Pick a patient from the dropdown above,<br>
+            2) Hire an agent from the marketplace,<br>
+            3) Open chat to get clinician-reviewed drafts.
+          </div>
+        </div>
+        <button class="btn btn-sm" style="font-size:11px;padding:4px 12px;flex-shrink:0" onclick="window._agentDismissWelcome && window._agentDismissWelcome()">Got it</button>
       </div>
     </div>`;
 }
@@ -4440,6 +4477,7 @@ function _renderHub(setTopbar) {
 
   el.innerHTML = `<div class="dv2-hub-shell" style="padding:20px;display:flex;flex-direction:column;gap:16px"><div class="agent-hub">
     ${_twinHandoffBanner}
+    ${_renderAgentV2WelcomeBanner()}
     ${_renderAiAgentV2GovernanceBanner()}
     ${_renderAiAgentV2PatientContextPanel()}
     ${_renderAiAgentV2ModuleShortcuts()}
@@ -4834,6 +4872,20 @@ function _renderConfig(setTopbar) {
 window._agentOpenChat = function(agent) { _agentView = 'chat-' + agent; pgAgentChat(_lastSetTopbar); };
 window._agentOpenConfig = function() { _agentView = 'config'; pgAgentChat(_lastSetTopbar); };
 window._agentBackToHub = function() { _agentView = 'hub'; _activeSkill = null; pgAgentChat(_lastSetTopbar); };
+window._agentSelectPatient = function(value) {
+  // Writes the picker selection to the same localStorage key
+  // _resolvePatientContextLabel reads. Re-renders the hub so the
+  // context panel updates. No overlay state, no orchestration.
+  try {
+    if (value) localStorage.setItem('ds_selected_patient_id', String(value));
+    else localStorage.removeItem('ds_selected_patient_id');
+  } catch { /* ignore */ }
+  pgAgentChat(_lastSetTopbar);
+};
+window._agentDismissWelcome = function() {
+  try { localStorage.setItem('ds_agent_v2_welcome_dismissed', '1'); } catch { /* ignore */ }
+  pgAgentChat(_lastSetTopbar);
+};
 
 window._agentRunSkill = function(agent, skillId) {
   const skills = agent === 'patient' ? PATIENT_SKILLS : CLINICIAN_SKILLS;
