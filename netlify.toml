@@ -1,78 +1,13 @@
-# Netlify config for the `deepsynaps-studio-preview` site.
-#
-# The build happens inside apps/web. VITE_ENABLE_DEMO=1 lets the
-# landing-page demo buttons short-circuit into the offline demo user
-# map — so reviewers can sign in as Clinician / Patient without the
-# backend needing the newer /auth/demo-login endpoint.
-#
-# VITE_API_BASE_URL points at the production Fly API; real GET requests
-# (health, openapi-discoverable endpoints) still work against it.
-#
-# Site: https://deepsynaps-studio-preview.netlify.app
-# Site ID: 13baea11-07e8-4ab3-9c25-af1f045c845b
-
 [build]
-  # Build from repo root so npm workspaces (apps/web + packages/api-client)
-  # resolve correctly. Output still publishes from apps/web/dist.
-  base    = "."
-  command = "npm install --no-audit --no-fund && npm run build:web"
+  command = "npm install --no-audit --no-fund && npm run build --workspace @deepsynaps/web"
   publish = "apps/web/dist"
+  base = "."
 
 [build.environment]
-  NODE_VERSION        = "20"
-  NPM_FLAGS           = "--prefix=/dev/null"
-  VITE_ENABLE_DEMO    = "1"
-  # The maintained preview deploy targets the Fly API directly.
-  # Keep the redirect rules below as a fallback for relative-path callers.
-  VITE_API_BASE_URL   = "https://deepsynaps-studio.fly.dev"
+  NODE_VERSION = "20"
+  NPM_FLAGS = "--legacy-peer-deps"
 
-# Proxy API calls to the Fly backend so they appear same-origin to the
-# browser. MUST come before the SPA fallback redirect below — Netlify
-# applies redirect rules top-down and the first match wins.
 [[redirects]]
-  from   = "/api/*"
-  to     = "https://deepsynaps-studio.fly.dev/api/:splat"
+  from = "/*"
+  to = "/index.html"
   status = 200
-  force  = true
-
-# SPA routing: every other unknown path falls back to index.html so the
-# Vite hash router owns navigation.
-[[redirects]]
-  from   = "/*"
-  to     = "/index.html"
-  status = 200
-
-# Sensible defaults for static assets. Hashed filenames can be cached
-# forever; index.html must NOT be cached so every visit picks up the
-# latest bundle hash (otherwise patients see the old bundle until their
-# browser cache expires, which is what prompted the "can't see changes"
-# reports).
-[[headers]]
-  for = "/assets/*"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
-
-[[headers]]
-  for = "/"
-  [headers.values]
-    Cache-Control = "no-cache, no-store, must-revalidate"
-
-[[headers]]
-  for = "/index.html"
-  [headers.values]
-    Cache-Control = "no-cache, no-store, must-revalidate"
-
-[[headers]]
-  for = "/sw.js"
-  [headers.values]
-    Cache-Control = "no-cache, no-store, must-revalidate"
-
-[[headers]]
-  for = "/studio.html"
-  [headers.values]
-    Cache-Control = "no-cache, no-store, must-revalidate"
-
-[[headers]]
-  for = "/manifest.json"
-  [headers.values]
-    Cache-Control = "no-cache, no-store, must-revalidate"
