@@ -273,6 +273,7 @@ from app.routers.rotation_policy_advisor_threshold_tuning_router import (
 from app.routers.treatment_sessions_router import router as treatment_sessions_router
 from app.routers.rehab_router import router as rehab_router
 from app.routers.wellness_router import router as wellness_router
+from app.routers.complementary_router import router as complementary_router
 from app.routers.analyzer_v2_router import router as analyzer_v2_router
 from app.routers.intelligence_hub_router import router as intelligence_hub_router
 from app.routers.admin_governance_router import router as admin_governance_router
@@ -281,6 +282,7 @@ from app.routers.intervention_planning_router import router as intervention_plan
 from app.routers.ecosystem_router import router as ecosystem_router
 from app.routers.patient_portal_v2_router import router as patient_portal_v2_router
 from app.routers.handbook_v2_router import router as handbook_v2_router
+from app.middleware.demo_detection import register_demo_middleware
 from app.monitoring.middleware import MetricsMiddleware, register_metrics_endpoint
 from app.sentry_setup import init_sentry
 from app.settings import get_settings
@@ -391,22 +393,31 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
         # Seed demo Clinic + User rows so demo tokens resolve with a real
         # clinic_id and cross-clinic gates work in dev/test/smoke runs.
         _seed_demo_users_for_dev(session)
-        # Seed synthetic demo clinic operational data (patients/courses/queues).
-        # Gated by app_env allowlist + DEEPSYNAPS_DEMO_CLINIC_SEED=1.
-        # Defense-in-depth: also skip when running under pytest. Tests that
-        # legitimately exercise the demo seed (test_seed_demo.py) call the
-        # seed function directly with monkeypatched env, so the lifespan
-        # never needs to fire it during a test session. This prevents a
-        # process-wide env-var leak from one test bleeding demo rows into
-        # every TestClient(app) lifespan in the rest of the suite — which
-        # was the root cause of the 21e42d02 backend test regression.
-        if demo_seed_enabled(settings.app_env) and "PYTEST_CURRENT_TEST" not in os.environ:
-            seed_demo_clinic_data(session)
-            # Also seed scheduling-focused synthetic data (rooms/devices/
-            # appointments) so the Scheduling Hub demo has real backing rows.
-            # Same gate; idempotent on its own (skips if any demo schedule
-            # sessions already exist for the demo clinicians this week).
-            seed_demo_clinic(session)
+        # PRODUCTION SAFETY: Demo data must NEVER be seeded in production.
+        # This is a defense-in-depth check beyond the environment gate in
+        # demo_seed_enabled(). If this code runs in production, it logs a
+        # critical error and skips all demo seeding.
+        if settings.app_env == "production":
+            logger.critical(
+                "PRODUCTION SAFETY: Demo seeding blocked in production environment. "
+                "If you need demo data for a demo, use the development environment."
+            )
+            # Do NOT seed demo data in production under any circumstances
+            pass  # skip all demo seeding
+        elif settings.app_env in ("development", "test"):
+            # Development and test environments can seed demo data
+            # (gated by demo_seed_enabled which also checks the env var)
+            if demo_seed_enabled(settings.app_env) and "PYTEST_CURRENT_TEST" not in os.environ:
+                seed_demo_clinic_data(session)
+            if demo_seed_enabled(settings.app_env) and "PYTEST_CURRENT_TEST" not in os.environ:
+                # Also seed scheduling-focused synthetic data (rooms/devices/
+                # appointments) so the Scheduling Hub demo has real backing rows.
+                # Same gate; idempotent on its own (skips if any demo schedule
+                # sessions already exist for the demo clinicians this week).
+                seed_demo_clinic(session)
+        else:
+            # Staging or other non-production environments
+            logger.info("Demo seeding skipped for environment: %s", settings.app_env)
         app_instance.state.clinical_snapshot_id = snapshot.snapshot_id
         logger.info(
             "application startup complete",
@@ -765,6 +776,7 @@ app.include_router(crm_router)
 # wellness coaching, and complementary therapy management.
 app.include_router(rehab_router)
 app.include_router(wellness_router)
+app.include_router(complementary_router)
 app.include_router(analyzer_v2_router)
 app.include_router(intelligence_hub_router)
 app.include_router(admin_governance_router)
@@ -811,6 +823,13 @@ app.add_middleware(MaxBodySizeMiddleware)
 # requests. Labels use route templates (not raw URLs) to prevent cardinality
 # explosion. All labels are PHI-safe — no patient identifiers.
 app.add_middleware(MetricsMiddleware)
+
+# ── Demo detection middleware ────────────────────────────────────────────────
+# Defense-in-depth: detects demo data in responses, blocks demo endpoints in
+# production, and unconditionally sets X-Demo-Mode header for downstream
+# consumers. Registered AFTER MetricsMiddleware so it sees the final response
+# without interfering with Prometheus latency measurements.
+register_demo_middleware(app)
 
 
 @app.middleware("http")
