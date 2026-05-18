@@ -1,0 +1,196 @@
+{
+  "protocol_id": "tDCS-20260518141251",
+  "version": "1.0.0",
+  "created_at": "2026-05-18T14:12:51.663692",
+  "diagnosis": "major_depressive_disorder",
+  "montage": {
+    "selected_montage": {
+      "name": "F3-F4_Bifrontal",
+      "type": "bipolar",
+      "anode": {
+        "label": "F3",
+        "description": "Left dorsolateral prefrontal cortex",
+        "mni_coordinates": [
+          -42,
+          34,
+          28
+        ],
+        "brain_region": "dlPFC",
+        "network": "frontoparietal"
+      },
+      "cathode": {
+        "label": "F4",
+        "description": "Right dorsolateral prefrontal cortex",
+        "mni_coordinates": [
+          42,
+          34,
+          28
+        ],
+        "brain_region": "dlPFC",
+        "network": "frontoparietal"
+      },
+      "anode_size_cm2": 25.0,
+      "cathode_size_cm2": 25.0,
+      "evidence_citations": [
+        "Brunoni AR, et al. (2017) JAMA Psychiatry. 74(7):630-634",
+        "Blumberger DM, et al. (2012) Brain Stimulation. 5(2):175-179",
+        "Shiozawa P, et al. (2014) Brain Stimulation. 7(1):114-117"
+      ]
+    },
+    "optimization_rationale": [
+      "Base montage: F3-F4_Bifrontal targeting frontoparietal_control",
+      "Neurosynth meta-analysis peak: MNI [-42, 34, 28] (left_dlPFC_BA46, Z=4.2, N=142 studies)",
+      "Left hippocampal atrophy detected (Z=-2.1) - maintaining DLPFC-targeted montage; consider combining with cognitive training",
+      "Left dlPFC hypoactivity detected (alpha Z=-1.8) - anode placement over F3 validated",
+      "Elevated frontal theta (Z=2.3) - indicates executive dysfunction, supports prefrontal targeting",
+      "Yeo-7 network mapping: frontoparietal_control - validated for major_depressive_disorder"
+    ],
+    "network_target": "frontoparietal_control",
+    "simnibs_model": {
+      "method": "spherical_head_model_simplified",
+      "peak_e_field_vm": 0.5249999999999999,
+      "current_spread_radius_mm": 35.0,
+      "target_coverage_percent": 68,
+      "note": "Simplified spherical head model. For accurate modeling, use SimNIBS 4.0 with individual T1-weighted MRI."
+    },
+    "neurosynth_target": {
+      "peak_mni": [
+        -42,
+        34,
+        28
+      ],
+      "region": "left_dlPFC_BA46",
+      "z_score": 4.2,
+      "studies": 142
+    },
+    "confidence_score": 0.65
+  },
+  "stimulation": {
+    "current_ma": 1.5,
+    "duration_min": 30,
+    "ramp_up_sec": 30,
+    "ramp_down_sec": 30,
+    "anode": {
+      "label": "F3",
+      "description": "Left dorsolateral prefrontal cortex",
+      "mni_coordinates": [
+        -42,
+        34,
+        28
+      ],
+      "brain_region": "dlPFC",
+      "network": "frontoparietal"
+    },
+    "cathode": {
+      "label": "F4",
+      "description": "Right dorsolateral prefrontal cortex",
+      "mni_coordinates": [
+        42,
+        34,
+        28
+      ],
+      "brain_region": "dlPFC",
+      "network": "frontoparietal"
+    },
+    "anode_size_cm2": 25.0,
+    "cathode_size_cm2": 25.0,
+    "impedance_threshold_kohm": 10.0,
+    "current_density_ma_per_cm2": 0.06,
+    "safety_note": "Current density: 0.06 mA/cm2 (limit: 0.057 mA/cm2)"
+  },
+  "schedule": {
+    "total_sessions": 15,
+    "sessions_per_week": 5,
+    "phase": "acute",
+    "inter_session_interval_days": 1,
+    "estimated_weeks": 3,
+    "maintenance_recommended": true,
+    "maintenance_schedule": {
+      "sessions_per_week": 1,
+      "duration_months": 3
+    }
+  },
+  "safety": {
+    "passed": true,
+    "warnings": [],
+    "contraindications": [],
+    "requires_supervision": false,
+    "max_current_ma": 2.0,
+    "age_group": "adult"
+  },
+  "prediction": {
+    "response_probability": 0.713,
+    "confidence_interval_95": [
+      0.623,
+      0.803
+    ],
+    "effect_size_d": 1.135,
+    "likelihood_category": "high",
+    "predictors": {
+      "COMT_MetMet": 0.15,
+      "dlPFC_alpha_low": 0.15,
+      "frontal_theta_high": 0.1,
+      "hippocampal_atrophy": -0.1,
+      "concurrent_SSRI": 0.08,
+      "adequate_dose": 0.05
+    },
+    "time_to_response_weeks": 4,
+    "recommended_endpoints": [
+      "HDRS-17",
+      "BDI-II",
+      "QIDS-SR",
+      "CGI-S",
+      "PGI-C"
+    ]
+  },
+  "modifications": [
+    "Synergistic medication interaction (sertraline 50mg) - enhanced response expected"
+  ],
+  "monitoring_plan": {
+    "before_each_session": [
+      "Skin inspection at electrode sites",
+      "Adverse event screening (headache, tingling, itching)",
+      "Mood/symptom diary review"
+    ],
+    "weekly": [
+      "Adverse event formal assessment",
+      "Adherence check"
+    ],
+    "mid_treatment": {
+      "session": 7,
+      "assessments": [
+        "Symptom severity",
+        "Functional improvement",
+        "Adverse events cumulative"
+      ]
+    },
+    "end_treatment": {
+      "session": 15,
+      "assessments": [
+        "Primary outcome measure",
+        "Secondary outcomes",
+        "Responder/remitter status",
+        "Relapse prevention plan"
+      ]
+    },
+    "safety_monitoring": {
+      "impedance_check": "Every session",
+      "skin_inspection": "Every session + weekly photograph",
+      "seizure_precautions": "Emergency protocol in place"
+    }
+  },
+  "discontinuation_criteria": [
+    "Any serious adverse event",
+    "Seizure occurrence",
+    "Severe skin reaction (burn, blister, ulceration)",
+    "Patient request to discontinue",
+    "No meaningful response after optimal dose (typically session 12-15)",
+    "Emergence of manic symptoms (bipolar patients)",
+    "Non-adherence > 30% of sessions"
+  ],
+  "references": [
+    "Brunoni AR, et al. (2017) JAMA Psychiatry. 74(7):630-634",
+    "Blumberger DM, et al. (2012) Brain Stimulation. 5(2):175-179",
+    "Shiozawa P, et al. (2014) Brain Stimulation. 7(1):114-117"
+  ]
+}
