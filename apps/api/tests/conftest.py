@@ -9,16 +9,21 @@ from sqlalchemy import text
 
 # Use a per-process DB file so parallel pytest invocations don't collide.
 TEST_DB_PATH = Path(__file__).resolve().parent / f".test_deepsynaps_{os.getpid()}.db"
+TEST_ARTIFACTS_ROOT = Path(__file__).resolve().parent / ".test_artifacts"
+MPLCONFIGDIR = TEST_ARTIFACTS_ROOT / "matplotlib"
+MPLCONFIGDIR.mkdir(parents=True, exist_ok=True)
 # Set environment BEFORE any app module is imported so cached settings reflect test values.
 os.environ["DEEPSYNAPS_APP_ENV"] = "test"
 os.environ["DEEPSYNAPS_DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH.as_posix()}"
+os.environ["MPLCONFIGDIR"] = str(MPLCONFIGDIR)
+os.environ.setdefault("MPLBACKEND", "Agg")
 # Prevent .env placeholder from breaking Fernet-dependent tests (2FA, wearables).
 os.environ["DEEPSYNAPS_SECRETS_KEY"] = "Pn7p4xBz2vQ8fJ-bCe1rXkS5lYgM3hUaTwDoVqIeZ8U="
 os.environ["WEARABLE_TOKEN_ENC_KEY"] = "Pn7p4xBz2vQ8fJ-bCe1rXkS5lYgM3hUaTwDoVqIeZ8U="
 # Avoid writing clinical snapshot manifest files into the repo during tests.
 os.environ["DEEPSYNAPS_CLINICAL_SNAPSHOT_ROOT"] = os.getenv(
     "DEEPSYNAPS_CLINICAL_SNAPSHOT_ROOT",
-    str((Path(__file__).resolve().parent / ".test_artifacts" / "clinical-snapshots").as_posix()),
+    str((TEST_ARTIFACTS_ROOT / "clinical-snapshots").as_posix()),
 )
 # Empty Telegram webhook secrets so webhook tests don't 401 in test env.
 # Production security is unchanged — the app_env allowlist (development/test
