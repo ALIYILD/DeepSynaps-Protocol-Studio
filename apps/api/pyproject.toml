@@ -70,6 +70,11 @@ dependencies = [
     # libgdk-pixbuf-2.0-0). apps/api/Dockerfile installs them for deploys.
     "weasyprint>=60.0,<70.0",
     "python-docx>=1.1.0,<2.0.0",
+    # Async HTTP client used by app/services/knowledge/adapters/rxnorm_adapter.py
+    # (NLM RxNav REST API). Was previously unlisted, so adapter_registry and
+    # medication_analyzer_bridge crashed at import time in any environment
+    # that didn't pull it in transitively. See issue #1025.
+    "aiohttp>=3.9,<4.0",
     # qEEG MNE-Python pipeline (preprocess, ICA, SpecParam, connectivity,
     # eLORETA, normative z-scores, RAG) is installed as a SIBLING editable
     # package by the Dockerfile + developer setup, NOT declared here. Pip's
