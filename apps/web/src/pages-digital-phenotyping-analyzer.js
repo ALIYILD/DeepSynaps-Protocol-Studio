@@ -652,6 +652,12 @@ function _projectFromBackendPayload(raw) {
 }
 
 export async function loadDigitalPhenotypingClinicSummary(opts = {}) {
+  if (opts.useDemoFixtures && PREVIEW_FIXTURE_VIEWS?.digitalPhenotyping?.clinic_summary) {
+    return {
+      ...(PREVIEW_FIXTURE_VIEWS.digitalPhenotyping.clinic_summary() || { patients: [] }),
+      fromDemoOnly: true,
+    };
+  }
   if (opts.usePreviewFixtures && PREVIEW_FIXTURE_VIEWS?.digitalPhenotyping?.clinic_summary) {
     return {
       ...(PREVIEW_FIXTURE_VIEWS.digitalPhenotyping.clinic_summary() || { patients: [] }),

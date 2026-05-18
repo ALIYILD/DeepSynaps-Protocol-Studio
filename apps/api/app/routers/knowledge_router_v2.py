@@ -34,6 +34,25 @@ try:
         require_minimum_role,
         UserRole,
     )
+    _auth_require_minimum_role = require_minimum_role
+
+    def require_minimum_role(minimum_role: str):
+        def _dep(
+            actor: AuthenticatedActor = Depends(get_authenticated_actor),
+        ) -> AuthenticatedActor:
+            _auth_require_minimum_role(actor, minimum_role)
+            return actor
+
+        return _dep
+
+    if not hasattr(UserRole, "VIEWER"):
+        class _UserRoleCompat:
+            VIEWER = "guest"
+            CLINICIAN = "clinician"
+            RESEARCHER = "clinician"
+            ADMIN = "admin"
+
+        UserRole = _UserRoleCompat
 except ImportError:
     class AuthenticatedActor(BaseModel):
         user_id: str = "anonymous"

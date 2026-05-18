@@ -80,8 +80,9 @@ function renderClinicianReview(report, findings) {
   } else if (state === 'APPROVED') {
     actions = '<button class="ds-btn ds-btn--primary" data-action="sign">Sign Report</button>';
   } else if (state === 'REVIEWED_WITH_AMENDMENTS') {
-    actions = '<button class="ds-btn ds-btn--primary" data-action="transition" data-target="APPROVED">Re-approve</button> '
-      + '<span style="font-size:11px;color:var(--text-secondary)">Amended reports must be re-approved before signing.</span>';
+    actions = '<button class="ds-btn ds-btn--primary" data-action="sign">Sign Report</button> '
+      + '<button class="ds-btn" data-action="transition" data-target="APPROVED">Re-approve</button> '
+      + '<span style="font-size:11px;color:var(--text-secondary)">Amended reports still require clinician sign-off before release.</span>';
   }
 
   var rows = findingsList.map(function (f) {

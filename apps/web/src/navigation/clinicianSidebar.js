@@ -520,7 +520,7 @@ const NAV_ITEMS = [
     keywords: ['complementary', 'integrative', 'alternative', 'holistic', 'cam'],
   },
   {
-    id: 'handbooks-v2',
+    id: 'handbooks-v2-next',
     label: 'Handbooks',
     route: '/handbooks',
     aliases: ['/handbooks-v2', '/clinical-guides', '/reference'],
@@ -1494,7 +1494,7 @@ const NAV_ITEMS = [
     keywords: ['qeeg', 'viz', 'visualization', 'brain', 'mapping'],
   },
   {
-    id: 'qeeg-launcher',
+    id: 'qeeg-session-launcher',
     label: 'qEEG Launcher',
     route: '/analyzers/qeeg-launcher',
     aliases: ['/qeeg-launcher', '/eeg-launch'],

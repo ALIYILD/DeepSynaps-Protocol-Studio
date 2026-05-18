@@ -219,7 +219,7 @@ export async function pgProtocolSearch(setTopbar, navigate, opts = {}) {
   const backendCount  = LIBRARY.filter(p => p._source === 'backend').length;
 
   // ── Render ────────────────────────────────────────────────────────────────
-  const renderPage = () => {
+  let renderPage = () => {
     let results = _searchIn(LIBRARY, _state.query, {
       conditionId: _state.conditionId || undefined,
       device: _state.device || undefined,
@@ -1264,7 +1264,7 @@ export async function pgProtocolDetail(setTopbar, navigate) {
 // =============================================================================
 // pgProtocolBuilderV2 — Enhanced protocol builder with 5 types + governance
 // =============================================================================
-export async function pgProtocolBuilderV2(setTopbar, navigate) {
+export async function pgProtocolBuilderV2(setTopbar, navigate, opts = {}) {
   setTopbar('Protocol Builder', '');
 
   const el = document.getElementById('content');
@@ -1578,11 +1578,28 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
   };
 
   // ── Handlers ──────────────────────────────────────────────────────────────
+  let handleBField;
+  let handleBParam;
+  let handleBAI;
+  let handleBScan;
+  let handleGovToggle;
+  let handleBPersonalize;
+  let handleBSave;
+  let handleBSubmit;
   handleBField = (k, v) => { _b[k] = v; renderBuilder(); };
   handleBParam = (k, v) => { _b.params[k] = v === '' ? null : isNaN(v) ? v : parseFloat(v); };
   handleBAI   = v => { _b.aiPersonalization = v; };
   handleBScan = v => { _b.scanGuidedNotes = v; };
   handleGovToggle = g => _govToggle(g);
+  try {
+    Object.assign(globalThis, {
+      handleBField,
+      handleBParam,
+      handleBAI,
+      handleBScan,
+      handleGovToggle,
+    });
+  } catch {}
 
   // ── Personalize from builder ───────────────────────────────────────────────
   bindPersonalizationActions();
@@ -1702,6 +1719,13 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
       : `"${_b.name}" saved locally. Attach a patient and resubmit to route to review. Review status remains unchanged.`;
     opts.onNotif?.({ title:'Submitted for Review', body, severity:'success' });
   };
+  try {
+    Object.assign(globalThis, {
+      handleBPersonalize,
+      handleBSave,
+      handleBSubmit,
+    });
+  } catch {}
 
   renderBuilder();
 }

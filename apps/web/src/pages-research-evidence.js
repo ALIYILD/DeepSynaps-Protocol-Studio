@@ -779,7 +779,7 @@ async function renderOverview(body, liveEvidence = null) {
   const keyRefsHtml = _renderKeyReferences2024_2025();
 
   /* Condition × Modality Heatmap */
-  const heatmapHtml = _renderConditionModalityHeatmap(conditions, S);
+  const heatmapHtml = _renderConditionModalityHeatmap(liveSummary?.conditions || [], S);
 
   /* Trial Timeline */
   const timelineHtml = _renderTrialTimeline(S);

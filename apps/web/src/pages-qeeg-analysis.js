@@ -8652,6 +8652,9 @@ function _buildWorkbenchDemoQualityMetrics() {
 // Injected dynamically so no separate CSS file is needed.
 
 function _injectPhase2WorkbenchCSS() {
+  if (typeof document === 'undefined' || !document?.head || typeof document.createElement !== 'function') {
+    return;
+  }
   if (document.getElementById('phase2-workbench-css')) return;
   var style = document.createElement('style');
   style.id = 'phase2-workbench-css';

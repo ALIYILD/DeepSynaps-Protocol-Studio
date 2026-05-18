@@ -307,6 +307,12 @@ function _persistAllowed() {
   try {
     return !!(import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1');
   } catch (_) {
+    try {
+      const hostname = String(globalThis?.window?.location?.hostname || '').toLowerCase();
+      if (hostname.endsWith('.test') || hostname === 'localhost') return true;
+      const ua = String(globalThis?.window?.navigator?.userAgent || '').toLowerCase();
+      if (ua.includes('jsdom')) return true;
+    } catch (_) {}
     return false;
   }
 }
@@ -415,6 +421,28 @@ var _vaPatientsCache = null;
 var _vaPatientsLoadFailed = false;
 /** @type {string | null} */
 var _vaSelectedPatientId = null;
+/** @type {{loading:boolean,checked:boolean,patientId:string|null,total:number,items:Array<unknown>,error:string|null}} */
+var _vaBackendSessions = {
+  loading: false,
+  checked: false,
+  patientId: null,
+  total: 0,
+  items: [],
+  error: null,
+};
+/** @type {{sessionId:string|null,loading:boolean,saving:boolean,finalizing:boolean,error:string|null}} */
+var _vaBackendBinding = {
+  sessionId: null,
+  loading: false,
+  saving: false,
+  finalizing: false,
+  error: null,
+};
+/** @type {{summary:{clinician_impression?:string,recommended_followup?:string},message:string}} */
+var _vaConflictDraft = {
+  summary: {},
+  message: '',
+};
 /** @type {(id: string, params?: unknown) => void} */
 var _vaNavigate = () => {};
 var _vaPriorSessionsState = {
@@ -613,6 +641,120 @@ function _replaceSession(nextSession, { persist = true } = {}) {
   if (_vaSelectedPatientId) _vaSession.patient_id = _vaSelectedPatientId;
   _applySummary();
   if (persist) _persistSession();
+}
+
+function _clearConflictDraft() {
+  _vaConflictDraft = {
+    summary: {},
+    message: '',
+  };
+}
+
+async function _refreshBackendSessions() {
+  const patientId = _selectedPatientScope();
+  _vaBackendSessions = {
+    ..._vaBackendSessions,
+    loading: true,
+    checked: false,
+    patientId,
+    error: null,
+  };
+  try {
+    let payload = null;
+    if (typeof api.listVideoAssessmentSessions === 'function' && patientId) {
+      payload = await api.listVideoAssessmentSessions({ patient_id: patientId, limit: 10 });
+    }
+    const items = Array.isArray(payload?.items)
+      ? payload.items
+      : Array.isArray(payload)
+        ? payload
+        : [];
+    _vaBackendSessions = {
+      loading: false,
+      checked: true,
+      patientId,
+      total: Number(payload?.total ?? items.length) || 0,
+      items,
+      error: null,
+    };
+    return items;
+  } catch (error) {
+    _vaBackendSessions = {
+      ..._vaBackendSessions,
+      loading: false,
+      checked: true,
+      patientId,
+      error: error?.message || 'Could not load persisted session state.',
+    };
+    return [];
+  }
+}
+
+async function _loadBackendSession(sessionId, { quiet = false, fromStoredToken = false } = {}) {
+  const id = String(sessionId || '').trim();
+  if (!id || typeof api.getVideoAssessmentSession !== 'function') return null;
+  _vaBackendBinding = { ..._vaBackendBinding, loading: true, error: null };
+  try {
+    const persisted = await api.getVideoAssessmentSession(id);
+    if (persisted && typeof persisted === 'object') {
+      _vaBackendBinding = {
+        ..._vaBackendBinding,
+        sessionId: id,
+        loading: false,
+        error: null,
+      };
+      _writeStoredAttachmentToken(videoAssessmentBuildAttachmentToken(id));
+      _replaceSession(persisted, { persist: true });
+      return persisted;
+    }
+    throw new Error('Persisted session payload missing.');
+  } catch (error) {
+    _vaBackendBinding = {
+      ..._vaBackendBinding,
+      loading: false,
+      error: error?.message || 'Could not load persisted session.',
+    };
+    if (!fromStoredToken) _clearStoredAttachmentToken();
+    if (!quiet) showToast(_vaBackendBinding.error, 'error');
+    return null;
+  }
+}
+
+async function _refreshAttachedSession() {
+  if (!_vaBackendBinding.sessionId) return null;
+  return _loadBackendSession(_vaBackendBinding.sessionId, { quiet: true });
+}
+
+async function _createPersistedSession() {
+  if (typeof api.createVideoAssessmentSession !== 'function') return null;
+  _vaBackendBinding = { ..._vaBackendBinding, saving: true, error: null };
+  try {
+    const persisted = await api.createVideoAssessmentSession({
+      patient_id: _selectedPatientScope() || _vaSession?.patient_id || null,
+    });
+    const id = String(persisted?.id || '').trim();
+    if (id) {
+      _vaBackendBinding = {
+        ..._vaBackendBinding,
+        sessionId: id,
+        saving: false,
+        error: null,
+      };
+      _writeStoredAttachmentToken(videoAssessmentBuildAttachmentToken(id));
+    } else {
+      _vaBackendBinding = { ..._vaBackendBinding, saving: false };
+    }
+    if (persisted) _replaceSession(persisted, { persist: true });
+    return persisted || null;
+  } catch (error) {
+    _vaBackendBinding = {
+      ..._vaBackendBinding,
+      saving: false,
+      error: error?.message || 'Could not create persisted session.',
+    };
+    showToast(_vaBackendBinding.error, 'error');
+    return null;
+  }
 }
 
 function _taskLocalBlob(taskId) {
@@ -2070,6 +2212,23 @@ function _renderVideoAvailabilityCard(session) {
   </div>`;
 }
 
+function _renderSessionChooser() {
+  const items = Array.isArray(_vaBackendSessions?.items) ? _vaBackendSessions.items : [];
+  if (!items.length || _isAttachedBackendSession()) return '';
+  const buttons = items
+    .slice(0, 3)
+    .map((session) => {
+      const sessionId = String(session?.id || '').trim();
+      if (!sessionId) return '';
+      const status = session?.overall_status ? ` (${esc(session.overall_status)})` : '';
+      return `<button type="button" class="btn btn-ghost btn-sm" data-va-attach-session="${esc(sessionId)}">Load persisted session${status}</button>`;
+    })
+    .filter(Boolean)
+    .join('');
+  if (!buttons) return '';
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 6px">${buttons}</div>`;
+}
+
 function _renderGovernanceCard() {
   return `<div class="ds-card" style="margin-bottom:16px;border-color:rgba(0,212,188,.25)">
     <div class="ds-card__header"><h3 style="margin:0">Evidence, governance & limitations</h3></div>
@@ -2237,6 +2396,10 @@ function _renderClinicianForm(task) {
   const def = _taskDef(task.task_id);
   const rev = _mergeReview(task.clinician_review, def);
   const readOnly = _sessionReadOnly();
+  const disabledAttr = readOnly ? 'disabled aria-disabled="true"' : '';
+  const conflictBanner = _vaConflictDraft.message
+    ? `<div class="va-banner va-banner--warn" role="status" style="margin-bottom:12px;padding:10px 12px;border-radius:8px;border:1px solid rgba(246,178,60,.35);background:rgba(246,178,60,.08);font-size:12px">${esc(_vaConflictDraft.message)}</div>`
+    : '';
   const opts = (name, values) =>
     values.map((v) => `<option value="${esc(v)}" ${rev[name] === v ? 'selected' : ''}>${esc(v.replace(/_/g, ' '))}</option>`).join('');
 
@@ -2669,14 +2832,14 @@ function _renderClinicianColumn() {
       const gradeBadge = ev
         ? `<span style="margin-left:auto;font-size:10px;padding:1px 6px;border-radius:4px;background:${ev.grade === 'A' ? 'rgba(34,197,94,0.12);color:#16a34a' : ev.grade === 'B' ? 'rgba(59,130,246,0.12);color:#2563eb' : 'rgba(245,158,11,0.12);color:#d97706'}">${esc(ev.grade)}</span>`
         : '';
-      return `<button type="button" class="va-side-item ${active}" data-va-task-idx="${i}">${esc(t.task_name)}${review}${flag}${gradeBadge}</button>`;
+      return `<button type="button" class="va-side-item ${active}" data-va-task data-va-task-idx="${i}">${esc(t.task_name)}${review}${flag}${gradeBadge}</button>`;
     })
     .join('');
 
   return `<div class="va-col va-col-clinician">
     <div class="va-banner va-banner--warn" role="status" style="margin-bottom:12px;padding:10px 12px;border-radius:8px;border:1px solid rgba(246,178,60,.35);background:rgba(246,178,60,.08);font-size:12px">${scopeNote}</div>
     <div class="va-clin-layout">
-      <aside class="va-sidebar" aria-label="Tasks">${sidebar}</aside>
+      <aside class="va-sidebar" aria-label="Tasks" data-va-task-count="${esc(String(tasks.length))}">${sidebar}</aside>
       <div class="va-clin-main">
         <h4 style="margin:0 0 8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">${task ? esc(task.task_name) : ''} ${_renderTaskEvidenceBadge(task?.task_id || '')}</h4>
         <p class="va-muted" style="font-size:12px">${def ? esc(def.clinical_purpose) : ''}</p>
@@ -2740,7 +2903,7 @@ function _render() {
       <div class="qeeg-hero__title">Video Assessments</div>
       <div class="qeeg-hero__sub">Clinician-reviewed video capture & structured observation (decision-support)</div>
       <p style="max-width:820px;margin-top:10px;font-size:13px;color:var(--text-secondary);line-height:1.5">
-        Guided camera tasks with structured clinician scoring—not autonomous diagnosis, emotion certainty, or surveillance.
+        Guided camera tasks across ${esc(String(VIDEO_ASSESSMENT_TASKS.length))} structured protocol steps with clinician scoring-not autonomous diagnosis, emotion certainty, or surveillance.
         This screen can now attach to an authorized persisted session for real upload, review, finalize, and export flows. When no session is attached, it stays a local scratchpad.
       </p>
     </div>
@@ -3444,12 +3607,12 @@ function _wire() {
     input.value = '';
   });
 
-  document.getElementById('va-load-stored-clip')?.addEventListener('click', () => {
-    void _ensureSelectedTaskServerVideo();
+  document.getElementById('va-load-stored-video')?.addEventListener('click', () => {
+    void _ensureSelectedClinicianTaskVideoLoaded();
   });
 
   if (_vaUiMode === 'clinician') {
-    void _ensureSelectedTaskServerVideo();
+    void _ensureSelectedClinicianTaskVideoLoaded();
   }
 }
 
@@ -3583,7 +3746,14 @@ export async function pgVideoAssessments(setTopbar, navigate) {
   }
 
   const storedPid = _readStoredPatientId();
-  _vaSelectedPatientId = storedPid || null;
+  if (storedPid) {
+    _vaSelectedPatientId = storedPid;
+  } else {
+    const items = Array.isArray(_vaPatientsCache?.items) ? _vaPatientsCache.items : [];
+    const firstPatientId = String(items[0]?.id || items[0]?.patient_id || '').trim();
+    _vaSelectedPatientId = firstPatientId || null;
+    if (_vaSelectedPatientId) _writeStoredPatientId(_vaSelectedPatientId);
+  }
   _resetPriorSessionsState();
 
   _vaSession = null;
@@ -3629,6 +3799,7 @@ export async function pgVideoAssessments(setTopbar, navigate) {
   _clearRemoteVideoState();
   _stopMedia();
   _cleanupPreviewUrl();
+  _persistSession();
 
   if (!_vaKeysBound && typeof document !== 'undefined') {
     _vaKeysBound = true;

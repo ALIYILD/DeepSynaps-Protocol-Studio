@@ -29,8 +29,8 @@ export function computeCountdown(next, now = Date.now()) {
 export function phaseLabel(pct) {
   if (pct == null || pct === 0) return 'Getting started';
   if (pct <= 20)  return 'Early treatment';
-  if (pct <= 50)  return 'Active treatment';
-  if (pct <= 80)  return 'Consolidation';
+  if (pct <= 60)  return 'Active treatment';
+  if (pct <= 85)  return 'Consolidation';
   if (pct < 100)  return 'Final phase';
   return 'Complete';
 }

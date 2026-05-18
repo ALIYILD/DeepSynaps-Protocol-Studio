@@ -160,7 +160,7 @@ function _emptyClinicCard() {
   return `<div style="max-width:560px;margin:48px auto;padding:24px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);text-align:center">
     <div style="font-size:15px;font-weight:600;margin-bottom:8px">No active intervention courses found</div>
     <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;line-height:1.5">
-      This list only reflects courses returned by your clinic API for your account. Absence of rows does not prove a patient has no interventions elsewhere — verify source systems and clinic workflow.
+      This list only reflects courses returned by your clinic API for your account. Absence of rows does not prove a patient has no interventions elsewhere and does not prove zero treatments occurred — verify source systems and clinic workflow.
     </div>
     <button type="button" class="btn btn-primary btn-sm" id="ia-go-courses" style="min-height:44px">Open Protocol Studio</button>
     <div style="margin-top:12px"><button type="button" class="btn btn-ghost btn-sm" id="ia-go-schedule" style="min-height:44px">Open schedule</button></div>
@@ -185,7 +185,7 @@ function _responseLabel(course) {
   if (course == null) return {
     label: 'insufficient_data',
     provenance: 'rule_based_heuristic',
-    note: 'Label based on session counts only. Not a validated clinical response classification. Requires clinician review.',
+    note: 'Label based on session counts only. heuristic output only, not a calibrated prediction model or validated clinical response classification. Requires clinician review.',
   };
   // Heuristic label only — not a validated response classification
   const label = course.sessions_delivered >= course.planned_sessions_total * 0.85
@@ -196,12 +196,12 @@ function _responseLabel(course) {
   return {
     label,
     provenance: 'rule_based_heuristic',
-    note: 'Label based on session counts only. Not a validated clinical response classification. Requires clinician review.',
+    note: 'Label based on session counts only. heuristic output only, not a calibrated prediction model or validated clinical response classification. Requires clinician review.',
   };
 }
 
 function _safetyBanner() {
-  return '<div role="note" style="padding:10px 14px;border-radius:8px;border:1px solid var(--border);background:rgba(255,255,255,.02);font-size:11px;color:var(--text-secondary);line-height:1.5;margin-bottom:16px">Intervention intelligence is decision support only. Correlations shown are temporal associations, not causal proof. Requires clinician review. Not a calibrated prediction model.</div>';
+  return '<div role="note" style="padding:10px 14px;border-radius:8px;border:1px solid var(--border);background:rgba(255,255,255,.02);font-size:11px;color:var(--text-secondary);line-height:1.5;margin-bottom:16px">Intervention intelligence is decision support only. Correlations shown are temporal associations, not causal proof. Requires clinician review. not a calibrated prediction model. Forecast numbers are withheld / not available in this planning snapshot.</div>';
 }
 
 
