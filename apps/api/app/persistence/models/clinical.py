@@ -20,6 +20,7 @@ from ._base import (  # noqa: F401 — re-export surface for class definitions
     ForeignKey,
     Index,
     Integer,
+    JSON,
     Mapped,
     Optional,
     String,
@@ -123,6 +124,7 @@ class AssessmentRecord(Base):
     escalated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     escalation_reason: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     escalated_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    data_quality_flags: Mapped[Optional[list]] = mapped_column(JSON, nullable=True, default=lambda: [])
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
