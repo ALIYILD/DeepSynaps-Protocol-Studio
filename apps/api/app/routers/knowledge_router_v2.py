@@ -31,24 +31,34 @@ try:
     from app.auth import (
         AuthenticatedActor,
         get_authenticated_actor,
-        require_minimum_role,
-        UserRole,
+        require_minimum_role as _require_minimum_role,
     )
+    class UserRole:
+        VIEWER = "guest"
+        CLINICIAN = "clinician"
+        RESEARCHER = "clinician"
+        ADMIN = "admin"
 except ImportError:
     class AuthenticatedActor(BaseModel):
         user_id: str = "anonymous"
         role: str = "viewer"
     def get_authenticated_actor() -> AuthenticatedActor:
         return AuthenticatedActor()
-    def require_minimum_role(min_role: str):
-        def _dep(actor: AuthenticatedActor = Depends(get_authenticated_actor)) -> AuthenticatedActor:
-            return actor
-        return _dep
+    def _require_minimum_role(actor: AuthenticatedActor, min_role: str) -> None:
+        return None
     class UserRole:
         VIEWER = "viewer"
         CLINICIAN = "clinician"
         RESEARCHER = "researcher"
         ADMIN = "admin"
+
+
+def require_minimum_role(min_role: str):
+    def _dep(actor: AuthenticatedActor = Depends(get_authenticated_actor)) -> AuthenticatedActor:
+        _require_minimum_role(actor, min_role)
+        return actor
+
+    return _dep
 
 try:
     from app.knowledge.adapter_registry import AdapterRegistry, get_registry
