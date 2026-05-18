@@ -1,0 +1,324 @@
+==========================================================================================
+  DEEPSYNAPS PROTOCOL STUDIO — COMPLETE BUILD LOG (Kimi Session)
+  Branch: main | Repository: ALIYILD/DeepSynaps-Protocol-Studio
+==========================================================================================
+
+──────────────────────────────────────────────────────────────────────────────────────────
+  Mission 1: Empty Pages Build (29 pages)
+  Files: ~45 files | Lines: ~37,724 lines
+  Description: Built 24 frontend pages + 6 backend routers + 67 API methods + wiring
+  Commits: 48
+──────────────────────────────────────────────────────────────────────────────────────────
+    5b7caf69 | 2026-05-17 | Add ALL 26 missing pages to sidebar: brain-twin, crm, clinical-tools, clini
+    52ec4335 | 2026-05-17 | fix(web): honest empty-state toasts across clinical-tools + practice (#975)
+    d5dca3bf | 2026-05-17 | Wire knowledge_router, biomarker_router, intervention_intelligence_router +
+    2463bc71 | 2026-05-17 | Wire all Kimi-built routers into main.py: knowledge_router, biomarker_route
+    5b9fdf05 | 2026-05-16 | fix(api): comprehensive orphan-import sweep to unblock Fly boot (#968)  Rep
+    f08e3a9b | 2026-05-16 | feat(db): DB Registry: 73 databases across 13 domains (746 lines) — 2026-05
+    41e3025f | 2026-05-16 | feat(db): DB Research: 46 genetic/protocol/safety databases (874 lines) — 2
+    59b00255 | 2026-05-16 | feat(db): DB Research: 44 evidence/outcome databases (1,135 lines) — 2026-0
+    da89bc23 | 2026-05-16 | feat(db): DB Research: 47 neuroimaging databases (946 lines) — 2026-05-16
+    64c9db94 | 2026-05-16 | feat(db): DB Research: 34 medication/pharma databases (735 lines) — 2026-05
+    59d6eda9 | 2026-05-15 | feat: New: Analyzer V2 service — 2026-05-16
+    85b79573 | 2026-05-15 | feat: New: Ecosystem router — 2026-05-16
+    166aad2c | 2026-05-15 | feat: New: Intervention Planning router — 2026-05-16
+    52eab594 | 2026-05-15 | feat: New: Patient Care router — 2026-05-16
+    a98e6254 | 2026-05-15 | feat: New: Admin Governance router — 2026-05-16
+    b4a5b331 | 2026-05-15 | feat: New: Intelligence Hub router — 2026-05-16
+    1ea929e0 | 2026-05-15 | feat: New: Analyzer V2 router — 2026-05-16
+    025f5a77 | 2026-05-15 | feat: New: Quick actions — 2026-05-16
+    72fee71a | 2026-05-15 | feat: New: Evidence research — 2026-05-16
+    154fa828 | 2026-05-15 | feat: New: Surgical planning — 2026-05-16
+    8942ec33 | 2026-05-15 | feat: New: Stimulation targets — 2026-05-16
+    ba0da9f5 | 2026-05-15 | feat: New: Session planning — 2026-05-16
+    8d411cd7 | 2026-05-15 | feat: New: Device planning — 2026-05-16
+    be808726 | 2026-05-15 | feat: New: Patient goals — 2026-05-16
+    e48485ec | 2026-05-15 | feat: New: Outcome measures — 2026-05-16
+    d03e0a79 | 2026-05-15 | feat: New: Home program — 2026-05-16
+    502e7baf | 2026-05-15 | feat: New: Group therapy — 2026-05-16
+    94792325 | 2026-05-15 | feat: New: Consent governance — 2026-05-16
+    e5d26580 | 2026-05-15 | feat: New: Audit trail — 2026-05-16
+    80c5a842 | 2026-05-15 | feat: New: User management — 2026-05-16
+    f3d8b5b5 | 2026-05-15 | feat: New: Admin datasets — 2026-05-16
+    356a4b4c | 2026-05-15 | feat: New: Multimodal correlations — 2026-05-16
+    8e00b0ec | 2026-05-15 | feat: New: Longitudinal insights — 2026-05-16
+    d4588599 | 2026-05-15 | feat: New: Knowledge graph — 2026-05-16
+    c2e7f713 | 2026-05-15 | feat: New: Forecast simulation — 2026-05-16
+    19a37459 | 2026-05-15 | feat: New: DeepTwin insights — 2026-05-16
+    aebe265c | 2026-05-15 | feat: New: Sleep analyzer — 2026-05-16
+    55c32174 | 2026-05-15 | feat: New: PET analyzer — 2026-05-16
+    a34f1768 | 2026-05-15 | feat: New: Neurophysiology analyzer — 2026-05-16
+    0d7b0030 | 2026-05-15 | feat: New: fNIRS analyzer — 2026-05-16
+    07666627 | 2026-05-15 | feat: New: Cognitive analyzer — 2026-05-16
+    9a8c5c78 | 2026-05-15 | feat(interventions): Add complementary_router.py
+    6ccafc2d | 2026-05-15 | fix(test): web-unit assertion drift — 39 fails → 1 + 2 cancellations (#935)
+    9c6fe7ae | 2026-05-15 | fix(test): pgPatientProfile seed bleed + qEEG workbench --test-force-exit r
+    89ef0f81 | 2026-05-15 | fix(web): guard module-scope window globals in pages-research-evidence (#94
+    4786eeb6 | 2026-05-15 | fix(api): restore boot guards after biomarker merge (#950)  * fix(api): res
+    2d3bedad | 2026-05-15 | fix(api-deploy): relax Fly health check grace period (#944)  * fix(api-depl
+    c110e107 | 2026-05-15 | Update apps/api/tests/test_biomarker_router.py
+
+──────────────────────────────────────────────────────────────────────────────────────────
+  Mission 2: Handbooks Transformation (Phases 1-5)
+  Files: ~23 files | Lines: ~2,500 lines
+  Description: 4 bugs fixed, 63 tests, 5 research reports, 811-line frontend, doc generation, AI safety, versioning
+  Commits: 24
+──────────────────────────────────────────────────────────────────────────────────────────
+    06546568 | 2026-05-17 | security: tier-1 code-scanning fixes (#974)  Address GitHub Code Scanning a
+    756dad39 | 2026-05-15 | feat(handbooks): Wire handbook_v2_router into main.py — 22 new endpoints
+    28e21ace | 2026-05-15 | feat(handbooks): Phases 2-5: 64 tests (100% pass) — 2026-05-16
+    f7fe5b39 | 2026-05-15 | feat(handbooks): Phases 2-5: 7 frontend panels (evidence + versions + HITL 
+    2b640386 | 2026-05-15 | feat(handbooks): Phases 2-5: 22 REST endpoints — 2026-05-16
+    d581e7c3 | 2026-05-15 | feat(handbooks): Phase 5: Version control + evidence decay alerts — 2026-05
+    4403048d | 2026-05-15 | feat(handbooks): Phase 5: Block-tree data model — 2026-05-16
+    bab99946 | 2026-05-15 | feat(handbooks): Phase 4: AI safety (forbidden scan + FKGL + HITL) — 2026-0
+    1cebb490 | 2026-05-15 | feat(handbooks): Phase 3: DOCX/PDF/Markdown/bundle generation — 2026-05-16
+    3b10823a | 2026-05-15 | feat(handbooks): Phase 2: Evidence integration (PubMed + GRADE + decay) — 2
+    1c737690 | 2026-05-15 | feat(handbooks): Mission roadmap and executive summary
+    efcd356b | 2026-05-15 | feat(handbooks): Architecture: 1,701-line canonical contract — 2026-05-16
+    0bd9713f | 2026-05-15 | feat(handbooks): Research: UX benchmarks — 2026-05-16
+    0fbfbef9 | 2026-05-15 | feat(handbooks): Research: AI safety governance — 2026-05-16
+    e3c738bb | 2026-05-15 | feat(handbooks): Research: 10 open-source tools — 2026-05-16
+    f2b48ab1 | 2026-05-15 | feat(handbooks): Research: 40 docs analyzed — 2026-05-16
+    6f39aced | 2026-05-15 | feat(handbooks): Fix: 10 bundle entitlement tests — 2026-05-16
+    75a67683 | 2026-05-15 | feat(handbooks): Fix: 8 patient-scoped generation tests — 2026-05-16
+    6d9d4a0a | 2026-05-15 | feat(handbooks): Fix: 12 export authz tests — 2026-05-16
+    5ff8f43e | 2026-05-15 | feat(handbooks): Fix: 10 export entitlement tests — 2026-05-16
+    283b2f6c | 2026-05-15 | feat(handbooks): Fix: 33 deep runtime tests — 2026-05-16
+    4bfef34a | 2026-05-15 | feat(handbooks): Fix: Role gating + patient-scoped mode + 811-line overhaul
+    b0508a32 | 2026-05-15 | feat(handbooks): Fix: Add reviewer + no-handbook demo tokens — 2026-05-16
+    235e80e8 | 2026-05-15 | feat(handbooks): Fix: Export entitlement parity + role gating — 2026-05-16
+
+──────────────────────────────────────────────────────────────────────────────────────────
+  Mission 3: Patient Dashboard
+  Files: ~12 files | Lines: ~1,800 lines
+  Description: 5 bugs fixed, 13 endpoints, 817-line frontend (11 cards), 101 tests, 4 research reports
+  Commits: 14
+──────────────────────────────────────────────────────────────────────────────────────────
+    d32a3a5a | 2026-05-15 | feat(patient-dashboard): Wiring: +5 patient portal route aliases
+    7b322b90 | 2026-05-15 | feat(patient-dashboard): Wiring: +10 patient portal V2 API methods (dashboa
+    2e25a972 | 2026-05-15 | feat(patient-dashboard): Mission roadmap and executive summary
+    10527fd9 | 2026-05-15 | feat(patient-dashboard): Wiring: patient_portal_v2_router registered — 2026
+    2f618fca | 2026-05-15 | feat(patient-dashboard): Research: 10 home program platforms (409 lines) — 
+    cb9e3f29 | 2026-05-15 | feat(patient-dashboard): Research: 8 open-source tools (352 lines) — 2026-0
+    c100ef0e | 2026-05-15 | feat(patient-dashboard): Research: Safety standards + disclaimers (209 line
+    84f93358 | 2026-05-15 | feat(patient-dashboard): Research: 28 patient portals analyzed (1,173 lines
+    1d7b50e4 | 2026-05-15 | feat(patient-dashboard): Tests: 15 home task tests (533 lines) — 2026-05-16
+    a1878249 | 2026-05-15 | feat(patient-dashboard): Tests: 16 summary router tests (663 lines) — 2026-
+    cfb2b72d | 2026-05-15 | feat(patient-dashboard): Tests: 14 role gate tests (462 lines) — 2026-05-16
+    9cb75585 | 2026-05-15 | feat(patient-dashboard): Tests: 27 frontend tests (707 lines) — 2026-05-16
+    b502454f | 2026-05-15 | feat(patient-dashboard): Patient Portal: 13 endpoints + Pydantic models + a
+    443133c3 | 2026-05-15 | feat(patient-dashboard): Patient Dashboard: 5 bugs fixed + 11 cards + mobil
+
+──────────────────────────────────────────────────────────────────────────────────────────
+  Mission 5: Knowledge Layer (5-Layer Architecture)
+  Files: ~60 files | Lines: ~8,000 lines
+  Description: 16 database adapters, canonical schema, provenance model, governance, tests
+  Commits: 58
+──────────────────────────────────────────────────────────────────────────────────────────
+    c9cea31d | 2026-05-17 | Add Knowledge Layer to sidebar + knowledge dashboard page
+    19850383 | 2026-05-17 | Add Knowledge Layer to sidebar + knowledge dashboard page
+    534e9321 | 2026-05-17 | docs(governance): operational hardening — concurrent-agent + worktree + PR-
+    7c5af2b5 | 2026-05-17 | docs(engineering): salvage-PR governance for stale-clone recovery (#977)  C
+    0f1c8a8a | 2026-05-17 | Production Hardening: DEEPSYNAPS_PHASE1_DATABASE_INTEGRATION_REPORT.md
+    5b0b5e6d | 2026-05-16 | Knowledge Layer PHASE 2: Final multimodal expansion report
+    bb94d94e | 2026-05-16 | Knowledge Layer PHASE 2: Add OPEN_SOURCE_PHASE2_STACK_REPORT.md
+    d5d9fc02 | 2026-05-16 | Knowledge Layer PHASE 2: Add PHASE2_NEUROSYNTH_INTEGRATION_REPORT.md
+    b0fa12ea | 2026-05-16 | Knowledge Layer PHASE 2: Add PHASE2_NEUROIMAGING_COHORT_REPORT.md
+    5f733fbb | 2026-05-16 | Knowledge Layer PHASE 2: Add PHASE2_BRAIN_ATLAS_NETWORK_REPORT.md
+    841f9323 | 2026-05-16 | Knowledge Layer PHASE 2: Add PHASE2_ADVERSE_EVENT_INTELLIGENCE.md
+    8837ed13 | 2026-05-16 | Knowledge Layer PHASE 2: Add test_knowledge_phase2.py
+    cec7bbd7 | 2026-05-16 | Knowledge Layer PHASE 2: Add multimodal_synthesizer.py
+    fc5e228b | 2026-05-16 | Knowledge Layer PHASE 2: Add deeptwin_hooks.py
+    c0c0eb60 | 2026-05-16 | Knowledge Layer PHASE 2: Add adverse_event_bridge.py
+    b61ad088 | 2026-05-16 | Knowledge Layer PHASE 2: Add abide_adapter.py
+    9c98e3f6 | 2026-05-16 | Knowledge Layer PHASE 2: Add adni_adapter.py
+    141d8b03 | 2026-05-16 | Knowledge Layer PHASE 2: Add neurosynth_adapter.py
+    cfe7d140 | 2026-05-16 | Knowledge Layer PHASE 2: Add schaefer_adapter.py
+    30bc760c | 2026-05-16 | Knowledge Layer PHASE 2: Add allen_brain_adapter.py
+    54b7971a | 2026-05-16 | Knowledge Layer PHASE 2: Add onsides_adapter.py
+    7d015fe6 | 2026-05-16 | Knowledge Layer PHASE 2: Add faers_adapter.py
+    934e8613 | 2026-05-16 | Knowledge Layer PHASE 1: Add OPEN_SOURCE_PHASE1_STACK_REPORT.md
+    af46b345 | 2026-05-16 | Knowledge Layer PHASE 1: Add SIMNIBS_INTEGRATION_REPORT.md
+    b2bc98fc | 2026-05-16 | Knowledge Layer PHASE 1: Add PROMIS_OUTCOMES_INTEGRATION_REPORT.md
+    4f73676d | 2026-05-16 | Knowledge Layer PHASE 1: Add MRI_ATLAS_INTEGRATION_REPORT.md
+    0ffb0384 | 2026-05-16 | Knowledge Layer PHASE 1: Add EEG_NORMATIVE_INTEGRATION_REPORT.md
+    c2590fcd | 2026-05-16 | Knowledge Layer PHASE 1: Add PGX_INTEGRATION_REPORT.md
+    52e373b6 | 2026-05-16 | Knowledge Layer PHASE 1: Add RXNORM_INTEGRATION_REPORT.md
+    67789f89 | 2026-05-16 | Knowledge Layer PHASE 1: Add DEEPSYNAPS_PHASE1_DATABASE_INTEGRATION_REPORT.
+    5104192e | 2026-05-16 | Knowledge Layer PHASE 1: Add test_knowledge_phase1.py
+    0658f31b | 2026-05-16 | Knowledge Layer PHASE 1: Add knowledge_cache.py
+    c9a6771d | 2026-05-16 | Knowledge Layer PHASE 1: Add knowledge_router.py
+    8d8bded8 | 2026-05-16 | Knowledge Layer PHASE 1: Add simnibs_adapter.py
+    8f27e3d8 | 2026-05-16 | Knowledge Layer PHASE 1: Add promis_adapter.py
+    9c464e3a | 2026-05-16 | Knowledge Layer PHASE 1: Add mni_atlas_adapter.py
+    7c6562e1 | 2026-05-16 | Knowledge Layer PHASE 1: Add chbmp_adapter.py
+    1a211690 | 2026-05-16 | Knowledge Layer PHASE 1: Add openfda_adapter.py
+    493f9554 | 2026-05-16 | Knowledge Layer PHASE 1: Add loinc_adapter.py
+    b2f0c3df | 2026-05-16 | Knowledge Layer PHASE 1: Add clinvar_adapter.py
+    8d6c532c | 2026-05-16 | Knowledge Layer PHASE 1: Add pharmgkb_adapter.py
+    91817bde | 2026-05-16 | Knowledge Layer PHASE 1: Add rxnorm_adapter.py
+    3b9f19c0 | 2026-05-16 | Knowledge Layer PHASE 1: Add mri_analyzer_bridge.py
+    b6df26dc | 2026-05-16 | Knowledge Layer PHASE 1: Add qeeg_analyzer_bridge.py
+    28390261 | 2026-05-16 | Knowledge Layer PHASE 1: Add genetic_analyzer_bridge.py
+    902b9188 | 2026-05-16 | Knowledge Layer PHASE 1: Add medication_analyzer_bridge.py
+    16424a9d | 2026-05-16 | Knowledge Layer PHASE 1: Add etl_pipeline.py
+    9c635a67 | 2026-05-16 | Knowledge Layer PHASE 1: Add adapter_registry.py
+    32c6e9bf | 2026-05-16 | Knowledge Layer PHASE 1: Add base_adapter.py
+    2c0aff5f | 2026-05-16 | Knowledge Layer PHASE 1: Add __init__.py
+    ba0e4929 | 2026-05-16 | Knowledge Layer PHASE 0: Add WORLD_CLASS_DEEPSYNAPS_KNOWLEDGE_LAYER_ROADMAP
+    fbfdf9c6 | 2026-05-16 | Knowledge Layer PHASE 0: Add DEEPSYNAPS_KNOWLEDGE_LAYER_ARCHITECTURE.md
+    91562ca2 | 2026-05-16 | Knowledge Layer PHASE 0: Add DEEPSYNAPS_EXTERNAL_RESEARCH_INTELLIGENCE.md
+    4c6f3d0d | 2026-05-16 | Knowledge Layer PHASE 0: Add DEEPSYNAPS_CLINICAL_INTELLIGENCE_UX_RULES.md
+    dd26b731 | 2026-05-16 | Knowledge Layer PHASE 0: Add DEEPSYNAPS_KNOWLEDGE_GOVERNANCE.md
+    6ff7971f | 2026-05-16 | Knowledge Layer PHASE 0: Add DEEPSYNAPS_MULTIMODAL_INTELLIGENCE_LAYER.md
+    571753c2 | 2026-05-16 | Knowledge Layer PHASE 0: Add DEEPSYNAPS_DATABASE_ADAPTER_ARCHITECTURE.md
+    368580cb | 2026-05-16 | Knowledge Layer PHASE 0: Add DEEPSYNAPS_CANONICAL_SCHEMA.md
+
+──────────────────────────────────────────────────────────────────────────────────────────
+  Mission 6: Production Deployment Hardening
+  Files: ~25 files | Lines: ~4,500 lines
+  Description: 7 hardening documents, 4 critical code fixes (MRI_DEMO_MODE, demo backdoor, safety guard, middleware)
+  Commits: 39
+──────────────────────────────────────────────────────────────────────────────────────────
+    9d45832d | 2026-05-17 | security(governance): torch.load safety scanner + CI gate + governance doc 
+    76c51a6d | 2026-05-17 | feat(web): AI Agents patient picker + dismissable welcome banner (#981)  Pu
+    cb310e13 | 2026-05-17 | feat(web): video-assessments AI-summary feedback as a draft (#976)  Splits 
+    1a0de29f | 2026-05-17 | security(qeeg,mri): torch.load deserialization safety audit (CVE-2025-32434
+    9cce56e0 | 2026-05-17 | feat(api): complete per-clinic agent-config (model + router + tests) (#972)
+    7f5978d5 | 2026-05-17 | security(container): remediate runtime CVEs and harden base images (#978)  
+    7660a5e4 | 2026-05-17 | test(web): complete DOM polyfill in patient-analytics evidence test (#973) 
+    1bed59ca | 2026-05-17 | fix(netlify): no-cache headers for sw.js, studio.html, manifest.json (#971)
+    ae2b4daa | 2026-05-17 | Add production deployment script DEPLOY_NOW.sh
+    93ddb17b | 2026-05-17 | Production Hardening: plan-phase2.md
+    5fda807f | 2026-05-17 | Production Hardening: plan-phase1.md
+    27db1b37 | 2026-05-17 | Production Hardening: DEEPSYNAPS_PHASE2_MULTIMODAL_DATABASE_EXPANSION_REPOR
+    2bd12efd | 2026-05-17 | Production Hardening: DEEPSYNAPS_DEPLOYMENT_PLAN.md
+    828eba7d | 2026-05-17 | Production Hardening: demo_clinic_seed.py
+    153e5087 | 2026-05-17 | Production Hardening: verify_demo_boundary.py
+    b42e8c66 | 2026-05-17 | Production Hardening: demo_audit.py
+    d23bb14e | 2026-05-17 | Production Hardening: demo_detection.py
+    0e94031c | 2026-05-17 | Production Hardening: main.py
+    c3c73716 | 2026-05-17 | Production Hardening: fly.toml
+    aa788ac9 | 2026-05-17 | Production Hardening: HERMES_DEPLOYMENT_PROMPT.md
+    0b7e7536 | 2026-05-17 | Production Hardening: DEMO_PRODUCTION_BOUNDARY_RULES.md
+    ad9cc637 | 2026-05-17 | Production Hardening: OBSERVABILITY_SETUP.md
+    c48a1bcf | 2026-05-17 | Production Hardening: ROLLBACK_RUNBOOK.md
+    25537878 | 2026-05-17 | Production Hardening: STARTUP_HEALTHCHECK_MATRIX.md
+    3069336e | 2026-05-17 | Production Hardening: DEPLOYMENT_APPROVAL_CHECKLIST.md
+    5fda0aee | 2026-05-17 | Production Hardening: ENVIRONMENT_MATRIX.md
+    cdd12689 | 2026-05-17 | Production Hardening: PRODUCTION_SAFETY_GATES.md
+    d0a2d2d9 | 2026-05-16 | fix(web): synchronous cache-nuke runs BEFORE main bundle loads (#970)  Prev
+    392c0027 | 2026-05-16 | fix(api): Python 3.11-compatible f-string in adapter_registry (#969)  Line 
+    7bc0efea | 2026-05-16 | fix(api): export 3 movement_fusion models to unblock Fly boot (#967)  `apps
+    b566f218 | 2026-05-16 | fix(api): remove orphan data-console Slice B router code (unblock Fly) (#96
+    52466009 | 2026-05-16 | fix(alembic): merge multi-head state to unblock Fly release_command (#965) 
+    86c69600 | 2026-05-16 | fix(web): unblock vite build — repair 15 corrupted page files (#964)  An au
+    88b32755 | 2026-05-15 | fix(test): close JSDOM windows + clear timers in web-unit cleanup (drains N
+    3acadaa1 | 2026-05-15 | feat(ai-agents): Add research/HERMES_OPENCLAW_INTEGRATION_PLAN.md
+    18f13d7c | 2026-05-15 | feat: Update deployment/docs/runbooks/rollback-runbook.md
+    0e238d0b | 2026-05-15 | feat: Update deployment/.github/workflows/rollback.yml
+    4262631d | 2026-05-15 | feat: Add deployment/docs/runbooks/rollback-runbook.md
+    9fb8020d | 2026-05-15 | feat: Add deployment/.github/workflows/rollback.yml
+
+──────────────────────────────────────────────────────────────────────────────────────────
+  Mission 7: Fly.io Deployment Fixes
+  Files: ~15 files | Lines: ~500 lines
+  Description: Fixed complementary_router imports, wired 3 missing routers, deployed v375
+  Commits: 4
+──────────────────────────────────────────────────────────────────────────────────────────
+    0e9200c6 | 2026-05-15 | fix(api): repair 3 NameError landmines in router code (F821) (#958)  * fix(
+    c136c08d | 2026-05-15 | fix(api): bundle-export endpoint must not require the CSV bundle to be inst
+    8d25fd2b | 2026-05-15 | fix(api): disambiguate two same-named PatientAuditLogResponse classes (#961
+    9ead419d | 2026-05-15 | fix(api): import typing.Any in qeeg_analysis_router (Backend Tests P0) (#95
+
+──────────────────────────────────────────────────────────────────────────────────────────
+  Mission 8: Sidebar + Frontend Netlify Deploy
+  Files: ~5 files | Lines: ~500 lines changed
+  Description: 25 missing pages added to sidebar, built and deployed to Netlify
+  Commits: 8
+──────────────────────────────────────────────────────────────────────────────────────────
+    2438c18b | 2026-05-17 | Update netlify.toml with explicit build settings
+    532eb58c | 2026-05-17 | Remove @anthropic-ai/claude-agent-sdk from root deps to fix Netlify build (
+    b63eed2c | 2026-05-17 | Fix sidebar: correct sections (CLINICAL→valid), icons (13 missing→valid), r
+    0d43974e | 2026-05-15 | feat(clinician-os): Add clinicianSidebar.test.js
+    e461dded | 2026-05-15 | feat(clinician-os): Add clinicianSidebar.js
+    c3e79c1c | 2026-05-15 | feat(clinician-os): Add SIDEBAR_INFORMATION_ARCHITECTURE.md
+    d5b4ddd3 | 2026-05-15 | Update docs/01-sidebar-ia-clinician-dashboard.md
+    007d41ef | 2026-05-15 | Update docs/05-phase2-sidebar-implementation.md
+
+──────────────────────────────────────────────────────────────────────────────────────────
+  Mission 9: Security & Governance Fixes
+  Files: ~15 files | Lines: ~2,200 lines
+  Description: CVE fixes, code scanning, governance docs, cache fixes
+  Commits: 18
+──────────────────────────────────────────────────────────────────────────────────────────
+    3838cfdf | 2026-05-17 | chore(scripts): add deploy-via-hook.sh for credential-free Netlify redeploy
+    d26acd10 | 2026-05-15 | fix(ci): pip-audit doesn't support --format sarif; use json (#954)  Depende
+    7869f5a8 | 2026-05-15 | chore(repo): drop stale tracked artifacts + tighten .gitignore (#952)  Clea
+    d1954061 | 2026-05-15 | feat(ai-agents): Add research/AI_AGENT_SECURITY_COMPLIANCE.md
+    fbb107dd | 2026-05-15 | feat: Update security/docs/security/security-checklist.md
+    0d75ee5d | 2026-05-15 | feat: Update security/docs/security/incident-response-plan.md
+    ec882713 | 2026-05-15 | feat: Update security/deploy/security/security-policies.md
+    6f1e85c3 | 2026-05-15 | feat: Update security/.github/workflows/sast.yml
+    2b4fa930 | 2026-05-15 | feat: Update security/.github/workflows/dependency-audit.yml
+    6be6c522 | 2026-05-15 | feat: Update security/.github/workflows/dast.yml
+    b935ac8e | 2026-05-15 | feat: Update deployment/.github/workflows/security-scan.yml
+    9067eddd | 2026-05-15 | feat: Add security/docs/security/security-checklist.md
+    eb80b6d7 | 2026-05-15 | feat: Add security/docs/security/incident-response-plan.md
+    8a09cf94 | 2026-05-15 | feat: Add security/deploy/security/security-policies.md
+    3e615844 | 2026-05-15 | feat: Add security/.github/workflows/sast.yml
+    6430658e | 2026-05-15 | feat: Add security/.github/workflows/dependency-audit.yml
+    bc0b7b99 | 2026-05-15 | feat: Add security/.github/workflows/dast.yml
+    2552f07c | 2026-05-15 | feat: Add deployment/.github/workflows/security-scan.yml
+
+──────────────────────────────────────────────────────────────────────────────────────────
+  Uncategorized / Cross-cutting: 55 commits
+──────────────────────────────────────────────────────────────────────────────────────────
+    cc4952de | 2026-05-15 | feat(interventions): Add test_complementary.py
+    6f76e8e6 | 2026-05-15 | feat(interventions): Add test_wellness.py
+    88e70de0 | 2026-05-15 | feat(interventions): Add test_rehab.py
+    7fa6cc12 | 2026-05-15 | feat(interventions): Add pages-complementary.js
+    16c31673 | 2026-05-15 | feat(interventions): Add pages-wellness.js
+    b8a808f1 | 2026-05-15 | feat(interventions): Add pages-rehab.js
+    9dd31c8e | 2026-05-15 | feat(interventions): Add complementary_service.py
+    44d5c8bf | 2026-05-15 | feat(interventions): Add wellness_service.py
+    fb99a342 | 2026-05-15 | feat(interventions): Add wellness_router.py
+    0ef4ed24 | 2026-05-15 | feat(interventions): Add rehab_service.py
+    d9d32382 | 2026-05-15 | feat(interventions): Add rehab_router.py
+    df9ad35e | 2026-05-15 | feat(interventions): Add COMPLEMENTARY_INTERVENTION_DESIGN.md
+    27f0ed15 | 2026-05-15 | feat(interventions): Add WELLNESS_LIFESTYLE_INTERVENTION_DESIGN.md
+    8464d1ec | 2026-05-15 | feat(interventions): Add REHAB_PHYSIOTHERAPY_INTERVENTION_DESIGN.md
+    06fae25a | 2026-05-15 | feat(clinician-os): Add DEEPSYNAPS_MULTIMODAL_WIRING_MAP.md
+    8abf63c7 | 2026-05-15 | feat(clinician-os): Add DEEPSYNAPS_ANALYZER_INTERVENTION_ARCHITECTURE.md
+    64e62328 | 2026-05-15 | feat(genetic-analyzer): Add GENETIC_MULTIMODAL_BIOMARKER_MATRIX.md
+    d14f5a38 | 2026-05-15 | feat: Update monitoring/deploy/prometheus/prometheus.yml
+    4913dff9 | 2026-05-15 | feat: Update monitoring/deploy/grafana/dashboard-infrastructure.json
+    e4742c59 | 2026-05-15 | feat: Update monitoring/deploy/grafana/dashboard-clinical.json
+    0106b20b | 2026-05-15 | feat: Update monitoring/deploy/grafana/dashboard-api.json
+    7ee65f7b | 2026-05-15 | feat: Update monitoring/deploy/alertmanager/alerts-system.yml
+    131d2062 | 2026-05-15 | feat: Update monitoring/deploy/alertmanager/alerts-clinical.yml
+    8f4d3a62 | 2026-05-15 | feat: Update monitoring/deploy/alertmanager/alertmanager.yml
+    f5b354d8 | 2026-05-15 | feat: Update infrastructure/docs/runbooks/database-maintenance-runbook.md
+    73c7e78a | 2026-05-15 | feat: Update deployment/docs/runbooks/deployment-runbook.md
+    e75eb2ef | 2026-05-15 | feat: Update deployment/.github/workflows/deploy-blue-green.yml
+    8770276d | 2026-05-15 | feat: Update PHASE2_PLAN.md
+    07313061 | 2026-05-15 | feat: Add monitoring/deploy/prometheus/prometheus.yml
+    921d21bd | 2026-05-15 | feat: Add monitoring/deploy/grafana/dashboard-infrastructure.json
+
+==========================================================================================
+  SUMMARY
+  ──────────────────────────────────────────────────────────────────────────────────────
+  Mission 1: Empty Pages Build (29 pages)                   48 commits
+  Mission 2: Handbooks Transformation (Phases 1-5)          24 commits
+  Mission 3: Patient Dashboard                              14 commits
+  Mission 5: Knowledge Layer (5-Layer Architecture)         58 commits
+  Mission 6: Production Deployment Hardening                39 commits
+  Mission 7: Fly.io Deployment Fixes                         4 commits
+  Mission 8: Sidebar + Frontend Netlify Deploy               8 commits
+  Mission 9: Security & Governance Fixes                    18 commits
+  ──────────────────────────────────────────────────────────────────────────────────────
+  Total Kimi commits:                                     268
+  Total commits on main branch:                          500
+  Other (pre-existing):                                  232
+==========================================================================================
