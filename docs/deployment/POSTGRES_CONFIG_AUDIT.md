@@ -29,4 +29,4 @@ All PostgreSQL tuning parameters are configured via environment variables with s
 - Demo mode off by default
 - 55+ index declarations already present in `apps/api/app/persistence/models/`
 
-<!-- TODO: verify against current main — confirm validate_database_url behaviour blocks SQLite when DEEPSYNAPS_APP_ENV=production -->
+<!-- VERIFIED 2026-05-18: `validate_database_url()` in `apps/api/app/settings.py` only checks that the URL is non-empty and contains `://`. It does NOT block SQLite when `DEEPSYNAPS_APP_ENV=production`. The default database_url is `sqlite:///./deepsynaps_protocol_studio.db` and the validator does not enforce a PostgreSQL scheme in production. Operators must supply a PostgreSQL `DEEPSYNAPS_DATABASE_URL` manually — there is no automatic guard. -->

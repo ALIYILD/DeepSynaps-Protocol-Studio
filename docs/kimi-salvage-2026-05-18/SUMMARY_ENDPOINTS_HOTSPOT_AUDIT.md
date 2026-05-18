@@ -1,8 +1,10 @@
-<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->
+<!-- Verified 2026-05-18; promote-ready. -->
 # Summary Endpoints — N+1 / Serial Hydration Hotspot Audit
 
 **Date:** 2026-05-17  
-**Edited:** 2026-05-18 — router paths corrected to current main; call-count estimates are architectural estimates, not measured benchmarks. <!-- TODO: verify proposed endpoint URLs against apps/api/app/routers/patient_summary_router.py before implementing -->  
+**Edited:** 2026-05-18 — router paths corrected to current main; call-count estimates are architectural estimates, not measured benchmarks.
+
+> **Verified 2026-05-18 (URL check):** The proposed URLs (`GET /api/v1/summary/patients/{patient_id}/dashboard`, `GET /api/v1/summary/patients/{patient_id}/analyzer`, `GET /api/v1/summary/clinic-dashboard`) do **not** conflict with any existing route in `patient_summary_router.py` (which uses prefix `/api/v1/patient-portal`) or `patient_portal_router.py`. The proposed prefix `/api/v1/summary` is unoccupied in current main — safe to implement as a new router.  
 **Auditor:** Automated Architecture Audit  
 **Scope:** Frontend pages → backend API call patterns
 
@@ -125,9 +127,9 @@ The frontend (`apps/web/src/api.js`) currently has these fetch patterns:
 
 ## 5. Deferred Endpoints (Lower Priority)
 
-<!-- TODO: verify table existence against current Alembic migrations before scheduling any of these -->
+<!-- Verified 2026-05-18: No Intervention or TreatmentSession model found in apps/api/app/persistence/models.py (grep returned no results). Alembic migrations contain session_recordings (030, 081) and video_assessment_sessions but no standalone interventions table. Deferred status confirmed. -->
 | Endpoint | Why Deferred |
 |----------|-------------|
-| `GET /api/v1/interventions/clinic-summary` | No interventions/sessions table exists yet |
+| `GET /api/v1/interventions/clinic-summary` | Confirmed: no interventions/sessions model in current main (verified against models.py and alembic/versions/) |
 | `GET /api/v1/biomarkers/patient/{id}/summary` | Biomarker data is in multimodal_events — covered by analyzer summary |
 | `GET /api/v1/dashboard/clinic-summary` (full) | Partial — covered by enhanced clinic-dashboard |

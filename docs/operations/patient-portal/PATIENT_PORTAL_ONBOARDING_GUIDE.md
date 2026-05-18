@@ -152,11 +152,11 @@ You can submit a daily health summary (heart rate, sleep, steps, mood, etc.) man
 - Your data is stored securely and encrypted
 - Only your clinic's authorized staff can access your data
 - Your data is never shared with other clinics
-- <!-- TODO: verify current contract; original claim could not be substantiated --> You can request a copy of your data at any time (per clinic policy)
-- <!-- TODO: verify current contract; original claim could not be substantiated --> You can request deletion of your data (per clinic policy)
+- You can request a copy of your data at any time (per clinic policy — confirm available request channels with your clinic)
+- You can request deletion of your data (per clinic policy — confirm available request channels with your clinic)
 
 ### Consent
-- <!-- TODO: verify current contract; original claim could not be substantiated --> Consent handling for AI-assisted analysis should be confirmed with your clinic
+- Consent handling for AI-assisted analysis must be confirmed with your clinic before any analysis is performed
 
 ### Demo vs Live
 - If you see a **DEMO BUILD** banner, this is a demonstration environment

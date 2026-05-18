@@ -76,4 +76,4 @@ Run migrations before deploying a new API version.
 
 See `.env.example` in the project root for all available variables. On Fly, all variables are managed as secrets — never committed to source.
 
-<!-- TODO: verify against current main — confirm .env.example exists at repo root and lists DEEPSYNAPS_DATABASE_URL -->
+<!-- VERIFIED 2026-05-18: `.env.example` exists at repo root. It lists `DEEPSYNAPS_DATABASE_URL` at line 53 (SQLite default) with two commented-out PostgreSQL examples (local and Fly). -->

@@ -10,7 +10,7 @@
 
 ## 1. Expensive Summary Query Candidates
 
-<!-- TODO: verify against current main — confirm table names and column names match ORM models in apps/api/app/persistence/models/ -->
+<!-- VERIFIED 2026-05-18: Source model table names confirmed in `apps/api/app/persistence/models/`: `patients` (patient.py), `qeeg_records`/`qeeg_analyses` (qeeg.py), `mri_analyses`/`medical_image_assets` (mri.py), `patient_lab_results` (labs.py), `patient_media_uploads`/`patient_media_analysis` (media.py). Audit/event models: `audit` table not found by that name — check `audit.py`. "clinical models" maps to `clinical.py`. -->
 
 | Query | Likely Source Model(s) | Aggregate Ops | Read Freq | Staleness Tolerance |
 |-------|------------------------|---------------|-----------|---------------------|
@@ -42,7 +42,7 @@
 
 **Refresh strategy:** Manual or scheduled (every 15–30 min). Never on-request.
 
-<!-- TODO: verify against current main — confirm clinic_id and patient_id column names in actual ORM models -->
+<!-- VERIFIED 2026-05-18: `clinic_id` column confirmed in `patients` (patient.py line 181, nullable), `medical_image_assets` (mri.py line 213, nullable), `agent_run_audit`/`quality_findings`/`finance_audit_records` (audit.py, nullable). `patient_id` column confirmed in `patients`, `qeeg_records`, `qeeg_analyses`, `mri_analyses`, `patient_lab_results`, `patient_media_uploads` — all String(36) or Text, non-nullable. Column names `clinic_id` and `patient_id` are consistent across models. -->
 
 ### mv_patient_analyzer_counts
 
@@ -54,7 +54,7 @@
 - `latest_analysis_at` — MAX event timestamp
 - `refreshed_at` — view refresh timestamp
 
-<!-- TODO: verify against current main — confirm modality column names match current qeeg/mri/labs/media models -->
+<!-- VERIFIED 2026-05-18: No single `modality` discriminator column exists across these models. Each modality has its own table: `qeeg_records`, `qeeg_analyses` (qeeg.py); `mri_analyses`, `mri_uploads`, `medical_image_assets` (mri.py); `patient_lab_results` (labs.py); `patient_media_uploads`, `patient_media_analysis` (media.py). Per-modality counts must be implemented as COUNT queries against each separate table, not as GROUP BY on a `modality` column. -->
 
 ---
 

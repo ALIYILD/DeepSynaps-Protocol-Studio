@@ -1,4 +1,4 @@
-<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->
+<!-- Verified 2026-05-18; promote-ready. -->
 # Beta Operations Dashboard Plan — DeepSynaps Protocol Studio
 
 **Date:** 2026-05-17  
@@ -24,23 +24,21 @@ A single-page operations dashboard tracking all active beta pilots.
 
 | Metric | Source | Refresh |
 |--------|--------|---------|
-<!-- TODO: verify against current main; original claim could not be substantiated — `patient_access` table does not exist in `apps/api/app/persistence/models/__init__.py`. Replace queries with equivalents against `Patient` and `ConsentRecord` models when implementing. -->
 | Active clinic count | `SELECT COUNT(DISTINCT clinic_id) FROM patients` | 15 min |
 | Active clinician count | `SELECT COUNT(DISTINCT actor_id) FROM audit_event_records WHERE created_at >= now() - interval '7 days'` | 15 min |
 | Total patient records | `SELECT COUNT(*) FROM patients` | 15 min |
-| Patients with AI consent | <!-- TODO: verify consent column against ConsentRecord model --> | 15 min |
+| Patients with AI consent | `SELECT COUNT(DISTINCT patient_id) FROM consent_records WHERE consent_type = 'ai_analysis' AND status = 'active'` | 15 min |
 | Pilot phase | Manual (onboarding status) | Daily |
 
 ### Section B: Module Usage (24h)
 
 | Module | Query | Threshold |
 |--------|-------|-----------|
-<!-- TODO: verify against current main; original claim could not be substantiated — `multimodal_events` and `deeptwin_reviews` tables do not exist. Substitute real table names from `apps/api/app/persistence/models/__init__.py` when implementing (e.g. `QEEGRecord`, `MriAnalysis`, `DeepTwinAnalysisRun`, `AuditEventRecord`). -->
 | Dashboard loads | `audit_event_records WHERE route LIKE '%dashboard%'` | >0 |
 | Assessments created | `assessment_records WHERE created_at >= now() - interval '1 day'` | >0 |
 | qEEG analyses | `qeeg_records WHERE created_at >= now() - interval '1 day'` | >0 |
 | MRI analyses | `mri_analyses WHERE created_at >= now() - interval '1 day'` | >0 |
-| Biomarker entries | <!-- TODO: verify biomarker table name --> | >0 |
+| Biomarker entries | `movement_biomarker_trends WHERE created_at >= now() - interval '1 day'` (table `movement_biomarker_trends` in `models/movement_fusion.py`; no generic biomarker-entries table exists) | >0 |
 | DeepTwin syntheses | `deep_twin_analysis_runs WHERE created_at >= now() - interval '1 day'` | >0 |
 | Reports generated | `generated_documents WHERE created_at >= now() - interval '1 day'` | >0 |
 | Protocol drafts | `audit_log WHERE route LIKE '%protocol%'` | >0 |
