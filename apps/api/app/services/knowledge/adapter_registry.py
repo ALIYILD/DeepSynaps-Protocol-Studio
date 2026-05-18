@@ -29,6 +29,8 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
+
+from app.utils.time_utils import utc_now
 from typing import Any, Dict, List, Optional, Set
 
 from app.services.knowledge.base_adapter import (
@@ -235,7 +237,7 @@ class AdapterRegistry:
             source_name=adapter.source_name,
             source_version=adapter.source_version,
             tier=tier,
-            registered_at=datetime.utcnow(),
+            registered_at=utc_now(),
             license_type=license_type,
             connected=adapter.is_connected,
         )
@@ -442,7 +444,7 @@ class AdapterRegistry:
         try:
             result = await adapter.health_check()
             result["registry_name"] = name
-            result["checked_at"] = datetime.utcnow().isoformat()
+            result["checked_at"] = utc_now().isoformat()
             result["cached"] = False
         except Exception as exc:
             logger.warning("Health check failed for '%s': %s", name, exc)
@@ -453,7 +455,7 @@ class AdapterRegistry:
                 "source_version": adapter.source_version,
                 "connected": False,
                 "latency_ms": None,
-                "last_check": datetime.utcnow().isoformat(),
+                "last_check": utc_now().isoformat(),
                 "message": f"Health check error: {exc}",
                 "cached": False,
                 "error": str(exc),
@@ -712,7 +714,7 @@ class AdapterRegistry:
                 })
 
         return {
-            "generated_at": datetime.utcnow().isoformat(),
+            "generated_at": utc_now().isoformat(),
             "total_adapters": len(licenses),
             "adapters": adapter_reports,
             "research_allowed_all": all(l.allows_research for l in licenses.values()),

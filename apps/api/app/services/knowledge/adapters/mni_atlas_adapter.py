@@ -24,6 +24,8 @@ import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+
+from app.utils.time_utils import utc_now
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -279,7 +281,7 @@ class MNIAtlasAdapter(DatabaseAdapter):
         if cache_key in self._cache:
             self._cache_hits += 1
             cached = self._cache[cache_key]
-            if datetime.utcnow() < cached["expires_at"]:
+            if utc_now() < cached["expires_at"]:
                 return cached["records"]
 
         self._cache_misses += 1
@@ -294,9 +296,9 @@ class MNIAtlasAdapter(DatabaseAdapter):
 
         self._cache[cache_key] = {
             "records": records,
-            "expires_at": datetime.utcnow() + timedelta(seconds=604800),  # 7 days
+            "expires_at": utc_now() + timedelta(seconds=604800),  # 7 days
         }
-        self._last_fetch = datetime.utcnow()
+        self._last_fetch = utc_now()
         return records
 
     def _fetch_aal3(self, query: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -471,7 +473,7 @@ class MNIAtlasAdapter(DatabaseAdapter):
             source_database=self.source_name,
             source_version=atlas_ver,
             source_record_id=record.get("region_id", "unknown"),
-            ingestion_timestamp=datetime.utcnow(),
+            ingestion_timestamp=utc_now(),
             license_type="AAL Citation Required / Schaefer CC BY 4.0",
             license_url="https://www.gin.cnrs.fr/en/tools/aal/",
             attribution_text=(

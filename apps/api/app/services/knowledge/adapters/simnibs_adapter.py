@@ -29,6 +29,8 @@ import logging
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+
+from app.utils.time_utils import utc_now
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -174,7 +176,7 @@ class SimNIBSAdapter(DatabaseAdapter):
         if cache_key in self._cache:
             self._cache_hits += 1
             cached = self._cache[cache_key]
-            if datetime.utcnow() < cached["expires_at"]:
+            if utc_now() < cached["expires_at"]:
                 return cached["records"]
 
         self._cache_misses += 1
@@ -193,9 +195,9 @@ class SimNIBSAdapter(DatabaseAdapter):
 
         self._cache[cache_key] = {
             "records": records,
-            "expires_at": datetime.utcnow() + timedelta(seconds=86400),
+            "expires_at": utc_now() + timedelta(seconds=86400),
         }
-        self._last_fetch = datetime.utcnow()
+        self._last_fetch = utc_now()
         return records
 
     # -- tDCS simulation -----------------------------------------------------
@@ -242,7 +244,7 @@ class SimNIBSAdapter(DatabaseAdapter):
                 "overall_safe": safety.overall_safe,
                 "warnings": safety.warnings,
             },
-            "simulation_timestamp": datetime.utcnow().isoformat(),
+            "simulation_timestamp": utc_now().isoformat(),
         }
         return [record]
 
@@ -292,7 +294,7 @@ class SimNIBSAdapter(DatabaseAdapter):
                         "Verify against device-specific limits.",
                 "warnings": [],
             },
-            "simulation_timestamp": datetime.utcnow().isoformat(),
+            "simulation_timestamp": utc_now().isoformat(),
         }
         return [record]
 
@@ -325,7 +327,7 @@ class SimNIBSAdapter(DatabaseAdapter):
             "optimized_electrodes": optimized_electrodes,
             "optimization_score": 0.85,
             "iterations": 150,
-            "simulation_timestamp": datetime.utcnow().isoformat(),
+            "simulation_timestamp": utc_now().isoformat(),
         }
         return [record]
 
@@ -366,7 +368,7 @@ class SimNIBSAdapter(DatabaseAdapter):
                 "mean_in_target_Vm": e_field_stats.mean_in_target_Vm,
                 "half_max_volume_mm3": e_field_stats.half_max_volume_mm3,
             },
-            "analysis_timestamp": datetime.utcnow().isoformat(),
+            "analysis_timestamp": utc_now().isoformat(),
         }
         return [record]
 
@@ -656,7 +658,7 @@ class SimNIBSAdapter(DatabaseAdapter):
             source_database=self.source_name,
             source_version=self.source_version,
             source_record_id=sim_id,
-            ingestion_timestamp=datetime.utcnow(),
+            ingestion_timestamp=utc_now(),
             license_type="GPL v3 (Container Isolation)",
             license_url="https://www.gnu.org/licenses/gpl-3.0.html",
             attribution_text=(
