@@ -39,11 +39,11 @@ from app.knowledge.abide_adapter import ABIDEAdapter
 
 # ─── PHASE 3 — P0 Adapters (29) ───
 # Batch 1: Neuroimaging (5)
-from app.knowledge.neurovault_adapter import NeuroVaultAdapter
-from app.knowledge.hcp_adapter import HCPAdapter
-from app.knowledge.openneuro_adapter import OpenNeuroAdapter
-from app.knowledge.oasis_adapter import OASISAdapter
-from app.knowledge.hcp_aging_adapter import HCPAgingAdapter
+from app.knowledge.neurovault_adapter import NeurovaultAdapter as NeuroVaultAdapter
+from app.knowledge.hcp_adapter import HcpAdapter as HCPAdapter
+from app.knowledge.openneuro_adapter import OpenneuroAdapter as OpenNeuroAdapter
+from app.knowledge.oasis_adapter import OasisAdapter as OASISAdapter
+from app.knowledge.hcp_aging_adapter import HcpAgingAdapter as HCPAgingAdapter
 # Batch 2: Pharma / Terminology (5)
 from app.knowledge.drugbank_adapter import DrugBankAdapter
 from app.knowledge.chembl_adapter import ChEMBLAdapter
@@ -57,17 +57,17 @@ from app.knowledge.clinicaltrials_adapter import ClinicalTrialsAdapter
 from app.knowledge.europepmc_adapter import EuropePMCAdapter
 from app.knowledge.nice_adapter import NICEAdapter
 # Batch 4: Genetics (5)
-from app.knowledge.gwas_catalog_adapter import GWASCatalogAdapter
-from app.knowledge.dbsnp_adapter import DbSNPAdapter
+from app.knowledge.gwas_catalog_adapter import GwasCatalogAdapter as GWASCatalogAdapter
+from app.knowledge.dbsnp_adapter import DbsnpAdapter as DbSNPAdapter
 from app.knowledge.ensembl_adapter import EnsemblAdapter
-from app.knowledge.gnomad_adapter import GnomADAdapter
-from app.knowledge.uniprot_adapter import UniProtAdapter
+from app.knowledge.gnomad_adapter import GnomadAdapter as GnomADAdapter
+from app.knowledge.uniprot_adapter import UniprotAdapter as UniProtAdapter
 # Batch 5: Atlas / Analytics (5)
-from app.knowledge.string_adapter import STRINGAdapter
+from app.knowledge.string_adapter import StringAdapter as STRINGAdapter
 from app.knowledge.myvariant_adapter import MyVariantAdapter
 from app.knowledge.yeo2011_adapter import Yeo2011Adapter
 from app.knowledge.gordon2014_adapter import Gordon2014Adapter
-from app.knowledge.adhd200_adapter import ADHD200Adapter
+from app.knowledge.adhd200_adapter import Adhd200Adapter as ADHD200Adapter
 # Batch 6: Adverse Events / AI Literature (4)
 from app.knowledge.semantic_scholar_adapter import SemanticScholarAdapter
 from app.knowledge.aeolus_adapter import AEOLUSAdapter
@@ -77,24 +77,19 @@ from app.knowledge.offsides_twosides_adapter import OffsidesTwosidesAdapter
 # ─── PHASE 4 — P1 Adapters (21) ───
 # Batch A: Neuroimaging (5)
 from app.knowledge.functional_connectomes_1000_adapter import FunctionalConnectomes1000Adapter
-from app.knowledge.nitrc_adapter import NITRCAdapter
+from app.knowledge.nitrc_adapter import NitrcAdapter as NITRCAdapter
 from app.knowledge.glasser2016_adapter import Glasser2016Adapter
 from app.knowledge.brainnetome_adapter import BrainnetomeAdapter
-from app.knowledge.ixi_adapter import IXIAdapter
-# Batch B: Neuroimaging (5)
-from app.knowledge.cobre_adapter import COBREAdapter
-from app.knowledge.corr_adapter import CORRAdapter
-from app.knowledge.ds030_adapter import DS030Adapter
-from app.knowledge.gsp_adapter import GSPAdapter
-from app.knowledge.hcp_lifespan_adapter import HCPLifespanAdapter
-# Batch C: Pharma / Evidence — REMOVED in #1026, depended on a missing
-# `app.knowledge.models` module that never existed; the 5 adapters
-# (Orange Book, NDC Directory, UNII, OTseeker, PEDro) were dead-on-import.
+from app.knowledge.ixi_adapter import IxiAdapter as IXIAdapter
+# Batch B: removed in #1033 — adapters were dead-on-import (broken
+# `from base_adapter` style + undeclared pandas dep).
+# Batch C: removed in #1030 — adapters depended on a missing
+# `app.knowledge.models` module that never existed (#1026).
 # Batch D: Evidence (6)
 from app.knowledge.ahrq_epss_adapter import AHRQEPSSAdapter
 from app.knowledge.trip_database_adapter import TRIPDatabaseAdapter
 from app.knowledge.epistemonikos_adapter import EpistemonikosAdapter
-from app.knowledge.nih_reporter_adapter import NIHReporterAdapter
+from app.knowledge.nih_reporter_adapter import NIHRePORTERAdapter as NIHReporterAdapter
 from app.knowledge.core_adapter import COREAdapter
 from app.knowledge.biorxiv_adapter import BioRxivAdapter
 
@@ -171,14 +166,10 @@ ADAPTER_REGISTRY: Dict[str, Dict[str, Any]] = {
     "glasser2016": {"class": Glasser2016Adapter, "display_name": "Glasser 2016 Atlas", "category": "neuroimaging", "phase": 4, "access": "open", "data_types": ["brain_atlas"], "description": "360 cortical areas, HCP multi-modal"},
     "brainnetome": {"class": BrainnetomeAdapter, "display_name": "Brainnetome Atlas", "category": "neuroimaging", "phase": 4, "access": "open", "data_types": ["brain_atlas"], "description": "246 regions, connectivity-based"},
     "ixi": {"class": IXIAdapter, "display_name": "IXI Dataset", "category": "neuroimaging", "phase": 4, "access": "open", "data_types": ["neuroimaging"], "description": "600 healthy subjects, T1/T2/MRA (KCL)"},
-    # Batch B: Neuroimaging (5)
-    "cobre": {"class": COBREAdapter, "display_name": "COBRE", "category": "neuroimaging", "phase": 4, "access": "open", "data_types": ["neuroimaging", "clinical"], "description": "Schizophrenia 72 patients + 74 controls"},
-    "corr": {"class": CORRAdapter, "display_name": "CORR", "category": "neuroimaging", "phase": 4, "access": "open", "data_types": ["neuroimaging"], "description": "33 datasets, test-retest reliability"},
-    "ds030": {"class": DS030Adapter, "display_name": "UCLA ds030", "category": "neuroimaging", "phase": 4, "access": "open", "data_types": ["neuroimaging", "clinical"], "description": "272 subjects, phenomics (BIDS)"},
-    "gsp": {"class": GSPAdapter, "display_name": "Brain Genomics Superstruct", "category": "neuroimaging", "phase": 4, "access": "register", "data_types": ["neuroimaging"], "description": "1,570 subjects, structural + resting-state (Harvard)"},
-    "hcp_lifespan": {"class": HCPLifespanAdapter, "display_name": "HCP Lifespan", "category": "neuroimaging", "phase": 4, "access": "register", "data_types": ["neuroimaging"], "description": "1,260+ subjects, multi-cohort lifespan"},
-    # Batch C: removed in #1026 — 5 adapters were dead-on-import (missing
-    # `app.knowledge.models` module, never existed).
+    # Batch B: removed in #1033 — adapters were dead-on-import (broken
+    # `from base_adapter` style + undeclared pandas dep).
+    # Batch C: removed in #1030 — adapters depended on a missing
+    # `app.knowledge.models` module that never existed (#1026).
     # Batch D: Evidence (6)
     "ahrq_epss": {"class": AHRQEPSSAdapter, "display_name": "AHRQ ePSS", "category": "guideline", "phase": 4, "access": "open", "data_types": ["clinical_guideline"], "description": "USPSTF preventive services recommendations"},
     "trip_database": {"class": TRIPDatabaseAdapter, "display_name": "TRIP Database", "category": "evidence", "phase": 4, "access": "freemium", "data_types": ["evidence"], "description": "Clinical search engine (500K+ sources)"},

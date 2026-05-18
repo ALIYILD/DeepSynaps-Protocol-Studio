@@ -68,3 +68,17 @@ def test_medication_analyzer_bridge_imports_cleanly() -> None:
     ``app.knowledge.rxnorm_adapter`` — both targets are shims maintained
     here. Crashes at import time without them."""
     importlib.import_module("app.knowledge.medication_analyzer_bridge")
+
+
+@pytest.mark.skipif(not _AIOHTTP_AVAILABLE, reason="aiohttp missing")
+def test_adapter_registry_imports_cleanly() -> None:
+    """``adapter_registry`` imports ~60 adapter classes from
+    ``app.knowledge.*``. Several of those need re-export shims because
+    the canonical implementations live under
+    ``app.services.knowledge.adapters``. Without those shims, the
+    registry crashes at the first missing import and the entire
+    Knowledge Layer is unreachable.
+
+    Skipped when ``aiohttp`` is missing because many canonical adapters
+    transitively require it (#1025)."""
+    importlib.import_module("app.knowledge.adapter_registry")
