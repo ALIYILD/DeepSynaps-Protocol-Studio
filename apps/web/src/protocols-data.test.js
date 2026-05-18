@@ -283,4 +283,63 @@ describe('searchProtocols', () => {
     const results = searchProtocols('zzz-no-match-xyz-abc');
     assert.deepStrictEqual(results, []);
   });
+
+  // ── Filter-chain branch coverage ──────────────────────────────────────────
+
+  it('filter by device narrows results to a single device id', () => {
+    const results = searchProtocols('', { device: 'tms' });
+    assert.ok(results.length > 0);
+    for (const p of results) assert.strictEqual(p.device, 'tms');
+  });
+
+  it('filter by type narrows results by protocol type', () => {
+    const results = searchProtocols('', { type: 'classic' });
+    assert.ok(results.length > 0);
+    for (const p of results) assert.strictEqual(p.type, 'classic');
+  });
+
+  it('filter by governance label narrows to entries whose governance list contains it', () => {
+    const results = searchProtocols('', { governance: 'on-label' });
+    assert.ok(results.length > 0);
+    for (const p of results) {
+      assert.ok(
+        Array.isArray(p.governance) && p.governance.includes('on-label'),
+        `expected on-label governance on ${p.id}`,
+      );
+    }
+  });
+
+  it('combined filters compose (conditionId + device + governance)', () => {
+    const results = searchProtocols('', {
+      conditionId: 'major-depressive-disorder',
+      device: 'tms',
+      governance: 'on-label',
+    });
+    for (const p of results) {
+      assert.strictEqual(p.conditionId, 'major-depressive-disorder');
+      assert.strictEqual(p.device, 'tms');
+      assert.ok((p.governance || []).includes('on-label'));
+    }
+  });
+
+  it('query path matches against conditionId after replacing hyphens with spaces', () => {
+    // Words from the conditionId only — e.g. "major depressive" hits the
+    // conditionId-hyphen-replace branch, not the name branch.
+    const results = searchProtocols('major depressive');
+    assert.ok(results.length > 0);
+  });
+
+  it('query matches against the tags array when name/target/notes do not hit', () => {
+    // Pick any protocol that has at least one tag, search for that tag, and
+    // assert we get at least one back. This exercises the (p.tags || []).some
+    // branch even when the protocol's name/target/notes do not match.
+    const tagged = PROTOCOL_LIBRARY.find((p) => Array.isArray(p.tags) && p.tags.length > 0);
+    if (!tagged) return; // defensive — library should always have tags
+    const tag = tagged.tags[0];
+    const results = searchProtocols(tag);
+    assert.ok(
+      results.some((p) => (p.tags || []).some((t) => t.includes(tag.toLowerCase()))),
+      `expected at least one result whose tags include ${tag}`,
+    );
+  });
 });

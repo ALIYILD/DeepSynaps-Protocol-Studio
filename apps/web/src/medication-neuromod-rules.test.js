@@ -124,4 +124,41 @@ describe('crossCheckMedNeuromod matching', () => {
       assert.ok(typeof r.matched_modality === 'string' && r.matched_modality.length > 0);
     }
   });
+
+  // ── Defensive branch-coverage additions ───────────────────────────────
+
+  it('treats non-array meds input as empty (no matches)', () => {
+    // Hits the Array.isArray(meds) ? meds : [] false branch on line 190.
+    assert.deepStrictEqual(crossCheckMedNeuromod({ meds: 'bupropion', modalities: ['rtms'] }), []);
+    assert.deepStrictEqual(crossCheckMedNeuromod({ meds: null, modalities: ['rtms'] }), []);
+  });
+
+  it('treats non-array modalities input as empty (no matches)', () => {
+    // _normaliseList on a non-array (string/null) hits line 171 false branch.
+    assert.deepStrictEqual(
+      crossCheckMedNeuromod({ meds: ['bupropion'], modalities: 'rtms' }),
+      [],
+    );
+    assert.deepStrictEqual(
+      crossCheckMedNeuromod({ meds: ['bupropion'], modalities: null }),
+      [],
+    );
+  });
+
+  it('drops object meds that have neither name nor generic_name (filter Boolean)', () => {
+    // Hits the .filter(Boolean) path on line 192 — entries that resolve to
+    // empty/undefined are dropped before crossCheck runs.
+    const results = crossCheckMedNeuromod({
+      meds: [{}, { name: '' }, { generic_name: 'bupropion' }],
+      modalities: ['rtms'],
+    });
+    assert.ok(results.some((r) => r.id === 'bupropion-rtms-seizure'));
+  });
+
+  it('substring match in either direction (rule token in med, med in rule token)', () => {
+    // Hits the med.includes(tok) || tok.includes(med) branches on line 182.
+    // "bupropion sr" should still match the "bupropion" token via includes.
+    const r1 = crossCheckMedNeuromod({ meds: ['bupropion sr'], modalities: ['rtms'] });
+    assert.ok(r1.some((r) => r.id === 'bupropion-rtms-seizure'));
+  });
 });

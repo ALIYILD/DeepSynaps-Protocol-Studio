@@ -196,3 +196,51 @@ describe('DEMO_CURATED_LISTINGS integrity', () => {
     }
   });
 });
+
+describe('mapApiMarketplaceItem branch coverage', () => {
+  it('falls back to "item" unit and empty desc/url/source when API row is sparse', () => {
+    // Hits || fallbacks on lines 74/83 (price_unit), 89 (description), 90
+    // (external_url), 97 (source). Provides a minimal row.
+    const mapped = mapApiMarketplaceItem({
+      id: 'srv-1',
+      kind: 'service',
+      name: 'Sparse',
+      provider: 'Clinic',
+      price: 100,
+      // price_unit, description, external_url, source intentionally omitted
+    });
+    assert.strictEqual(mapped.unit, 'item');
+    assert.strictEqual(mapped.priceCurrency, null);
+    assert.strictEqual(mapped.desc, '');
+    assert.strictEqual(mapped.url, '');
+    assert.strictEqual(mapped.source, 'deepsynaps_curated');
+    assert.strictEqual(mapped.img, '📦');
+    assert.strictEqual(mapped.cat, 'consultations');
+  });
+
+  it('marks featured items with the Featured badge', () => {
+    const mapped = mapApiMarketplaceItem({
+      id: 'p-1', kind: 'product', name: 'Pro', provider: 'C',
+      featured: true,
+    });
+    assert.strictEqual(mapped.badge, 'Featured');
+  });
+
+  it('flags clinical items with a governance note', () => {
+    const mapped = mapApiMarketplaceItem({
+      id: 'c-1', kind: 'device', name: 'Device', provider: 'C',
+      clinical: true,
+    });
+    assert.equal(mapped.clinicalFlag, true);
+    assert.match(String(mapped.regulatoryNote), /verify governance/i);
+  });
+
+  it('recognises GBP / USD / EUR currency codes and uppercases them', () => {
+    for (const cur of ['gbp', 'usd', 'eur', 'GBP', 'USD', 'EUR']) {
+      const mapped = mapApiMarketplaceItem({
+        id: 'x', kind: 'product', name: 'N', provider: 'P', price_unit: cur,
+      });
+      assert.ok(['GBP', 'USD', 'EUR'].includes(mapped.priceCurrency));
+    }
+  });
+});

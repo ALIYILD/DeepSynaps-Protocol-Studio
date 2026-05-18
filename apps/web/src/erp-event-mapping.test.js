@@ -184,4 +184,98 @@ describe('erpValidateEventMapping', () => {
     const warnings = erpValidateEventMapping([], {});
     assert.strictEqual(warnings.length, 0);
   });
+
+  // ── Defensive branch-coverage additions ────────────────────────────────
+
+  it('treats a non-array sidecarTrialTypes as empty', () => {
+    // Hits the Array.isArray=false branch on line 120-124.
+    assert.deepStrictEqual(erpValidateEventMapping(null, {}), []);
+    assert.deepStrictEqual(erpValidateEventMapping('not-array', {}), []);
+    assert.deepStrictEqual(erpValidateEventMapping(undefined, { x: 1 }), [
+      'event_id_map key "x" was not among detected sidecar trial_types.',
+    ]);
+  });
+
+  it('treats a non-plain-object eventIdMap as empty (array, null, primitive)', () => {
+    // Hits the !typeof object / Array.isArray=true branches on line 126.
+    const warnings = erpValidateEventMapping(['t'], ['not', 'a', 'map']);
+    assert.ok(warnings.some((w) => w.includes('event_id_map is empty')));
+    const warnings2 = erpValidateEventMapping(['t'], null);
+    assert.ok(warnings2.some((w) => w.includes('event_id_map is empty')));
+    const warnings3 = erpValidateEventMapping(['t'], 'string');
+    assert.ok(warnings3.some((w) => w.includes('event_id_map is empty')));
+  });
+
+  it('filters out null/empty entries from sidecarTrialTypes', () => {
+    // Hits the filter callback returning false on line 121-122.
+    const warnings = erpValidateEventMapping([null, '', 'target', undefined], { target: 1 });
+    // Should not warn about empty/null entries — only the valid 'target' is considered.
+    assert.strictEqual(warnings.length, 0);
+  });
+});
+
+describe('erpApplyTrialMappingRows defensive branches', () => {
+  it('skips null/non-object rows in the input array', () => {
+    // Hits line 104: !r || typeof r !== 'object'
+    const rows = [null, undefined, 'string', 42, { conditionKey: 'ok', code: '7' }];
+    const result = erpApplyTrialMappingRows(rows);
+    assert.deepStrictEqual(result, { ok: 7 });
+  });
+
+  it('treats a row with missing conditionKey as empty key (then skipped)', () => {
+    // Hits line 105: r.conditionKey != null falsy branch
+    const rows = [{ code: '3' }, { conditionKey: null, code: '4' }];
+    const result = erpApplyTrialMappingRows(rows);
+    assert.deepStrictEqual(result, {});
+  });
+});
+
+describe('erpResolveBidsUploadMeta and erpFormatBidsSummaryHtml defensive branches', () => {
+  it('falls back to [] for missing trial_types and warnings on persisted summary', () => {
+    // Hits lines 33-34: summ.trial_types || [] and summ.warnings || []
+    const currentAnalysis = {
+      id: 'a-defensive',
+      advanced_analyses: {
+        erp: { bids_upload_summary: { row_count: 7 /* trial_types & warnings missing */ } },
+      },
+    };
+    const result = erpResolveBidsUploadMeta('a-defensive', currentAnalysis, null);
+    assert.deepStrictEqual(result?.trial_types, []);
+    assert.deepStrictEqual(result?.warnings, []);
+    assert.strictEqual(result?.normalized, false);
+  });
+
+  it('renders "?" when row_count is null/undefined', () => {
+    // Hits line 72: bm.row_count != null falsy branch
+    const html = erpFormatBidsSummaryHtml({
+      row_count: null,
+      trial_types: [],
+      warnings: [],
+      normalized: false,
+    });
+    assert.ok(html.includes('<strong>Rows:</strong> ?'));
+  });
+
+  it('renders <em>none</em> when trial_types is missing', () => {
+    // Hits line 64: bm.trial_types || [] falsy branch
+    const html = erpFormatBidsSummaryHtml({
+      row_count: 3,
+      warnings: [],
+      normalized: false,
+      // trial_types intentionally omitted
+    });
+    assert.ok(html.includes('<em>none</em>'));
+  });
+
+  it('includes uploaded_at server timestamp when set', () => {
+    const html = erpFormatBidsSummaryHtml({
+      row_count: 1,
+      trial_types: [],
+      warnings: [],
+      normalized: false,
+      uploaded_at: '2026-01-02T03:04:05Z',
+    });
+    assert.ok(html.includes('Last upload (server)'));
+    assert.ok(html.includes('2026-01-02T03:04:05Z'));
+  });
 });
