@@ -134,7 +134,18 @@ class _MockVStack:
         return _MockNDArray(rows)
 
 _mock_np.vstack = _MockVStack()
-_mock_np.ones = lambda n: _MockNDArray([1.0] * n)
+def _mock_ones(shape):
+    if isinstance(shape, tuple):
+        if not shape:
+            return _MockNDArray([])
+        if len(shape) == 1:
+            return _MockNDArray([1.0] * shape[0])
+        inner = _mock_ones(shape[1:]).tolist()
+        return _MockNDArray([inner for _ in range(shape[0])])
+    return _MockNDArray([1.0] * int(shape))
+
+
+_mock_np.ones = _mock_ones
 _mock_np.zeros = lambda *a, **k: _MockNDArray([])
 _mock_np.float64 = float
 
@@ -197,6 +208,18 @@ _mock_sqlalchemy.orm = MagicMock()
 _mock_sqlalchemy.orm.Session = _mock_session
 
 # Inject mocks into sys.modules
+_ORIGINAL_MODULES = {
+    "numpy": sys.modules.get("numpy"),
+    "nibabel": sys.modules.get("nibabel"),
+    "nibabel.affines": sys.modules.get("nibabel.affines"),
+    "scipy": sys.modules.get("scipy"),
+    "scipy.stats": sys.modules.get("scipy.stats"),
+    "sqlalchemy": sys.modules.get("sqlalchemy"),
+    "sqlalchemy.orm": sys.modules.get("sqlalchemy.orm"),
+    "app.persistence.models": sys.modules.get("app.persistence.models"),
+}
+_ORIGINAL_SERVICE_MODULE = sys.modules.get("app.services.mri_qeeg_fusion")
+sys.modules.pop("app.services.mri_qeeg_fusion", None)
 sys.modules["numpy"] = _mock_np
 sys.modules["nibabel"] = _mock_nib
 sys.modules["nibabel.affines"] = _mock_nib.affines
@@ -242,6 +265,17 @@ from app.services.mri_qeeg_fusion import (
     get_neuromodulation_targets_fused,
     synthesize_neuromodulation_targets,
 )
+
+for _module_name, _original_module in _ORIGINAL_MODULES.items():
+    if _original_module is not None:
+        sys.modules[_module_name] = _original_module
+    else:
+        sys.modules.pop(_module_name, None)
+
+if _ORIGINAL_SERVICE_MODULE is not None:
+    sys.modules["app.services.mri_qeeg_fusion"] = _ORIGINAL_SERVICE_MODULE
+else:
+    sys.modules.pop("app.services.mri_qeeg_fusion", None)
 
 pytestmark = pytest.mark.asyncio
 

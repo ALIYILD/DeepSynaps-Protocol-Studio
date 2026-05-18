@@ -1,0 +1,46 @@
+# Runtime-hygiene gate.
+#
+# Fails any PR that introduces test-only imports or scaffolding into
+# runtime code paths (apps/api/app/**, apps/web/src/**). The motivating
+# incident is the 2026-05-18 outage caused by a bare `import pytest` in
+# apps/api/app/routers/health_dashboard.py.
+#
+# Policy: docs/engineering/runtime-hygiene-policy.md
+# Checker: scripts/check_runtime_hygiene.py (stdlib-only, runs locally too)
+name: runtime-hygiene-check
+
+on:
+  pull_request:
+    paths:
+      - "apps/api/app/**"
+      - "apps/web/src/**"
+      - "scripts/check_runtime_hygiene.py"
+      - "docs/engineering/runtime-hygiene-policy.md"
+      - ".github/workflows/runtime-hygiene-check.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/api/app/**"
+      - "apps/web/src/**"
+      - "scripts/check_runtime_hygiene.py"
+      - "docs/engineering/runtime-hygiene-policy.md"
+      - ".github/workflows/runtime-hygiene-check.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: scan runtime tree for test-only imports
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Stdlib-only — no pip install required.
+      - name: Run runtime-hygiene checker
+        run: python3 scripts/check_runtime_hygiene.py
