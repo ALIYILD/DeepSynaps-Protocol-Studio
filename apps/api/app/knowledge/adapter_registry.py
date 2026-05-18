@@ -87,12 +87,9 @@ from app.knowledge.corr_adapter import CORRAdapter
 from app.knowledge.ds030_adapter import DS030Adapter
 from app.knowledge.gsp_adapter import GSPAdapter
 from app.knowledge.hcp_lifespan_adapter import HCPLifespanAdapter
-# Batch C: Pharma / Evidence (5)
-from app.knowledge.orange_book_adapter import OrangeBookAdapter
-from app.knowledge.ndc_directory_adapter import NDCDirectoryAdapter
-from app.knowledge.unii_adapter import UNIIAdapter
-from app.knowledge.otseeker_adapter import OTseekerAdapter
-from app.knowledge.pedro_adapter import PEDROAdapter
+# Batch C: Pharma / Evidence — REMOVED in #1026, depended on a missing
+# `app.knowledge.models` module that never existed; the 5 adapters
+# (Orange Book, NDC Directory, UNII, OTseeker, PEDro) were dead-on-import.
 # Batch D: Evidence (6)
 from app.knowledge.ahrq_epss_adapter import AHRQEPSSAdapter
 from app.knowledge.trip_database_adapter import TRIPDatabaseAdapter
@@ -180,12 +177,8 @@ ADAPTER_REGISTRY: Dict[str, Dict[str, Any]] = {
     "ds030": {"class": DS030Adapter, "display_name": "UCLA ds030", "category": "neuroimaging", "phase": 4, "access": "open", "data_types": ["neuroimaging", "clinical"], "description": "272 subjects, phenomics (BIDS)"},
     "gsp": {"class": GSPAdapter, "display_name": "Brain Genomics Superstruct", "category": "neuroimaging", "phase": 4, "access": "register", "data_types": ["neuroimaging"], "description": "1,570 subjects, structural + resting-state (Harvard)"},
     "hcp_lifespan": {"class": HCPLifespanAdapter, "display_name": "HCP Lifespan", "category": "neuroimaging", "phase": 4, "access": "register", "data_types": ["neuroimaging"], "description": "1,260+ subjects, multi-cohort lifespan"},
-    # Batch C: Pharma / Evidence (5)
-    "orange_book": {"class": OrangeBookAdapter, "display_name": "Orange Book", "category": "pharmaceutical", "phase": 4, "access": "open", "data_types": ["medication"], "description": "FDA approved drug products with patents"},
-    "ndc_directory": {"class": NDCDirectoryAdapter, "display_name": "NDC Directory", "category": "pharmaceutical", "phase": 4, "access": "open", "data_types": ["medication"], "description": "300K+ drug product identifiers (FDA)"},
-    "unii": {"class": UNIIAdapter, "display_name": "UNII", "category": "pharmaceutical", "phase": 4, "access": "open", "data_types": ["substance"], "description": "200K+ substance identifiers (FDA)"},
-    "otseeker": {"class": OTseekerAdapter, "display_name": "OTseeker", "category": "evidence", "phase": 4, "access": "open", "data_types": ["systematic_review"], "description": "Occupational therapy evidence (10K+ records)"},
-    "pedro": {"class": PEDROAdapter, "display_name": "PEDro", "category": "evidence", "phase": 4, "access": "open", "data_types": ["clinical_trial"], "description": "Physiotherapy evidence database (50K+ trials)"},
+    # Batch C: removed in #1026 — 5 adapters were dead-on-import (missing
+    # `app.knowledge.models` module, never existed).
     # Batch D: Evidence (6)
     "ahrq_epss": {"class": AHRQEPSSAdapter, "display_name": "AHRQ ePSS", "category": "guideline", "phase": 4, "access": "open", "data_types": ["clinical_guideline"], "description": "USPSTF preventive services recommendations"},
     "trip_database": {"class": TRIPDatabaseAdapter, "display_name": "TRIP Database", "category": "evidence", "phase": 4, "access": "freemium", "data_types": ["evidence"], "description": "Clinical search engine (500K+ sources)"},
