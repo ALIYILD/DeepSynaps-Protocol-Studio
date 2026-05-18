@@ -4848,7 +4848,7 @@ class ReportGenerateOut(BaseModel):
     )
 
 
-@router.post("/{analysis_id}/report", response_model=ReportGenerateOut)
+@router.post("/{analysis_id}/experimental/report", response_model=ReportGenerateOut)
 def generate_report_endpoint(
     analysis_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
@@ -4987,7 +4987,10 @@ class ProtocolSuggestionsOut(BaseModel):
     error: Optional[str] = None
 
 
-@router.get("/{analysis_id}/protocol-suggestions", response_model=ProtocolSuggestionsOut)
+@router.get(
+    "/{analysis_id}/experimental/protocol-suggestions",
+    response_model=ProtocolSuggestionsOut,
+)
 def get_protocol_suggestions_endpoint(
     analysis_id: str,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
@@ -5245,7 +5248,7 @@ class SpectralAnalysisOut(BaseModel):
     safety_note: str
 
 
-@router.post("/{analysis_id}/spectral", response_model=SpectralAnalysisOut)
+@router.post("/{analysis_id}/experimental/spectral", response_model=SpectralAnalysisOut)
 async def spectral_analysis_endpoint(
     analysis_id: str,
     payload: SpectralAnalysisIn,
@@ -5305,7 +5308,10 @@ class ConnectivityAnalysisOut(BaseModel):
     safety_note: str
 
 
-@router.post("/{analysis_id}/connectivity", response_model=ConnectivityAnalysisOut)
+@router.post(
+    "/{analysis_id}/experimental/connectivity",
+    response_model=ConnectivityAnalysisOut,
+)
 async def connectivity_analysis_endpoint(
     analysis_id: str,
     payload: ConnectivityAnalysisIn,
@@ -5366,7 +5372,10 @@ class SourceLocalizationOut(BaseModel):
     safety_note: str
 
 
-@router.post("/{analysis_id}/source-localization", response_model=SourceLocalizationOut)
+@router.post(
+    "/{analysis_id}/experimental/source-localization",
+    response_model=SourceLocalizationOut,
+)
 async def source_localization_endpoint(
     analysis_id: str,
     payload: SourceLocalizationIn,
@@ -5421,7 +5430,7 @@ class BiomarkersOut(BaseModel):
     safety_note: str
 
 
-@router.get("/{analysis_id}/biomarkers", response_model=BiomarkersOut)
+@router.get("/{analysis_id}/experimental/biomarkers", response_model=BiomarkersOut)
 async def biomarkers_evidence_panel(
     analysis_id: str,
     age: int | None = None,

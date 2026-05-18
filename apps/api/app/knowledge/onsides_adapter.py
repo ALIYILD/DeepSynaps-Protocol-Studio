@@ -1,9 +1,10 @@
-"""Compatibility shim — re-exports ``OnSIDESAdapter`` from the
-canonical home under ``app.services.knowledge.adapters``."""
 from __future__ import annotations
 
-from app.services.knowledge.adapters.onsides_adapter import (  # noqa: F401
-    OnSIDESAdapter,
+from app.knowledge._service_adapter_shim import export_service_adapter
+
+OnSIDESAdapter = export_service_adapter(
+    "app.services.knowledge.adapters.onsides_adapter",
+    "OnSIDESAdapter",
 )
 
 __all__ = ["OnSIDESAdapter"]

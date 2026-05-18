@@ -33,6 +33,24 @@ import aiohttp
 import numpy as np
 from app.services.knowledge.base_adapter import DatabaseAdapter
 
+from .. import base_adapter as _base_adapter
+from ..base_adapter import (
+    ConfidenceTier,
+    DatabaseAdapter,
+    EvidenceLevel,
+    LicenseMetadata,
+    ProvenanceRecord,
+)
+
+# Some import paths reach this module through a legacy shim during app startup.
+# Bind the base classes from the module object as well so a partially-initialized
+# import cannot leave the class namespace without DatabaseAdapter.
+DatabaseAdapter = _base_adapter.DatabaseAdapter
+ConfidenceTier = _base_adapter.ConfidenceTier
+EvidenceLevel = _base_adapter.EvidenceLevel
+LicenseMetadata = _base_adapter.LicenseMetadata
+ProvenanceRecord = _base_adapter.ProvenanceRecord
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------

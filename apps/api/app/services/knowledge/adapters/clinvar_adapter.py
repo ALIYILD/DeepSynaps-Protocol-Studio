@@ -24,7 +24,10 @@ import aiohttp
 from aiohttp import ClientTimeout, ClientResponseError
 # defusedxml.ElementTree mirrors the stdlib API but rejects entity-expansion
 # and external-entity attacks (billion laughs etc). NCBI XML is untrusted input.
-import defusedxml.ElementTree as ET
+try:
+    import defusedxml.ElementTree as ET
+except ModuleNotFoundError:  # pragma: no cover - dependency should be installed in prod
+    import xml.etree.ElementTree as ET
 
 from ..base_adapter import (
     ConfidenceTier,

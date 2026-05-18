@@ -1,9 +1,10 @@
-"""Compatibility shim — re-exports ``SimNIBSAdapter`` from the
-canonical home under ``app.services.knowledge.adapters``."""
 from __future__ import annotations
 
-from app.services.knowledge.adapters.simnibs_adapter import (  # noqa: F401
-    SimNIBSAdapter,
+from app.knowledge._service_adapter_shim import export_service_adapter
+
+SimNIBSAdapter = export_service_adapter(
+    "app.services.knowledge.adapters.simnibs_adapter",
+    "SimNIBSAdapter",
 )
 
 __all__ = ["SimNIBSAdapter"]

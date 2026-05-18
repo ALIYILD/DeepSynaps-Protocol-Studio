@@ -1,285 +1,339 @@
-"""
-DeepSynaps Knowledge Layer — Adapter Registry v2
+"""Boot-safe compatibility facade for the legacy knowledge adapter registry."""
 
-Auto-discover and manage all external database adapters.
-66 adapters registered across 4 phases.
+from __future__ import annotations
 
-Usage:
-    from app.knowledge.adapter_registry import AdapterRegistry
-    registry = AdapterRegistry()
-    adapters = registry.list_adapters()
-    stats = registry.get_stats()
-"""
+from datetime import datetime, timezone
+from threading import Lock
+from typing import Any, Dict, List, Optional
 
-import logging
-from typing import List, Dict, Optional, Any, Type
-from datetime import datetime
+from app.services.knowledge.adapter_bootstrap import (
+    build_production_registry,
+    list_production_adapter_keys,
+)
+from app.services.knowledge.adapter_registry import AdapterRegistry as ServiceAdapterRegistry
 
-logger = logging.getLogger(__name__)
-
-# ─── PHASE 1 — P0 Adapters (9) ───
-from app.knowledge.rxnorm_adapter import RxNormAdapter
-from app.knowledge.pharmgkb_adapter import PharmGKBAdapter
-from app.knowledge.clinvar_adapter import ClinVarAdapter
-from app.knowledge.loinc_adapter import LOINCAdapter
-from app.knowledge.openfda_adapter import OpenFDAAdapter
-from app.knowledge.chbmp_adapter import CHBMPAdapter
-from app.knowledge.mni_atlas_adapter import MNIAtlasAdapter
-from app.knowledge.promis_adapter import PROMISAdapter
-from app.knowledge.simnibs_adapter import SimNIBSAdapter
-
-# ─── PHASE 2 — P1 Adapters (7) ───
-from app.knowledge.faers_adapter import FAERSAdapter
-from app.knowledge.onsides_adapter import OnSIDESAdapter
-from app.knowledge.allen_brain_adapter import AllenBrainAdapter
-from app.knowledge.schaefer_adapter import SchaeferAdapter
-from app.knowledge.neurosynth_adapter import NeurosynthAdapter
-from app.knowledge.adni_adapter import ADNIAdapter
-from app.knowledge.abide_adapter import ABIDEAdapter
-
-# ─── PHASE 3 — P0 Adapters (29) ───
-# Batch 1: Neuroimaging (5)
-from app.knowledge.neurovault_adapter import NeurovaultAdapter as NeuroVaultAdapter
-from app.knowledge.hcp_adapter import HcpAdapter as HCPAdapter
-from app.knowledge.openneuro_adapter import OpenneuroAdapter as OpenNeuroAdapter
-from app.knowledge.oasis_adapter import OasisAdapter as OASISAdapter
-from app.knowledge.hcp_aging_adapter import HcpAgingAdapter as HCPAgingAdapter
-# Batch 2: Pharma / Terminology (5)
-from app.knowledge.drugbank_adapter import DrugBankAdapter
-from app.knowledge.chembl_adapter import ChEMBLAdapter
-from app.knowledge.pubchem_adapter import PubChemAdapter
-from app.knowledge.dailymed_adapter import DailyMedAdapter
-from app.knowledge.snomedct_adapter import SNOMEDCTAdapter
-# Batch 3: Evidence / Literature (5)
-from app.knowledge.pubmed_adapter import PubMedAdapter
-from app.knowledge.cochrane_adapter import CochraneAdapter
-from app.knowledge.clinicaltrials_adapter import ClinicalTrialsAdapter
-from app.knowledge.europepmc_adapter import EuropePMCAdapter
-from app.knowledge.nice_adapter import NICEAdapter
-# Batch 4: Genetics (5)
-from app.knowledge.gwas_catalog_adapter import GwasCatalogAdapter as GWASCatalogAdapter
-from app.knowledge.dbsnp_adapter import DbsnpAdapter as DbSNPAdapter
-from app.knowledge.ensembl_adapter import EnsemblAdapter
-from app.knowledge.gnomad_adapter import GnomadAdapter as GnomADAdapter
-from app.knowledge.uniprot_adapter import UniprotAdapter as UniProtAdapter
-# Batch 5: Atlas / Analytics (5)
-from app.knowledge.string_adapter import StringAdapter as STRINGAdapter
-from app.knowledge.myvariant_adapter import MyVariantAdapter
-from app.knowledge.yeo2011_adapter import Yeo2011Adapter
-from app.knowledge.gordon2014_adapter import Gordon2014Adapter
-from app.knowledge.adhd200_adapter import Adhd200Adapter as ADHD200Adapter
-# Batch 6: Adverse Events / AI Literature (4)
-from app.knowledge.semantic_scholar_adapter import SemanticScholarAdapter
-from app.knowledge.aeolus_adapter import AEOLUSAdapter
-from app.knowledge.sider_adapter import SIDERAdapter
-from app.knowledge.offsides_twosides_adapter import OffsidesTwosidesAdapter
-
-# ─── PHASE 4 — P1 Adapters (21) ───
-# Batch A: Neuroimaging (5)
-from app.knowledge.functional_connectomes_1000_adapter import FunctionalConnectomes1000Adapter
-from app.knowledge.nitrc_adapter import NitrcAdapter as NITRCAdapter
-from app.knowledge.glasser2016_adapter import Glasser2016Adapter
-from app.knowledge.brainnetome_adapter import BrainnetomeAdapter
-from app.knowledge.ixi_adapter import IxiAdapter as IXIAdapter
-# Batch B: removed in #1033 — adapters were dead-on-import (broken
-# `from base_adapter` style + undeclared pandas dep).
-# Batch C: removed in #1030 — adapters depended on a missing
-# `app.knowledge.models` module that never existed (#1026).
-# Batch D: Evidence (6)
-from app.knowledge.ahrq_epss_adapter import AHRQEPSSAdapter
-from app.knowledge.trip_database_adapter import TRIPDatabaseAdapter
-from app.knowledge.epistemonikos_adapter import EpistemonikosAdapter
-from app.knowledge.nih_reporter_adapter import NIHRePORTERAdapter as NIHReporterAdapter
-from app.knowledge.core_adapter import COREAdapter
-from app.knowledge.biorxiv_adapter import BioRxivAdapter
-
-# ──────────────────────────────────────────────────────────────────────────────
-# REGISTRY DEFINITION — ALL 66 ADAPTERS
-# ──────────────────────────────────────────────────────────────────────────────
-
-ADAPTER_REGISTRY: Dict[str, Dict[str, Any]] = {
-    # ═══════════════════════════════════════════════════════════════════
-    # PHASE 1: P0 Adapters (9)
-    # ═══════════════════════════════════════════════════════════════════
-    "rxnorm": {"class": RxNormAdapter, "display_name": "RxNorm", "category": "pharmaceutical", "phase": 1, "access": "open", "data_types": ["medication"], "description": "Normalized drug names (NIH/NLM)"},
-    "pharmgkb": {"class": PharmGKBAdapter, "display_name": "PharmGKB", "category": "pharmacogenomics", "phase": 1, "access": "register", "data_types": ["genetic_variant", "medication"], "description": "Pharmacogenomics knowledge base (Stanford)"},
-    "clinvar": {"class": ClinVarAdapter, "display_name": "ClinVar", "category": "genetics", "phase": 1, "access": "open", "data_types": ["genetic_variant"], "description": "Genetic variant significance (NCBI)"},
-    "loinc": {"class": LOINCAdapter, "display_name": "LOINC", "category": "terminology", "phase": 1, "access": "register", "data_types": ["lab_observation"], "description": "Lab observation codes (Regenstrief)"},
-    "openfda": {"class": OpenFDAAdapter, "display_name": "openFDA", "category": "pharmaceutical", "phase": 1, "access": "open", "data_types": ["adverse_event", "medication"], "description": "FDA drug adverse events and recalls"},
-    "chbmp": {"class": CHBMPAdapter, "display_name": "CHBMP", "category": "neuroimaging", "phase": 1, "access": "academic", "data_types": ["brain_atlas"], "description": "Chinese Brain Mapping Project"},
-    "mni_atlas": {"class": MNIAtlasAdapter, "display_name": "MNI Atlas", "category": "neuroimaging", "phase": 1, "access": "open", "data_types": ["brain_atlas"], "description": "Neuroimaging atlases (McGill)"},
-    "promis": {"class": PROMISAdapter, "display_name": "PROMIS", "category": "outcomes", "phase": 1, "access": "register", "data_types": ["patient_reported_outcome"], "description": "Patient-reported outcomes (NIH)"},
-    "simnibs": {"class": SimNIBSAdapter, "display_name": "SimNIBS", "category": "simulation", "phase": 1, "access": "open", "data_types": ["simulation"], "description": "tDCS/TMS simulation (DTU)"},
-    # ═══════════════════════════════════════════════════════════════════
-    # PHASE 2: P1 Adapters (7)
-    # ═══════════════════════════════════════════════════════════════════
-    "faers": {"class": FAERSAdapter, "display_name": "FAERS", "category": "adverse_event", "phase": 2, "access": "open", "data_types": ["adverse_event"], "description": "FDA Adverse Event Reporting System"},
-    "onsides": {"class": OnSIDESAdapter, "display_name": "OnSIDES", "category": "adverse_event", "phase": 2, "access": "open", "data_types": ["adverse_event", "medication"], "description": "Drug side effect frequency (Stanford/OHSU)"},
-    "allen_brain": {"class": AllenBrainAdapter, "display_name": "Allen Brain Atlas", "category": "genetics", "phase": 2, "access": "open", "data_types": ["gene_expression"], "description": "Gene expression atlas (Allen Institute)"},
-    "schaefer": {"class": SchaeferAdapter, "display_name": "Schaefer Atlas", "category": "neuroimaging", "phase": 2, "access": "open", "data_types": ["brain_atlas"], "description": "Brain parcellation 400-1000 regions (Harvard)"},
-    "neurosynth": {"class": NeurosynthAdapter, "display_name": "Neurosynth", "category": "neuroimaging", "phase": 2, "access": "open", "data_types": ["meta_analysis"], "description": "Neuroimaging meta-analysis (Stanford)"},
-    "adni": {"class": ADNIAdapter, "display_name": "ADNI", "category": "neuroimaging", "phase": 2, "access": "restricted", "data_types": ["neuroimaging", "clinical"], "description": "Alzheimer's Disease Neuroimaging Initiative"},
-    "abide": {"class": ABIDEAdapter, "display_name": "ABIDE", "category": "neuroimaging", "phase": 2, "access": "register", "data_types": ["neuroimaging", "clinical"], "description": "Autism Brain Imaging Data Exchange"},
-    # ═══════════════════════════════════════════════════════════════════
-    # PHASE 3: Batch 1 — Neuroimaging (5)
-    # ═══════════════════════════════════════════════════════════════════
-    "neurovault": {"class": NeuroVaultAdapter, "display_name": "NeuroVault", "category": "neuroimaging", "phase": 3, "access": "open", "data_types": ["statistical_map"], "description": "200K+ statistical brain maps"},
-    "hcp": {"class": HCPAdapter, "display_name": "Human Connectome Project", "category": "neuroimaging", "phase": 3, "access": "register", "data_types": ["neuroimaging"], "description": "Gold standard connectome data (1,200+ subjects)"},
-    "openneuro": {"class": OpenNeuroAdapter, "display_name": "OpenNeuro", "category": "neuroimaging", "phase": 3, "access": "open", "data_types": ["neuroimaging"], "description": "500+ raw neuroimaging datasets (BIDS)"},
-    "oasis": {"class": OASISAdapter, "display_name": "OASIS", "category": "neuroimaging", "phase": 3, "access": "open", "data_types": ["neuroimaging", "clinical"], "description": "1,000+ aging and dementia MRI scans"},
-    "hcp_aging": {"class": HCPAgingAdapter, "display_name": "HCP Aging", "category": "neuroimaging", "phase": 3, "access": "register", "data_types": ["neuroimaging"], "description": "Lifespan connectome data (36-100+ years)"},
-    # Phase 3: Batch 2 — Pharma / Terminology (5)
-    "drugbank": {"class": DrugBankAdapter, "display_name": "DrugBank", "category": "pharmaceutical", "phase": 3, "access": "academic", "data_types": ["medication", "drug_interaction"], "description": "15K+ drugs, 280K+ interactions (Univ. Alberta)"},
-    "chembl": {"class": ChEMBLAdapter, "display_name": "ChEMBL", "category": "pharmaceutical", "phase": 3, "access": "open", "data_types": ["bioactivity", "compound"], "description": "2M+ bioactivity records (EMBL-EBI)"},
-    "pubchem": {"class": PubChemAdapter, "display_name": "PubChem", "category": "pharmaceutical", "phase": 3, "access": "open", "data_types": ["chemical_structure"], "description": "110M+ chemical structures (NCBI)"},
-    "dailymed": {"class": DailyMedAdapter, "display_name": "DailyMed", "category": "pharmaceutical", "phase": 3, "access": "open", "data_types": ["drug_label"], "description": "FDA-approved drug labels (NLM)"},
-    "snomedct": {"class": SNOMEDCTAdapter, "display_name": "SNOMED CT", "category": "terminology", "phase": 3, "access": "academic", "data_types": ["clinical_concept"], "description": "350K+ clinical concepts (IHTSDO)"},
-    # Phase 3: Batch 3 — Evidence / Literature (5)
-    "pubmed": {"class": PubMedAdapter, "display_name": "PubMed / MEDLINE", "category": "literature", "phase": 3, "access": "open", "data_types": ["literature", "citation"], "description": "35M+ biomedical citations (NLM)"},
-    "cochrane": {"class": CochraneAdapter, "display_name": "Cochrane Library", "category": "evidence", "phase": 3, "access": "open", "data_types": ["systematic_review"], "description": "Gold standard systematic reviews"},
-    "clinicaltrials": {"class": ClinicalTrialsAdapter, "display_name": "ClinicalTrials.gov", "category": "evidence", "phase": 3, "access": "open", "data_types": ["clinical_trial"], "description": "400K+ registered clinical trials (NIH)"},
-    "europepmc": {"class": EuropePMCAdapter, "display_name": "Europe PMC", "category": "literature", "phase": 3, "access": "open", "data_types": ["literature", "full_text"], "description": "40M+ biomedical articles (EMBL-EBI)"},
-    "nice": {"class": NICEAdapter, "display_name": "NICE Evidence", "category": "guideline", "phase": 3, "access": "open", "data_types": ["clinical_guideline"], "description": "UK National clinical guidelines"},
-    # Phase 3: Batch 4 — Genetics (5)
-    "gwas_catalog": {"class": GWASCatalogAdapter, "display_name": "GWAS Catalog", "category": "genetics", "phase": 3, "access": "open", "data_types": ["genetic_association"], "description": "500K+ genome-wide associations (EMBL-EBI)"},
-    "dbsnp": {"class": DbSNPAdapter, "display_name": "dbSNP", "category": "genetics", "phase": 3, "access": "open", "data_types": ["genetic_variant"], "description": "600M+ submitted SNPs (NCBI)"},
-    "ensembl": {"class": EnsemblAdapter, "display_name": "Ensembl", "category": "genetics", "phase": 3, "access": "open", "data_types": ["genome_annotation"], "description": "Genome browser for 200+ species (EMBL-EBI)"},
-    "gnomad": {"class": GnomADAdapter, "display_name": "gnomAD", "category": "genetics", "phase": 3, "access": "open", "data_types": ["population_genetics"], "description": "807K+ exomes, 76K+ genomes (Broad)"},
-    "uniprot": {"class": UniProtAdapter, "display_name": "UniProt", "category": "genetics", "phase": 3, "access": "open", "data_types": ["protein"], "description": "250M+ protein sequences"},
-    # Phase 3: Batch 5 — Atlas / Analytics (5)
-    "string": {"class": STRINGAdapter, "display_name": "STRING", "category": "genetics", "phase": 3, "access": "open", "data_types": ["protein_interaction"], "description": "67M+ protein-protein interactions"},
-    "myvariant": {"class": MyVariantAdapter, "display_name": "MyVariant.info", "category": "genetics", "phase": 3, "access": "open", "data_types": ["variant_annotation"], "description": "Variant annotation aggregator (20+ DBs)"},
-    "yeo2011": {"class": Yeo2011Adapter, "display_name": "Yeo 2011 Atlas", "category": "neuroimaging", "phase": 3, "access": "open", "data_types": ["brain_atlas"], "description": "7/17 functional brain networks (Harvard)"},
-    "gordon2014": {"class": Gordon2014Adapter, "display_name": "Gordon 2014 Atlas", "category": "neuroimaging", "phase": 3, "access": "open", "data_types": ["brain_atlas"], "description": "333 cortical areas, 13 networks (WashU)"},
-    "adhd200": {"class": ADHD200Adapter, "display_name": "ADHD-200", "category": "neuroimaging", "phase": 3, "access": "open", "data_types": ["neuroimaging", "clinical"], "description": "ADHD resting-state fMRI (973 subjects)"},
-    # Phase 3: Batch 6 — Adverse Events / AI Literature (4)
-    "semantic_scholar": {"class": SemanticScholarAdapter, "display_name": "Semantic Scholar", "category": "literature", "phase": 3, "access": "open", "data_types": ["literature"], "description": "AI-powered literature search (AI2)"},
-    "aeolus": {"class": AEOLUSAdapter, "display_name": "AEOLUS", "category": "adverse_event", "phase": 3, "access": "open", "data_types": ["adverse_event"], "description": "Standardized FAERS adverse events (NLM)"},
-    "sider": {"class": SIDERAdapter, "display_name": "SIDER", "category": "adverse_event", "phase": 3, "access": "open", "data_types": ["adverse_event", "medication"], "description": "Drug side effects (EMBL-EBI)"},
-    "offsides_twosides": {"class": OffsidesTwosidesAdapter, "display_name": "OFFSIDES / TWOSIDES", "category": "adverse_event", "phase": 3, "access": "open", "data_types": ["adverse_event", "drug_interaction"], "description": "Drug side effects & interactions (Columbia)"},
-    # ═══════════════════════════════════════════════════════════════════
-    # PHASE 4: P1 Adapters (21)
-    # ═══════════════════════════════════════════════════════════════════
-    # Batch A: Neuroimaging (5)
-    "functional_connectomes_1000": {"class": FunctionalConnectomes1000Adapter, "display_name": "1000 Functional Connectomes", "category": "neuroimaging", "phase": 4, "access": "open", "data_types": ["neuroimaging"], "description": "35 sites, resting-state fMRI"},
-    "nitrc": {"class": NITRCAdapter, "display_name": "NITRC", "category": "neuroimaging", "phase": 4, "access": "open", "data_types": ["neuroimaging", "tools"], "description": "Neuroimaging tools & resources registry"},
-    "glasser2016": {"class": Glasser2016Adapter, "display_name": "Glasser 2016 Atlas", "category": "neuroimaging", "phase": 4, "access": "open", "data_types": ["brain_atlas"], "description": "360 cortical areas, HCP multi-modal"},
-    "brainnetome": {"class": BrainnetomeAdapter, "display_name": "Brainnetome Atlas", "category": "neuroimaging", "phase": 4, "access": "open", "data_types": ["brain_atlas"], "description": "246 regions, connectivity-based"},
-    "ixi": {"class": IXIAdapter, "display_name": "IXI Dataset", "category": "neuroimaging", "phase": 4, "access": "open", "data_types": ["neuroimaging"], "description": "600 healthy subjects, T1/T2/MRA (KCL)"},
-    # Batch B: removed in #1033 — adapters were dead-on-import (broken
-    # `from base_adapter` style + undeclared pandas dep).
-    # Batch C: removed in #1030 — adapters depended on a missing
-    # `app.knowledge.models` module that never existed (#1026).
-    # Batch D: Evidence (6)
-    "ahrq_epss": {"class": AHRQEPSSAdapter, "display_name": "AHRQ ePSS", "category": "guideline", "phase": 4, "access": "open", "data_types": ["clinical_guideline"], "description": "USPSTF preventive services recommendations"},
-    "trip_database": {"class": TRIPDatabaseAdapter, "display_name": "TRIP Database", "category": "evidence", "phase": 4, "access": "freemium", "data_types": ["evidence"], "description": "Clinical search engine (500K+ sources)"},
-    "epistemonikos": {"class": EpistemonikosAdapter, "display_name": "Epistemonikos", "category": "evidence", "phase": 4, "access": "open", "data_types": ["systematic_review"], "description": "100K+ systematic reviews + evidence"},
-    "nih_reporter": {"class": NIHReporterAdapter, "display_name": "NIH RePORTER", "category": "research", "phase": 4, "access": "open", "data_types": ["funding"], "description": "3M+ funded research projects (NIH)"},
-    "core": {"class": COREAdapter, "display_name": "CORE", "category": "literature", "phase": 4, "access": "open", "data_types": ["literature"], "description": "200M+ open access research articles"},
-    "biorxiv": {"class": BioRxivAdapter, "display_name": "bioRxiv / medRxiv", "category": "literature", "phase": 4, "access": "open", "data_types": ["preprint"], "description": "300K+ biology and medicine preprints"},
+_LEGACY_METADATA: Dict[str, Dict[str, Any]] = {
+    "rxnorm": {
+        "display_name": "RxNorm",
+        "category": "pharmaceutical",
+        "phase": 1,
+        "access": "open",
+        "data_types": ["medication", "terminology"],
+        "description": "Normalized drug concepts and identifiers from the U.S. National Library of Medicine.",
+    },
+    "pharmgkb": {
+        "display_name": "PharmGKB",
+        "category": "pharmacogenomics",
+        "phase": 1,
+        "access": "api_key",
+        "data_types": ["drug_gene", "variant_annotation"],
+        "description": "Pharmacogenomic clinical annotations, haplotypes, and dosing guidance.",
+    },
+    "clinvar": {
+        "display_name": "ClinVar",
+        "category": "genetics",
+        "phase": 1,
+        "access": "open",
+        "data_types": ["genetic_variant", "clinical_significance"],
+        "description": "Clinical significance assertions for human genetic variants.",
+    },
+    "loinc": {
+        "display_name": "LOINC",
+        "category": "terminology",
+        "phase": 1,
+        "access": "open",
+        "data_types": ["laboratory", "observation"],
+        "description": "Standardized laboratory and clinical observation codes.",
+    },
+    "openfda": {
+        "display_name": "openFDA",
+        "category": "regulatory",
+        "phase": 1,
+        "access": "open",
+        "data_types": ["drug_label", "adverse_event", "recall"],
+        "description": "FDA drug labels, adverse event signals, and recall data.",
+    },
+    "chbmp": {
+        "display_name": "CHBMP",
+        "category": "qeeg",
+        "phase": 1,
+        "access": "open",
+        "data_types": ["normative_eeg"],
+        "description": "Normative EEG cohorts from the Cuban Human Brain Mapping Project.",
+    },
+    "mni_atlas": {
+        "display_name": "MNI / AAL Atlas",
+        "category": "neuroimaging",
+        "phase": 1,
+        "access": "open",
+        "data_types": ["atlas", "coordinate_transform"],
+        "description": "MNI152 coordinate transforms and atlas region mapping.",
+    },
+    "promis": {
+        "display_name": "PROMIS",
+        "category": "outcomes",
+        "phase": 1,
+        "access": "license",
+        "data_types": ["patient_reported_outcome"],
+        "description": "PROMIS instruments, scoring metadata, and outcome norms.",
+    },
+    "simnibs": {
+        "display_name": "SimNIBS",
+        "category": "neuromodulation",
+        "phase": 1,
+        "access": "local_compute",
+        "data_types": ["simulation", "electric_field"],
+        "description": "tDCS/TMS electric-field simulation and montage analysis.",
+    },
+    "faers": {
+        "display_name": "FAERS",
+        "category": "safety",
+        "phase": 2,
+        "access": "open",
+        "data_types": ["adverse_event"],
+        "description": "FDA Adverse Event Reporting System signal analysis.",
+    },
+    "onsides": {
+        "display_name": "OnSIDES",
+        "category": "safety",
+        "phase": 2,
+        "access": "open",
+        "data_types": ["adverse_event"],
+        "description": "Post-market adverse event associations mined from observational data.",
+    },
+    "allen_brain": {
+        "display_name": "Allen Brain Atlas",
+        "category": "neuroimaging",
+        "phase": 2,
+        "access": "open",
+        "data_types": ["brain_expression", "atlas"],
+        "description": "Brain atlas and gene-expression resources from the Allen Institute.",
+    },
+    "schaefer": {
+        "display_name": "Schaefer Atlas",
+        "category": "neuroimaging",
+        "phase": 2,
+        "access": "open",
+        "data_types": ["atlas", "parcellation"],
+        "description": "Functional brain parcellations at multiple spatial granularities.",
+    },
+    "neurosynth": {
+        "display_name": "Neurosynth",
+        "category": "literature",
+        "phase": 2,
+        "access": "open",
+        "data_types": ["meta_analysis", "activation_map"],
+        "description": "Meta-analytic neuroimaging evidence and reverse-inference maps.",
+    },
+    "adni": {
+        "display_name": "ADNI",
+        "category": "neuroimaging",
+        "phase": 2,
+        "access": "register",
+        "data_types": ["neuroimaging", "clinical"],
+        "description": "Alzheimer's Disease Neuroimaging Initiative dataset adapter.",
+    },
+    "abide": {
+        "display_name": "ABIDE",
+        "category": "neuroimaging",
+        "phase": 2,
+        "access": "open",
+        "data_types": ["neuroimaging", "clinical"],
+        "description": "Autism Brain Imaging Data Exchange dataset adapter.",
+    },
+    "pubmed": {
+        "display_name": "PubMed",
+        "category": "literature",
+        "phase": 3,
+        "access": "open",
+        "data_types": ["literature"],
+        "description": "Biomedical literature search via NCBI PubMed / MEDLINE.",
+    },
+    "ctgov": {
+        "display_name": "ClinicalTrials.gov",
+        "category": "evidence",
+        "phase": 3,
+        "access": "open",
+        "data_types": ["clinical_trial"],
+        "description": "Clinical trial registry search and study metadata.",
+    },
+    "cochrane": {
+        "display_name": "Cochrane Library",
+        "category": "evidence",
+        "phase": 3,
+        "access": "subscription",
+        "data_types": ["systematic_review"],
+        "description": "Systematic reviews and evidence syntheses.",
+    },
+    "europepmc": {
+        "display_name": "Europe PMC",
+        "category": "literature",
+        "phase": 3,
+        "access": "open",
+        "data_types": ["literature", "preprint"],
+        "description": "Biomedical literature and preprint search via Europe PMC.",
+    },
+    "gnomad": {
+        "display_name": "gnomAD",
+        "category": "genetics",
+        "phase": 3,
+        "access": "open",
+        "data_types": ["genetic_variant"],
+        "description": "Population genetic variant frequency reference.",
+    },
 }
 
+_LEGACY_KEY_ALIASES: Dict[str, str] = {
+    "clinicaltrials": "ctgov",
+    "clinicaltrials.gov": "ctgov",
+    "clinical_trials": "ctgov",
+}
 
-# ──────────────────────────────────────────────────────────────────────────────
-# REGISTRY CLASS
-# ──────────────────────────────────────────────────────────────────────────────
+_registry_lock = Lock()
+_registry_instance: Optional[ServiceAdapterRegistry] = None
+_facade_instance: Optional["AdapterRegistry"] = None
+
+
+def _canonical_key(key: str) -> str:
+    return _LEGACY_KEY_ALIASES.get(key, key)
+
+
+def _get_service_registry() -> ServiceAdapterRegistry:
+    global _registry_instance
+    if _registry_instance is not None:
+        return _registry_instance
+
+    with _registry_lock:
+        if _registry_instance is None:
+            _registry_instance = build_production_registry()
+    return _registry_instance
+
+
+def _metadata_for(key: str, registry: ServiceAdapterRegistry) -> Dict[str, Any]:
+    canonical_key = _canonical_key(key)
+    metadata = dict(_LEGACY_METADATA.get(canonical_key, {}))
+    adapter = registry.get(canonical_key)
+
+    if adapter is not None:
+        metadata.setdefault("display_name", adapter.source_name)
+    metadata.setdefault("display_name", canonical_key)
+    metadata.setdefault("category", "unknown")
+    metadata.setdefault("phase", None)
+    metadata.setdefault("access", "unknown")
+    metadata.setdefault("data_types", [])
+    metadata.setdefault("description", "")
+
+    return {
+        "key": key,
+        "display_name": metadata["display_name"],
+        "category": metadata["category"],
+        "phase": metadata["phase"],
+        "access": metadata["access"],
+        "data_types": list(metadata["data_types"]),
+        "description": metadata["description"],
+    }
+
+
+def _iter_legacy_keys(registry: ServiceAdapterRegistry) -> List[str]:
+    keys = list(list_production_adapter_keys())
+    return [key for key in keys if registry.get(key) is not None]
+
 
 class AdapterRegistry:
-    """Central registry for managing all 66 knowledge layer adapters."""
+    """Legacy sync facade over the service-layer production adapter registry."""
 
-    def __init__(self):
-        self._instances: Dict[str, Any] = {}
-        self._registry = ADAPTER_REGISTRY
+    def __init__(self) -> None:
+        self._service_registry: Optional[ServiceAdapterRegistry] = None
 
-    def list_adapters(self, category: Optional[str] = None,
-                      phase: Optional[int] = None,
-                      access: Optional[str] = None) -> List[Dict[str, Any]]:
-        """List registered adapters with optional filtering."""
-        results = []
-        for key, meta in self._registry.items():
+    def _registry(self) -> ServiceAdapterRegistry:
+        if self._service_registry is None:
+            self._service_registry = _get_service_registry()
+        return self._service_registry
+
+    def list_adapters(
+        self,
+        category: Optional[str] = None,
+        phase: Optional[int] = None,
+        access: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        registry = self._registry()
+        results: List[Dict[str, Any]] = []
+        for key in _iter_legacy_keys(registry):
+            meta = _metadata_for(key, registry)
             if category and meta["category"] != category:
                 continue
-            if phase and meta["phase"] != phase:
+            if phase is not None and meta["phase"] != phase:
                 continue
             if access and meta["access"] != access:
                 continue
-            results.append({
-                "key": key,
-                "display_name": meta["display_name"],
-                "category": meta["category"],
-                "phase": meta["phase"],
-                "access": meta["access"],
-                "data_types": meta["data_types"],
-                "description": meta["description"],
-            })
+            results.append(meta)
         return results
 
-    def get_adapter(self, key: str) -> Any:
-        """Get or create an adapter instance by key."""
-        if key not in self._registry:
-            raise KeyError(f"Unknown adapter: {key}. Registered: {list(self._registry.keys())}")
-        if key not in self._instances:
-            adapter_class = self._registry[key]["class"]
-            self._instances[key] = adapter_class()
-        return self._instances[key]
+    def list_categories(self) -> List[str]:
+        return sorted({meta["category"] for meta in self.list_adapters()})
 
     def get_categories(self) -> List[str]:
-        """Return all unique adapter categories."""
-        return sorted(set(m["category"] for m in self._registry.values()))
+        return self.list_categories()
 
     def get_stats(self) -> Dict[str, Any]:
-        """Return registry statistics."""
-        total = len(self._registry)
-        by_phase = {}
-        by_access = {}
-        by_category = {}
-        for meta in self._registry.values():
+        adapters = self.list_adapters()
+        by_phase: Dict[Any, int] = {}
+        by_access: Dict[str, int] = {}
+        by_category: Dict[str, int] = {}
+
+        for meta in adapters:
             by_phase[meta["phase"]] = by_phase.get(meta["phase"], 0) + 1
             by_access[meta["access"]] = by_access.get(meta["access"], 0) + 1
             by_category[meta["category"]] = by_category.get(meta["category"], 0) + 1
+
         return {
-            "total_adapters": total,
+            "total_adapters": len(adapters),
             "by_phase": by_phase,
             "by_access": by_access,
             "by_category": by_category,
             "categories": sorted(by_category.keys()),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
-    async def search(self, query: str, databases: Optional[List[str]] = None,
-                     filters: Optional[Dict] = None) -> List[Dict]:
-        """Search across multiple adapters simultaneously."""
-        targets = databases or list(self._registry.keys())
-        results = []
-        for key in targets:
-            try:
-                adapter = self.get_adapter(key)
-                if await adapter.validate_connection():
-                    search_results = await adapter.search(query, filters)
-                    for r in search_results:
-                        r["_adapter"] = key
-                        r["_provenance"] = adapter.get_provenance(r)
-                    results.extend(search_results)
-            except Exception as e:
-                logger.warning(f"Adapter {key} search failed: {e}")
-        return results
+    def get(self, key: str) -> Any:
+        canonical_key = _canonical_key(key)
+        return self._registry().get(canonical_key)
 
-    async def close_all(self):
-        """Close all adapter connections."""
-        for key, instance in self._instances.items():
-            try:
-                await instance.close()
-            except Exception as e:
-                logger.warning(f"Error closing adapter {key}: {e}")
-        self._instances.clear()
+    def get_adapter(self, key: str) -> Any:
+        adapter = self.get(key)
+        if adapter is None:
+            registry = self._registry()
+            registered = sorted(_iter_legacy_keys(registry) + list(_LEGACY_KEY_ALIASES.keys()))
+            raise KeyError(f"Unknown adapter: {key}. Registered: {registered}")
+        return adapter
 
-
-# Singleton instance
-_registry_instance: Optional[AdapterRegistry] = None
 
 def get_registry() -> AdapterRegistry:
-    """Get the singleton AdapterRegistry instance."""
-    global _registry_instance
-    if _registry_instance is None:
-        _registry_instance = AdapterRegistry()
-    return _registry_instance
+    global _facade_instance
+    if _facade_instance is not None:
+        return _facade_instance
+
+    with _registry_lock:
+        if _facade_instance is None:
+            _facade_instance = AdapterRegistry()
+    return _facade_instance
+
+
+def list_adapters(
+    category: Optional[str] = None,
+    phase: Optional[int] = None,
+    access: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    return get_registry().list_adapters(category=category, phase=phase, access=access)
+
+
+def list_categories() -> List[str]:
+    return get_registry().list_categories()
+
+
+def get_stats() -> Dict[str, Any]:
+    return get_registry().get_stats()
+
+
+def get(key: str) -> Any:
+    return get_registry().get(key)

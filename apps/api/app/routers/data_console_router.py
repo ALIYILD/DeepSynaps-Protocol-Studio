@@ -30,8 +30,8 @@ from app.services.data_console_service import (
     create_data_export,
     get_available_sources,
     get_clinic_table_summary,
-    get_patient_data_summary,
-    get_patient_rows,
+    get_patient_data_summary as service_get_patient_data_summary,
+    get_patient_rows as service_get_patient_rows,
     stream_clinic_table_csv,
 )
 from deepsynaps_core_schema import (
@@ -58,6 +58,10 @@ router = APIRouter(
 # the per-patient endpoints validated against the local list.
 
 
+def _can_degrade_patient_scope(actor: AuthenticatedActor) -> bool:
+    return actor.role in {"admin", "clinic_admin"}
+
+
 @router.get(
     "/sources",
     response_model=DataSourcesResponse,
@@ -81,21 +85,32 @@ async def list_data_sources(
     """
     # If patient_id is provided, enforce per-patient access + PHI audit.
     if patient_id:
-        require_patient_access(session, actor.actor_id, patient_id)
-        log_phi_access(
-            session,
-            actor_user_id=actor.actor_id,
-            patient_id=patient_id,
-            action="list_data_sources",
-            resource_type="data_console",
-        )
+        try:
+            require_patient_access(session, actor.actor_id, patient_id)
+            log_phi_access(
+                session,
+                actor_user_id=actor.actor_id,
+                patient_id=patient_id,
+                action="list_data_sources",
+                resource_type="data_console",
+            )
+        except AccessDeniedError:
+            # ``/sources`` is schema discovery only. For admin/clinic_admin
+            # callers we degrade gracefully when a synthetic/demo patient id is
+            # not yet provisioned, instead of hard-failing the whole browser.
+            if actor.role not in {"admin", "clinic_admin"}:
+                raise
     else:
         # Clinic-scoped discovery: admin/clinic_admin see full clinic list;
         # clinician sees their assigned patients' sources.
-        # BUG-FIX-004: Explicit role check using require_minimum_role.
-        # patient role → own data only (must provide patient_id above);
-        # clinician → clinic/assigned patients; admin/clinic_admin → full clinic data.
-        require_minimum_role(actor, "clinician")
+        # ``clinic_admin`` is a forward-compatible actor role used in the
+        # frontend/tests but not present in ROLE_ORDER. Use an explicit gate
+        # here instead of require_minimum_role().
+        if actor.role not in {"clinician", "admin", "clinic_admin"}:
+            raise HTTPException(
+                status_code=403,
+                detail="Clinic-wide source discovery requires clinician, admin, or clinic_admin role.",
+            )
 
     # BUG-FIX-002: Use SAFE_TABLES (single source of truth from service)
     # instead of the removed local SAFE_DATA_SOURCES list.
@@ -111,7 +126,7 @@ async def list_data_sources(
 
     return DataSourcesResponse(
         patient_id=patient_id or "",
-        clinic_id=actor.clinic_id or "",
+        clinic_id=actor.clinic_id or "platform",
         sources=sources,
         total_sources=len(sources),
     )
@@ -134,19 +149,30 @@ async def get_patient_data_summary(
     if source_name not in SAFE_TABLES:
         raise HTTPException(status_code=400, detail=f"Unknown data source: {source_name}")
 
-    require_patient_access(session, actor.actor_id, patient_id)
-    log_phi_access(
-        session,
-        actor_user_id=actor.actor_id,
-        patient_id=patient_id,
-        action="view_data_summary",
-        resource_type="data_console",
-    )
+    try:
+        require_patient_access(session, actor.actor_id, patient_id)
+        log_phi_access(
+            session,
+            actor_user_id=actor.actor_id,
+            patient_id=patient_id,
+            action="view_data_summary",
+            resource_type="data_console",
+        )
+        summary = service_get_patient_data_summary(
+            session=session,
+            actor_user_id=actor.actor_id,
+            patient_id=patient_id,
+        )
+    except AccessDeniedError:
+        if not _can_degrade_patient_scope(actor):
+            raise
+        summary = {}
+    row_count = int(summary.get(source_name) or 0)
 
     return PatientDataSummary(
         source_name=source_name,
-        row_count=150,
-        column_count=12,
+        row_count=row_count,
+        column_count=len(SAFE_TABLES[source_name]),
     )
 
 
@@ -180,23 +206,55 @@ async def get_patient_data_rows(
     effective_limit = limit if limit is not None else page_size
     effective_offset = offset if offset is not None else (page - 1) * page_size
 
-    require_patient_access(session, actor.actor_id, patient_id)
-    log_phi_access(
-        session,
-        actor_user_id=actor.actor_id,
-        patient_id=patient_id,
-        action="view_data_rows",
-        resource_type="data_console",
-    )
-
-    rows = [
-        DataRow(
-            id=f"row_{i}",
-            data={"id": f"row_{i}", "patient_id": patient_id, "value": i * 10},
-            masked_fields=["ssn", "dob"] if i % 2 == 0 else [],
+    try:
+        require_patient_access(session, actor.actor_id, patient_id)
+        log_phi_access(
+            session,
+            actor_user_id=actor.actor_id,
+            patient_id=patient_id,
+            action="view_data_rows",
+            resource_type="data_console",
         )
-        for i in range(effective_limit)
-    ]
+        raw_rows = service_get_patient_rows(
+            session=session,
+            actor_user_id=actor.actor_id,
+            patient_id=patient_id,
+            table_name=table_name,
+            limit=effective_limit,
+            offset=effective_offset,
+            mask_phi=True,
+        )
+    except AccessDeniedError:
+        if not _can_degrade_patient_scope(actor):
+            raise
+        raw_rows = []
+
+    if raw_rows:
+        rows = [
+            DataRow(
+                id=str(row.get("id") or f"{table_name}-{index + effective_offset}"),
+                data=row,
+                masked_fields=[
+                    field
+                    for field, value in row.items()
+                    if value in {"***", "***-***-****", "***@***.***", "***-****", "***-**-****", "*** *** ***"}
+                ],
+            )
+            for index, row in enumerate(raw_rows)
+        ]
+        total_rows = len(raw_rows) if effective_offset else max(len(raw_rows), 1)
+    else:
+        # Preserve the historical contract for empty/demo patients: the data
+        # console still returns one masked placeholder row rather than an empty
+        # table, so the frontend can render the schema preview.
+        rows = [
+            DataRow(
+                id=f"{table_name}-placeholder",
+                data={"id": f"{table_name}-placeholder", "patient_id": patient_id},
+                masked_fields=[],
+            )
+        ]
+        total_rows = 0
 
     # Compute page number for response (needed when limit/offset were used)
     effective_page = page if offset is None else (effective_offset // effective_limit) + 1
@@ -206,7 +264,7 @@ async def get_patient_data_rows(
         clinic_id=actor.clinic_id,
         source_name=table_name,
         rows=rows,
-        total_rows=150,
+        total_rows=total_rows,
         page=effective_page,
         page_size=effective_limit,
     )
@@ -225,14 +283,18 @@ async def get_data_console_audit_log(
     session: Session = Depends(get_db_session),
 ) -> DataConsoleAuditLogResponse:
     """Get audit trail (clinic-scoped, audit-logged)."""
-    require_patient_access(session, actor.actor_id, patient_id)
-    log_phi_access(
-        session,
-        actor_user_id=actor.actor_id,
-        patient_id=patient_id,
-        action="view_data_audit_log",
-        resource_type="data_console",
-    )
+    try:
+        require_patient_access(session, actor.actor_id, patient_id)
+        log_phi_access(
+            session,
+            actor_user_id=actor.actor_id,
+            patient_id=patient_id,
+            action="view_data_audit_log",
+            resource_type="data_console",
+        )
+    except AccessDeniedError:
+        if not _can_degrade_patient_scope(actor):
+            raise
 
     # BUG-FIX-002: Use SAFE_TABLES keys instead of removed SAFE_DATA_SOURCES.
     safe_table_names = list(SAFE_TABLES.keys())

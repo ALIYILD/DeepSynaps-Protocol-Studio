@@ -1,9 +1,10 @@
-"""Compatibility shim — re-exports ``PharmGKBAdapter`` from the
-canonical home under ``app.services.knowledge.adapters``."""
 from __future__ import annotations
 
-from app.services.knowledge.adapters.pharmgkb_adapter import (  # noqa: F401
-    PharmGKBAdapter,
+from app.knowledge._service_adapter_shim import export_service_adapter
+
+PharmGKBAdapter = export_service_adapter(
+    "app.services.knowledge.adapters.pharmgkb_adapter",
+    "PharmGKBAdapter",
 )
 
 __all__ = ["PharmGKBAdapter"]

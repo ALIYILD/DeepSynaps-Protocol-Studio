@@ -1,9 +1,10 @@
-"""Compatibility shim — re-exports ``LOINCAdapter`` from the
-canonical home under ``app.services.knowledge.adapters``."""
 from __future__ import annotations
 
-from app.services.knowledge.adapters.loinc_adapter import (  # noqa: F401
-    LOINCAdapter,
+from app.knowledge._service_adapter_shim import export_service_adapter
+
+LOINCAdapter = export_service_adapter(
+    "app.services.knowledge.adapters.loinc_adapter",
+    "LOINCAdapter",
 )
 
 __all__ = ["LOINCAdapter"]

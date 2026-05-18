@@ -47,58 +47,75 @@ from app.persistence.models import (
 # ── Fixtures ────────────────────────────────────────────────────────────────
 
 
-@pytest.fixture
-def demo_patient_with_consent() -> Patient:
-    """Seed the Patient row that ``actor-patient-demo`` resolves to via email."""
+def _ensure_demo_patient(
+    *,
+    withdrawn: bool = False,
+) -> Patient:
+    """Return the canonical demo patient row in the requested consent state.
+
+    This suite shares the demo email with other patient-facing tests. Reusing
+    the existing row by email avoids UNIQUE(email) collisions when the full
+    suite runs in one database.
+    """
     db = SessionLocal()
     try:
-        patient = Patient(
-            id="patient-adherence-demo",
-            clinician_id="actor-clinician-demo",
-            first_name="Jane",
-            last_name="Patient",
-            email="patient@deepsynaps.com",
-            consent_signed=True,
-            status="active",
-            notes=None,
-        )
-        db.add(patient)
+        patient = db.query(Patient).filter_by(email="patient@deepsynaps.com").first()
+        if patient is None:
+            patient = Patient(
+                id=(
+                    "patient-adherence-withdrawn"
+                    if withdrawn
+                    else "patient-adherence-demo"
+                ),
+                clinician_id="actor-clinician-demo",
+                first_name="Withdrawn" if withdrawn else "Jane",
+                last_name="Patient",
+                email="patient@deepsynaps.com",
+                consent_signed=True,
+                status="active",
+                notes=None,
+            )
+            db.add(patient)
+            db.flush()
+        else:
+            patient.clinician_id = "actor-clinician-demo"
+            patient.first_name = "Withdrawn" if withdrawn else "Jane"
+            patient.last_name = "Patient"
+            patient.consent_signed = True
+            patient.status = "active"
+            patient.notes = None
+
+        db.query(PatientAdherenceEvent).filter_by(patient_id=patient.id).delete()
+        db.query(AdverseEvent).filter_by(patient_id=patient.id).delete()
+        db.query(ConsentRecord).filter_by(patient_id=patient.id).delete()
+
+        if withdrawn:
+            db.add(
+                ConsentRecord(
+                    patient_id=patient.id,
+                    clinician_id="actor-clinician-demo",
+                    consent_type="participation",
+                    status="withdrawn",
+                )
+            )
+
         db.commit()
         db.refresh(patient)
         return patient
     finally:
         db.close()
+
+
+@pytest.fixture
+def demo_patient_with_consent() -> Patient:
+    """Seed the Patient row that ``actor-patient-demo`` resolves to via email."""
+    return _ensure_demo_patient(withdrawn=False)
 
 
 @pytest.fixture
 def demo_patient_consent_withdrawn() -> Patient:
     """Patient who signed and later withdrew consent."""
-    db = SessionLocal()
-    try:
-        patient = Patient(
-            id="patient-adherence-withdrawn",
-            clinician_id="actor-clinician-demo",
-            first_name="Withdrawn",
-            last_name="Patient",
-            email="patient@deepsynaps.com",
-            consent_signed=True,
-            status="active",
-            notes=None,
-        )
-        db.add(patient)
-        db.add(
-            ConsentRecord(
-                patient_id=patient.id,
-                clinician_id="actor-clinician-demo",
-                consent_type="participation",
-                status="withdrawn",
-            )
-        )
-        db.commit()
-        db.refresh(patient)
-        return patient
-    finally:
-        db.close()
+    return _ensure_demo_patient(withdrawn=True)
 
 
 @pytest.fixture

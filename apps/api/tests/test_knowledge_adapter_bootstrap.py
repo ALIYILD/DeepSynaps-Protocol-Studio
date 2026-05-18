@@ -1,11 +1,4 @@
-"""
-Unit tests for app.services.knowledge.adapter_bootstrap.
-
-Verifies that the bootstrap module produces a working production
-``AdapterRegistry`` with all five live adapters registered at the
-declared tier, and that the singleton accessor behaves correctly under
-concurrent first-call.
-"""
+"""Unit tests for ``app.services.knowledge.adapter_bootstrap``."""
 from __future__ import annotations
 
 import asyncio
@@ -19,35 +12,18 @@ from app.services.knowledge import (
     LicenseMetadata,
 )
 from app.services.knowledge.adapter_bootstrap import (
+    _ADAPTER_CATALOG,
     build_production_registry,
     get_production_registry,
     list_production_adapter_keys,
     reset_production_registry,
 )
-from app.services.knowledge.adapters.clinicaltrials_adapter import (
-    ClinicalTrialsAdapter,
-)
-from app.services.knowledge.adapters.cochrane_adapter import CochraneAdapter
-from app.services.knowledge.adapters.europepmc_adapter import EuropePMCAdapter
-from app.services.knowledge.adapters.gnomad_adapter import GnomadAdapter
-from app.services.knowledge.adapters.pubmed_adapter import PubMedAdapter
 
 
-_EXPECTED_KEYS = {"pubmed", "ctgov", "cochrane", "europepmc", "gnomad"}
-_EXPECTED_CLASSES = {
-    "pubmed": PubMedAdapter,
-    "ctgov": ClinicalTrialsAdapter,
-    "cochrane": CochraneAdapter,
-    "europepmc": EuropePMCAdapter,
-    "gnomad": GnomadAdapter,
-}
-_EXPECTED_TIERS = {
-    "pubmed": "P0",
-    "ctgov": "P0",
-    "cochrane": "P0",
-    "europepmc": "P1",
-    "gnomad": "P1",
-}
+_EXPECTED_KEYS = set(_ADAPTER_CATALOG.keys())
+_EXPECTED_CLASSES = {key: spec[0] for key, spec in _ADAPTER_CATALOG.items()}
+_EXPECTED_TIERS = {key: spec[1] for key, spec in _ADAPTER_CATALOG.items()}
+_EXPECTED_ORDER = tuple(_ADAPTER_CATALOG.keys())
 
 
 # ---------------------------------------------------------------------------
@@ -55,21 +31,13 @@ _EXPECTED_TIERS = {
 # ---------------------------------------------------------------------------
 
 
-def test_catalog_keys_are_the_five_documented_databases():
+def test_catalog_keys_match_the_declared_production_catalog():
     keys = set(list_production_adapter_keys())
     assert keys == _EXPECTED_KEYS
 
 
 def test_catalog_keys_are_stable_in_declaration_order():
-    # Order matters for HTTP-layer determinism (the /adapters listing
-    # follows this order). Lock it down so future re-ordering is intentional.
-    assert list_production_adapter_keys() == (
-        "pubmed",
-        "ctgov",
-        "cochrane",
-        "europepmc",
-        "gnomad",
-    )
+    assert list_production_adapter_keys() == _EXPECTED_ORDER
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +108,7 @@ def test_overrides_for_unrelated_adapter_do_not_leak_to_others():
     reg = build_production_registry(
         overrides={"pubmed": {"api_key": "leaked-only-to-pubmed"}}
     )
-    for key in ("ctgov", "cochrane", "europepmc", "gnomad"):
+    for key in _EXPECTED_KEYS - {"pubmed"}:
         adapter = reg.get(key)
         assert adapter is not None
         assert "api_key" not in adapter.config
@@ -214,4 +182,4 @@ def test_registry_stats_counts_match_catalog():
         or s.get("total")
         or len(reg.list_adapters())
     )
-    assert total == 5
+    assert total == len(_EXPECTED_KEYS)

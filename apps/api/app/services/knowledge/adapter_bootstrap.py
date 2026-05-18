@@ -34,13 +34,29 @@ import logging
 from typing import Any, Dict, Optional, Tuple, Type
 
 from app.services.knowledge.adapter_registry import AdapterRegistry
+from app.services.knowledge.adapters.abide_adapter import ABIDEAdapter
+from app.services.knowledge.adapters.adni_adapter import ADNIAdapter
+from app.services.knowledge.adapters.allen_brain_adapter import AllenBrainAdapter
+from app.services.knowledge.adapters.chbmp_adapter import CHBMPAdapter
 from app.services.knowledge.adapters.clinicaltrials_adapter import (
     ClinicalTrialsAdapter,
 )
+from app.services.knowledge.adapters.clinvar_adapter import ClinVarAdapter
 from app.services.knowledge.adapters.cochrane_adapter import CochraneAdapter
 from app.services.knowledge.adapters.europepmc_adapter import EuropePMCAdapter
+from app.services.knowledge.adapters.faers_adapter import FAERSAdapter
 from app.services.knowledge.adapters.gnomad_adapter import GnomadAdapter
+from app.services.knowledge.adapters.loinc_adapter import LOINCAdapter
+from app.services.knowledge.adapters.mni_atlas_adapter import MNIAtlasAdapter
+from app.services.knowledge.adapters.neurosynth_adapter import NeurosynthAdapter
+from app.services.knowledge.adapters.onsides_adapter import OnSIDESAdapter
+from app.services.knowledge.adapters.openfda_adapter import OpenFDAAdapter
+from app.services.knowledge.adapters.pharmgkb_adapter import PharmGKBAdapter
+from app.services.knowledge.adapters.promis_adapter import PROMISAdapter
 from app.services.knowledge.adapters.pubmed_adapter import PubMedAdapter
+from app.services.knowledge.adapters.rxnorm_adapter import RxNormAdapter
+from app.services.knowledge.adapters.schaefer_adapter import SchaeferAdapter
+from app.services.knowledge.adapters.simnibs_adapter import SimNIBSAdapter
 from app.services.knowledge.base_adapter import DatabaseAdapter
 
 logger = logging.getLogger(__name__)
@@ -49,11 +65,27 @@ logger = logging.getLogger(__name__)
 # Declarative catalog. Each entry: registry-key → (class, tier, config).
 # Keep keys URL-safe and stable; clients depend on them.
 _ADAPTER_CATALOG: Dict[str, Tuple[Type[DatabaseAdapter], str, Dict[str, Any]]] = {
-    "pubmed":    (PubMedAdapter,         "P0", {}),
-    "ctgov":     (ClinicalTrialsAdapter, "P0", {}),
-    "cochrane":  (CochraneAdapter,       "P0", {}),
-    "europepmc": (EuropePMCAdapter,      "P1", {}),
-    "gnomad":    (GnomadAdapter,         "P1", {}),
+    "rxnorm":       (RxNormAdapter,         "P0", {}),
+    "pharmgkb":     (PharmGKBAdapter,       "P0", {}),
+    "clinvar":      (ClinVarAdapter,        "P0", {}),
+    "loinc":        (LOINCAdapter,          "P0", {}),
+    "openfda":      (OpenFDAAdapter,        "P0", {}),
+    "chbmp":        (CHBMPAdapter,          "P0", {}),
+    "mni_atlas":    (MNIAtlasAdapter,       "P0", {}),
+    "promis":       (PROMISAdapter,         "P0", {}),
+    "simnibs":      (SimNIBSAdapter,        "P0", {}),
+    "faers":        (FAERSAdapter,          "P1", {}),
+    "onsides":      (OnSIDESAdapter,        "P1", {}),
+    "allen_brain":  (AllenBrainAdapter,     "P1", {}),
+    "schaefer":     (SchaeferAdapter,       "P1", {}),
+    "neurosynth":   (NeurosynthAdapter,     "P1", {}),
+    "adni":         (ADNIAdapter,           "P1", {}),
+    "abide":        (ABIDEAdapter,          "P1", {}),
+    "pubmed":       (PubMedAdapter,         "P0", {}),
+    "ctgov":        (ClinicalTrialsAdapter, "P0", {}),
+    "cochrane":     (CochraneAdapter,       "P0", {}),
+    "europepmc":    (EuropePMCAdapter,      "P1", {}),
+    "gnomad":       (GnomadAdapter,         "P1", {}),
 }
 
 

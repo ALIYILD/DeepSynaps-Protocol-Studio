@@ -1,9 +1,10 @@
-"""Compatibility shim — re-exports ``CHBMPAdapter`` from the
-canonical home under ``app.services.knowledge.adapters``."""
 from __future__ import annotations
 
-from app.services.knowledge.adapters.chbmp_adapter import (  # noqa: F401
-    CHBMPAdapter,
+from app.knowledge._service_adapter_shim import export_service_adapter
+
+CHBMPAdapter = export_service_adapter(
+    "app.services.knowledge.adapters.chbmp_adapter",
+    "CHBMPAdapter",
 )
 
 __all__ = ["CHBMPAdapter"]

@@ -38,7 +38,7 @@ import aiofiles
 import aiohttp
 from aiohttp import ClientTimeout
 
-from app.services.knowledge.adapters.base import (
+from ..base_adapter import (
     ConfidenceTier,
     DatabaseAdapter,
     EvidenceLevel,
