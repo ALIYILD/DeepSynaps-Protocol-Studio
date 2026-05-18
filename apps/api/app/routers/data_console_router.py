@@ -27,6 +27,7 @@ from app.services.access_control_service import (
 )
 from app.services.data_console_service import (
     SAFE_TABLES,
+    create_data_export,
     get_available_sources,
     get_clinic_table_summary,
     get_patient_data_summary,
@@ -445,6 +446,64 @@ async def get_clinic_data_console_summary(
     )
 
 
+@router.post(
+    "/export",
+    summary="Create a clinic or patient scoped export artifact",
+)
+async def create_data_console_export(
+    request: Dict[str, Any],
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> Dict[str, Any]:
+    scope = str(request.get("scope", "clinic")).lower()
+    if scope == "clinic":
+        resolved_clinic_id = _resolve_clinic_scope(
+            actor, actor.clinic_id, require_param_for_admin=False
+        )
+        try:
+            require_clinic_access(session, actor.actor_id, resolved_clinic_id)
+        except AccessDeniedError:
+            if actor.role != "admin":
+                raise HTTPException(status_code=403, detail="Access denied for this clinic.")
+        result = create_data_export(
+            session=session,
+            clinic_id=resolved_clinic_id,
+            request=request,
+            actor_id=actor.actor_id,
+        )
+        _audit_clinic_data_console_access(
+            session,
+            actor=actor,
+            clinic_id=resolved_clinic_id,
+            action="data_export_requested",
+            note={"scope": scope, "format": request.get("format", "csv")},
+        )
+        return result
+
+    if scope == "patient":
+        patient_id = request.get("patient_id")
+        if not patient_id:
+            raise HTTPException(status_code=422, detail="patient_id is required for patient export.")
+        require_patient_access(session, actor.actor_id, patient_id)
+        resolved_clinic_id = actor.clinic_id or ""
+        result = create_data_export(
+            session=session,
+            clinic_id=resolved_clinic_id,
+            request=request,
+            actor_id=actor.actor_id,
+        )
+        _audit_clinic_data_console_access(
+            session,
+            actor=actor,
+            clinic_id=resolved_clinic_id,
+            action="data_export_requested",
+            note={"scope": scope, "format": request.get("format", "csv"), "patient_id": patient_id},
+        )
+        return result
+
+    raise HTTPException(status_code=422, detail="scope must be 'clinic' or 'patient'.")
+
+
 @router.get(
     "/clinic/{clinic_id}/tables/{table_name}/export.csv",
     summary="Stream a clinic-scoped CSV of one allowlisted table (NOT masked)",
@@ -511,4 +570,3 @@ async def export_clinic_table_csv(
             "Cache-Control": "no-store",
         },
     )
-
