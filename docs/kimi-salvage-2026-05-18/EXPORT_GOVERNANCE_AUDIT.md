@@ -1,3 +1,35 @@
+<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->
+<!--
+STALE ROLE / ENDPOINT MODEL — READ BEFORE PROMOTING
+
+The role schema in this document (super_admin / clinic_admin / clinician /
+reviewer / technician + a `can_export` capability flag) does NOT match current
+main.  The actual roles in `apps/api/app/auth.py` are:
+  guest | patient | technician | reviewer | clinician | admin | supervisor
+Access is enforced via `require_minimum_role(actor, "clinician")` in
+`apps/api/app/routers/export_router.py`.  There is NO `require_role` or
+`require_any_role` helper (those caused the v372 outage).
+
+The export endpoints are also different from what this doc describes.
+Current export endpoints (verified in export_router.py):
+  POST /api/v1/export/protocol-docx       — requires clinician+
+  POST /api/v1/export/handbook-docx       — requires clinician+ + feature flag
+  POST /api/v1/export/handbook-pdf        — requires clinician+ + feature flag
+  POST /api/v1/export/patient-guide-docx  — requires clinician+ + feature flag
+  POST /api/v1/export/fhir-r4-bundle      — requires clinician+ + patient ownership
+  POST /api/v1/export/bids-derivatives    — requires clinician+ + patient ownership
+
+There are NO json/pdf/report_handoff/protocol_handoff export types from the
+salvage era.  The gap analysis (section 9), recommendations (section 10), and
+action items (section 12) reference those old types and the old role schema.
+They are preserved below as historical context with TODO markers.
+Sections that reference `access_control.py`, `AccessControlDecorators`,
+`DeepTwinExportEngine`, `deeptwin_export.py`, `main.py:847-852`,
+`patient_access` table, `audit.log_intelligence_request`, and
+`dt_audit.log_deeptwin_event` describe components that do NOT exist in
+current main.
+-->
+
 # EXPORT GOVERNANCE AUDIT
 ## DeepSynaps Protocol Studio v4.0.0
 ### Audit Date: 2025-06-10
@@ -88,6 +120,11 @@ This would allow patients to consent separately to:
 ---
 
 ## 4. ROLE-BASED EXPORT PERMISSIONS
+
+<!-- TODO: clinical-governance review required against current main -->
+<!-- access_control.py, can_export, and the 5-role schema below do not exist.
+     Current main uses require_minimum_role(actor, "clinician") in export_router.py.
+     Roles are: guest / patient / technician / reviewer / clinician / admin / supervisor. -->
 
 ### 4.1 Permission Matrix
 
@@ -219,7 +256,17 @@ included in every export content payload.
 
 ---
 
+<!-- TODO: clinical-governance review required against current main -->
+<!-- Sections 5 (Audit Trail) and 6 (PHI Protection) reference audit.log_intelligence_request,
+     dt_audit.log_deeptwin_event, deeptwin_export.py, SAFETY_HEADER, and EXPORT_EVENT_TYPE_MAP
+     at main.py:847-852 — none of these exist in current main. -->
+
 ## 7. EXPORT GOVERNANCE RULES
+
+<!-- TODO: clinical-governance review required against current main -->
+<!-- Rule 7.1-7.5: enforce via require_minimum_role + require_patient_owner in current export_router.py.
+     require_clinician_auth, kl.check_patient_access(), DeepTwinExportEngine, cross_clinic_access,
+     and the audit helpers cited below are NOT present in current main. -->
 
 ### 7.1 Rule: Export Requires Authentication
 
@@ -324,6 +371,11 @@ builders:
 
 ---
 
+<!-- TODO: clinical-governance review required against current main -->
+<!-- Section 8 data flow diagram and content-builder table reference DeepTwinExportEngine,
+     deeptwin_export.py, json/pdf/report_handoff/protocol_handoff export types, and
+     AuditLogger.log_intelligence_request — none exist in current main. -->
+
 ## 9. GAP ANALYSIS
 
 ### 9.1 Critical Gaps
@@ -345,6 +397,10 @@ builders:
 | 3 | No export TTL | Audit log provides complete traceability |
 
 ---
+
+<!-- TODO: clinical-governance review required against current main -->
+<!-- Gap analysis items reference old export types (json/pdf/report_handoff/protocol_handoff)
+     and the 5-role schema.  Re-evaluate against actual export_router.py before using. -->
 
 ## 10. RECOMMENDATIONS
 
@@ -402,6 +458,11 @@ builders:
 | Right to restriction | No restriction mechanism | Gap |
 
 ---
+
+<!-- TODO: clinical-governance review required against current main -->
+<!-- Recommendations reference AccessControlDecorators.full_guard, EXPORT_GUARD,
+     allowed_roles list with super_admin/clinic_admin/reviewer, and
+     patient_access.export_consent column — none exist in current main. -->
 
 ## 12. ACTION ITEMS
 

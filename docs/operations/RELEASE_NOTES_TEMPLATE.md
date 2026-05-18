@@ -1,6 +1,9 @@
+<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->
 # Release Notes Template — DeepSynaps Protocol Studio
 
 **Use this template for every beta release.**
+
+> **Deploy targets:** API on Fly.io (`deepsynaps-studio`), web on Netlify (`deepsynaps-studio-preview`). See `CLAUDE.md` for deploy commands.
 
 ---
 
@@ -14,8 +17,7 @@
 **Target:** [Clinic beta / All clinics / Internal only]  
 **Previous version:** [VERSION]  
 **Database changes:** [Yes / No]  
-**Migration required:** [Yes / No — run `alembic upgrade head`]  
-**Materialized view refresh required:** [Yes / No — `POST /api/v1/system/materialized-views/refresh`]
+**Migration required:** [Yes / No — run `alembic upgrade head`]
 
 ---
 
@@ -87,14 +89,13 @@ If yes:
 **Rollback:** `alembic downgrade -1`
 
 **Pre-migration checklist:**
-- [ ] Database backup completed
+- [ ] Database backup completed (`DEEPSYNAPS_DATABASE_URL` target confirmed)
 - [ ] Staging migration verified
-- [ ] Materialized view refresh scheduled
+- [ ] Health check passes: `curl -sf https://deepsynaps-studio.fly.dev/health`
 
 **Post-migration checklist:**
 - [ ] Migration applied successfully
 - [ ] Health check passes
-- [ ] Materialized views refreshed
 - [ ] Smoke tests pass
 
 ---
@@ -114,17 +115,16 @@ If yes:
 
 ### Deployment Checklist
 
-- [ ] Code reviewed
+- [ ] Code reviewed and merged to `main`
 - [ ] Tests pass (backend + E2E)
-- [ ] Staging deployed and verified
+- [ ] API deployed: `bash scripts/deploy-preview.sh --api-only`
+- [ ] Web deployed: `bash scripts/deploy-via-hook.sh`
 - [ ] Release notes approved
 - [ ] Safety team sign-off
 - [ ] Database migration tested
-- [ ] Materialized views refreshed
 - [ ] Clinic notification sent
 - [ ] Monitoring dashboards checked
-- [ ] Deployed to production
-- [ ] Post-deploy smoke test passed
+- [ ] Post-deploy smoke test: `curl -sf https://deepsynaps-studio.fly.dev/health`
 
 ---
 

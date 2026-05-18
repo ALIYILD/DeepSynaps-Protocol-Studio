@@ -1,10 +1,38 @@
+<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->
+
+> **HISTORICAL DESIGN DOCUMENT — NOT A DESCRIPTION OF CURRENT CODE**
+>
+> This document describes a Phase 3 evidence-reasoning architecture that was
+> **never built as described**.  In particular, the `ClinicalRAG` class with
+> the specific four-layer architecture, method signatures, SQL schema, and
+> vector-index structure defined here does not exist in current main.
+>
+> The document is preserved because the evidence-grading methodology (GRADE,
+> RoB 2, NOS), uncertainty-quantification framework, and conflict-resolution
+> protocols contain useful background for anyone working in this space.
+> Do not use it as a reference for what the codebase currently does.
+>
+> **Current implementation reference** (as of 2026-05-18; verify against
+> current main before treating as authoritative):
+>
+> | Component | Location in current main |
+> |-----------|--------------------------|
+> | Evidence RAG service | `apps/api/app/services/evidence_rag.py` |
+> | Evidence intelligence | `apps/api/app/services/evidence_intelligence.py` |
+> | Core evidence helpers | `apps/api/app/services/evidence.py` |
+> | Evidence router | `apps/api/app/routers/evidence_router.py` |
+> | Knowledge router (added PR #889) | `apps/api/app/routers/knowledge_router.py` |
+>
+> Whether these services implement any of the design goals described below
+> has not been verified — check the source files directly.
+
 # PHASE 3: Evidence-Linked Reasoning Design
 
 ## DeepSynaps Protocol Studio -- Design Document
 
 **Version:** 1.0  
 **Date:** 2025-07-17  
-**Status:** Draft for Review  
+**Status:** HISTORICAL DESIGN DOCUMENT — See disclaimer above  
 **Authors:** DeepSynaps Architecture Team
 
 ---

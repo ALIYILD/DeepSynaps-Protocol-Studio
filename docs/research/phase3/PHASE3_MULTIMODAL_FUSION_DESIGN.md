@@ -1,3 +1,32 @@
+<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->
+
+> **HISTORICAL DESIGN DOCUMENT — NOT A DESCRIPTION OF CURRENT CODE**
+>
+> This document describes a broad Phase 3 multimodal fusion architecture
+> (Hierarchical Hybrid Fusion with six data modalities, cross-modal
+> transformers, patient-similarity GNNs, federated learning, etc.) that was
+> **never built as described**.
+>
+> The document is preserved because the literature review and fusion-strategy
+> taxonomy are independently useful.  Do not use it as a reference for what
+> the codebase currently does.
+>
+> **Current implementation reference** (as of 2026-05-18; verify against
+> current main before treating as authoritative):
+>
+> | Component | Location in current main |
+> |-----------|--------------------------|
+> | MRI multimodal fusion | `apps/api/app/services/mri_multimodal_fusion.py` |
+> | DeepTwin fusion | `apps/api/app/services/deeptwin_fusion.py` |
+> | Fusion service | `apps/api/app/services/fusion_service.py` |
+> | Fusion safety service | `apps/api/app/services/fusion_safety_service.py` |
+>
+> Whether these services implement any of the Hierarchical Hybrid Fusion
+> design described below has not been verified — check the source files
+> directly.  The broader six-modality stack (genomics, clinical notes, EHR,
+> sensors, assessments) in this document has no corresponding implementation
+> in current main.
+
 # PHASE 3: Multimodal Fusion Design for DeepSynaps Protocol Studio
 
 ## Executive Summary

@@ -1,3 +1,4 @@
+<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->
 # Healthcare SaaS Production Hardening & Stabilization Guide
 
 > **Document ID:** DS-STABILIZATION-2025  
@@ -14,7 +15,7 @@ This document provides a comprehensive production hardening and stabilization fr
 
 This guide covers the full stabilization lifecycle: **pre-launch hardening**, **observability instrumentation**, **healthcare-specific security controls**, **database migration paths**, **launch readiness procedures**, and **incident response playbooks**. Each section includes actionable checklists, specific tooling recommendations, and reference implementations drawn from production healthcare SaaS operations.
 
-The primary stabilization path for DeepSynaps involves migrating from SQLite to PostgreSQL, implementing comprehensive audit logging, establishing observability baselines, and deploying feature-flag-gated rollouts with automated rollback capabilities.
+The primary stabilization path for DeepSynaps involves implementing comprehensive audit logging, establishing observability baselines, and deploying feature-flag-gated rollouts with automated rollback capabilities.
 
 ---
 
@@ -56,6 +57,10 @@ The primary stabilization path for DeepSynaps involves migrating from SQLite to 
 ## Database Hardening
 
 ### SQLite to PostgreSQL Migration Path
+
+> **Note (2026-05-18):** The SQLite → PostgreSQL migration is already complete for DeepSynaps Protocol Studio.
+> This section is retained as a general reference guide for other projects or future migrations.
+> Skip directly to the "PostgreSQL Hardening Checklist" for actionable items.
 
 SQLite serves as an excellent prototyping database, but production healthcare workloads demand PostgreSQL's enterprise capabilities. Key migration triggers include:
 
@@ -828,11 +833,10 @@ with get_db_credentials() as creds:
 
 ### Immediate Priorities (Week 1-2)
 
-1. **Migrate Database to PostgreSQL**: Follow the maintenance window migration path using pgloader. Validate data integrity with row counts and critical query comparisons.
-2. **Implement Health Check Endpoints**: Deploy `/health/live`, `/health/ready`, and `/health/deep` endpoints with Kubernetes probes configured.
-3. **Enable Structured Logging**: Deploy JSON structured logging with correlation IDs and PHI redaction.
-4. **Set Up Secret Management**: Integrate HashiCorp Vault or cloud-native secret manager; remove all secrets from code and environment variables.
-5. **Configure Basic Monitoring**: Deploy Prometheus + Grafana for infrastructure and application metrics.
+1. **Implement Health Check Endpoints**: Deploy `/health/live`, `/health/ready`, and `/health/deep` endpoints with Kubernetes probes configured.
+2. **Enable Structured Logging**: Deploy JSON structured logging with correlation IDs and PHI redaction.
+3. **Set Up Secret Management**: Integrate HashiCorp Vault or cloud-native secret manager; remove all secrets from code and environment variables.
+4. **Configure Basic Monitoring**: Deploy Prometheus + Grafana for infrastructure and application metrics.
 
 ### Short-Term Priorities (Week 3-6)
 
