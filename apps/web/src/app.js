@@ -155,7 +155,6 @@ let _modClinicalHubs  = null;
 let _modInbox         = null;
 let _modDeeptwin      = null;
 let _modBrainTwin     = null;
-let _modKnowledgeExplorer = null;
 let _modVoiceAnalyzer = null;
 
 async function loadPublic()     { return (_modPublic    ??= await import('./pages-public.js')); }
@@ -169,7 +168,6 @@ async function loadClinicalHubs()  { return (_modClinicalHubs  ??= await import(
 async function loadInbox()         { return (_modInbox         ??= await import('./pages-inbox.js')); }
 async function loadDeeptwin()   { return (_modDeeptwin  ??= await import('./pages-deeptwin.js')); }
 async function loadBrainTwin()  { return (_modBrainTwin ??= await import('./pages-brain-twin.js')); }
-async function loadKnowledgeExplorer() { return (_modKnowledgeExplorer ??= await import('./pages-knowledge-explorer.js')); }
 async function loadKnowledge()  { return (_modKnowledge ??= await import('./pages-knowledge.js')); }
 let _modBiomarkers = null;
 async function loadBiomarkers() { return (_modBiomarkers ??= await import('./pages-biomarkers.js')); }
@@ -2020,17 +2018,6 @@ async function renderPage() {
     case 'assessments-v2':     { const m = await loadClinicalHubs(); await m.pgAssessmentsHub(setTopbar, navigate); break; }
     case 'patients-v2':        { const m = await loadClinicalHubs(); await m.pgPatientHub(setTopbar, navigate); break; }
     case 'brain-twin':         { const m = await loadBrainTwin(); await m.pgBrainTwin(setTopbar, navigate); break; }
-    case 'knowledge-explorer': {
-      const [{ default: KEP }, React, ReactDOM] = await Promise.all([
-        loadKnowledgeExplorer(),
-        import('react'),
-        import('react-dom/client'),
-      ]);
-      el.innerHTML = '<div id="ke-root" style="height:100%"></div>';
-      const root = ReactDOM.createRoot(el.querySelector('#ke-root'));
-      root.render(React.createElement(KEP));
-      break;
-    }
     case 'deeptwin':           { const m = await loadDeeptwin(); await m.pgDeeptwin(setTopbar, navigate); break; }
     case 'monitor':            { const m = await loadMonitor(); await m.pgMonitor(setTopbar, navigate); break; }
     case 'device-dashboard':   { const m = await loadDeviceDashboard(); await m.pgDeviceDashboard(setTopbar, navigate); break; }
