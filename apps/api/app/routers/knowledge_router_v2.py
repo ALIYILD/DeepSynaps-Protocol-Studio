@@ -125,6 +125,32 @@ except ImportError:
         async def get_report(self, patient_id: str, format: str = "full") -> Dict[str, Any]:
             return {"status": "mock", "patient_id": patient_id, "format": format}
 
+try:
+    from app.knowledge.protocol_generator import ProtocolGenerator
+except ImportError:
+    class ProtocolGenerator:
+        async def generate(self, **kwargs: Any) -> Dict[str, Any]:
+            return {"status": "mock", "protocols": []}
+        async def get_tdcs_protocol(self, **kwargs: Any) -> Dict[str, Any]:
+            return {"status": "mock", "protocol": {}}
+        async def get_tms_protocol(self, **kwargs: Any) -> Dict[str, Any]:
+            return {"status": "mock", "protocol": {}}
+        async def get_pbm_protocol(self, **kwargs: Any) -> Dict[str, Any]:
+            return {"status": "mock", "protocol": {}}
+        async def get_neurofeedback_protocol(self, **kwargs: Any) -> Dict[str, Any]:
+            return {"status": "mock", "protocol": {}}
+        async def compare_protocols(self, **kwargs: Any) -> Dict[str, Any]:
+            return {"status": "mock", "comparison": []}
+        async def generate_report(self, **kwargs: Any) -> Dict[str, Any]:
+            return {"status": "mock", "report": {}}
+
+try:
+    from app.knowledge.safety_checker import SafetyChecker
+except ImportError:
+    class SafetyChecker:
+        async def check_safety(self, **kwargs: Any) -> Dict[str, Any]:
+            return {"status": "mock", "safe": True, "warnings": []}
+
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/knowledge", tags=["Knowledge Layer"])
@@ -414,6 +440,137 @@ class ErrorResponse(BaseModel):
     error_code: Optional[str] = None
     request_id: Optional[str] = None
     timestamp: Optional[datetime] = None
+
+
+# ===========================================================================
+# PROTOCOL GENERATOR MODELS
+# ===========================================================================
+
+class ProtocolGenerateRequest(BaseModel):
+    patient_id: str = Field(..., min_length=1, max_length=64)
+    diagnosis: str = Field(..., min_length=1, max_length=256)
+    age: Optional[int] = Field(default=None, ge=0, le=120)
+    sex: Optional[str] = Field(default=None, max_length=8)
+    medications: Optional[List[str]] = Field(default=None)
+    comorbidities: Optional[List[str]] = Field(default=None)
+    prior_interventions: Optional[List[Dict[str, Any]]] = Field(default=None)
+    modality_preferences: Optional[List[str]] = Field(default=None)
+    session_count: Optional[int] = Field(default=10, ge=1, le=100)
+
+class ProtocolEntry(BaseModel):
+    protocol_id: str
+    modality: str
+    name: str
+    description: str
+    stimulation_target: str
+    electrode_montage: Optional[str] = None
+    current_ma: Optional[float] = None
+    frequency_hz: Optional[float] = None
+    pulse_width_ms: Optional[float] = None
+    duration_min: Optional[int] = None
+    session_count: Optional[int] = None
+    inter_session_interval_days: Optional[int] = None
+    evidence_level: str
+    predicted_response_score: float
+    contraindications: List[str]
+    required_assessments: List[str]
+
+class ProtocolGenerateResponse(BaseModel):
+    patient_id: str
+    diagnosis: str
+    protocols: List[ProtocolEntry]
+    top_protocol: Optional[ProtocolEntry] = None
+    safety_flags: List[str]
+    evidence_summary: str
+    generated_at: datetime
+
+class tDCSProtocolResponse(BaseModel):
+    diagnosis: str
+    montage: str
+    anode_placement: str
+    cathode_placement: str
+    current_ma: float
+    duration_min: int
+    session_count: int
+    frequency: str
+    sham_protocol: str
+    evidence_level: str
+    key_references: List[str]
+    predicted_response: float
+
+class TMSProtocolResponse(BaseModel):
+    diagnosis: str
+    coil_type: str
+    target_location: str
+    motor_threshold_pct: float
+    pulse_count: int
+    train_frequency_hz: float
+    sessions_per_week: int
+    total_sessions: int
+    fda_cleared: bool
+    evidence_level: str
+    key_references: List[str]
+    predicted_response: float
+
+class PBMProtocolResponse(BaseModel):
+    diagnosis: str
+    wavelength_nm: int
+    power_density_mw_cm2: float
+    exposure_time_min: int
+    target_areas: List[str]
+    pulsing_frequency_hz: Optional[float] = None
+    session_count: int
+    evidence_level: str
+    key_references: List[str]
+    predicted_response: float
+
+class NeurofeedbackProtocolResponse(BaseModel):
+    diagnosis: str
+    protocol_type: str
+    target_freq_band: str
+    training_goals: List[str]
+    sensor_placement: str
+    session_duration_min: int
+    session_count: int
+    feedback_modality: str
+    evidence_level: str
+    key_references: List[str]
+    predicted_response: float
+
+class ProtocolSafetyCheckResponse(BaseModel):
+    protocol_id: str
+    is_safe: bool
+    absolute_contraindications: List[str]
+    relative_contraindications: List[str]
+    medication_interactions: List[Dict[str, Any]]
+    risk_score: float
+    recommendations: List[str]
+    requires_physician_review: bool
+
+class ProtocolComparisonItem(BaseModel):
+    protocol_id: str
+    modality: str
+    name: str
+    predicted_response_score: float
+    risk_score: float
+    cost_estimate: Optional[float] = None
+    session_count: int
+    overall_rank: int
+
+class ProtocolCompareResponse(BaseModel):
+    protocols: List[ProtocolComparisonItem]
+    best_protocol_id: str
+    comparison_summary: str
+
+class ProtocolReportResponse(BaseModel):
+    patient_id: str
+    report_format: str
+    generated_at: datetime
+    report_sections: Dict[str, Any]
+    protocol_recommendations: List[Dict[str, Any]]
+    safety_considerations: List[str]
+    evidence_citations: List[Dict[str, Any]]
+    clinical_summary: str
 
 
 # ===========================================================================
@@ -1017,6 +1174,237 @@ async def seed_evidence(
 
 
 # ===========================================================================
+# SECTION 8 - PROTOCOL GENERATOR (8 endpoints)
+# ===========================================================================
+
+@router.post("/protocols/generate", response_model=ProtocolGenerateResponse)
+async def generate_protocols(
+    request: Request,
+    protocol_generator: ProtocolGenerator = Depends(ProtocolGenerator),
+    actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.CLINICIAN)),
+):
+    """Generate personalized neuromodulation protocols for a patient."""
+    body = await request.json()
+    result = await protocol_generator.generate(
+        patient_id=body.get("patient_id", ""),
+        diagnosis=body.get("diagnosis", ""),
+        age=body.get("age"),
+        sex=body.get("sex"),
+        medications=body.get("medications"),
+        comorbidities=body.get("comorbidities"),
+        prior_interventions=body.get("prior_interventions"),
+        modality_preferences=body.get("modality_preferences"),
+        session_count=body.get("session_count", 10),
+    )
+    protocols = []
+    for p in result.get("protocols", []):
+        protocols.append(ProtocolEntry(
+            protocol_id=p.get("protocol_id", ""),
+            modality=p.get("modality", ""),
+            name=p.get("name", ""),
+            description=p.get("description", ""),
+            stimulation_target=p.get("stimulation_target", ""),
+            electrode_montage=p.get("electrode_montage"),
+            current_ma=p.get("current_ma"),
+            frequency_hz=p.get("frequency_hz"),
+            pulse_width_ms=p.get("pulse_width_ms"),
+            duration_min=p.get("duration_min"),
+            session_count=p.get("session_count"),
+            inter_session_interval_days=p.get("inter_session_interval_days"),
+            evidence_level=p.get("evidence_level", "unknown"),
+            predicted_response_score=float(p.get("predicted_response_score", 0.0)),
+            contraindications=p.get("contraindications", []),
+            required_assessments=p.get("required_assessments", []),
+        ))
+    top = protocols[0] if protocols else None
+    return ProtocolGenerateResponse(
+        patient_id=body.get("patient_id", ""),
+        diagnosis=body.get("diagnosis", ""),
+        protocols=protocols,
+        top_protocol=top,
+        safety_flags=result.get("safety_flags", []),
+        evidence_summary=result.get("evidence_summary", ""),
+        generated_at=datetime.utcnow(),
+    )
+
+
+@router.get("/protocols/tdcs", response_model=tDCSProtocolResponse)
+async def get_tdcs_protocol(
+    diagnosis: str = Query(..., min_length=1, max_length=256),
+    age: Optional[int] = Query(None, ge=0, le=120),
+    protocol_generator: ProtocolGenerator = Depends(ProtocolGenerator),
+    actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.CLINICIAN)),
+):
+    """Get evidence-based tDCS protocol for a given diagnosis."""
+    result = await protocol_generator.get_tdcs_protocol(diagnosis=diagnosis, age=age)
+    proto = result.get("protocol", {})
+    return tDCSProtocolResponse(
+        diagnosis=diagnosis,
+        montage=proto.get("montage", ""),
+        anode_placement=proto.get("anode_placement", ""),
+        cathode_placement=proto.get("cathode_placement", ""),
+        current_ma=proto.get("current_ma", 2.0),
+        duration_min=proto.get("duration_min", 20),
+        session_count=proto.get("session_count", 10),
+        frequency=proto.get("frequency", "daily"),
+        sham_protocol=proto.get("sham_protocol", ""),
+        evidence_level=proto.get("evidence_level", "unknown"),
+        key_references=proto.get("key_references", []),
+        predicted_response=float(proto.get("predicted_response", 0.0)),
+    )
+
+
+@router.get("/protocols/tms", response_model=TMSProtocolResponse)
+async def get_tms_protocol(
+    diagnosis: str = Query(..., min_length=1, max_length=256),
+    age: Optional[int] = Query(None, ge=0, le=120),
+    protocol_generator: ProtocolGenerator = Depends(ProtocolGenerator),
+    actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.CLINICIAN)),
+):
+    """Get FDA-cleared TMS protocol for a given diagnosis."""
+    result = await protocol_generator.get_tms_protocol(diagnosis=diagnosis, age=age)
+    proto = result.get("protocol", {})
+    return TMSProtocolResponse(
+        diagnosis=diagnosis,
+        coil_type=proto.get("coil_type", "figure-8"),
+        target_location=proto.get("target_location", ""),
+        motor_threshold_pct=proto.get("motor_threshold_pct", 120.0),
+        pulse_count=proto.get("pulse_count", 3000),
+        train_frequency_hz=proto.get("train_frequency_hz", 10.0),
+        sessions_per_week=proto.get("sessions_per_week", 5),
+        total_sessions=proto.get("total_sessions", 30),
+        fda_cleared=proto.get("fda_cleared", False),
+        evidence_level=proto.get("evidence_level", "unknown"),
+        key_references=proto.get("key_references", []),
+        predicted_response=float(proto.get("predicted_response", 0.0)),
+    )
+
+
+@router.get("/protocols/pbm", response_model=PBMProtocolResponse)
+async def get_pbm_protocol(
+    diagnosis: str = Query(..., min_length=1, max_length=256),
+    age: Optional[int] = Query(None, ge=0, le=120),
+    protocol_generator: ProtocolGenerator = Depends(ProtocolGenerator),
+    actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.CLINICIAN)),
+):
+    """Get PBM (photobiomodulation) protocol for a given diagnosis."""
+    result = await protocol_generator.get_pbm_protocol(diagnosis=diagnosis, age=age)
+    proto = result.get("protocol", {})
+    return PBMProtocolResponse(
+        diagnosis=diagnosis,
+        wavelength_nm=proto.get("wavelength_nm", 810),
+        power_density_mw_cm2=proto.get("power_density_mw_cm2", 25.0),
+        exposure_time_min=proto.get("exposure_time_min", 20),
+        target_areas=proto.get("target_areas", []),
+        pulsing_frequency_hz=proto.get("pulsing_frequency_hz"),
+        session_count=proto.get("session_count", 10),
+        evidence_level=proto.get("evidence_level", "unknown"),
+        key_references=proto.get("key_references", []),
+        predicted_response=float(proto.get("predicted_response", 0.0)),
+    )
+
+
+@router.get("/protocols/neurofeedback", response_model=NeurofeedbackProtocolResponse)
+async def get_neurofeedback_protocol(
+    diagnosis: str = Query(..., min_length=1, max_length=256),
+    age: Optional[int] = Query(None, ge=0, le=120),
+    protocol_generator: ProtocolGenerator = Depends(ProtocolGenerator),
+    actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.CLINICIAN)),
+):
+    """Get neurofeedback training protocol for a given diagnosis."""
+    result = await protocol_generator.get_neurofeedback_protocol(diagnosis=diagnosis, age=age)
+    proto = result.get("protocol", {})
+    return NeurofeedbackProtocolResponse(
+        diagnosis=diagnosis,
+        protocol_type=proto.get("protocol_type", ""),
+        target_freq_band=proto.get("target_freq_band", ""),
+        training_goals=proto.get("training_goals", []),
+        sensor_placement=proto.get("sensor_placement", ""),
+        session_duration_min=proto.get("session_duration_min", 30),
+        session_count=proto.get("session_count", 20),
+        feedback_modality=proto.get("feedback_modality", "visual"),
+        evidence_level=proto.get("evidence_level", "unknown"),
+        key_references=proto.get("key_references", []),
+        predicted_response=float(proto.get("predicted_response", 0.0)),
+    )
+
+
+@router.post("/protocols/safety-check", response_model=ProtocolSafetyCheckResponse)
+async def check_protocol_safety(
+    request: Request,
+    safety_checker: SafetyChecker = Depends(SafetyChecker),
+    actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.CLINICIAN)),
+):
+    """Check protocol safety and contraindications."""
+    body = await request.json()
+    result = await safety_checker.check_safety(protocol=body)
+    return ProtocolSafetyCheckResponse(
+        protocol_id=body.get("protocol_id", ""),
+        is_safe=result.get("is_safe", True),
+        absolute_contraindications=result.get("absolute_contraindications", []),
+        relative_contraindications=result.get("relative_contraindications", []),
+        medication_interactions=result.get("medication_interactions", []),
+        risk_score=float(result.get("risk_score", 0.0)),
+        recommendations=result.get("recommendations", []),
+        requires_physician_review=result.get("requires_physician_review", False),
+    )
+
+
+@router.post("/protocols/compare", response_model=ProtocolCompareResponse)
+async def compare_protocols(
+    request: Request,
+    protocol_generator: ProtocolGenerator = Depends(ProtocolGenerator),
+    actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.CLINICIAN)),
+):
+    """Compare multiple protocols and rank by predicted outcome."""
+    body = await request.json()
+    protocols_input = body.get("protocols", [])
+    result = await protocol_generator.compare_protocols(protocols=protocols_input)
+    comparison_items = []
+    for item in result.get("comparison", []):
+        comparison_items.append(ProtocolComparisonItem(
+            protocol_id=item.get("protocol_id", ""),
+            modality=item.get("modality", ""),
+            name=item.get("name", ""),
+            predicted_response_score=float(item.get("predicted_response_score", 0.0)),
+            risk_score=float(item.get("risk_score", 0.0)),
+            cost_estimate=item.get("cost_estimate"),
+            session_count=item.get("session_count", 0),
+            overall_rank=item.get("overall_rank", 0),
+        ))
+    return ProtocolCompareResponse(
+        protocols=comparison_items,
+        best_protocol_id=result.get("best_protocol_id", ""),
+        comparison_summary=result.get("comparison_summary", ""),
+    )
+
+
+@router.post("/protocols/report", response_model=ProtocolReportResponse)
+async def generate_protocol_report(
+    request: Request,
+    protocol_generator: ProtocolGenerator = Depends(ProtocolGenerator),
+    actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.CLINICIAN)),
+):
+    """Generate clinician-ready protocol report."""
+    body = await request.json()
+    result = await protocol_generator.generate_report(
+        patient_id=body.get("patient_id", ""),
+        protocol_ids=body.get("protocol_ids", []),
+        format=body.get("format", "full"),
+    )
+    return ProtocolReportResponse(
+        patient_id=body.get("patient_id", ""),
+        report_format=body.get("format", "full"),
+        generated_at=datetime.utcnow(),
+        report_sections=result.get("report_sections", {}),
+        protocol_recommendations=result.get("protocol_recommendations", []),
+        safety_considerations=result.get("safety_considerations", []),
+        evidence_citations=result.get("evidence_citations", []),
+        clinical_summary=result.get("clinical_summary", ""),
+    )
+
+
+# ===========================================================================
 # ENDPOINT SUMMARY
 # ===========================================================================
 # Section 1 - Adapter Discovery .............. 4   endpoints
@@ -1026,5 +1414,6 @@ async def seed_evidence(
 # Section 5 - Multimodal Synthesizer ......... 1   endpoint
 # Section 6 - DeepTwin ....................... 3   endpoints
 # Section 7 - Evidence Store ................. 5   endpoints
-# TOTAL ....................................... 151 endpoints
+# Section 8 - Protocol Generator ............. 8   endpoints
+# TOTAL ....................................... 159 endpoints
 # ===========================================================================
