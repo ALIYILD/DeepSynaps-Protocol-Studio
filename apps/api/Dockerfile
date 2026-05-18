@@ -6,7 +6,14 @@ COPY package.json package-lock.json ./
 COPY apps/web/package.json ./apps/web/
 COPY packages/api-client/package.json ./packages/api-client/
 
-RUN npm ci
+# `npm ci` is strict and trips over npm's known cross-platform optional-
+# deps bug (Rollup ships per-platform binaries as optionalDeps; a lockfile
+# generated on darwin-arm64 lacks the `packages` entry for
+# `@rollup/rollup-linux-x64-gnu`, so `npm ci` aborts here on Linux even
+# though the dep is listed). `npm install --include=optional` is lenient
+# enough to fetch the right platform binary at build time.
+# See https://github.com/npm/cli/issues/4828
+RUN npm install --no-audit --no-fund --include=optional
 
 COPY apps/web ./apps/web
 COPY packages/api-client ./packages/api-client
