@@ -98,7 +98,11 @@ def test_live_adapter_routes_expose_lifecycle_states(monkeypatch) -> None:
     app.include_router(mod.router)
     app.dependency_overrides[mod.get_production_registry] = lambda: registry
 
-    monkeypatch.setattr(mod, "list_production_adapter_keys", lambda: ("pubmed", "ctgov", "cochrane", "abide"))
+    monkeypatch.setattr(
+        mod,
+        "list_production_adapter_keys",
+        lambda: ("pubmed", "ctgov", "cochrane", "abide"),
+    )
     monkeypatch.setattr(mod, "list_disabled_adapter_keys", lambda: ("abide",))
 
     with TestClient(app) as client:
