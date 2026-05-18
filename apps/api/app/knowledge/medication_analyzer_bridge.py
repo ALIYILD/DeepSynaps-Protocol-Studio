@@ -50,13 +50,15 @@ from app.knowledge.faers_adapter import FAERSAdapter
 from app.knowledge.onsides_adapter import OnSIDESAdapter
 from app.knowledge.sider_adapter import SIDERAdapter
 from app.knowledge.aeolus_adapter import AEOLUSAdapter
-from app.knowledge.offsides_twosides_adapter import OFFSIDESTWOSIDESAdapter
+from app.knowledge.offsides_twosides_adapter import (
+    OffsidesTwosidesAdapter as OFFSIDESTWOSIDESAdapter,
+)
 
 # Regulatory / reference adapters
 from app.knowledge.dailymed_adapter import DailyMedAdapter
-from app.knowledge.orange_book_adapter import OrangeBookAdapter
-from app.knowledge.ndc_directory_adapter import NDCDirectoryAdapter
-from app.knowledge.unii_adapter import UNIIAdapter
+# OrangeBookAdapter / NDCDirectoryAdapter / UNIIAdapter removed: those
+# adapters are dead-on-import (#1026, Batch C). The bridge methods that
+# reference them are guarded; importing them at module load would crash.
 
 logger = logging.getLogger(__name__)
 
@@ -350,9 +352,12 @@ class MedicationAnalyzerBridge:
 
         # Regulatory / reference
         self._dailymed: Optional[DailyMedAdapter] = reg.get("dailymed")
-        self._orange_book: Optional[OrangeBookAdapter] = reg.get("orange_book")
-        self._ndc_directory: Optional[NDCDirectoryAdapter] = reg.get("ndc_directory")
-        self._unii: Optional[UNIIAdapter] = reg.get("unii")
+        # Batch-C adapters (orange_book / ndc_directory / unii) removed in
+        # #1026 — kept as Optional[Any] handles so registry-based lookup
+        # still returns None gracefully without importing dead modules.
+        self._orange_book: Optional[Any] = reg.get("orange_book")
+        self._ndc_directory: Optional[Any] = reg.get("ndc_directory")
+        self._unii: Optional[Any] = reg.get("unii")
 
         # Log availability
         for name, adapter in self._all_adapters():

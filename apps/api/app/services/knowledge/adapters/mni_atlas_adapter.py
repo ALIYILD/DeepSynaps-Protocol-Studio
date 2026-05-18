@@ -31,6 +31,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import aiohttp
 import numpy as np
+from app.services.knowledge.base_adapter import DatabaseAdapter
 
 logger = logging.getLogger(__name__)
 
