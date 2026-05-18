@@ -181,7 +181,15 @@ from app.routers.digital_phenotyping_router import router as digital_phenotyping
 from app.routers.labs_analyzer_router import router as labs_analyzer_router
 from app.routers.genetic_analyzer_router import router as genetic_analyzer_router
 from app.routers.medication_analyzer_router import router as medication_analyzer_router
-from app.routers.movement_analyzer_router import router as movement_analyzer_router
+# Movement analyzer is gated behind DEEPSYNAPS_ENABLE_MOVEMENT_ANALYZER=1.
+# The router imports `MovementBiomarkerTrend` from `app.persistence.models`,
+# which does not exist in `__init__.py` yet (model + migration are a separate
+# backlog item). Skipping the import when the flag is off keeps the app
+# bootable; flipping the flag will reintroduce the import path once the
+# model lands.
+_MOVEMENT_ANALYZER_ENABLED = os.environ.get("DEEPSYNAPS_ENABLE_MOVEMENT_ANALYZER") == "1"
+if _MOVEMENT_ANALYZER_ENABLED:
+    from app.routers.movement_analyzer_router import router as movement_analyzer_router
 from app.routers.nutrition_analyzer_router import router as nutrition_analyzer_router
 from app.routers.qeeg_annotation_outcome_tracker_router import (
     router as qeeg_annotation_outcome_tracker_router,
@@ -517,7 +525,8 @@ app.include_router(genetic_analyzer_router)
 app.include_router(medication_analyzer_router)
 app.include_router(labs_analyzer_router)
 app.include_router(digital_phenotyping_router)
-app.include_router(movement_analyzer_router)
+if _MOVEMENT_ANALYZER_ENABLED:
+    app.include_router(movement_analyzer_router)
 app.include_router(nutrition_analyzer_router)
 app.include_router(consent_management_router)
 # Patient Home Program Tasks (Homework) launch-audit (2026-05-01).
