@@ -123,6 +123,7 @@ from app.routers.patient_oncall_router import router as patient_oncall_router
 from app.routers.patient_digest_router import router as patient_digest_router
 from app.routers.knowledge_router_v2 import router as knowledge_router_v2
 from app.routers.evidence_router import router as evidence_router
+from app.routers.health_dashboard import router as health_dashboard
 from app.routers.biomarker_router import router as biomarker_router
 from app.routers.intervention_intelligence_router import router as intervention_intelligence_router
 from app.routers.caregiver_consent_router import router as caregiver_consent_router
@@ -803,6 +804,7 @@ app.include_router(patient_portal_v2_router)
 app.include_router(handbook_v2_router)
 app.include_router(knowledge_router_v2)
 app.include_router(evidence_router)
+app.include_router(health_dashboard)
 app.include_router(biomarker_router)
 app.include_router(intervention_intelligence_router)
 
