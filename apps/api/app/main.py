@@ -990,6 +990,23 @@ async def spa_fallback_middleware(request: Request, call_next):
 def _health_payload(session: Session) -> dict[str, object]:
     session.execute(text("SELECT 1"))
     snapshot = get_latest_snapshot(session)
+    # Lazy import keeps the knowledge stack out of /health's import graph
+    # for environments that don't load that module set. The call below is
+    # a metadata peek only — it never triggers adapter instantiation or
+    # upstream health checks. See apps/api/app/services/knowledge/lifecycle.py.
+    try:
+        from app.services.knowledge.lifecycle import (
+            peek_registry_lifecycle_summary,
+        )
+
+        knowledge_adapters = peek_registry_lifecycle_summary()
+    except Exception:  # noqa: BLE001 — /health must never fail because of an aux peek
+        knowledge_adapters = {
+            "total": 0,
+            "by_state": {},
+            "adapters": {},
+            "error": "lifecycle peek unavailable",
+        }
     return {
         "status": "ok",
         "db": "connected",
@@ -1000,6 +1017,7 @@ def _health_payload(session: Session) -> dict[str, object]:
             "snapshot_id": snapshot.snapshot_id if snapshot is not None else None,
             "total_records": snapshot.total_records if snapshot is not None else 0,
         },
+        "knowledge_adapters": knowledge_adapters,
     }
 
 

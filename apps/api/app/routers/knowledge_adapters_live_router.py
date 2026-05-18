@@ -29,9 +29,15 @@ from pydantic import BaseModel, Field
 
 from app.services.knowledge.adapter_bootstrap import (
     get_production_registry,
+    list_disabled_adapter_keys,
     list_production_adapter_keys,
 )
 from app.services.knowledge.adapter_registry import AdapterRegistry
+from app.services.knowledge.lifecycle import (
+    LifecycleState,
+    compute_registry_lifecycle,
+    summarize_lifecycle,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,13 +53,31 @@ router = APIRouter(
 
 
 class AdapterSummary(BaseModel):
-    """Compact metadata for an adapter listing."""
+    """Compact metadata for an adapter listing.
+
+    ``lifecycle_state`` is a normalized state — one of ``catalogued``,
+    ``registered``, ``healthy``, ``degraded``, ``disabled``, ``unavailable``,
+    ``unknown``. Added as an additive field; existing clients that ignore
+    unknown fields stay compatible.
+    """
 
     key: str
     source_name: str
     source_version: str
     tier: str
     connected: bool
+    lifecycle_state: str = Field(
+        default=LifecycleState.UNKNOWN.value,
+        description="Normalized adapter lifecycle state — see /adapters/_lifecycle.",
+    )
+
+
+class LifecycleSummary(BaseModel):
+    """Aggregate lifecycle snapshot across the whole catalog."""
+
+    total: int
+    by_state: Dict[str, int]
+    adapters: Dict[str, str]
 
 
 class AdaptersList(BaseModel):
@@ -118,13 +142,36 @@ async def _ensure_connected(adapter, key: str) -> None:
             )
 
 
-def _summary_from_info(key: str, info: Dict[str, Any]) -> AdapterSummary:
+def _summary_from_info(
+    key: str,
+    info: Dict[str, Any],
+    *,
+    lifecycle_state: str = LifecycleState.UNKNOWN.value,
+) -> AdapterSummary:
     return AdapterSummary(
         key=key,
         source_name=info.get("source_name", ""),
         source_version=info.get("source_version", ""),
         tier=info.get("tier", "P2"),
         connected=bool(info.get("connected", False)),
+        lifecycle_state=lifecycle_state,
+    )
+
+
+def _summary_from_lifecycle_only(
+    key: str,
+    state: LifecycleState,
+) -> AdapterSummary:
+    """Build a summary for a catalogued/disabled adapter that is NOT
+    registered. Source metadata is unknown until the adapter instance
+    exists, so we report empty strings instead of fabricating values."""
+    return AdapterSummary(
+        key=key,
+        source_name="",
+        source_version="",
+        tier="",
+        connected=False,
+        lifecycle_state=state.value,
     )
 
 
@@ -137,9 +184,29 @@ def _summary_from_info(key: str, info: Dict[str, Any]) -> AdapterSummary:
 async def list_live_adapters(
     registry: AdapterRegistry = Depends(get_production_registry),
 ) -> AdaptersList:
-    """List every production-wired adapter and its current connection state."""
+    """List every production-wired adapter and its current lifecycle state.
+
+    Also includes catalogued-but-not-registered adapters (state =
+    ``catalogued`` or ``disabled``) so clients can see the full intended
+    fleet, not just the subset that successfully instantiated.
+    """
     info = registry.get_all_info()
-    summaries = [_summary_from_info(k, v) for k, v in info.items()]
+    catalog_keys = list(list_production_adapter_keys())
+    disabled_keys = list(list_disabled_adapter_keys())
+    states = compute_registry_lifecycle(
+        registry,
+        catalog_keys=catalog_keys,
+        disabled_keys=disabled_keys,
+    )
+
+    summaries: List[AdapterSummary] = []
+    for key, state in states.items():
+        if key in info:
+            summaries.append(
+                _summary_from_info(key, info[key], lifecycle_state=state.value)
+            )
+        else:
+            summaries.append(_summary_from_lifecycle_only(key, state))
     return AdaptersList(total=len(summaries), adapters=summaries)
 
 
@@ -151,6 +218,27 @@ async def list_catalog_keys() -> List[str]:
     wires — clients can compare this against ``/adapters``.
     """
     return list(list_production_adapter_keys())
+
+
+@router.get("/adapters/_lifecycle", response_model=LifecycleSummary)
+async def adapters_lifecycle_summary(
+    registry: AdapterRegistry = Depends(get_production_registry),
+) -> LifecycleSummary:
+    """Aggregate lifecycle snapshot across the full adapter fleet.
+
+    Pure metadata read — does not call any adapter ``connect()`` or live
+    ``health_check()``. Counts are derived from the registry's cached
+    state plus the static catalog and disabled list.
+    """
+    catalog_keys = list(list_production_adapter_keys())
+    disabled_keys = list(list_disabled_adapter_keys())
+    states = compute_registry_lifecycle(
+        registry,
+        catalog_keys=catalog_keys,
+        disabled_keys=disabled_keys,
+    )
+    summary = summarize_lifecycle(states)
+    return LifecycleSummary(**summary)
 
 
 @router.get("/adapters/{key}", response_model=AdapterDetail)
