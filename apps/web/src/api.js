@@ -1284,6 +1284,8 @@ function _auditQs(filters = {}) {
   return out.join('&');
 }
 
+export { apiFetch };
+
 export const api = {
   getToken, setToken, clearToken,
   getRefreshToken, setRefreshToken, clearRefreshToken,

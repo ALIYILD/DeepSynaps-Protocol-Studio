@@ -325,19 +325,11 @@ test('pgPatientProfile local-only tabs cover insurance, allergies, history, note
     document.getElementById('pp-a-severity').value = 'Mild';
     window._profileSaveAllergy();
     assert.match(document.getElementById('pp-tab-content').innerHTML, /Pollen/);
-    // Delete the Pollen entry we just added. The source uses
-    //   _PP_STORE_KEY = 'ds_patient_profiles'
-    // (see apps/web/src/pages-clinical.js); the previous fixture used
-    // 'ds_patient_profiles_v1' (a typo) and indexed delete by 1 when
-    // only one allergy existed at index 0 — so the test read an empty
-    // bucket while the real bucket still held Pollen.
-    window._profileDeleteAllergy(0);
     const storedProfiles = JSON.parse(globalThis.localStorage.getItem('ds_patient_profiles') || '[]');
-    const _srv3 = storedProfiles.find((profile) => profile.id === 'srv-3');
-    // allergies may serialize as [] or be missing — both express
-    // "no Pollen remains".
-    const _hasPollen = !!(_srv3?.allergies?.some((item) => item.substance === 'Pollen'));
-    assert.equal(_hasPollen, false);
+    const srv3AllergyIdx = storedProfiles.find((profile) => profile.id === 'srv-3')?.allergies?.findIndex((item) => item.substance === 'Pollen');
+    window._profileDeleteAllergy(srv3AllergyIdx);
+    const storedProfilesAfterDelete = JSON.parse(globalThis.localStorage.getItem('ds_patient_profiles') || '[]');
+    assert.equal(storedProfilesAfterDelete.find((profile) => profile.id === 'srv-3')?.allergies?.some((item) => item.substance === 'Pollen'), false);
     window._profileTab('allergies');
     assert.doesNotMatch(document.getElementById('pp-tab-content').innerHTML, /Pollen/);
 
@@ -354,15 +346,9 @@ test('pgPatientProfile local-only tabs cover insurance, allergies, history, note
 
     window._profileAddFlag('high-risk');
     window._profileAddFlag('high-risk');
-    // Match the rendered flag BADGE specifically — either the
-    // header "<span class=profile-flag-high-risk>" chip or the
-    // edit-mode "✕ high-risk" remove button. The bare substring
-    // "high-risk" always appears in the +HR Add Flag button's onclick
-    // attribute regardless of whether any flag is active, so we look
-    // for a uniquely-rendered badge marker (the profile-flag class).
-    assert.match(document.getElementById('content').innerHTML, /class="profile-flag profile-flag-high-risk"/);
+    assert.match(document.getElementById('pp-flags-display').innerHTML, /high-risk/i);
     window._profileRemoveFlag('high-risk');
-    assert.doesNotMatch(document.getElementById('content').innerHTML, /class="profile-flag profile-flag-high-risk"/);
+    assert.doesNotMatch(document.getElementById('pp-flags-display').innerHTML, /high-risk/i);
 
     window._ppAddNoteQuick('srv-3');
     document.getElementById('pp-notes-area').value = 'Updated note';
