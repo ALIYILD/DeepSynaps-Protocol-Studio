@@ -1,0 +1,93 @@
+name: Agent PR Gate
+
+# Server-side gate for PRs that may have come from a chat-AI session.
+# Mirrors the local checks in scripts/kimi-session-finish.sh so an operator
+# who pushes without running the local script still gets the same protection.
+#
+# Three checks:
+#   1. Ancestry        — PR head must share common ancestry with origin/main.
+#                        Catches zero-ancestry parallel-universe branches
+#                        (see deepsynaps-runaway-agent-master-branch memory).
+#   2. Forbidden files — push_*.py, base64 payloads, .pyc, flat-encoded paths,
+#                        agent self-reports. None of these belong in any PR.
+#   3. Diff size       — hard fail > 2000 lines, warn > 800.
+#
+# This workflow does not run tests or builds — those are handled by other
+# required checks. Its only job is to block the structural failure modes
+# we hit on 2026-05-18.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure origin/main is fetched
+        run: git fetch origin main --quiet
+
+      - name: Ancestry check
+        run: |
+          set -euo pipefail
+          BASE=$(git merge-base origin/main HEAD || true)
+          if [ -z "$BASE" ]; then
+            echo "::error::PR branch shares no common ancestry with origin/main."
+            echo "::error::This matches the runaway-agent parallel-universe pattern."
+            echo "::error::See docs/stabilization/deploy-hotfix-2026-05-18.md"
+            exit 1
+          fi
+          echo "Ancestry OK — merge-base $BASE"
+
+      - name: Forbidden-file smell check
+        run: |
+          set -euo pipefail
+          # Keep this regex in sync with scripts/kimi-session-finish.sh
+          FORBIDDEN_RE='(^|/)(push_[a-z_]*\.py|.*_b64\.(txt|json)|.*payloads\.json|encoded_content[^/]*|KIMI_BUILD_LOG[^/]*|REDEPLOY_[^/]*\.sh|.*_push_report\.(md|json)|audit_report_[^/]*\.md|.*\.pyc|.*__pycache__.*|[a-z0-9]+__[a-z0-9_]+__[a-z0-9_]+\.(py|js|ts|md|json))$'
+
+          MATCHES=$(git diff --name-only origin/main..HEAD | grep -E "$FORBIDDEN_RE" || true)
+          if [ -n "$MATCHES" ]; then
+            echo "::error::PR contains forbidden patterns (agent-detritus signature):"
+            while IFS= read -r f; do
+              echo "::error file=$f::forbidden pattern"
+            done <<< "$MATCHES"
+            echo ""
+            echo "Forbidden categories:"
+            echo "  - push_*.py                — agent push scripts (do real git push instead)"
+            echo "  - *_b64.{txt,json}         — base64-encoded payloads from chat"
+            echo "  - *payloads.json           — same"
+            echo "  - encoded_content*         — same"
+            echo "  - KIMI_BUILD_LOG*          — agent self-narration"
+            echo "  - REDEPLOY_*.sh            — agent deploy helpers"
+            echo "  - *_push_report.{md,json}  — agent self-reports"
+            echo "  - audit_report_*.md        — agent self-grading"
+            echo "  - *.pyc / __pycache__/*    — compiled artifacts (should be gitignored)"
+            echo "  - foo__bar__baz.py         — flat-encoded paths from chat"
+            echo ""
+            echo "See docs/stabilization/deploy-hotfix-2026-05-18.md addendum."
+            exit 1
+          fi
+          echo "Forbidden-file scan OK."
+
+      - name: Diff size check
+        run: |
+          set -euo pipefail
+          LINES=$(git diff origin/main..HEAD | wc -l)
+          echo "Diff is $LINES lines."
+          if [ "$LINES" -gt 2000 ]; then
+            echo "::error::Diff is $LINES lines (> 2000). Split into smaller PRs."
+            echo "::error::This is the brain-twin-rewrite anti-pattern: 2508 lines in one commit."
+            exit 1
+          elif [ "$LINES" -gt 800 ]; then
+            echo "::warning::Diff is $LINES lines (> 800). Consider splitting for reviewability."
+          fi
