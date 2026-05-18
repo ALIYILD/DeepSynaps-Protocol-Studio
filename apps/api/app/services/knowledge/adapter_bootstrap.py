@@ -19,79 +19,66 @@ which is what the new live router uses. The optional ``initialize_all()``
 call performs upstream health pings and is skipped by default to keep
 startup fast and to allow offline / test environments.
 
-The catalog at ``_ADAPTER_CATALOG`` is the **declarative source of truth**
+The manifest at ``adapter_manifest.py`` is the declarative source of truth
 for which adapters ship in production. To add a new adapter:
 
     1. Implement it at ``apps/api/app/services/knowledge/adapters/<name>_adapter.py``.
-    2. Add one row to ``_ADAPTER_CATALOG`` below.
+    2. Add one row to ``ADAPTER_MANIFEST``.
     3. Update ``docs/engineering/knowledge-adapter-roadmap.md``.
 """
 
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 from typing import Any, Dict, Optional, Tuple, Type
 
 from app.services.knowledge.adapter_registry import AdapterRegistry
-from app.services.knowledge.lifecycle import read_disabled_adapter_keys
-from app.services.knowledge.adapters.abide_adapter import ABIDEAdapter
-from app.services.knowledge.adapters.adni_adapter import ADNIAdapter
-from app.services.knowledge.adapters.allen_brain_adapter import AllenBrainAdapter
-from app.services.knowledge.adapters.chbmp_adapter import CHBMPAdapter
-from app.services.knowledge.adapters.clinicaltrials_adapter import (
-    ClinicalTrialsAdapter,
+from app.services.knowledge.adapter_manifest import (
+    get_manifest_entry,
+    get_registered_manifest_keys,
 )
-from app.services.knowledge.adapters.clinvar_adapter import ClinVarAdapter
-from app.services.knowledge.adapters.cochrane_adapter import CochraneAdapter
-from app.services.knowledge.adapters.europepmc_adapter import EuropePMCAdapter
-from app.services.knowledge.adapters.faers_adapter import FAERSAdapter
-from app.services.knowledge.adapters.gnomad_adapter import GnomadAdapter
-from app.services.knowledge.adapters.loinc_adapter import LOINCAdapter
-from app.services.knowledge.adapters.mni_atlas_adapter import MNIAtlasAdapter
-from app.services.knowledge.adapters.neurosynth_adapter import NeurosynthAdapter
-from app.services.knowledge.adapters.onsides_adapter import OnSIDESAdapter
-from app.services.knowledge.adapters.openfda_adapter import OpenFDAAdapter
-from app.services.knowledge.adapters.pharmgkb_adapter import PharmGKBAdapter
-from app.services.knowledge.adapters.promis_adapter import PROMISAdapter
-from app.services.knowledge.adapters.pubmed_adapter import PubMedAdapter
-from app.services.knowledge.adapters.rxnorm_adapter import RxNormAdapter
-from app.services.knowledge.adapters.schaefer_adapter import SchaeferAdapter
-from app.services.knowledge.adapters.simnibs_adapter import SimNIBSAdapter
+from app.services.knowledge.lifecycle import read_disabled_adapter_keys
 from app.services.knowledge.base_adapter import DatabaseAdapter
 
 logger = logging.getLogger(__name__)
 
 
-# Declarative catalog. Each entry: registry-key → (class, tier, config).
-# Keep keys URL-safe and stable; clients depend on them.
-_ADAPTER_CATALOG: Dict[str, Tuple[Type[DatabaseAdapter], str, Dict[str, Any]]] = {
-    "rxnorm":       (RxNormAdapter,         "P0", {}),
-    "pharmgkb":     (PharmGKBAdapter,       "P0", {}),
-    "clinvar":      (ClinVarAdapter,        "P0", {}),
-    "loinc":        (LOINCAdapter,          "P0", {}),
-    "openfda":      (OpenFDAAdapter,        "P0", {}),
-    "chbmp":        (CHBMPAdapter,          "P0", {}),
-    "mni_atlas":    (MNIAtlasAdapter,       "P0", {}),
-    "promis":       (PROMISAdapter,         "P0", {}),
-    "simnibs":      (SimNIBSAdapter,        "P0", {}),
-    "faers":        (FAERSAdapter,          "P1", {}),
-    "onsides":      (OnSIDESAdapter,        "P1", {}),
-    "allen_brain":  (AllenBrainAdapter,     "P1", {}),
-    "schaefer":     (SchaeferAdapter,       "P1", {}),
-    "neurosynth":   (NeurosynthAdapter,     "P1", {}),
-    "adni":         (ADNIAdapter,           "P1", {}),
-    "abide":        (ABIDEAdapter,          "P1", {}),
-    "pubmed":       (PubMedAdapter,         "P0", {}),
-    "ctgov":        (ClinicalTrialsAdapter, "P0", {}),
-    "cochrane":     (CochraneAdapter,       "P0", {}),
-    "europepmc":    (EuropePMCAdapter,      "P1", {}),
-    "gnomad":       (GnomadAdapter,         "P1", {}),
-}
+def _resolve_adapter_class(key: str) -> Type[DatabaseAdapter]:
+    entry = get_manifest_entry(key)
+    if entry is None:
+        raise KeyError(f"Adapter manifest entry not found for {key!r}")
+
+    import_path = str(entry.get("import_path", "")).strip()
+    class_name = str(entry.get("class_name", "")).strip()
+    if not import_path or not class_name:
+        raise ImportError(f"Adapter {key!r} is missing import metadata in the manifest")
+
+    module = importlib.import_module(import_path)
+    adapter_cls = getattr(module, class_name)
+    if not issubclass(adapter_cls, DatabaseAdapter):
+        raise TypeError(
+            f"Manifest class for {key!r} is not a DatabaseAdapter: {adapter_cls!r}"
+        )
+    return adapter_cls
+
+
+def _build_adapter_catalog() -> Dict[str, Tuple[Type[DatabaseAdapter], str, Dict[str, Any]]]:
+    catalog: Dict[str, Tuple[Type[DatabaseAdapter], str, Dict[str, Any]]] = {}
+    for key in get_registered_manifest_keys():
+        entry = get_manifest_entry(key)
+        if entry is None:
+            continue
+        catalog[key] = (_resolve_adapter_class(key), str(entry.get("tier", "P1")), {})
+    return catalog
+
+
+_ADAPTER_CATALOG: Dict[str, Tuple[Type[DatabaseAdapter], str, Dict[str, Any]]] = _build_adapter_catalog()
 
 
 def list_production_adapter_keys() -> Tuple[str, ...]:
-    """Public read-only view of the catalog keys, in declaration order."""
+    """Public read-only view of manifest-approved bootstrap keys."""
     return tuple(_ADAPTER_CATALOG.keys())
 
 

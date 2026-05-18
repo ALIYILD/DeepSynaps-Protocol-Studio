@@ -18,38 +18,21 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# ── Adapter import paths ───────────────────────────────────────────────────────
-# Try knowledge-layer imports first, then fall back to batch outputs for
-# adapters that exist outside the main tree.
-
-# Core genetics adapters (DeepSynaps Protocol Studio)
-_CLINVAR_IMPORT = "app.services.knowledge.adapters.clinvar_adapter"
-_PHARMGKB_IMPORT = "app.services.knowledge.adapters.pharmgkb_adapter"
-_ALLEN_BRAIN_IMPORT = "app.services.knowledge.adapters.allen_brain_adapter"
-
-# Batch 4 genetics adapters
-_GWAS_CATALOG_IMPORT = "app.services.knowledge.adapters.gwas_catalog_adapter"
-_DBSNP_IMPORT = "app.services.knowledge.adapters.dbsnp_adapter"
-_ENSEMBL_IMPORT = "app.services.knowledge.adapters.ensembl_adapter"
-_GNOMAD_IMPORT = "app.services.knowledge.adapters.gnomad_adapter"
-_UNIPROT_IMPORT = "app.services.knowledge.adapters.uniprot_adapter"
-
-# Batch 5 atlas + interaction adapters
-_STRING_IMPORT = "app.services.knowledge.adapters.string_adapter"
-_MYVARIANT_IMPORT = "app.services.knowledge.adapters.myvariant_adapter"
-
 # ── Canonical adapter class names ──────────────────────────────────────────────
+# The bridge resolves adapters from the registry by key only. Keep this map free
+# of module-path strings so nonexistent service adapters are not implied to
+# exist just because a bridge knows about their canonical names.
 _ADAPTER_CLASSES = {
-    "clinvar": ("ClinVarAdapter", _CLINVAR_IMPORT),
-    "pharmgkb": ("PharmGKBAdapter", _PHARMGKB_IMPORT),
-    "gwas_catalog": ("GWASCatalogAdapter", _GWAS_CATALOG_IMPORT),
-    "dbsnp": ("DbSNPAdapter", _DBSNP_IMPORT),
-    "ensembl": ("EnsemblAdapter", _ENSEMBL_IMPORT),
-    "gnomad": ("GnomADAdapter", _GNOMAD_IMPORT),
-    "uniprot": ("UniProtAdapter", _UNIPROT_IMPORT),
-    "string": ("STRINGAdapter", _STRING_IMPORT),
-    "myvariant": ("MyVariantAdapter", _MYVARIANT_IMPORT),
-    "allen_brain": ("AllenBrainAdapter", _ALLEN_BRAIN_IMPORT),
+    "clinvar": "ClinVarAdapter",
+    "pharmgkb": "PharmGKBAdapter",
+    "gwas_catalog": "GWASCatalogAdapter",
+    "dbsnp": "DbSNPAdapter",
+    "ensembl": "EnsemblAdapter",
+    "gnomad": "GnomADAdapter",
+    "uniprot": "UniProtAdapter",
+    "string": "STRINGAdapter",
+    "myvariant": "MyVariantAdapter",
+    "allen_brain": "AllenBrainAdapter",
 }
 
 # ── Adapter confidence weights ─────────────────────────────────────────────────
@@ -182,7 +165,7 @@ class GeneticAnalyzerBridge:
         self._adapters: Dict[str, Any] = {}
         missing: List[str] = []
 
-        for name, (cls_name, _) in _ADAPTER_CLASSES.items():
+        for name, cls_name in _ADAPTER_CLASSES.items():
             adapter = registry.get(name) if hasattr(registry, "get") else registry.get(name)
             if adapter is not None:
                 self._adapters[name] = adapter

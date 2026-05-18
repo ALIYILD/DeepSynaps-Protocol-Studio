@@ -33,6 +33,8 @@ from typing import Any, Dict, Final, List, Optional, Tuple
 
 import httpx
 
+from app.services.knowledge.base_adapter import DatabaseAdapter
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -152,7 +154,7 @@ class TokenBucketRateLimiter:
 # OnSIDES Adapter
 # ---------------------------------------------------------------------------
 
-class OnSIDESAdapter:
+class OnSIDESAdapter(DatabaseAdapter):
     """Adapter for the OnSIDES (ON Side Effects) dataset.
 
     Provides access to NLP-extracted adverse events from FDA drug labels.

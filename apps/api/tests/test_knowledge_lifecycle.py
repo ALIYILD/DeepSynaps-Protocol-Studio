@@ -98,10 +98,52 @@ def test_live_adapter_routes_expose_lifecycle_states(monkeypatch) -> None:
     app.include_router(mod.router)
     app.dependency_overrides[mod.get_production_registry] = lambda: registry
 
+    monkeypatch.setattr(mod, "list_manifest_keys", lambda: ("pubmed", "ctgov", "cochrane", "abide"))
     monkeypatch.setattr(
         mod,
-        "list_production_adapter_keys",
-        lambda: ("pubmed", "ctgov", "cochrane", "abide"),
+        "_manifest_entry",
+        lambda key: {
+            "pubmed": {
+                "implemented": True,
+                "registered": True,
+                "live_exposed": True,
+                "tier": "P0",
+                "bridge_dependencies": [],
+                "references": [],
+                "notes": "",
+                "status": "active",
+            },
+            "ctgov": {
+                "implemented": True,
+                "registered": True,
+                "live_exposed": True,
+                "tier": "P0",
+                "bridge_dependencies": [],
+                "references": [],
+                "notes": "",
+                "status": "active",
+            },
+            "cochrane": {
+                "implemented": False,
+                "registered": False,
+                "live_exposed": False,
+                "tier": "",
+                "bridge_dependencies": [],
+                "references": [],
+                "notes": "",
+                "status": "missing",
+            },
+            "abide": {
+                "implemented": True,
+                "registered": True,
+                "live_exposed": True,
+                "tier": "P1",
+                "bridge_dependencies": [],
+                "references": [],
+                "notes": "",
+                "status": "active",
+            },
+        }[key],
     )
     monkeypatch.setattr(mod, "list_disabled_adapter_keys", lambda: ("abide",))
 
@@ -110,16 +152,18 @@ def test_live_adapter_routes_expose_lifecycle_states(monkeypatch) -> None:
         assert adapters.status_code == 200
         payload = adapters.json()
         by_key = {row["key"]: row for row in payload["adapters"]}
+        assert by_key["pubmed"]["status"] == "active"
         assert by_key["pubmed"]["lifecycle_state"] == "healthy"
+        assert by_key["ctgov"]["status"] == "active"
         assert by_key["ctgov"]["lifecycle_state"] == "unavailable"
-        assert by_key["cochrane"]["lifecycle_state"] == "catalogued"
-        assert by_key["abide"]["lifecycle_state"] == "disabled"
+        assert by_key["cochrane"]["status"] == "missing"
+        assert by_key["cochrane"]["registered"] is False
+        assert by_key["abide"]["status"] == "disabled"
 
         lifecycle = client.get("/api/v1/knowledge/live/adapters/_lifecycle")
         assert lifecycle.status_code == 200
         summary = lifecycle.json()
         assert summary["total"] == 4
-        assert summary["by_state"]["healthy"] == 1
-        assert summary["by_state"]["unavailable"] == 1
-        assert summary["by_state"]["catalogued"] == 1
+        assert summary["by_state"]["active"] == 2
+        assert summary["by_state"]["missing"] == 1
         assert summary["by_state"]["disabled"] == 1

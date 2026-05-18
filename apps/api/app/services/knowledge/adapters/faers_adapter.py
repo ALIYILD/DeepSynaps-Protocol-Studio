@@ -20,13 +20,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-from abc import ABC
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, Final, List, Optional, Set, Tuple
 
 import httpx
+
+from app.services.knowledge.base_adapter import DatabaseAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -256,7 +257,7 @@ class TokenBucketRateLimiter:
 # FAERS Adapter
 # ---------------------------------------------------------------------------
 
-class FAERSAdapter:
+class FAERSAdapter(DatabaseAdapter):
     """Adapter for the FDA Adverse Event Reporting System (FAERS).
 
     Queries the openFDA /drug/event.json endpoint with full governance

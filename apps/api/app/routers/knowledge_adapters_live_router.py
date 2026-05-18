@@ -1,8 +1,8 @@
 """
 Live knowledge-adapter HTTP surface.
 
-Exposes the 5 production-wired knowledge adapters (PubMed, ClinicalTrials.gov,
-Cochrane, Europe PMC, gnomAD) via REST. Backed by the canonical
+Exposes the canonical knowledge-adapter inventory via REST. Backed by the
+canonical
 ``AdapterRegistry`` from ``app.services.knowledge.adapter_registry`` and the
 singleton bootstrap in ``app.services.knowledge.adapter_bootstrap``.
 
@@ -30,13 +30,15 @@ from pydantic import BaseModel, Field
 from app.services.knowledge.adapter_bootstrap import (
     get_production_registry,
     list_disabled_adapter_keys,
-    list_production_adapter_keys,
+)
+from app.services.knowledge.adapter_manifest import (
+    ADAPTER_MANIFEST,
+    list_manifest_keys,
 )
 from app.services.knowledge.adapter_registry import AdapterRegistry
 from app.services.knowledge.lifecycle import (
     LifecycleState,
     compute_registry_lifecycle,
-    summarize_lifecycle,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,10 +58,15 @@ class AdapterSummary(BaseModel):
     """Compact metadata for an adapter listing."""
 
     key: str
+    status: str
+    implemented: bool
+    registered: bool
+    live_exposed: bool
     source_name: str
     source_version: str
     tier: str
     connected: bool
+    bridge_dependencies: List[str] = Field(default_factory=list)
     lifecycle_state: str = Field(
         default=LifecycleState.UNKNOWN.value,
         description="Normalized adapter lifecycle state — see /adapters/_lifecycle.",
@@ -79,11 +86,18 @@ class AdaptersList(BaseModel):
 
 class AdapterDetail(BaseModel):
     key: str
+    status: str = "available"
+    implemented: bool = True
+    registered: bool = True
+    live_exposed: bool = True
     source_name: str
     source_version: str
     tier: str
     license_type: str
     connected: bool
+    bridge_dependencies: List[str] = Field(default_factory=list)
+    references: List[str] = Field(default_factory=list)
+    notes: str = ""
     confidence_tier_unknown: str = Field(
         default="See /health for live health data"
     )
@@ -136,32 +150,73 @@ async def _ensure_connected(adapter, key: str) -> None:
 
 def _summary_from_info(
     key: str,
+    manifest: Dict[str, Any],
     info: Dict[str, Any],
     *,
+    inventory_status: str,
+    registered: bool,
     lifecycle_state: str = LifecycleState.UNKNOWN.value,
 ) -> AdapterSummary:
     return AdapterSummary(
         key=key,
+        status=inventory_status,
+        implemented=bool(manifest.get("implemented", False)),
+        registered=registered,
+        live_exposed=bool(manifest.get("live_exposed", False)),
         source_name=info.get("source_name", ""),
         source_version=info.get("source_version", ""),
-        tier=info.get("tier", "P2"),
+        tier=info.get("tier", str(manifest.get("tier", ""))),
         connected=bool(info.get("connected", False)),
+        bridge_dependencies=list(manifest.get("bridge_dependencies", [])),
         lifecycle_state=lifecycle_state,
     )
 
 
 def _summary_from_lifecycle_only(
     key: str,
-    state: LifecycleState,
+    manifest: Dict[str, Any],
+    *,
+    inventory_status: str,
+    registered: bool,
+    lifecycle_state: LifecycleState,
 ) -> AdapterSummary:
     return AdapterSummary(
         key=key,
+        status=inventory_status,
+        implemented=bool(manifest.get("implemented", False)),
+        registered=registered,
+        live_exposed=bool(manifest.get("live_exposed", False)),
         source_name="",
         source_version="",
-        tier="",
+        tier=str(manifest.get("tier", "")),
         connected=False,
-        lifecycle_state=state.value,
+        bridge_dependencies=list(manifest.get("bridge_dependencies", [])),
+        lifecycle_state=lifecycle_state.value,
     )
+
+
+def _manifest_entry(key: str) -> Optional[Dict[str, Any]]:
+    return ADAPTER_MANIFEST.get(key)
+
+
+def _inventory_status(
+    key: str,
+    manifest: Dict[str, Any],
+    *,
+    registered: bool,
+    disabled_keys: List[str],
+) -> str:
+    if key in disabled_keys:
+        return "disabled"
+    if not bool(manifest.get("implemented", False)):
+        return "missing"
+    if registered and bool(manifest.get("live_exposed", False)):
+        return "active"
+    if registered:
+        return "registered"
+    if bool(manifest.get("registered", False)) or bool(manifest.get("live_exposed", False)):
+        return "partial"
+    return str(manifest.get("status", "experimental"))
 
 
 # ---------------------------------------------------------------------------
@@ -173,9 +228,9 @@ def _summary_from_lifecycle_only(
 async def list_live_adapters(
     registry: AdapterRegistry = Depends(get_production_registry),
 ) -> AdaptersList:
-    """List every production-wired adapter and its current lifecycle state."""
+    """List the canonical adapter inventory and current registry state."""
     info = registry.get_all_info()
-    catalog_keys = list(list_production_adapter_keys())
+    catalog_keys = list(list_manifest_keys())
     disabled_keys = list(list_disabled_adapter_keys())
     states = compute_registry_lifecycle(
         registry,
@@ -183,38 +238,76 @@ async def list_live_adapters(
         disabled_keys=disabled_keys,
     )
     summaries: List[AdapterSummary] = []
-    for key, state in states.items():
+    for key in catalog_keys:
+        manifest = _manifest_entry(key) or {}
+        is_registered = key in info
+        inventory_status = _inventory_status(
+            key,
+            manifest,
+            registered=is_registered,
+            disabled_keys=disabled_keys,
+        )
+        state = states.get(
+            key,
+            LifecycleState.REGISTERED if is_registered else LifecycleState.UNKNOWN,
+        )
         if key in info:
             summaries.append(
-                _summary_from_info(key, info[key], lifecycle_state=state.value)
+                _summary_from_info(
+                    key,
+                    manifest,
+                    info[key],
+                    inventory_status=inventory_status,
+                    registered=is_registered,
+                    lifecycle_state=state.value,
+                )
             )
         else:
-            summaries.append(_summary_from_lifecycle_only(key, state))
+            summaries.append(
+                _summary_from_lifecycle_only(
+                    key,
+                    manifest,
+                    inventory_status=inventory_status,
+                    registered=is_registered,
+                    lifecycle_state=state,
+                )
+            )
     return AdaptersList(total=len(summaries), adapters=summaries)
 
 
 @router.get("/adapters/_catalog", response_model=List[str])
 async def list_catalog_keys() -> List[str]:
-    """Return the static catalog of adapter keys that *should* be registered.
-
-    Useful for verifying the bootstrap actually wired what the code says it
-    wires — clients can compare this against ``/adapters``.
-    """
-    return list(list_production_adapter_keys())
+    """Return the canonical manifest keys for the knowledge inventory."""
+    return list(list_manifest_keys())
 
 
 @router.get("/adapters/_lifecycle", response_model=LifecycleSummary)
 async def adapters_lifecycle_summary(
     registry: AdapterRegistry = Depends(get_production_registry),
 ) -> LifecycleSummary:
-    catalog_keys = list(list_production_adapter_keys())
     disabled_keys = list(list_disabled_adapter_keys())
-    states = compute_registry_lifecycle(
-        registry,
-        catalog_keys=catalog_keys,
-        disabled_keys=disabled_keys,
-    )
-    return LifecycleSummary(**summarize_lifecycle(states))
+    info = registry.get_all_info()
+    rows: List[Dict[str, Any]] = []
+    for key in list_manifest_keys():
+        manifest = _manifest_entry(key) or {}
+        rows.append(
+            {
+                "key": key,
+                "status": _inventory_status(
+                    key,
+                    manifest,
+                    registered=key in info,
+                    disabled_keys=disabled_keys,
+                ),
+            }
+        )
+    by_state: Dict[str, int] = {}
+    adapters: Dict[str, str] = {}
+    for row in rows:
+        state = str(row["status"])
+        by_state[state] = by_state.get(state, 0) + 1
+        adapters[str(row["key"])] = state
+    return LifecycleSummary(total=len(rows), by_state=by_state, adapters=adapters)
 
 
 @router.get("/adapters/{key}", response_model=AdapterDetail)
@@ -224,7 +317,30 @@ async def get_live_adapter(
 ) -> AdapterDetail:
     """Return adapter detail (source, version, tier, license, connected state)."""
     info_map = registry.get_all_info()
+    manifest = _manifest_entry(key)
+    disabled_keys = list(list_disabled_adapter_keys())
     if key not in info_map:
+        if manifest is not None:
+            return AdapterDetail(
+                key=key,
+                source_name=str(manifest.get("source_name", key)),
+                source_version="",
+                tier=str(manifest.get("tier", "")),
+                license_type="",
+                connected=False,
+                status=_inventory_status(
+                    key,
+                    manifest,
+                    registered=False,
+                    disabled_keys=disabled_keys,
+                ),
+                implemented=bool(manifest.get("implemented", False)),
+                registered=False,
+                live_exposed=bool(manifest.get("live_exposed", False)),
+                bridge_dependencies=list(manifest.get("bridge_dependencies", [])),
+                references=list(manifest.get("references", [])),
+                notes=str(manifest.get("notes", "")),
+            )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown or unregistered adapter: {key!r}.",
@@ -239,11 +355,23 @@ async def get_live_adapter(
             logger.debug("get_license() raised for %s: %s", key, exc)
     return AdapterDetail(
         key=key,
+        status=_inventory_status(
+            key,
+            manifest or {},
+            registered=True,
+            disabled_keys=disabled_keys,
+        ),
+        implemented=bool((manifest or {}).get("implemented", True)),
+        registered=True,
+        live_exposed=bool((manifest or {}).get("live_exposed", True)),
         source_name=info.get("source_name", ""),
         source_version=info.get("source_version", ""),
-        tier=info.get("tier", "P2"),
+        tier=info.get("tier", str((manifest or {}).get("tier", "P2"))),
         license_type=license_type,
         connected=bool(info.get("connected", False)),
+        bridge_dependencies=list((manifest or {}).get("bridge_dependencies", [])),
+        references=list((manifest or {}).get("references", [])),
+        notes=str((manifest or {}).get("notes", "")),
     )
 
 
@@ -260,6 +388,21 @@ async def adapter_health(
     """
     adapter = registry.get(key)
     if adapter is None:
+        manifest = _manifest_entry(key)
+        if manifest is not None:
+            return AdapterHealth(
+                status=_inventory_status(
+                    key,
+                    manifest,
+                    registered=False,
+                    disabled_keys=list(list_disabled_adapter_keys()),
+                ),
+                source=str(manifest.get("source_name", key)),
+                extra={
+                    "implemented": bool(manifest.get("implemented", False)),
+                    "registered": False,
+                },
+            )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown adapter: {key!r}.",
@@ -296,6 +439,15 @@ async def adapter_search(
     """
     adapter = registry.get(key)
     if adapter is None:
+        if _manifest_entry(key) is not None:
+            manifest = _manifest_entry(key) or {}
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Adapter {key!r} is declared in the manifest but not registered. "
+                    f"status={_inventory_status(key, manifest, registered=False, disabled_keys=list(list_disabled_adapter_keys()))!r}."
+                ),
+            )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown adapter: {key!r}.",
