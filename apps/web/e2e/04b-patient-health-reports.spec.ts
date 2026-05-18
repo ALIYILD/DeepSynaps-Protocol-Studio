@@ -128,8 +128,10 @@ test.describe('Patient Health Reports (v2)', () => {
       win._navPatient?.('patient-health-reports');
     });
 
-    await page.waitForTimeout(400);
-    await expect(page.locator('#pt-hr-tabs')).toBeVisible({ timeout: 10000 });
+    await page.waitForSelector('#pt-hr-tabs button[data-tab="documents"]', {
+      state: 'attached',
+      timeout: 10000,
+    });
 
     const buttons = page.locator('#pt-hr-tabs button[data-tab]');
     await expect(buttons).toHaveCount(4);

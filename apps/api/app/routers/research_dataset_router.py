@@ -41,7 +41,9 @@ from app.auth import (
 )
 from app.database import get_db_session
 from app.models.research_dataset import ResearchDataset
-from app.repositories.patients import list_patients_for_research_preflight
+from app.repositories.research_consent import (
+    list_patients_for_research_preflight,
+)
 from app.services.anonymization_service import (
     K_ANONYMITY_THRESHOLD,
     age_bucket,
@@ -83,9 +85,9 @@ def _require_research_export_enabled() -> None:
         )
 
 
-# ── Request / response schemas ─────────────────────────────────────────────--
+# ── Request / response schemas ───────────────────────────────────────────────
 
-# core-schema-exempt: admin-only research export scaffold stays router-local until non-router consumers exist.
+
 class ResearchDatasetCreateRequest(BaseModel):
     """Body for ``POST /api/v1/research-datasets``.
 
@@ -115,7 +117,6 @@ class ResearchDatasetCreateRequest(BaseModel):
         return value
 
 
-# core-schema-exempt: admin-only research export scaffold stays router-local until non-router consumers exist.
 class ResearchDatasetSummary(BaseModel):
     """Listing-row shape — drops ``export_uri`` unless ``status=ready``."""
 
@@ -127,7 +128,6 @@ class ResearchDatasetSummary(BaseModel):
     export_uri: str | None = None
 
 
-# core-schema-exempt: admin-only research export scaffold stays router-local until non-router consumers exist.
 class ResearchDatasetDetail(BaseModel):
     """Full record — admin only via ``GET /{id}``."""
 
@@ -146,7 +146,6 @@ class ResearchDatasetDetail(BaseModel):
     export_uri: str | None
 
 
-# core-schema-exempt: admin-only research export scaffold stays router-local until non-router consumers exist.
 class PreflightSampleRow(BaseModel):
     """One anonymized row in the preflight preview."""
 
@@ -156,7 +155,6 @@ class PreflightSampleRow(BaseModel):
     quasi_id_values: dict[str, Any]
 
 
-# core-schema-exempt: admin-only research export scaffold stays router-local until non-router consumers exist.
 class PreflightResponse(BaseModel):
     """``POST /{id}/preflight`` response envelope."""
 
@@ -167,7 +165,6 @@ class PreflightResponse(BaseModel):
     consent_filtered_out: int
 
 
-# core-schema-exempt: admin-only research export scaffold stays router-local until non-router consumers exist.
 class BuildResponse(BaseModel):
     """``POST /{id}/build`` response — always deferred in this PR."""
 

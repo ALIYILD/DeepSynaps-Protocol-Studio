@@ -21,6 +21,12 @@ def get_patient_by_id(session: Session, patient_id: str) -> Optional[Patient]:
     return session.query(Patient).filter(Patient.id == patient_id).first()
 
 
+def list_patients_for_research_preflight(
+    session: Session, limit: int = 200
+) -> list[Patient]:
+    return session.query(Patient).limit(limit).all()
+
+
 def get_user_by_id(session: Session, user_id: str) -> Optional[User]:
     return session.query(User).filter(User.id == user_id).first()
 
