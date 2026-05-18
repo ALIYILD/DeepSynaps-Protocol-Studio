@@ -102,7 +102,7 @@ function _renderAiAgentV2PatientContextPanel() {
   // explicitly signal that non-selected-patient data is excluded (data
   // minimization). When no patient is selected we clearly label clinic-wide context.
   const statusLine = missing
-    ? '<strong>Clinic-wide context</strong> — no patient selected. Assistant uses clinic-wide summaries only. Pick a patient from Patients or an analyzer to scope drafts.'
+    ? '<strong>Clinic-wide context</strong> — No patient selected. Assistant uses clinic-wide summaries only. Pick a patient from Patients or an analyzer to scope drafts.'
     : `<strong>Scoped to patient <code style="font-size:11px">${patientId}</code>${patientName ? ` (${patientName})` : ''}</strong> — clinic-wide data excluded by data-minimization flag. Verify identifiers before acting.`;
   // Patient picker dropdown — opt-in when window._patientRoster is populated.
   // Pure read+localStorage write; no overlay state, no orchestration.
@@ -6176,6 +6176,9 @@ export const __aiAgentV2TestApi__ = {
   reset() {
     _agentView = 'detached';
     _lastSetTopbar = () => {};
+    try { delete window._selectedPatientId; } catch {}
+    try { sessionStorage.removeItem('ds_pat_selected_id'); } catch {}
+    try { localStorage.removeItem('ds_selected_patient_id'); } catch {}
   },
   renderGovernanceBanner() {
     return _renderAiAgentV2GovernanceBanner();
@@ -6374,20 +6377,36 @@ export const __onboardingFunnelTestApi__ = {
   reset() {
     _marketplaceTab = 'catalog';
     _onboardingFunnelDays = 7;
-    _onboardingFunnelByDays = {};
-    _onboardingFunnelData = null;
+    _onboardingFunnelByDays = Object.create(null);
     _onboardingFunnelError = null;
     _onboardingFunnelLoading = false;
     _agentView = 'detached';
     _lastSetTopbar = () => {};
   },
   renderCard() {
-    return _renderOnboardingFunnelCard();
+    return _renderOpsOnboardingFunnelCard();
+  },
+  renderTabStrip() {
+    return _renderMarketplaceTabStrip();
+  },
+  renderOpsSection(agents) {
+    return _renderOpsSection(Array.isArray(agents) ? agents : []);
+  },
+  isSuperAdmin() {
+    return _isSuperAdmin();
+  },
+  setWindow(days) {
+    _onboardingFunnelDays = _onboardingFunnelClampDays(days);
+  },
+  fetchFunnel(days) {
+    return _fetchOnboardingFunnel(days);
   },
   getState() {
+    const days = _onboardingFunnelClampDays(_onboardingFunnelDays);
     return {
-      days: _onboardingFunnelDays,
-      data: _onboardingFunnelData,
+      days,
+      data: _onboardingFunnelByDays[days] || null,
+      byDays: { ..._onboardingFunnelByDays },
       error: _onboardingFunnelError,
       loading: _onboardingFunnelLoading,
     };
