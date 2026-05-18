@@ -122,6 +122,9 @@ from app.routers.escalation_policy_router import router as escalation_policy_rou
 from app.routers.patient_oncall_router import router as patient_oncall_router
 from app.routers.patient_digest_router import router as patient_digest_router
 from app.routers.knowledge_router_v2 import router as knowledge_router_v2
+from app.routers.knowledge_adapters_live_router import (
+    router as knowledge_adapters_live_router,
+)
 from app.routers.evidence_router import router as evidence_router
 from app.routers.health_dashboard import router as health_dashboard
 from app.lifespan_wiring import deepynaps_lifespan
@@ -804,6 +807,7 @@ app.include_router(ecosystem_router)
 app.include_router(patient_portal_v2_router)
 app.include_router(handbook_v2_router)
 app.include_router(knowledge_router_v2)
+app.include_router(knowledge_adapters_live_router)
 app.include_router(evidence_router)
 app.include_router(health_dashboard)
 app.include_router(biomarker_router)

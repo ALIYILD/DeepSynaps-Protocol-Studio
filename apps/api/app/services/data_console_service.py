@@ -107,6 +107,8 @@ def mask_phi_field(value: Any, field_name: str) -> Any:
     """
     if value is None:
         return None
+    if value == "":
+        return ""
     
     # Check for exact match first
     if field_name in PHI_PATTERNS:
@@ -481,7 +483,12 @@ def export_to_csv(data: List[Dict[str, Any]], filename: str, masked: bool = True
     with open(filepath, "w", newline="", encoding="utf-8") as f:
         if not data:
             return filepath
-        writer = csv.DictWriter(f, fieldnames=list(data[0].keys()))
+        fieldnames: List[str] = []
+        for row in data:
+            for key in row.keys():
+                if key not in fieldnames:
+                    fieldnames.append(key)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(data)
     return filepath
