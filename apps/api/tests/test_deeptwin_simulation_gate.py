@@ -57,7 +57,9 @@ def _base_prod_env() -> dict[str, str]:
         "JWT_SECRET_KEY": "x" * 64,  # not the insecure placeholder
         "DEEPSYNAPS_SECRETS_KEY": "Pn7p4xBz2vQ8fJ-bCe1rXkS5lYgM3hUaTwDoVqIeZ8U=",
         "WEARABLE_TOKEN_ENC_KEY": "Pn7p4xBz2vQ8fJ-bCe1rXkS5lYgM3hUaTwDoVqIeZ8U=",
-        "DEEPSYNAPS_DATABASE_URL": "sqlite:///./test_gate.db",
+        # Postgres URL (not connected, just satisfies load_settings's env-aware
+        # check that rejects sqlite:// in production/staging).
+        "DEEPSYNAPS_DATABASE_URL": "postgresql://test:test@127.0.0.1:5432/test_gate",
         "DEEPSYNAPS_CORS_ORIGINS": "http://localhost:5173",
     }
 

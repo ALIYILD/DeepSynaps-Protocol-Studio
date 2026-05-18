@@ -432,6 +432,32 @@ def test_jwt_default_allowed_in_development() -> None:
         assert settings.jwt_secret_key == _INSECURE_JWT_DEFAULT
 
 
+def test_sqlite_database_url_rejected_in_production() -> None:
+    """load_settings must reject sqlite:// when DEEPSYNAPS_APP_ENV=production.
+
+    SQLite is process-local — on a horizontally-scaled Fly app each machine
+    keeps its own DB file, breaks under concurrent writes, and silently
+    diverges between machines. The existing validator only checks syntax;
+    this guards the env-aware policy.
+    """
+    import os
+    from unittest.mock import patch
+
+    from app.settings import load_settings
+
+    env = {
+        "DEEPSYNAPS_APP_ENV": "production",
+        "JWT_SECRET_KEY": "x" * 64,
+        "DEEPSYNAPS_SECRETS_KEY": "Pn7p4xBz2vQ8fJ-bCe1rXkS5lYgM3hUaTwDoVqIeZ8U=",
+        "WEARABLE_TOKEN_ENC_KEY": "Pn7p4xBz2vQ8fJ-bCe1rXkS5lYgM3hUaTwDoVqIeZ8U=",
+        "DEEPSYNAPS_DATABASE_URL": "sqlite:///./prod_should_reject.db",
+        "DEEPSYNAPS_CORS_ORIGINS": "http://localhost:5173",
+    }
+    with patch.dict(os.environ, env, clear=False):
+        with pytest.raises(RuntimeError, match="sqlite"):
+            load_settings()
+
+
 def test_patient_cannot_read_other_patient_thread(client: TestClient, auth_headers: dict) -> None:
     db: Session = SessionLocal()
     try:
