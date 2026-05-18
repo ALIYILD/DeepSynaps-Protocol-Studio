@@ -29,17 +29,29 @@ class BaseAdapter:
     """Minimal base adapter stub for testing without the full app."""
     pass
 
-# Make it available as the expected import path
-sys.modules['app'] = type(sys)('app')
-sys.modules['app.knowledge'] = type(sys)('app.knowledge')
-sys.modules['app.knowledge.base_adapter'] = type(sys)('app.knowledge.base_adapter')
-sys.modules['app.knowledge.base_adapter'].BaseAdapter = BaseAdapter
+_ORIGINAL_APP_MODULES = {
+    name: sys.modules.get(name)
+    for name in ("app", "app.knowledge", "app.knowledge.base_adapter")
+}
 
-from functional_connectomes_1000_adapter import FunctionalConnectomes1000Adapter
-from nitrc_adapter import NitrcAdapter
-from glasser2016_adapter import Glasser2016Adapter
-from brainnetome_adapter import BrainnetomeAdapter
-from ixi_adapter import IxiAdapter
+try:
+    # Make the stub available only while importing these legacy flat modules.
+    sys.modules["app"] = type(sys)("app")
+    sys.modules["app.knowledge"] = type(sys)("app.knowledge")
+    sys.modules["app.knowledge.base_adapter"] = type(sys)("app.knowledge.base_adapter")
+    sys.modules["app.knowledge.base_adapter"].BaseAdapter = BaseAdapter
+
+    from functional_connectomes_1000_adapter import FunctionalConnectomes1000Adapter
+    from nitrc_adapter import NitrcAdapter
+    from glasser2016_adapter import Glasser2016Adapter
+    from brainnetome_adapter import BrainnetomeAdapter
+    from ixi_adapter import IxiAdapter
+finally:
+    for name, module in _ORIGINAL_APP_MODULES.items():
+        if module is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = module
 
 
 # ---------------------------------------------------------------------------

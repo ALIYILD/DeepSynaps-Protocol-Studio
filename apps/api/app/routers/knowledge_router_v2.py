@@ -152,6 +152,14 @@ except ImportError:
             return {"status": "mock", "safe": True, "warnings": []}
 
 
+def get_protocol_generator() -> ProtocolGenerator:
+    return ProtocolGenerator()
+
+
+def get_safety_checker() -> SafetyChecker:
+    return SafetyChecker()
+
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/knowledge", tags=["Knowledge Layer"])
 
@@ -1180,7 +1188,7 @@ async def seed_evidence(
 @router.post("/protocols/generate", response_model=ProtocolGenerateResponse)
 async def generate_protocols(
     request: Request,
-    protocol_generator: ProtocolGenerator = Depends(ProtocolGenerator),
+    protocol_generator: ProtocolGenerator = Depends(get_protocol_generator),
     actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.CLINICIAN)),
 ):
     """Generate personalized neuromodulation protocols for a patient."""
@@ -1232,7 +1240,7 @@ async def generate_protocols(
 async def get_tdcs_protocol(
     diagnosis: str = Query(..., min_length=1, max_length=256),
     age: Optional[int] = Query(None, ge=0, le=120),
-    protocol_generator: ProtocolGenerator = Depends(ProtocolGenerator),
+    protocol_generator: ProtocolGenerator = Depends(get_protocol_generator),
     actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.CLINICIAN)),
 ):
     """Get evidence-based tDCS protocol for a given diagnosis."""
@@ -1258,7 +1266,7 @@ async def get_tdcs_protocol(
 async def get_tms_protocol(
     diagnosis: str = Query(..., min_length=1, max_length=256),
     age: Optional[int] = Query(None, ge=0, le=120),
-    protocol_generator: ProtocolGenerator = Depends(ProtocolGenerator),
+    protocol_generator: ProtocolGenerator = Depends(get_protocol_generator),
     actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.CLINICIAN)),
 ):
     """Get FDA-cleared TMS protocol for a given diagnosis."""
@@ -1284,7 +1292,7 @@ async def get_tms_protocol(
 async def get_pbm_protocol(
     diagnosis: str = Query(..., min_length=1, max_length=256),
     age: Optional[int] = Query(None, ge=0, le=120),
-    protocol_generator: ProtocolGenerator = Depends(ProtocolGenerator),
+    protocol_generator: ProtocolGenerator = Depends(get_protocol_generator),
     actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.CLINICIAN)),
 ):
     """Get PBM (photobiomodulation) protocol for a given diagnosis."""
@@ -1308,7 +1316,7 @@ async def get_pbm_protocol(
 async def get_neurofeedback_protocol(
     diagnosis: str = Query(..., min_length=1, max_length=256),
     age: Optional[int] = Query(None, ge=0, le=120),
-    protocol_generator: ProtocolGenerator = Depends(ProtocolGenerator),
+    protocol_generator: ProtocolGenerator = Depends(get_protocol_generator),
     actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.CLINICIAN)),
 ):
     """Get neurofeedback training protocol for a given diagnosis."""
@@ -1332,7 +1340,7 @@ async def get_neurofeedback_protocol(
 @router.post("/protocols/safety-check", response_model=ProtocolSafetyCheckResponse)
 async def check_protocol_safety(
     request: Request,
-    safety_checker: SafetyChecker = Depends(SafetyChecker),
+    safety_checker: SafetyChecker = Depends(get_safety_checker),
     actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.CLINICIAN)),
 ):
     """Check protocol safety and contraindications."""
@@ -1353,7 +1361,7 @@ async def check_protocol_safety(
 @router.post("/protocols/compare", response_model=ProtocolCompareResponse)
 async def compare_protocols(
     request: Request,
-    protocol_generator: ProtocolGenerator = Depends(ProtocolGenerator),
+    protocol_generator: ProtocolGenerator = Depends(get_protocol_generator),
     actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.CLINICIAN)),
 ):
     """Compare multiple protocols and rank by predicted outcome."""
@@ -1382,7 +1390,7 @@ async def compare_protocols(
 @router.post("/protocols/report", response_model=ProtocolReportResponse)
 async def generate_protocol_report(
     request: Request,
-    protocol_generator: ProtocolGenerator = Depends(ProtocolGenerator),
+    protocol_generator: ProtocolGenerator = Depends(get_protocol_generator),
     actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.CLINICIAN)),
 ):
     """Generate clinician-ready protocol report."""
