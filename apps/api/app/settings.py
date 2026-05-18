@@ -413,6 +413,17 @@ def load_settings() -> AppSettings:
         raise RuntimeError(f"Invalid DeepSynaps environment configuration: {exc}") from exc
 
     if _app_env in ("production", "staging"):
+        # Env-aware policy check (the field_validator above is syntactic only).
+        # Process-local DB schemes break horizontally on Fly.
+        _disallowed_prod_schemes = ("sqlite",)
+        _db_lower = _settings.database_url.lower()
+        if any(_db_lower.startswith(s) for s in _disallowed_prod_schemes):
+            raise RuntimeError(
+                f"{_db_lower.split(':', 1)[0]}:// is not permitted as "
+                f"database_url in {_app_env}. Provision a managed Postgres "
+                f"(e.g. `fly postgres create`) and set DEEPSYNAPS_DATABASE_URL."
+            )
+
         if not (
             os.getenv("ANTHROPIC_API_KEY", "")
             or os.getenv("OPENAI_API_KEY", "")
