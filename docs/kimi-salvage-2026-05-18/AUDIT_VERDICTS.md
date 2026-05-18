@@ -32,7 +32,48 @@ All nine were moved out of `docs/kimi-salvage-2026-05-18/` and into canonical ho
 | `docs/STABILIZATION_PERFORMANCE_REVIEW.md` | `docs/performance/STABILIZATION_PERFORMANCE_REVIEW.md` |
 | `docs/OPEN_SOURCE_PHASE3_MULTIMODAL_INTELLIGENCE_STACK.md` | `docs/research/OPEN_SOURCE_PHASE3_MULTIMODAL_INTELLIGENCE_STACK.md` |
 
-## EDIT (25) — partial value, needs rewrite before promotion
+## EDIT (25) — UPDATE 2026-05-18: edited; 16 promoted, 9 still parked
+
+All 25 EDIT-tagged docs were rewritten in place by 5 parallel coder subagents on 2026-05-18 to match current main (correct paths, role names, env vars, schemas; explicit `<!-- TODO -->` markers where claims couldn't be verified). 16 became promote-ready and graduated to canonical homes; 9 remain in `docs/kimi-salvage-2026-05-18/` because they still contain unverified clinical/regulatory claims or unverified schema references.
+
+### Promoted in the edit pass (16)
+
+| Original file | Now lives at |
+| --- | --- |
+| `BETA_LAUNCH_PACK.md` | `docs/operations/BETA_LAUNCH_PACK.md` |
+| `CLINIC_ONBOARDING_CHECKLIST.md` | `docs/onboarding/CLINIC_ONBOARDING_CHECKLIST.md` |
+| `CLINICIAN_TRAINING_GUIDE.md` | `docs/onboarding/CLINICIAN_TRAINING_GUIDE.md` |
+| `PATIENT_PORTAL_ONBOARDING_GUIDE.md` | `docs/operations/patient-portal/PATIENT_PORTAL_ONBOARDING_GUIDE.md` |
+| `PILOT_FEEDBACK_SCHEMA.md` | `docs/operations/PILOT_FEEDBACK_SCHEMA.md` |
+| `RELEASE_NOTES_TEMPLATE.md` | `docs/operations/RELEASE_NOTES_TEMPLATE.md` |
+| `API_DOCUMENTATION.md` | `docs/api/API_DOCUMENTATION.md` |
+| `TROUBLESHOOTING.md` | `docs/operations/TROUBLESHOOTING.md` |
+| `docs/deployment/postgres.md` | `docs/deployment/postgres.md` |
+| `POSTGRES_CONFIG_AUDIT.md` | `docs/deployment/POSTGRES_CONFIG_AUDIT.md` |
+| `MATERIALIZED_VIEW_CANDIDATE_AUDIT.md` | `docs/performance/MATERIALIZED_VIEW_CANDIDATE_AUDIT.md` |
+| `DATETIME_DEPRECATION_AUDIT.md` | `docs/engineering/DATETIME_DEPRECATION_AUDIT.md` |
+| `GZIP_COMPRESSION_AUDIT.md` | `docs/performance/GZIP_COMPRESSION_AUDIT.md` |
+| `docs/STABILIZATION_PRODUCTION_HARDENING.md` | `docs/engineering/STABILIZATION_PRODUCTION_HARDENING.md` |
+| `docs/PHASE3_EVIDENCE_REASONING_DESIGN.md` | `docs/research/phase3/PHASE3_EVIDENCE_REASONING_DESIGN.md` |
+| `docs/PHASE3_MULTIMODAL_FUSION_DESIGN.md` | `docs/research/phase3/PHASE3_MULTIMODAL_FUSION_DESIGN.md` |
+
+Each has a top-of-file note: `<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->`
+
+### Still parked in `docs/kimi-salvage-2026-05-18/` (9)
+
+| File | Why still parked |
+| --- | --- |
+| `BETA_OPERATIONS_DASHBOARD_PLAN.md` | Real model names substituted; 3 TODOs on unverified table/column names. |
+| `BETA_RISK_REGISTER.md` | Risk mitigations rewritten; 4 TODOs on unverified indexes / role counts / consent model. |
+| `PILOT_SUCCESS_METRICS.md` | Confident table refs replaced with hedged descriptions; 6 TODOs on every DB table claim. |
+| `SUMMARY_ENDPOINTS_AUDIT.md` | Top note added; 3 TODOs flagging clinic-isolation/PHI claims unverified. |
+| `SUMMARY_ENDPOINTS_HOTSPOT_AUDIT.md` | Call-count estimates flagged as architectural, not benchmarks; promote after URL verification. |
+| `SUMMARY_PERFORMANCE_REPORT.md` | Every `<200ms` figure marked `(⚪ unverified on main)`; promote after re-benchmarking on Fly staging. |
+| `DEEPTWIN_SAFETY_AUDIT.md` | **All 15 PASS verdicts downgraded to UNVERIFIED**; final verdict changed to SUSPENDED. Re-audit required against current `deeptwin_*.py` services. 30+ TODOs. |
+| `EXPORT_GOVERNANCE_AUDIT.md` | Role/endpoint model needs full rewrite against `export_router.py`; 5 sections TODO. |
+| `docs/STABILIZATION_CLINICAL_GOVERNANCE.md` | Framework text preserved; FDA + EU-AI-Act "Status" columns tagged TODO for qualified reviewer. |
+
+Aggregate metric: **78 explicit TODO markers** placed across the 25 edits, all of which encode something the agents could not verify against current main rather than fabricate.
 
 | File | Main problem |
 | --- | --- |
