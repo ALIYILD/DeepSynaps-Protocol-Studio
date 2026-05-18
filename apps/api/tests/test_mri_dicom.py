@@ -20,6 +20,7 @@ Decision-support only. Not a medical device.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import os
 import sys
@@ -36,6 +37,19 @@ import pytest
 # ═══════════════════════════════════════════════════════════════════════════════
 # Module-level mocking -- must happen before the service module is imported
 # ═══════════════════════════════════════════════════════════════════════════════
+
+_REAL_MODULES = {
+    "pydicom": sys.modules.get("pydicom"),
+    "pydicom.errors": sys.modules.get("pydicom.errors"),
+    "pydicom.dataset": sys.modules.get("pydicom.dataset"),
+    "pydicom.uid": sys.modules.get("pydicom.uid"),
+    "nibabel": sys.modules.get("nibabel"),
+    "nibabel.orientations": sys.modules.get("nibabel.orientations"),
+    "dicom2nifti": sys.modules.get("dicom2nifti"),
+    "dicognito": sys.modules.get("dicognito"),
+    "dicognito.anonymizer": sys.modules.get("dicognito.anonymizer"),
+    "app.persistence.models": sys.modules.get("app.persistence.models"),
+}
 
 # Build mock modules so the service can import them
 _MockPydicom = ModuleType("pydicom")
@@ -85,6 +99,10 @@ sys.modules["app.persistence.models"] = _MockModels
 # Now import the service under test
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import app.services.mri_dicom_service as _mri_dicom_service
+
+_mri_dicom_service = importlib.reload(_mri_dicom_service)
+
 from app.services.mri_dicom_service import (
     PROVENANCE_INFERRED,
     PROVENANCE_MEASURED,
@@ -116,6 +134,12 @@ from app.services.mri_dicom_service import (
     _validate_dicom_series_quality,
     _json_loads,
 )
+
+for _module_name, _original_module in _REAL_MODULES.items():
+    if _original_module is not None:
+        sys.modules[_module_name] = _original_module
+    else:
+        sys.modules.pop(_module_name, None)
 
 # pytestmark is NOT set globally -- we apply @pytest.mark.asyncio only to
 # async test classes/methods to avoid pytest-asyncio warnings on sync tests.
