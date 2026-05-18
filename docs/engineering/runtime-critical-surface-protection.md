@@ -185,3 +185,17 @@ For each of these:
 - **Mandatory PR checklist applies.** See `docs/stabilization/governance-lock-2026-05-17.md` § 4.2 + the opt-in template at `.github/PULL_REQUEST_TEMPLATE/stabilization-sensitive.md`.
 
 The stabilization-sensitive subset is enforced by **human review at the PR gate**, not by CI. Reviewers must reject PRs that touch these surfaces without the checklist and the explicit governance-lock acknowledgement.
+
+## Wave-closing anchor (2026-05-17)
+
+The salvage stabilization wave is formally closed at tag `post-salvage-stabilization-2026-05-17` (commit `76c51a6d`, PR #981).
+
+See [`post-salvage-governance-lock-2026-05-17.md`](./post-salvage-governance-lock-2026-05-17.md) for:
+- The explicit "abandoned / DO NOT RESURRECT" wizard-symbol list
+- The explicit "preserved / live" overlay + window-handler list
+- Approved future workstream lanes + prohibited mixing rules
+- Mandatory PR checklist for stabilization-sensitive work
+- Audit traceability map
+- Known remaining drift (intentionally unresolved)
+
+That doc takes precedence over this one when their guidance overlaps for the wave-specific symbols and lanes; this doc remains the canonical source for the general surface list.
