@@ -1102,10 +1102,24 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 # Using FastAPI's TestClient for endpoint testing
 # Run: python -m pytest health_dashboard.py -v
 
-import pytest
-from fastapi.testclient import TestClient
-
-client = TestClient(app)
+try:
+    import pytest
+    from fastapi.testclient import TestClient
+    client = TestClient(app)
+except ModuleNotFoundError:
+    # pytest is dev-only — prod Docker image doesn't ship it.
+    # Stub just enough for the embedded test classes below to *load*;
+    # they are dead code in prod (pytest never collects router files).
+    class _Mark:
+        @staticmethod
+        def asyncio(fn): return fn
+    class pytest:  # type: ignore[no-redef]
+        mark = _Mark()
+        @staticmethod
+        def fixture(*_a, **_k): return lambda fn: fn
+        @staticmethod
+        def fail(*_a, **_k): return None
+    client = None
 
 
 class TestHealthEndpoints:
