@@ -1,3 +1,4 @@
+<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->
 # DeepSynaps Protocol Studio — Beta Launch Pack
 
 **Version:** 4.0.0-BETA  
@@ -25,7 +26,7 @@
 | **Reports** | Available | Clinician review, signing, export/handoff |
 | **DeepTwin** | Available | Patient-level synthesis: timeline, correlations, confounders, hypotheses |
 | **Patient Portal** | Available | Dashboard, appointments, tasks, messages, check-ins |
-| **Audit/Consent** | Available | Full audit trail, consent management, RBAC (5 roles) |
+| **Audit/Consent** | Available | Full audit trail, consent management, RBAC (`guest`/`patient`/`technician`/`reviewer`/`clinician`/`admin`/`supervisor`) |
 | **Admin** | Available | Clinic admin tools, user management, materialized view status |
 
 ### Infrastructure
@@ -96,7 +97,7 @@ DeepTwin outputs include:
 
 ### Demo Mode
 
-- Activated by `DEEPSYNAPS_DEMO_MODE=true` (backend) or `VITE_ENABLE_DEMO=1` (frontend)
+- Activated by `MRI_DEMO_MODE=1` (backend) or `VITE_ENABLE_DEMO=1` (frontend)
 - Shows red banner: "DEMO BUILD — Synthetic/non-PHI data only"
 - Uses synthetic patient data (`demo-patient-001`, etc.)
 - Safe for investor demos, training, UI testing

@@ -1,3 +1,4 @@
+<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->
 # Clinic Onboarding Checklist — DeepSynaps Beta
 
 **Date:** 2026-05-17  
@@ -13,7 +14,7 @@
 | 1 | Sign beta agreement | Clinic Admin / DeepSynaps Ops | ☐ | Decision-support terms, data handling |
 | 2 | Confirm clinic ID | DeepSynaps Ops | ☐ | e.g., `clinic-demo-001` |
 | 3 | Set `DEEPSYNAPS_APP_ENV` | DeepSynaps Ops | ☐ | `staging` for beta, `production` for live |
-| 4 | Set `DEEPSYNAPS_DEMO_MODE` | DeepSynaps Ops | ☐ | `false` for live beta |
+| 4 | Set `MRI_DEMO_MODE` | DeepSynaps Ops | ☐ | unset or `0` for live beta |
 | 5 | Set `DEEPSYNAPS_DEMO_CLINIC_SEED` | DeepSynaps Ops | ☐ | `false` — no synthetic data |
 | 6 | Confirm database connection | DeepSynaps Ops | ☐ | PostgreSQL for beta |
 | 7 | Run database migration | DeepSynaps Ops | ☐ | `alembic upgrade head` |
@@ -27,23 +28,26 @@
 
 | # | Task | Owner | Status | Notes |
 |---|------|-------|--------|-------|
-| 1 | Designate clinic_admin | Clinic Admin | ☐ | Primary clinic administrator |
+| 1 | Designate clinic admin user | Clinic Admin | ☐ | Assign `admin` role — primary clinic administrator |
 | 2 | Add clinicians | Clinic Admin | ☐ | Role: `clinician` |
 | 3 | Add reviewers (optional) | Clinic Admin | ☐ | Role: `reviewer` |
 | 4 | Add technicians (optional) | Clinic Admin | ☐ | Role: `technician` |
-| 5 | Confirm super_admin contact | DeepSynaps Ops | ☐ | Platform-level admin |
+| 5 | Confirm platform admin contact | DeepSynaps Ops | ☐ | Platform-level `admin` (no `super_admin` role exists) |
 | 6 | Verify role access | Clinic Admin | ☐ | Each user can log in and see correct UI |
 | 7 | Test clinic isolation | DeepSynaps Ops | ☐ | Users cannot see other clinics' data |
 
 ### Role Matrix
 
+Roles from `apps/api/app/auth.py` `ROLE_ORDER` (ascending privilege): `guest` → `patient` → `technician` → `reviewer` → `clinician` → `admin`/`supervisor`.
+
 | Role | Dashboard | Patients | Assessments | Analyzers | Reports | Admin |
 |------|-----------|----------|-------------|-----------|---------|-------|
-| super_admin | All clinics | All clinics | — | — | — | Full |
-| clinic_admin | Own clinic | Own clinic | — | — | — | Clinic |
+| admin | All clinics | All clinics | — | — | — | Full |
 | clinician | Own clinic | Own clinic | Full | Full | Full | — |
 | reviewer | Own clinic | Read | Read | Read | Review | — |
 | technician | — | — | — | Upload only | — | — |
+| patient | Own records | Own records | — | — | — | — |
+| guest | None | None | None | None | None | None |
 
 ---
 
@@ -52,7 +56,7 @@
 | # | Task | Owner | Status | Notes |
 |---|------|-------|--------|-------|
 | 1 | Confirm consent policy | Clinic Admin | ☐ | Align with clinic's IRB/ethics |
-| 2 | Upload consent forms | Clinic Admin | ☐ | Via patient_access table |
+| 2 | Upload consent forms | Clinic Admin | ☐ | Via `ConsentRecord` model / consent API |
 | 3 | Configure `ai_analysis_consent` | Clinic Admin | ☐ | Per-patient flag |
 | 4 | Test consent check | Clinician | ☐ | Verify synthesis requires consent |
 | 5 | Document opt-out process | Clinic Admin | ☐ | How patients withdraw consent |
@@ -75,8 +79,8 @@
 
 | # | Task | Owner | Status | Notes |
 |---|------|-------|--------|-------|
-| 1 | Prepare patient CSV | Clinic Admin | ☐ | patient_id, clinic_id, access_level |
-| 2 | Import via patient_access table | DeepSynaps Ops | ☐ | Direct DB import or API |
+| 1 | Prepare patient CSV | Clinic Admin | ☐ | patient_id, clinic_id |
+| 2 | Import via `Patient` model / intake API | DeepSynaps Ops | ☐ | Direct DB import or API (`patient_access` table does not exist) |
 | 3 | Verify patient list loads | Clinician | ☐ | Patient Hub shows all patients |
 | 4 | Test patient isolation | Clinician | ☐ | Can only see own clinic's patients |
 | 5 | Start with 2-3 pilot patients | Clinic Admin | ☐ | Small cohort for initial validation |
@@ -99,7 +103,7 @@
 
 | # | Task | Owner | Status | Notes |
 |---|------|-------|--------|-------|
-| 1 | Verify evidence entries | DeepSynaps Ops | ☐ | `SELECT COUNT(*) FROM evidence_db` |
+| 1 | Verify evidence entries | DeepSynaps Ops | ☐ | `SELECT COUNT(*) FROM literature_papers` (or via `/api/v1/evidence/` endpoint) |
 | 2 | Check evidence coverage | Clinic Admin | ☐ | `/api/v1/summary/clinic-dashboard` shows % |
 | 3 | Plan evidence expansion | DeepSynaps Ops | ☐ | Add clinic-specific evidence if needed |
 
@@ -113,7 +117,7 @@
 | 2 | Customize clinic header/footer | Clinic Admin | ☐ | Logo, address, contact |
 | 3 | Test report generation | Clinician | ☐ | Generate test report for demo patient |
 | 4 | Test export formats | Clinician | ☐ | JSON, PDF, CSV |
-| 5 | Verify report signing workflow | Reviewer | ☐ | Review → Accept/Reject/Note |
+| 5 | Verify report signing workflow | Clinician/Reviewer | ☐ | Review → Accept/Reject/Note |
 
 ---
 

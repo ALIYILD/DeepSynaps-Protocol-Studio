@@ -1,3 +1,4 @@
+<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->
 # Beta Operations Dashboard Plan — DeepSynaps Protocol Studio
 
 **Date:** 2026-05-17  
@@ -12,7 +13,7 @@ A single-page operations dashboard tracking all active beta pilots.
 
 ### Access
 - URL: `https://ops.deepsynaps.io/beta-dashboard` (proposed)
-- Auth: `super_admin` role only
+- Auth: `admin` role only (`super_admin` does not exist; use `admin` — see `apps/api/app/auth.py` `ROLE_ORDER`)
 - Data sources: API endpoints, DB queries, log aggregation
 
 ---
@@ -23,23 +24,25 @@ A single-page operations dashboard tracking all active beta pilots.
 
 | Metric | Source | Refresh |
 |--------|--------|---------|
-| Active clinic count | `SELECT COUNT(DISTINCT clinic_id) FROM patient_access` | 15 min |
-| Active clinician count | `SELECT COUNT(DISTINCT clinician_id) FROM audit_log WHERE timestamp >= now() - interval '7 days'` | 15 min |
-| Total patient records | `SELECT COUNT(*) FROM patient_access` | 15 min |
-| Patients with AI consent | `SELECT COUNT(*) FROM patient_access WHERE ai_analysis_consent = 1` | 15 min |
+<!-- TODO: verify against current main; original claim could not be substantiated — `patient_access` table does not exist in `apps/api/app/persistence/models/__init__.py`. Replace queries with equivalents against `Patient` and `ConsentRecord` models when implementing. -->
+| Active clinic count | `SELECT COUNT(DISTINCT clinic_id) FROM patients` | 15 min |
+| Active clinician count | `SELECT COUNT(DISTINCT actor_id) FROM audit_event_records WHERE created_at >= now() - interval '7 days'` | 15 min |
+| Total patient records | `SELECT COUNT(*) FROM patients` | 15 min |
+| Patients with AI consent | <!-- TODO: verify consent column against ConsentRecord model --> | 15 min |
 | Pilot phase | Manual (onboarding status) | Daily |
 
 ### Section B: Module Usage (24h)
 
 | Module | Query | Threshold |
 |--------|-------|-----------|
-| Dashboard loads | `audit_log WHERE route LIKE '%dashboard%'` | >0 |
-| Assessments created | `multimodal_events WHERE modality = 'assessment' AND timestamp >= now() - interval '1 day'` | >0 |
-| qEEG analyses | `multimodal_events WHERE modality = 'qeeg' AND timestamp >= now() - interval '1 day'` | >0 |
-| MRI analyses | `multimodal_events WHERE modality = 'mri' AND timestamp >= now() - interval '1 day'` | >0 |
-| Biomarker entries | `multimodal_events WHERE modality = 'biomarker' AND timestamp >= now() - interval '1 day'` | >0 |
-| DeepTwin syntheses | `deeptwin_reviews WHERE action IN ('accept','reject','note') AND reviewed_at >= now() - interval '1 day'` | >0 |
-| Reports generated | `multimodal_events WHERE modality = 'report' AND timestamp >= now() - interval '1 day'` | >0 |
+<!-- TODO: verify against current main; original claim could not be substantiated — `multimodal_events` and `deeptwin_reviews` tables do not exist. Substitute real table names from `apps/api/app/persistence/models/__init__.py` when implementing (e.g. `QEEGRecord`, `MriAnalysis`, `DeepTwinAnalysisRun`, `AuditEventRecord`). -->
+| Dashboard loads | `audit_event_records WHERE route LIKE '%dashboard%'` | >0 |
+| Assessments created | `assessment_records WHERE created_at >= now() - interval '1 day'` | >0 |
+| qEEG analyses | `qeeg_records WHERE created_at >= now() - interval '1 day'` | >0 |
+| MRI analyses | `mri_analyses WHERE created_at >= now() - interval '1 day'` | >0 |
+| Biomarker entries | <!-- TODO: verify biomarker table name --> | >0 |
+| DeepTwin syntheses | `deep_twin_analysis_runs WHERE created_at >= now() - interval '1 day'` | >0 |
+| Reports generated | `generated_documents WHERE created_at >= now() - interval '1 day'` | >0 |
 | Protocol drafts | `audit_log WHERE route LIKE '%protocol%'` | >0 |
 | Evidence searches | `audit_log WHERE route LIKE '%evidence%'` | >0 |
 | Patient portal logins | `audit_log WHERE route LIKE '%patient%portal%' AND actor_role = 'patient'` | >0 |
@@ -65,7 +68,7 @@ A single-page operations dashboard tracking all active beta pilots.
 | Missing safety disclaimer | E2E test failure on disclaimer check | Critical |
 | AI overclaiming reported | Safety ticket tagged "ai_overclaiming" | Critical |
 | Cross-clinic access anomaly | `audit_log` cross-clinic pattern detection | Critical |
-| Consent violations | `patient_access` where consent required but not given | High |
+| Consent violations | `consent_records` where consent required but not given | High |
 | Export anomalies | Unusual export frequency or volume | Medium |
 | Evidence grade concerns | Safety ticket tagged "evidence_quality" | Medium |
 
@@ -89,7 +92,7 @@ A single-page operations dashboard tracking all active beta pilots.
 | Export events (24h) | `SELECT COUNT(*) FROM audit_log WHERE route LIKE '%export%'` | Monitor for bulk |
 | Consent changes (24h) | `SELECT COUNT(*) FROM audit_log WHERE route LIKE '%consent%'` | Unusual spikes |
 | Role changes (24h) | `SELECT COUNT(*) FROM audit_log WHERE route LIKE '%role%'` | Security |
-| Report sign events (24h) | `deeptwin_reviews WHERE action IN ('accept','reject') AND reviewed_at >= now() - interval '1 day'` | Activity |
+| Report sign events (24h) | `treatment_course_reviews WHERE reviewed_at >= now() - interval '1 day'` | Activity |
 
 ### Section G: Demo/Live Mode Status
 

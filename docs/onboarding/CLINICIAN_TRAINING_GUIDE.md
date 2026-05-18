@@ -1,7 +1,8 @@
+<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->
 # Clinician Training Guide — DeepSynaps Protocol Studio
 
 **Version:** 4.0.0-BETA  
-**Audience:** Clinicians, reviewers, clinic administrators  
+**Audience:** Users with `clinician`, `reviewer`, or `admin` role  
 **Duration:** 60 minutes (guided) + self-paced reference
 
 ---
@@ -224,7 +225,7 @@ Hypothesis presented → Clinician reviews → Action:
 1. Navigate to Reports
 2. Select report to review
 3. Review content and evidence
-4. Sign (if reviewer role) or request review
+4. Sign (if `reviewer` or `clinician` role) or request review
 5. Export signed report
 
 ---
@@ -254,7 +255,7 @@ Hypothesis presented → Clinician reviews → Action:
 - Access history
 
 ### How to Use
-1. Navigate to Audit (admin or clinic_admin)
+1. Navigate to Audit (requires `admin` role; `clinic_admin` is not a valid role — use `admin`)
 2. Search by patient, clinician, or date
 3. Review all system actions
 4. Check consent status per patient

@@ -1,8 +1,11 @@
+<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->
 # Pilot Success Metrics — DeepSynaps Beta
 
-**Date:** 2026-05-17  
+**Date:** 2026-05-18  
 **Audience:** DeepSynaps operations, clinic administrators  
 **Frequency:** Weekly for first 4 weeks, then bi-weekly
+
+> **Schema note:** The original doc referenced tables `patient_access`, `multimodal_events`, and `deeptwin_reviews`. These table names could not be verified against the current schema. Measurement queries below are indicative — confirm table names against `apps/api/app/persistence/models.py` before running.
 
 ---
 
@@ -26,26 +29,29 @@ Track these metrics during the beta pilot to measure success, identify issues, a
 
 | Week | Target | Measurement |
 |------|--------|-------------|
-| 1 | 2-3 clinicians | Count of unique clinician_ids in audit log |
+| 1 | 2-3 clinicians | Count of unique clinician IDs in audit log |
 | 2 | 3-5 clinicians | Same |
 | 4 | 5+ clinicians | Same |
 
-**Source:** `audit_log` table — count unique `clinician_id` where `clinic_id = pilot_clinic`
+**Source:** Audit log table — count unique clinician IDs scoped to pilot clinic  
+<!-- TODO: verify current contract; original claim could not be substantiated --> Confirm audit log table name and `clinician_id` column in current schema.
 
 ### Patient Records Created
 
 | Week | Target | Measurement |
 |------|--------|-------------|
-| 1 | 5-10 patients | `patient_access` table count per clinic |
+| 1 | 5-10 patients | Patient table count per clinic |
 | 2 | 10-20 patients | Same |
 | 4 | 20+ patients | Same |
+
+<!-- TODO: verify current contract; original claim could not be substantiated --> Original doc referenced `patient_access` table; confirm correct table name.
 
 ### Patient Portal Usage
 
 | Metric | Target | Measurement |
 |--------|--------|-------------|
 | Portal logins | 50% of patients | Count of patient portal sessions |
-| Check-in completion | 70% of assigned check-ins | Tasks completed vs assigned |
+| Check-in completion | 70% of assigned check-ins | Wellness logs completed vs assigned |
 | Message sends | 1+ per patient per week | Messages table count |
 
 ---
@@ -56,15 +62,17 @@ Track these metrics during the beta pilot to measure success, identify issues, a
 
 | Week | Target | Measurement |
 |------|--------|-------------|
-| 1 | 5-10 assessments | `multimodal_events` where `modality = 'assessment'` |
+| 1 | 5-10 assessments | Assessment records completed per clinic |
 | 2 | 15-25 assessments | Same |
 | 4 | 40+ assessments | Same |
+
+<!-- TODO: verify current contract; original claim could not be substantiated --> Original doc queried `multimodal_events where modality = 'assessment'`; confirm current table/column names.
 
 ### Reports Generated
 
 | Week | Target | Measurement |
 |------|--------|-------------|
-| 1 | 2-3 reports | `multimodal_events` where `modality = 'report'` |
+| 1 | 2-3 reports | Report records per clinic |
 | 2 | 5-8 reports | Same |
 | 4 | 15+ reports | Same |
 
@@ -72,15 +80,17 @@ Track these metrics during the beta pilot to measure success, identify issues, a
 
 | Week | Target | Measurement |
 |------|--------|-------------|
-| 1 | 1-2 drafts | `deeptwin_reviews` where `action = 'note'` or synthesis events |
+| 1 | 1-2 drafts | Protocol draft records per clinic |
 | 2 | 3-5 drafts | Same |
 | 4 | 10+ drafts | Same |
+
+<!-- TODO: verify current contract; original claim could not be substantiated --> Original doc queried `deeptwin_reviews where action = 'note'`; confirm table name.
 
 ### qEEG/MRI Analyses Reviewed
 
 | Week | Target | Measurement |
 |------|--------|-------------|
-| 1 | 2-3 analyses | `multimodal_events` where modality in ('qeeg', 'mri') |
+| 1 | 2-3 analyses | qEEG + MRI analysis records per clinic |
 | 2 | 5-10 analyses | Same |
 | 4 | 15+ analyses | Same |
 
@@ -88,9 +98,11 @@ Track these metrics during the beta pilot to measure success, identify issues, a
 
 | Week | Target | Measurement |
 |------|--------|-------------|
-| 1 | 1-2 syntheses | `deeptwin_reviews` table activity |
+| 1 | 1-2 syntheses | DeepTwin review activity per clinic |
 | 2 | 3-5 syntheses | Same |
 | 4 | 8+ syntheses | Same |
+
+<!-- TODO: verify current contract; original claim could not be substantiated --> Confirm DeepTwin review table name in current schema.
 
 ---
 
@@ -100,15 +112,19 @@ Track these metrics during the beta pilot to measure success, identify issues, a
 
 | Grade | Target | Measurement |
 |-------|--------|-------------|
-| High-quality events | >80% | `multimodal_events` where `data_quality = 'high'` |
-| Low-quality events | <15% | Same table, `data_quality = 'low'` |
-| Missing quality | <5% | Same table, `data_quality IS NULL` |
+| High-quality events | >80% | Events where `data_quality = 'high'` |
+| Low-quality events | <15% | Events where `data_quality = 'low'` |
+| Missing quality | <5% | Events where `data_quality IS NULL` |
+
+<!-- TODO: verify current contract; original claim could not be substantiated --> Confirm `data_quality` column and table name in current schema.
 
 ### Evidence Coverage
 
 | Target | Measurement |
 |--------|-------------|
-| >60% | `/api/v1/summary/clinic-dashboard` → `evidence_coverage.coverage_percent` |
+| >60% | `/api/v1/knowledge/status` → evidence coverage field |
+
+<!-- TODO: verify current contract; original claim could not be substantiated --> Original doc referenced `/api/v1/summary/clinic-dashboard` → `evidence_coverage.coverage_percent`; confirm current endpoint and field name.
 
 ### Safety Issues
 
