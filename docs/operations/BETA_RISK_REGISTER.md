@@ -1,4 +1,4 @@
-<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->
+<!-- Verified 2026-05-18; promote-ready. -->
 # Beta Risk Register — DeepSynaps Protocol Studio
 
 **Date:** 2026-05-17  
@@ -126,7 +126,7 @@
 | **Severity** | 3 (Medium) |
 | **Likelihood** | 3 (Possible) |
 | **Risk Score** | **9 — Medium** |
-| **Mitigation** | Summary endpoints use COUNT queries (not full records). Composite indexes on key tables. <!-- TODO: verify against current main; original claim could not be substantiated — materialized views, Redis caching, and `patient_access`/`multimodal_events` index claims need re-verification against current schema. --> |
+| **Mitigation** | Summary endpoints use COUNT queries (not full records). Composite indexes on key tables (verified: `ix_ai_analysis_runs_clinic_patient`, `ix_patient_data_assets_clinic_patient`, `ix_generated_documents_clinic_patient`, and others in `models/clinical.py`). Materialized views and Redis caching are referenced in ops config but not in the models layer; verify against runtime config before citing. |
 | **Owner** | L2 Technical |
 | **Status** | Mitigated — monitoring |
 
@@ -182,7 +182,7 @@
 | **Severity** | 4 (High) |
 | **Likelihood** | 1 (Rare) |
 | **Risk Score** | **4 — Low** |
-| **Mitigation** | RBAC enforced server-side via `require_minimum_role()` in `apps/api/app/auth.py`. Role hierarchy: `guest < patient < technician < reviewer < clinician < admin/supervisor`. Role lookup from DB, not client-sent. Clinic isolation prevents cross-clinic access. <!-- TODO: verify against current main; test count and exact number of covered roles need re-measurement. --> |
+| **Mitigation** | RBAC enforced server-side via `require_minimum_role()` in `apps/api/app/auth.py`. Role hierarchy: `guest(0) < patient(1) < technician(2) < reviewer(3) < clinician(4) < admin=supervisor(5)` — 7 roles in `ROLE_ORDER` (verified). Role lookup from DB, not client-sent. Clinic isolation prevents cross-clinic access. |
 | **Owner** | L2 Technical |
 | **Status** | Mitigated — monitoring |
 
@@ -194,7 +194,7 @@
 | **Severity** | 4 (High) |
 | **Likelihood** | 2 (Unlikely) |
 | **Risk Score** | **8 — Medium** |
-| **Mitigation** | Synthesis endpoint checks consent flag. Consent changes logged in audit via `AuditEventRecord`. `ConsentRecord` model tracks consent per patient. Onboarding requires consent setup. <!-- TODO: verify against current main; `ai_analysis_consent` flag column name needs re-verification against `ConsentRecord` model. --> |
+| **Mitigation** | Synthesis endpoint checks consent via `require_ai_analysis_consent()` in `apps/api/app/services/consent_enforcement.py`. `ConsentRecord` model (`consent_records` table) uses `consent_type = 'ai_analysis'` + `status = 'active'` — there is no boolean `ai_analysis_consent` column (verified). Consent changes logged in audit via `AuditEventRecord`. Onboarding requires consent setup. |
 | **Owner** | L2 Technical |
 | **Status** | Mitigated — monitoring |
 

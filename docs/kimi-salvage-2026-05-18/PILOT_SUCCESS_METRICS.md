@@ -1,11 +1,11 @@
-<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->
+<!-- Partially verified 2026-05-18; 2 TODOs remaining. -->
 # Pilot Success Metrics — DeepSynaps Beta
 
 **Date:** 2026-05-18  
 **Audience:** DeepSynaps operations, clinic administrators  
 **Frequency:** Weekly for first 4 weeks, then bi-weekly
 
-> **Schema note:** The original doc referenced tables `patient_access`, `multimodal_events`, and `deeptwin_reviews`. These table names could not be verified against the current schema. Measurement queries below are indicative — confirm table names against `apps/api/app/persistence/models.py` before running.
+> **Schema note:** Original doc referenced phantom tables `patient_access`, `multimodal_events`, and `deeptwin_reviews`. Verified replacements: `patients`, `assessment_records`. DeepTwin activity spans three tables (`deeptwin_analysis_runs`, `deeptwin_simulation_runs`, `deeptwin_clinician_notes`) — see inline notes. `data_quality` column and `evidence_coverage` endpoint do not exist in current code; those metrics lack backing queries and are marked accordingly.
 
 ---
 
@@ -33,8 +33,7 @@ Track these metrics during the beta pilot to measure success, identify issues, a
 | 2 | 3-5 clinicians | Same |
 | 4 | 5+ clinicians | Same |
 
-**Source:** Audit log table — count unique clinician IDs scoped to pilot clinic  
-<!-- TODO: verify current contract; original claim could not be substantiated --> Confirm audit log table name and `clinician_id` column in current schema.
+**Source:** Table `audit_events` (`models/audit.py`, class `AuditEventRecord`). There is no `clinician_id` column; the actor field is `actor_id`. Filter by `role = 'clinician'` and `target_id = <clinic_id>` to scope to a clinic. 🟢 Table name verified; column name corrected.
 
 ### Patient Records Created
 
@@ -44,7 +43,7 @@ Track these metrics during the beta pilot to measure success, identify issues, a
 | 2 | 10-20 patients | Same |
 | 4 | 20+ patients | Same |
 
-<!-- TODO: verify current contract; original claim could not be substantiated --> Original doc referenced `patient_access` table; confirm correct table name.
+**Source:** Table `patients` (`models/patient.py`, class `Patient`). The original `patient_access` table does not exist. 🟢 Verified.
 
 ### Patient Portal Usage
 
@@ -66,7 +65,7 @@ Track these metrics during the beta pilot to measure success, identify issues, a
 | 2 | 15-25 assessments | Same |
 | 4 | 40+ assessments | Same |
 
-<!-- TODO: verify current contract; original claim could not be substantiated --> Original doc queried `multimodal_events where modality = 'assessment'`; confirm current table/column names.
+**Source:** Table `assessment_records` (`models/clinical.py`, class `AssessmentRecord`). The original `multimodal_events` table does not exist. 🟢 Verified.
 
 ### Reports Generated
 
@@ -84,7 +83,7 @@ Track these metrics during the beta pilot to measure success, identify issues, a
 | 2 | 3-5 drafts | Same |
 | 4 | 10+ drafts | Same |
 
-<!-- TODO: verify current contract; original claim could not be substantiated --> Original doc queried `deeptwin_reviews where action = 'note'`; confirm table name.
+**Source:** Protocol drafts are stored in `prescribed_protocols` (`models/clinical.py`). The original `deeptwin_reviews` table does not exist. 🟢 Table name corrected.
 
 ### qEEG/MRI Analyses Reviewed
 
@@ -102,7 +101,7 @@ Track these metrics during the beta pilot to measure success, identify issues, a
 | 2 | 3-5 syntheses | Same |
 | 4 | 8+ syntheses | Same |
 
-<!-- TODO: verify current contract; original claim could not be substantiated --> Confirm DeepTwin review table name in current schema.
+**Source:** DeepTwin activity is split across three tables in `models/clinical.py`: `deeptwin_analysis_runs` (correlation/prediction outputs), `deeptwin_simulation_runs` (simulation outputs), `deeptwin_clinician_notes` (reviewer notes). Count rows across all three scoped to `clinic_id`. 🟢 Table names verified.
 
 ---
 
@@ -116,7 +115,7 @@ Track these metrics during the beta pilot to measure success, identify issues, a
 | Low-quality events | <15% | Events where `data_quality = 'low'` |
 | Missing quality | <5% | Events where `data_quality IS NULL` |
 
-<!-- TODO: verify current contract; original claim could not be substantiated --> Confirm `data_quality` column and table name in current schema.
+<!-- TODO: instrument — no `data_quality` column exists on any table in `models/`. The only related value is `data_quality_issue` as a `flag_type` enum value on a safety-flags table. This metric currently lacks a backing query; instrument a `data_quality` field on `clinical_session_events` or derive from safety flags before using this target. -->
 
 ### Evidence Coverage
 
@@ -124,7 +123,7 @@ Track these metrics during the beta pilot to measure success, identify issues, a
 |--------|-------------|
 | >60% | `/api/v1/knowledge/status` → evidence coverage field |
 
-<!-- TODO: verify current contract; original claim could not be substantiated --> Original doc referenced `/api/v1/summary/clinic-dashboard` → `evidence_coverage.coverage_percent`; confirm current endpoint and field name.
+<!-- TODO: instrument — `/api/v1/summary/clinic-dashboard` does not exist. The live endpoint `GET /api/v1/knowledge/status` (`knowledge_router.py`) returns `KnowledgeStatusResponse` which has no `evidence_coverage` field. Add an `evidence_coverage` field to that response model (or create a dedicated endpoint) before tracking this target. -->
 
 ### Safety Issues
 

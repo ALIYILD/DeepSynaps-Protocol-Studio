@@ -1,43 +1,45 @@
-<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->
+<!-- Partially verified 2026-05-18 — quantitative claims pending re-benchmark. -->
 # Summary Endpoint Performance Report
 
 **Date:** 2026-05-16  
-**Edited:** 2026-05-18 — measurements below were taken against SQLite in-memory test data on the abandoned prototype tree; re-measure required on current main with Postgres before treating any figure as authoritative. <!-- TODO: re-run benchmarks against apps/api/app/ on staging (Fly deepsynaps-studio) -->
+**Edited:** 2026-05-18 — figures below were originally measured on a 2026-05-12 snapshot of the abandoned `src/deepsynaps/` tree against SQLite in-memory data; current main (`apps/api/app/`) has not been benchmarked. Re-measurement on Fly staging (`deepsynaps-studio`) is a separate task. Do not treat any figure here as authoritative for current main.
 
 ---
 
-## Measured Performance
+## Performance Figures (not current — pending re-benchmark)
 
-<!-- TODO: these figures are from SQLite in-memory runs on origin/master — re-measure on Postgres/Fly before citing -->
-| Endpoint | Test Data | Response Time | Payload Size |
-|----------|-----------|--------------|-------------|
-| `GET /summary/clinic-dashboard` | 3 patients, 150 events, 20 audits | **<200ms** (⚪ unverified on main) | ~2KB |
-| `GET /summary/patients/{id}/dashboard` | 50 events | **<200ms** (⚪ unverified on main) | ~1KB |
-| `GET /summary/analyzer-status` | 150 events, 8 evidence | **<200ms** (⚪ unverified on main) | ~3KB |
+> Originally measured on a 2026-05-12 snapshot of the abandoned `src/deepsynaps/` tree against SQLite in-memory data. Current main (`apps/api/app/`) has not been benchmarked. Re-measurement on Fly staging is a separate task.
 
-## Comparison: Summary vs Full Objects
+| Endpoint | Test Data (prototype) | Response Time (prototype) | Payload Size (prototype) |
+|----------|----------------------|--------------------------|--------------------------|
+| `GET /summary/clinic-dashboard` | 3 patients, 150 events, 20 audits | ⚪ not measured on main | ⚪ not measured on main |
+| `GET /summary/patients/{id}/dashboard` | 50 events | ⚪ not measured on main | ⚪ not measured on main |
+| `GET /summary/analyzer-status` | 150 events, 8 evidence | ⚪ not measured on main | ⚪ not measured on main |
 
-| Query Type | Full Objects | Summary | Reduction |
-|-----------|-------------|---------|-----------|
-| Patient timeline (50 events) | ~50KB | ~1KB | **98%** |
-| Clinic dashboard (150 events) | ~150KB | ~2KB | **98.7%** |
-| Analyzer status (all modalities) | ~100KB | ~3KB | **97%** |
+## Comparison: Summary vs Full Objects (architectural estimate)
 
-## Response Time Budget
+> Payload-size ratios below are structural estimates based on schema inspection, not measured benchmarks on current main.
 
-| Target | Measured | Status |
-|--------|----------|--------|
-| Dashboard loads in <1s | All 3 endpoints <200ms | ✅ PASS |
-| Summary payload <5KB | All 3 endpoints <3KB | ✅ PASS |
-| No full record hydration | Only counts returned | ✅ PASS |
+| Query Type | Full Objects (est.) | Summary (est.) | Reduction (est.) |
+|-----------|---------------------|----------------|-----------------|
+| Patient timeline (50 events) | ~50KB | ~1KB | ~98% |
+| Clinic dashboard (150 events) | ~150KB | ~2KB | ~98.7% |
+| Analyzer status (all modalities) | ~100KB | ~3KB | ~97% |
+
+## Response Time Budget (not yet verified on current main)
+
+| Target | Status |
+|--------|--------|
+| Dashboard loads in <1s | ⚪ Not measured — endpoints not yet implemented on current main |
+| Summary payload <5KB | ⚪ Not measured — endpoints not yet implemented on current main |
+| No full record hydration | ✅ Design intent confirmed — summary endpoints return counts only |
 
 ## Caveats
 
 - SQLite in-memory test data — production PostgreSQL may differ
 - 150 events is small scale — production will have more
 - Network latency not measured (local test client)
-- Redis/cache layer could further improve (future PR)
-- <!-- TODO: remove Redis mention if Redis is still not implemented in apps/api/app/ -->
+- Redis is present in `apps/api/app/` only for rate-limiting (`limiter.py`); no response-cache layer is implemented. The Redis caching recommendation below is still future work.
 
 ## Recommendations
 

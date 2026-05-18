@@ -212,7 +212,7 @@ API responses lack `safety_disclaimer`, frontend shows no safety banner, or safe
 ls -la apps/api/app/safety_governance.py
 ```
 
-<!-- TODO: verify against current main — confirm file is at apps/api/app/safety_governance.py -->
+<!-- VERIFIED 2026-05-18: `apps/api/app/safety_governance.py` does NOT exist in current main. The safety governance troubleshooting steps below are aspirational. Do not rely on them until the file is created. -->
 
 **Verify required constants exist:**
 ```bash
@@ -240,7 +240,7 @@ pytest apps/api/tests/test_safety_governance.py::test_causal_overclaiming -v
 pytest apps/api/tests/test_safety_governance.py::test_confidence_cap -v
 ```
 
-<!-- TODO: verify against current main — confirm these test names exist -->
+<!-- VERIFIED 2026-05-18: `apps/api/tests/test_safety_governance.py` does NOT exist in current main. No `test_causal_overclaiming` or `test_confidence_cap` test functions were found. These commands will fail until that test file is created. -->
 
 ---
 

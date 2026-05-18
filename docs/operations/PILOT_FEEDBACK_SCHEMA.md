@@ -138,7 +138,7 @@ Content-Type: application/json
 Authorization: Bearer <token>
 ```
 
-> <!-- TODO: verify current contract; original claim could not be substantiated --> Confirm this endpoint exists in `apps/api/app/routers/` before relying on it in production tooling.
+> **VERIFIED 2026-05-18:** No `POST /api/v1/feedback` endpoint exists in `apps/api/app/routers/`. No router file with a `/feedback` prefix was found in main. Do not rely on this endpoint in production tooling until it is implemented.
 
 ### Request Body
 

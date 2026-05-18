@@ -97,7 +97,7 @@ Returns knowledge base / evidence index status.
 curl https://deepsynaps-studio.fly.dev/api/v1/knowledge/status
 ```
 
-> <!-- TODO: verify current contract; original claim could not be substantiated --> Confirm response schema against `apps/api/app/routers/knowledge_router.py`.
+> **VERIFIED 2026-05-18:** Endpoint exists at `GET /api/v1/knowledge/status` (admin-only). Response model is `KnowledgeStatusResponse` with fields: `adapters` (list of adapter dicts), `total_adapters` (int), `healthy_adapters` (int), `total_cached_records` (int), `licenses` (list), `last_sync` (datetime), plus provenance metadata. Requires `admin` role — returns 403 for all other roles.
 
 ---
 
@@ -124,7 +124,7 @@ curl https://deepsynaps-studio.fly.dev/api/v1/auth/me \
 }
 ```
 
-> <!-- TODO: verify current contract; original claim could not be substantiated --> Confirm exact response shape against `apps/api/app/routers/auth_router.py`.
+> **VERIFIED 2026-05-18:** `GET /api/v1/auth/me` returns `UserProfile` (from `deepsynaps_core_schema.auth`). Actual fields: `id` (str), `email` (str), `display_name` (str), `role` (str), `package_id` (str), `is_verified` (bool). Note: the example above uses `actor_id` and `clinic_id` — those fields do **not** exist on `UserProfile`. The correct field is `id`, and `clinic_id` is not returned by this endpoint.
 
 ---
 

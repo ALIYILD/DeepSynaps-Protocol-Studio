@@ -13,7 +13,7 @@
 | Pattern | Count in `apps/api/app/` |
 |---------|--------------------------|
 | `datetime.utcnow()` | ~176 (🟢 grep-measured 2026-05-18) |
-| `datetime.utcfromtimestamp()` | <!-- TODO: verify against current main --> |
+| `datetime.utcfromtimestamp()` | 0 (🟢 grep-measured 2026-05-18 — pattern absent from `apps/api/app/`) |
 
 Files with `utcnow()` span routers, services, knowledge adapters, and persistence models. A systematic replacement pass is needed.
 
@@ -25,7 +25,7 @@ Files with `utcnow()` span routers, services, knowledge adapters, and persistenc
 
 Create (or reuse if already present) `apps/api/app/utils/time_utils.py`:
 
-<!-- TODO: verify against current main — check if apps/api/app/utils/time_utils.py already exists -->
+<!-- VERIFIED 2026-05-18: `apps/api/app/utils/time_utils.py` does NOT exist in current main. The helpers below are proposed — they must be created. -->
 
 | Function | Return Type | Use Case |
 |----------|-------------|----------|
@@ -96,4 +96,4 @@ The original salvage doc listed 7 specific source files under `apps/api/src/deep
 - `apps/api/app/persistence/models/`
 - `apps/api/app/hermes_runtime_bundle/`
 
-<!-- TODO: verify against current main — run the grep commands above and update the table in section 1 with exact counts per directory -->
+<!-- VERIFIED 2026-05-18: `.utcnow()` counts per directory (grep-measured): `knowledge/` 64, `services/` 53, `persistence/` 8, `routers/` 7. Total: 132. `utcfromtimestamp` count: 0. -->
