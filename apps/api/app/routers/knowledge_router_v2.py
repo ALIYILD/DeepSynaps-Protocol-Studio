@@ -492,7 +492,7 @@ async def list_adapters(
     request: Request,
     category: Optional[str] = Query(None),
     registry: AdapterRegistry = Depends(get_registry),
-    actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.VIEWER)),
+    actor: AuthenticatedActor = Depends(require_minimum_role("guest")),
 ):
     """List all 66 knowledge adapters with optional category filter."""
     adapters_meta = []
@@ -514,7 +514,7 @@ async def list_adapters(
 async def get_adapter(
     key: str = Path(...),
     registry: AdapterRegistry = Depends(get_registry),
-    actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.VIEWER)),
+    actor: AuthenticatedActor = Depends(require_minimum_role("guest")),
 ):
     """Get single adapter details and health."""
     meta = ADAPTER_BY_KEY.get(key)
@@ -532,7 +532,7 @@ async def get_adapter(
 
 @router.get("/adapters/categories", response_model=AdapterCategoryResponse)
 async def list_categories(
-    actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.VIEWER)),
+    actor: AuthenticatedActor = Depends(require_minimum_role("guest")),
 ):
     """List adapter categories with counts."""
     counts = {}
@@ -544,7 +544,7 @@ async def list_categories(
 @router.get("/adapters/stats", response_model=AdapterStatsResponse)
 async def get_adapter_stats(
     registry: AdapterRegistry = Depends(get_registry),
-    actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.VIEWER)),
+    actor: AuthenticatedActor = Depends(require_minimum_role("guest")),
 ):
     """Registry-wide statistics."""
     active = inactive = checked = 0
@@ -582,7 +582,7 @@ async def search_adapters_get(
     max_results: int = Query(50, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     registry: AdapterRegistry = Depends(get_registry),
-    actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.VIEWER)),
+    actor: AuthenticatedActor = Depends(require_minimum_role("guest")),
 ):
     """Cross-adapter search via GET."""
     targets = databases or ADAPTER_KEYS
@@ -612,7 +612,7 @@ async def search_adapters_get(
 async def search_adapters_post(
     body: AdapterSearchRequest,
     registry: AdapterRegistry = Depends(get_registry),
-    actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.VIEWER)),
+    actor: AuthenticatedActor = Depends(require_minimum_role("guest")),
 ):
     """Cross-adapter search via POST with advanced filters."""
     targets = body.databases or ADAPTER_KEYS
@@ -654,7 +654,7 @@ def _make_adapter_search_endpoint(adapter_key):
         max_results: int = Query(50, ge=1, le=1000, description="Max results"),
         offset: int = Query(0, ge=0, description="Pagination offset"),
         registry: AdapterRegistry = Depends(get_registry),
-        actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.VIEWER)),
+        actor: AuthenticatedActor = Depends(require_minimum_role("guest")),
     ) -> AdapterSearchResponse:
         """Search the {name} adapter. Queries the {name} database and returns ranked results."""
         adapter = await _resolve_adapter(registry, adapter_key)
@@ -693,7 +693,7 @@ def _make_adapter_status_endpoint(adapter_key):
 
     async def _status_adapter(
         registry: AdapterRegistry = Depends(get_registry),
-        actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.VIEWER)),
+        actor: AuthenticatedActor = Depends(require_minimum_role("guest")),
     ) -> AdapterHealthResponse:
         """Health check for the {name} adapter. Returns availability and latency."""
         adapter = await _resolve_adapter(registry, adapter_key)
@@ -899,7 +899,7 @@ async def search_evidence(
     q: str = Query(""), adapter_key: Optional[str] = Query(None),
     entity_type: Optional[str] = Query(None), max_results: int = Query(50, ge=1, le=1000),
     offset: int = Query(0, ge=0), registry: AdapterRegistry = Depends(get_registry),
-    actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.VIEWER)),
+    actor: AuthenticatedActor = Depends(require_minimum_role("guest")),
 ):
     """Search evidence store by keyword, adapter, or entity type."""
     start = time.perf_counter()
@@ -924,7 +924,7 @@ async def search_evidence(
 @router.get("/evidence/stats", response_model=EvidenceStatsResponse)
 async def get_evidence_stats(
     registry: AdapterRegistry = Depends(get_registry),
-    actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.VIEWER)),
+    actor: AuthenticatedActor = Depends(require_minimum_role("guest")),
 ):
     """Evidence store aggregate statistics."""
     try:
@@ -945,7 +945,7 @@ async def get_evidence_stats(
 async def get_evidence_by_adapter(
     adapter_key: str = Path(...), max_results: int = Query(50, ge=1, le=1000),
     offset: int = Query(0, ge=0), registry: AdapterRegistry = Depends(get_registry),
-    actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.VIEWER)),
+    actor: AuthenticatedActor = Depends(require_minimum_role("guest")),
 ):
     """Get evidence from a specific adapter."""
     if adapter_key not in ADAPTER_BY_KEY:
@@ -971,7 +971,7 @@ async def get_evidence_by_adapter(
 async def get_evidence_by_type(
     entity_type: str = Path(...), max_results: int = Query(50, ge=1, le=1000),
     offset: int = Query(0, ge=0), registry: AdapterRegistry = Depends(get_registry),
-    actor: AuthenticatedActor = Depends(require_minimum_role(UserRole.VIEWER)),
+    actor: AuthenticatedActor = Depends(require_minimum_role("guest")),
 ):
     """Get evidence filtered by entity type."""
     results = []
