@@ -990,6 +990,19 @@ async def spa_fallback_middleware(request: Request, call_next):
 def _health_payload(session: Session) -> dict[str, object]:
     session.execute(text("SELECT 1"))
     snapshot = get_latest_snapshot(session)
+    try:
+        from app.services.knowledge.lifecycle import (
+            peek_registry_lifecycle_summary,
+        )
+
+        knowledge_adapters = peek_registry_lifecycle_summary()
+    except Exception:  # noqa: BLE001
+        knowledge_adapters = {
+            "total": 0,
+            "by_state": {},
+            "adapters": {},
+            "error": "lifecycle peek unavailable",
+        }
     return {
         "status": "ok",
         "db": "connected",
@@ -1000,6 +1013,7 @@ def _health_payload(session: Session) -> dict[str, object]:
             "snapshot_id": snapshot.snapshot_id if snapshot is not None else None,
             "total_records": snapshot.total_records if snapshot is not None else 0,
         },
+        "knowledge_adapters": knowledge_adapters,
     }
 
 

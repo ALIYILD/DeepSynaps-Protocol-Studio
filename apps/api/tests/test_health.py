@@ -19,3 +19,21 @@ def test_healthz_alias_returns_same_payload(client: TestClient) -> None:
 
     assert healthz_response.status_code == 200
     assert healthz_response.json() == health_response.json()
+
+
+def test_health_endpoint_includes_knowledge_adapter_lifecycle(client: TestClient, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.knowledge.lifecycle.peek_registry_lifecycle_summary",
+        lambda: {
+            "total": 2,
+            "by_state": {"healthy": 1, "catalogued": 1},
+            "adapters": {"pubmed": "healthy", "cochrane": "catalogued"},
+        },
+    )
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["knowledge_adapters"]["total"] == 2
+    assert payload["knowledge_adapters"]["adapters"]["pubmed"] == "healthy"

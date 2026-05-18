@@ -18,7 +18,9 @@ Each test verifies:
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -40,6 +42,17 @@ from qeeg_bridge import (
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def isolated_adapter_cache_home(tmp_path, monkeypatch):
+    """Keep atlas adapter cache writes inside a test-local writable root."""
+    cache_root = tmp_path / ".cache"
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(cache_root))
+    cache_root.mkdir(parents=True, exist_ok=True)
+    (cache_root / "deepsynaps").mkdir(parents=True, exist_ok=True)
+    return cache_root
 
 
 @pytest.fixture
@@ -617,6 +630,8 @@ class TestAtlasRegionAnalysis:
     async def test_atlas_region_analysis_no_adapters(self):
         """Should still return result with fallback mappings."""
         bridge = QEEGAnalyzerBridge({})
+        bridge._adapters["schaefer"] = None
+        bridge._adapter_available["schaefer"] = False
         result = await bridge.atlas_region_analysis(
             ["F3", "Cz", "P3"],
             atlas="schaefer",
