@@ -11,7 +11,7 @@ from datetime import datetime
 from fastapi import APIRouter, Query, HTTPException, BackgroundTasks, Depends, status
 from pydantic import BaseModel, Field
 
-from evidence_store import EvidenceStore
+from app.knowledge.evidence_store import EvidenceStore
 
 # ---------------------------------------------------------------------------
 # Configuration
