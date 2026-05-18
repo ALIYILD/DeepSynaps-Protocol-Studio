@@ -994,3 +994,58 @@ def test_fusion_payload_404_when_analysis_missing(
         headers=auth_headers["clinician"],
     )
     assert resp.status_code == 404
+
+
+# ── §4a GET /{analysis_id}/viewer.json (NiiVue payload) ──────────────────────
+
+
+def test_viewer_payload_returns_503_when_deepsynaps_mri_missing(
+    client: TestClient,
+    auth_headers: dict,
+    media_root: Path,
+    force_demo_mode: None,
+    monkeypatch: pytest.MonkeyPatch,
+    mri_consent: None,
+) -> None:
+    """Test that GET /{analysis_id}/viewer.json returns 503 when deepsynaps_mri package is missing.
+    
+    When the optional deepsynaps_mri.niivue_payload module is not available,
+    build_viewer_payload is None. The endpoint must detect this and return a
+    clear 503 Service Unavailable response with the viewer_unavailable error code.
+    """
+    # Set build_viewer_payload and ViewerStimTarget to None to simulate missing package
+    monkeypatch.setattr(
+        "app.routers.mri_analysis_router.build_viewer_payload",
+        None,
+    )
+    monkeypatch.setattr(
+        "app.routers.mri_analysis_router.ViewerStimTarget",
+        None,
+    )
+
+    # Upload and analyze to get a valid analysis_id
+    upload_id = _do_upload(client, auth_headers)
+    analyze = client.post(
+        "/api/v1/mri/analyze",
+        data={
+            "upload_id": upload_id,
+            "patient_id": "pat-mri-1",
+            "condition": "mdd",
+        },
+        headers=auth_headers["clinician"],
+    )
+    analysis_id = analyze.json()["job_id"]
+
+    # Request the viewer payload when the package is unavailable
+    resp = client.get(
+        f"/api/v1/mri/{analysis_id}/viewer.json",
+        headers=auth_headers["clinician"],
+    )
+    
+    # Verify 503 response with clear error details
+    assert resp.status_code == 503, f"Expected 503, got {resp.status_code}: {resp.text}"
+    body = resp.json()
+    assert body["code"] == "viewer_unavailable"
+    assert "deepsynaps_mri" in body["message"].lower()
+    assert "package" in body["message"].lower()
+    assert "documentation" in body

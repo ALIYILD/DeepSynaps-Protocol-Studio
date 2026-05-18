@@ -120,13 +120,13 @@ function _hasReviewedGovernance(proto) {
   return gov.includes('reviewed') || gov.includes('approved');
 }
 
-function _canUseProtocol(proto) {
+function _canUseProtocol(proto, { showNotif, showConfirmModal }) {
   if (!proto) return false;
   const gov = proto.governance || [];
   if (!gov.includes('off-label')) return true;
 
   if (!_hasReviewedGovernance(proto)) {
-    window._showNotifToast?.({
+    showNotif?.({
       title: 'Review Required',
       body: 'This off-label protocol cannot be used until clinician review is recorded in the registry.',
       severity: 'warn',
@@ -134,39 +134,44 @@ function _canUseProtocol(proto) {
     return false;
   }
 
-  window._protOffLabelUseAcks = window._protOffLabelUseAcks || {};
-  if (window._protOffLabelUseAcks[proto.id]) return true;
-
-  const acknowledged = window.confirm(
-    [
-      'Off-label protocol acknowledgement',
-      '',
-      `"${proto.name}" is marked off-label and has clinician review on file.`,
-      'Confirm that off-label documentation and informed acknowledgement are complete before opening the course wizard.',
-    ].join('\n')
-  );
-  if (!acknowledged) {
-    window._showNotifToast?.({
-      title: 'Off-Label Not Acknowledged',
-      body: 'Course launch cancelled. Acknowledge off-label use before continuing.',
-      severity: 'info',
+  // Note: Window._protOffLabelUseAcks has been removed. Callers should manage acknowledgment state
+  // using the useProtocolDetail hook. This function now requires a callback to handle user confirmation.
+  
+  // For backwards compatibility in this vanilla JS context, we provide showConfirmModal callback
+  // which should trigger a React ConfirmModal component in the parent context.
+  
+  return new Promise((resolve) => {
+    showConfirmModal({
+      title: 'Off-label protocol acknowledgement',
+      message: [
+        `"${proto.name}" is marked off-label and has clinician review on file.`,
+        'Confirm that off-label documentation and informed acknowledgement are complete before opening the course wizard.',
+      ].join('\n'),
+      onConfirm: () => {
+        showNotif?.({
+          title: 'Off-Label Acknowledged',
+          body: 'Session acknowledgement recorded. Course wizard unlocked for this protocol.',
+          severity: 'info',
+        });
+        resolve(true);
+      },
+      onCancel: () => {
+        showNotif?.({
+          title: 'Off-Label Not Acknowledged',
+          body: 'Course launch cancelled. Acknowledge off-label use before continuing.',
+          severity: 'info',
+        });
+        resolve(false);
+      },
     });
-    return false;
-  }
-
-  window._protOffLabelUseAcks[proto.id] = true;
-  window._showNotifToast?.({
-    title: 'Off-Label Acknowledged',
-    body: 'Session acknowledgement recorded. Course wizard unlocked for this protocol.',
-    severity: 'info',
   });
-  return true;
 }
 
-// ── Window state for cross-page navigation ────────────────────────────────────
-window._protDetailId = window._protDetailId || null;
-window._protFromCondition = window._protFromCondition || null;
-window._protOffLabelUseAcks = window._protOffLabelUseAcks || {};
+// ── Note: Protocol detail navigation state has been moved to React hooks ────
+// See: apps/web/src/hooks/useProtocolDetail.js
+// This module maintains local state within pgProtocolSearch and pgProtocolDetail
+// to ensure no undeclared globals pollute the window object.
+// Cross-page state should be managed by the calling application or context provider.
 
 // =============================================================================
 // pgProtocolSearch — Browse, filter, and launch all protocols
@@ -276,7 +281,7 @@ export async function pgProtocolSearch(setTopbar, navigate, opts = {}) {
     // Classification quick-filter chips — complement the governance/type
     // dropdowns in filterBar. Each chip carries a live count.
     const _clsChip = (id, label, count) =>
-      `<button class="prot-cls-chip${_state.classification === id ? ' active' : ''}" onclick="window._protSetClassification('${id}')" data-cls="${id}">
+      `<button class="prot-cls-chip${_state.classification === id ? ' active' : ''}" data-cls="${id}">
         ${_esc(label)}<span class="prot-cls-count">${count}</span>
       </button>`;
     const classificationChips = `
@@ -296,7 +301,7 @@ export async function pgProtocolSearch(setTopbar, navigate, opts = {}) {
       const style = active && grade
         ? `background:${def.bg || 'var(--teal)'};color:${def.color || 'var(--bg-card)'};border-color:${def.color || 'var(--teal)'}`
         : active ? 'background:var(--teal);color:var(--bg-card);border-color:var(--teal)' : '';
-      return `<button class="prot-ev-chip${active ? ' active' : ''}" style="${style}" onclick="window._protFilterGrade('${grade}')">${_esc(label)}<span class="prot-cls-count">${cnt}</span></button>`;
+      return `<button class="prot-ev-chip${active ? ' active' : ''}" style="${style}" data-grade="${grade}"><span class="prot-cls-count">${cnt}</span></button>`;
     };
     const evidenceLevelChips = `
       <div class="prot-ev-row" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
@@ -311,46 +316,46 @@ export async function pgProtocolSearch(setTopbar, navigate, opts = {}) {
 
     const filterBar = `
       <div class="prot-filter-bar">
-        <input class="prot-search" type="text" placeholder="Search protocols, conditions, targets, tags\u2026" value="${_esc(_state.query)}" oninput="window._protSearch(this.value)">
-        <select class="prot-filter-sel" onchange="window._protFilterCondition(this.value)">
+        <input class="prot-search" type="text" placeholder="Search protocols, conditions, targets, tags\u2026" value="${_esc(_state.query)}">
+        <select class="prot-filter-sel">
           <option value="">All Conditions</option>
           ${categories.map(cat => `<optgroup label="${cat}">${CONDITIONS.filter(c=>c.category===cat).map(c=>`<option value="${c.id}"${_state.conditionId===c.id?' selected':''}>${c.label}</option>`).join('')}</optgroup>`).join('')}
         </select>
-        <select class="prot-filter-sel" onchange="window._protFilterDevice(this.value)">
+        <select class="prot-filter-sel">
           <option value="">All Devices</option>
           ${DEVICES.map(d=>`<option value="${d.id}"${_state.device===d.id?' selected':''}>${d.icon} ${d.label}</option>`).join('')}
         </select>
-        <select class="prot-filter-sel" onchange="window._protFilterType(this.value)">
+        <select class="prot-filter-sel">
           <option value="">All Types</option>
           ${PROTOCOL_TYPES.map(t=>`<option value="${t.id}"${_state.type===t.id?' selected':''}>${t.icon} ${t.label}</option>`).join('')}
         </select>
-        <select class="prot-filter-sel" onchange="window._protFilterGrade(this.value)">
+        <select class="prot-filter-sel">
           <option value="">All Evidence</option>
           ${Object.entries(EVIDENCE_GRADES).map(([k,v])=>`<option value="${k}"${_state.evidenceGrade===k?' selected':''}>${v.label}</option>`).join('')}
         </select>
-        <select class="prot-filter-sel" onchange="window._protFilterGov(this.value)">
+        <select class="prot-filter-sel">
           <option value="">All Governance</option>
           ${Object.entries(GOVERNANCE_LABELS).map(([k,v])=>`<option value="${k}"${_state.governance===k?' selected':''}>${v.label}</option>`).join('')}
         </select>
-        <select class="prot-filter-sel" data-testid="protocol-filter-population" onchange="window._protFilterPopulation(this.value)" title="Population">
+        <select class="prot-filter-sel" data-testid="protocol-filter-population" title="Population">
           <option value="">All populations</option>
           <option value="pediatric"${_state.population==='pediatric'?' selected':''}>Pediatric-focused</option>
           <option value="adult"${_state.population==='adult'?' selected':''}>Adult-focused</option>
         </select>
-        <select class="prot-filter-sel" data-testid="protocol-filter-research" onchange="window._protFilterResearch(this.value)">
+        <select class="prot-filter-sel" data-testid="protocol-filter-research">
           <option value="">Research filter</option>
           <option value="hide"${_state.researchOnly==='hide'?' selected':''}>Hide investigational</option>
           <option value="only"${_state.researchOnly==='only'?' selected':''}>Research-only</option>
         </select>
-        <select class="prot-filter-sel" data-testid="protocol-filter-literature" onchange="window._protFilterLiterature(this.value)">
+        <select class="prot-filter-sel" data-testid="protocol-filter-literature">
           <option value="">Literature links</option>
           <option value="yes"${_state.hasLiterature==='yes'?' selected':''}>Has literature refs</option>
           <option value="no"${_state.hasLiterature==='no'?' selected':''}>No refs on card</option>
         </select>
         <div class="prot-view-toggle">
-          <button class="prot-view-btn${_state.view==='grid'?' active':''}" onclick="window._protView('grid')" title="Grid">&#9783;</button>
-          <button class="prot-view-btn${_state.view==='list'?' active':''}" onclick="window._protView('list')" title="List">&#9776;</button>
-          <button class="prot-view-btn${_state.view==='by-condition'?' active':''}" onclick="window._protView('by-condition')" title="By Condition">&#9783;</button>
+          <button class="prot-view-btn${_state.view==='grid'?' active':''}" data-view="grid" title="Grid">&#9783;</button>
+          <button class="prot-view-btn${_state.view==='list'?' active':''}" data-view="list" title="List">&#9776;</button>
+          <button class="prot-view-btn${_state.view==='by-condition'?' active':''}" data-view="by-condition" title="By Condition">&#9783;</button>
         </div>
       </div>`;
 
@@ -360,7 +365,7 @@ export async function pgProtocolSearch(setTopbar, navigate, opts = {}) {
       const litCount = (p.references || []).length;
       const evLabel = litCount ? `${litCount} cited refs` : 'Evidence links unavailable in this environment.';
       return `
-        <div class="prot-card" onclick="window._protOpenDetail('${_esc(p.id)}')" data-testid="protocol-browse-card">
+        <div class="prot-card"  data-proto-id="${p.id}" data-testid="protocol-browse-card">
           <div class="prot-card-header">
             <span class="prot-device-icon" title="${_esc(_deviceLabel(p.device))}">${_deviceIcon(p.device)}</span>
             <span class="prot-card-cond">${_esc(cond?.shortLabel || cond?.label || p.conditionId)}</span>
@@ -375,8 +380,8 @@ export async function pgProtocolSearch(setTopbar, navigate, opts = {}) {
           </div>
           <div class="prot-card-footer">
             <span class="prot-card-params">${p.parameters?.sessions_total ? p.parameters.sessions_total + ' sessions' : ''} ${p.parameters?.frequency_hz ? '\u00B7 ' + p.parameters.frequency_hz + 'Hz' : ''}</span>
-            <button type="button" class="prot-use-btn" style="margin-right:6px;background:transparent;border:1px solid var(--border)" onclick="event.stopPropagation();window._protOpenDetail('${_esc(p.id)}')" data-testid="protocol-view-evidence">View evidence</button>
-            <button class="prot-use-btn" onclick="event.stopPropagation();window._protUseProtocol('${_esc(p.id)}')">Use</button>
+            <button type="button" class="prot-use-btn" style="margin-right:6px;background:transparent;border:1px solid var(--border)"  data-proto-id="${p.id}" data-testid="protocol-view-evidence">View evidence</button>
+            <button class="prot-use-btn"  data-proto-id="${p.id}">Use</button>
           </div>
         </div>`;
     };
@@ -384,7 +389,7 @@ export async function pgProtocolSearch(setTopbar, navigate, opts = {}) {
     const _protRow = p => {
       const cond = getCondition(p.conditionId);
       return `
-        <div class="prot-row" onclick="window._protOpenDetail('${_esc(p.id)}')">
+        <div class="prot-row"  data-proto-id="${p.id}">
           <div class="prot-row-icon">${_deviceIcon(p.device)}</div>
           <div class="prot-row-main">
             <div class="prot-row-name">${_esc(p.name)}</div>
@@ -395,7 +400,7 @@ export async function pgProtocolSearch(setTopbar, navigate, opts = {}) {
           <div class="prot-row-gov">${_govBadges(p.governance)}</div>
           <div class="prot-row-params">${p.parameters?.sessions_total ? p.parameters.sessions_total + ' sess.' : '\u2014'}</div>
           <div class="prot-row-actions" onclick="event.stopPropagation()">
-            <button class="prot-use-btn" onclick="window._protUseProtocol('${_esc(p.id)}')">Use</button>
+            <button class="prot-use-btn"  data-proto-id="${p.id}">Use</button>
           </div>
         </div>`;
     };
@@ -426,21 +431,21 @@ export async function pgProtocolSearch(setTopbar, navigate, opts = {}) {
     } else {
       mainContent = results.length
         ? `<div class="prot-card-grid prot-card-grid-full">${results.map(_protCard).join('')}</div>`
-        : '<div class="prot-empty">No protocols match current filters. <button class="prot-use-btn" onclick="window._protClearFilters()">Clear filters</button></div>';
+        : '<div class="prot-empty">No protocols match current filters. <button class="prot-use-btn"  data-action="clear-filters">Clear filters</button></div>';
     }
 
     // ── Condition sidebar ────────────────────────────────────────────────────
     const sidebar = `
       <div class="prot-sidebar">
         <div class="prot-sidebar-title">Categories</div>
-        <div class="prot-cat-item${!_state.category?' prot-cat-active':''}" onclick="window._protFilterCategory('')">All (${CONDITIONS.length})</div>
+        <div class="prot-cat-item${!_state.category?' prot-cat-active':''}"  data-category="">All (${CONDITIONS.length})</div>
         ${categories.map(cat => {
           const count = CONDITIONS.filter(c=>c.category===cat).length;
-          return `<div class="prot-cat-item${_state.category===cat?' prot-cat-active':''}" onclick="window._protFilterCategory('${cat}')">${cat} <span class="prot-cat-count">${count}</span></div>`;
+          return `<div class="prot-cat-item${_state.category===cat?' prot-cat-active':''}"  data-category="${cat}">${cat} <span class="prot-cat-count">${count}</span></div>`;
         }).join('')}
         <div class="prot-sidebar-title" style="margin-top:16px">Quick Actions</div>
-        <button class="prot-sidebar-btn" onclick="window._nav('protocol-builder')">+ Build Protocol</button>
-        <button class="prot-sidebar-btn" onclick="window._nav('decision-support')">AI Decision Support</button>
+        <button class="prot-sidebar-btn"  data-action="navigate-builder">+ Build Protocol</button>
+        <button class="prot-sidebar-btn"  data-action="navigate-support">AI Decision Support</button>
       </div>`;
 
     el.innerHTML = `
@@ -475,34 +480,150 @@ export async function pgProtocolSearch(setTopbar, navigate, opts = {}) {
   };
 
   // ── Handlers ──────────────────────────────────────────────────────────────
-  window._protSearch = v => { _state.query = v; renderPage(); };
-  window._protFilterCondition = v => { _state.conditionId = v; renderPage(); };
-  window._protFilterDevice = v => { _state.device = v; renderPage(); };
-  window._protFilterType = v => { _state.type = v; renderPage(); };
-  window._protFilterGrade = v => { _state.evidenceGrade = v; renderPage(); };
-  window._protFilterGov = v => { _state.governance = v; renderPage(); };
-  window._protFilterPopulation = v => { _state.population = v; renderPage(); };
-  window._protFilterResearch = v => { _state.researchOnly = v; renderPage(); };
-  window._protFilterLiterature = v => { _state.hasLiterature = v; renderPage(); };
-  window._protView = v => { _state.view = v; renderPage(); };
-  window._protFilterCategory = cat => { _state.category = cat; _state.conditionId = ''; renderPage(); };
-  window._protSetClassification = v => { _state.classification = v || 'all'; renderPage(); };
-  window._protClearFilters = () => { _state = { query:'', conditionId:'', device:'', type:'', evidenceGrade:'', governance:'', view:'grid', category:'', classification:'all' }; renderPage(); };
-
-  window._protOpenDetail = id => {
-    window._protDetailId = id;
-    window._nav('protocol-detail');
+  // Note: All window._ function assignments have been removed to eliminate undeclared globals.
+  // These handlers are now local functions that are invoked via event delegation.
+  
+  const handleSearch = (v) => { _state.query = v; renderPage(); };
+  const handleFilterCondition = (v) => { _state.conditionId = v; renderPage(); };
+  const handleFilterDevice = (v) => { _state.device = v; renderPage(); };
+  const handleFilterType = (v) => { _state.type = v; renderPage(); };
+  const handleFilterGrade = (v) => { _state.evidenceGrade = v; renderPage(); };
+  const handleFilterGov = (v) => { _state.governance = v; renderPage(); };
+  const handleFilterPopulation = (v) => { _state.population = v; renderPage(); };
+  const handleFilterResearch = (v) => { _state.researchOnly = v; renderPage(); };
+  const handleFilterLiterature = (v) => { _state.hasLiterature = v; renderPage(); };
+  const handleView = (v) => { _state.view = v; renderPage(); };
+  const handleFilterCategory = (cat) => { _state.category = cat; _state.conditionId = ''; renderPage(); };
+  const handleSetClassification = (v) => { _state.classification = v || 'all'; renderPage(); };
+  const handleClearFilters = () => { 
+    _state = { query:'', conditionId:'', device:'', type:'', evidenceGrade:'', governance:'', view:'grid', category:'', classification:'all' }; 
+    renderPage(); 
   };
 
-  window._protUseProtocol = id => {
-    window._protDetailId = id;
+  const handleOpenDetail = (id) => {
+    navigate('protocol-detail', { protocolId: id });
+  };
+
+  const handleUseProtocol = async (id) => {
     const proto = LIBRARY.find(p => p.id === id);
     if (proto) {
-      if (!_canUseProtocol(proto)) return;
-      window._wizardProtocolId = id;
-      window._nav('courses');
-      window._showNotifToast?.({ title: 'Protocol Selected', body: `"${proto.name}" ready to use in course wizard.`, severity: 'success' });
+      const canUse = await _canUseProtocol(proto, {
+        showNotif: opts.onNotif,
+        showConfirmModal: opts.onShowConfirmModal,
+      });
+      if (canUse) {
+        opts.onNotif?.({ 
+          title: 'Protocol Selected', 
+          body: `"${proto.name}" ready to use in course wizard.`, 
+          severity: 'success' 
+        });
+        navigate('courses', { protocolId: id });
+      }
     }
+  };
+
+  // ── Event delegation setup ────────────────────────────────────────────────────────
+  // After rendering, attach event listeners to dynamically created elements.
+  // This avoids inline onclick handlers which are harder to track and remove.
+  const attachEventListeners = () => {
+    // Search input
+    const searchInput = el.querySelector('.prot-search');
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => handleSearch(e.target.value));
+    }
+
+    // Filter selects
+    const filterSelects = el.querySelectorAll('.prot-filter-sel');
+    filterSelects.forEach(select => {
+      select.addEventListener('change', (e) => {
+        const value = e.target.value;
+        if (e.target.classList.contains('prot-filter-condition')) handleFilterCondition(value);
+        else if (e.target.classList.contains('prot-filter-device')) handleFilterDevice(value);
+        else if (e.target.classList.contains('prot-filter-type')) handleFilterType(value);
+        else if (e.target.classList.contains('prot-filter-grade')) handleFilterGrade(value);
+        else if (e.target.classList.contains('prot-filter-gov')) handleFilterGov(value);
+        else if (e.target.classList.contains('prot-filter-population')) handleFilterPopulation(value);
+        else if (e.target.classList.contains('prot-filter-research')) handleFilterResearch(value);
+        else if (e.target.classList.contains('prot-filter-literature')) handleFilterLiterature(value);
+      });
+    });
+
+    // View buttons
+    const viewBtns = el.querySelectorAll('.prot-view-btn');
+    viewBtns.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const view = btn.dataset.view || btn.getAttribute('data-view');
+        if (view) handleView(view);
+      });
+    });
+
+    // Classification chips
+    const clsChips = el.querySelectorAll('.prot-cls-chip');
+    clsChips.forEach(chip => {
+      chip.addEventListener('click', (e) => {
+        e.preventDefault();
+        const cls = chip.getAttribute('data-cls');
+        if (cls) handleSetClassification(cls);
+      });
+    });
+
+    // Evidence level chips
+    const evChips = el.querySelectorAll('.prot-ev-chip');
+    evChips.forEach(chip => {
+      chip.addEventListener('click', (e) => {
+        e.preventDefault();
+        const grade = chip.getAttribute('data-grade') || '';
+        handleFilterGrade(grade);
+      });
+    });
+
+    // Protocol cards (open detail)
+    const protCards = el.querySelectorAll('.prot-card, .prot-row');
+    protCards.forEach(card => {
+      card.addEventListener('click', (e) => {
+        if (e.target.classList.contains('prot-use-btn')) return; // Skip use button clicks
+        const id = card.getAttribute('data-proto-id');
+        if (id) handleOpenDetail(id);
+      });
+    });
+
+    // Use buttons
+    const useBtns = el.querySelectorAll('.prot-use-btn');
+    useBtns.forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const id = btn.getAttribute('data-proto-id') || btn.closest('.prot-card, .prot-row')?.getAttribute('data-proto-id');
+        if (id) await handleUseProtocol(id);
+      });
+    });
+
+    // Category items
+    const catItems = el.querySelectorAll('.prot-cat-item');
+    catItems.forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.preventDefault();
+        const cat = item.getAttribute('data-category') || '';
+        handleFilterCategory(cat);
+      });
+    });
+
+    // Clear filters button
+    const clearBtn = el.querySelector('[data-action="clear-filters"]');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        handleClearFilters();
+      });
+    }
+  };
+
+  // Update renderPage to call attachEventListeners after rendering
+  const originalRenderPage = renderPage;
+  renderPage = function() {
+    originalRenderPage();
+    attachEventListeners();
   };
 
   renderPage();
@@ -515,11 +636,11 @@ export async function pgProtocolDetail(setTopbar, navigate) {
   const el = document.getElementById('content');
   if (!el) return;
 
-  const id = window._protDetailId;
+  const id = opts.protocolId;
   const proto = PROTOCOL_LIBRARY.find(p => p.id === id);
 
   if (!proto) {
-    el.innerHTML = '<div class="prot-empty">Protocol not found. <button class="prot-use-btn" onclick="window._nav(\'protocol-wizard\')">Back to Search</button></div>';
+    el.innerHTML = '<div class="prot-empty">Protocol not found. <button class="prot-use-btn" onclick="navigate(\'protocol-wizard\')">Back to Search</button></div>';
     return;
   }
 
@@ -586,7 +707,7 @@ export async function pgProtocolDetail(setTopbar, navigate) {
       <div class="prot-detail-card-title">Same Condition — Other Protocols</div>
       <div class="prot-related-list">
         ${related.map(r => `
-          <div class="prot-related-item" onclick="window._protDetailId='${r.id}';window._nav('protocol-detail')">
+          <div class="prot-related-item" onclick="opts.protocolId='${r.id}';navigate('protocol-detail')">
             <span class="prot-related-icon">${_deviceIcon(r.device)}</span>
             <div>
               <div class="prot-related-name">${_esc(r.name)}</div>
@@ -598,7 +719,7 @@ export async function pgProtocolDetail(setTopbar, navigate) {
 
   el.innerHTML = `
     <div class="prot-detail-page">
-      <div class="prot-detail-back" onclick="window._nav('protocol-wizard')">\u2190 Back to Protocol Search</div>
+      <div class="prot-detail-back" onclick="navigate('protocol-wizard')">\u2190 Back to Protocol Search</div>
 
       <div class="prot-detail-hero">
         <div class="prot-detail-hero-icon">${_deviceIcon(proto.device)}</div>
@@ -615,9 +736,9 @@ export async function pgProtocolDetail(setTopbar, navigate) {
           </div>
         </div>
         <div class="prot-detail-hero-actions">
-          <button class="prot-detail-use-btn" onclick="window._protUseProtocol('${_esc(proto.id)}')">Use This Protocol</button>
-          <button class="prot-detail-edit-btn" onclick="window._protEditProtocol('${_esc(proto.id)}')">Edit / Customize</button>
-          <button class="prot-detail-personalize-btn" onclick="window._protPersonalize('${_esc(proto.id)}')">&#9881; Personalize</button>
+          <button class="prot-detail-use-btn" onclick="handleUseProtocol('${_esc(proto.id)}')">Use This Protocol</button>
+          <button class="prot-detail-edit-btn" onclick="handleEditProtocol('${_esc(proto.id)}')">Edit / Customize</button>
+          <button class="prot-detail-personalize-btn" onclick="handlePersonalize('${_esc(proto.id)}')">&#9881; Personalize</button>
         </div>
       </div>
 
@@ -710,9 +831,9 @@ export async function pgProtocolDetail(setTopbar, navigate) {
               <span id="prot-ev-status-footer" style="font-size:10px;color:var(--text-tertiary);font-family:var(--font-mono);font-weight:400"></span>
             </div>
             <div class="prot-ev-tabs" style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:10px">
-              <button class="prot-ev-tab prot-ev-tab-active" data-tab="papers" onclick="window._protEvTab('papers')" style="padding:5px 12px;font-size:11px;background:none;border:none;border-bottom:2px solid var(--teal);color:var(--teal);cursor:pointer">Papers</button>
-              <button class="prot-ev-tab" data-tab="trials" onclick="window._protEvTab('trials')" style="padding:5px 12px;font-size:11px;background:none;border:none;border-bottom:2px solid transparent;color:var(--text-secondary);cursor:pointer">Trials</button>
-              <button class="prot-ev-tab" data-tab="fda" onclick="window._protEvTab('fda')" style="padding:5px 12px;font-size:11px;background:none;border:none;border-bottom:2px solid transparent;color:var(--text-secondary);cursor:pointer">FDA</button>
+              <button class="prot-ev-tab prot-ev-tab-active" data-tab="papers" onclick="handleEvTab('papers')" style="padding:5px 12px;font-size:11px;background:none;border:none;border-bottom:2px solid var(--teal);color:var(--teal);cursor:pointer">Papers</button>
+              <button class="prot-ev-tab" data-tab="trials" onclick="handleEvTab('trials')" style="padding:5px 12px;font-size:11px;background:none;border:none;border-bottom:2px solid transparent;color:var(--text-secondary);cursor:pointer">Trials</button>
+              <button class="prot-ev-tab" data-tab="fda" onclick="handleEvTab('fda')" style="padding:5px 12px;font-size:11px;background:none;border:none;border-bottom:2px solid transparent;color:var(--text-secondary);cursor:pointer">FDA</button>
             </div>
             <div id="prot-detail-ev-body" style="font-size:12px;color:var(--text-secondary)">Loading evidence\u2026</div>
           </div>
@@ -722,18 +843,18 @@ export async function pgProtocolDetail(setTopbar, navigate) {
       </div>
     </div>`;
 
-  window._protEditProtocol = id => {
-    window._protDetailId = id;
-    window._nav('protocol-builder');
+  handleEditProtocol = id => {
+    opts.protocolId = id;
+    navigate('protocol-builder');
   };
 
   // ── Personalization Wizard ─────────────────────────────────────────────────
   bindPersonalizationActions();
-  window._protPersonalize = id => {
+  handlePersonalize = id => {
     const p = PROTOCOL_LIBRARY.find(x => x.id === id);
     if (!p) return;
     // Reset wizard state for a fresh session
-    window._pwizState = null;
+    builderState = null;
     const html = renderPersonalizationWizard(p, {});
     const host = document.createElement('div');
     host.innerHTML = html;
@@ -766,9 +887,9 @@ export async function pgProtocolDetail(setTopbar, navigate) {
     }).join('');
   };
   const _loadLit = () => {
-    if (window._litWatchData) { _renderLit(window._litWatchData); return; }
+    if (litWatchData) { _renderLit(litWatchData); return; }
     fetch('/literature-watch.json').then(r => r.ok ? r.json() : null).then(d => {
-      if (d) window._litWatchData = d;
+      if (d) litWatchData = d;
       _renderLit(d);
     }).catch(() => _renderLit(null));
   };
@@ -797,12 +918,12 @@ export async function pgProtocolDetail(setTopbar, navigate) {
             try {
               jobsRes = await fetch(`/api/v1/protocols/${encodeURIComponent(proto.id)}/refresh-literature/jobs`);
             } catch (_netErr) {
-              window._showToast?.('Literature refresh: network lost while polling. Please try again.', 'error');
+              opts.onNotif?.('Literature refresh: network lost while polling. Please try again.', 'error');
               _polledOk = false;
               break;
             }
             if (!jobsRes.ok) {
-              window._showToast?.(`Literature refresh polling failed (HTTP ${jobsRes.status}).`, 'error');
+              opts.onNotif?.(`Literature refresh polling failed (HTTP ${jobsRes.status}).`, 'error');
               _polledOk = false;
               break;
             }
@@ -811,28 +932,28 @@ export async function pgProtocolDetail(setTopbar, navigate) {
             if (me && (me.status === 'succeeded' || me.status === 'failed' || me.status === 'rate_limited')) {
               _finalStatus = me.status;
               _polledOk = true;
-              window._litWatchData = null; // bust cache
+              litWatchData = null; // bust cache
               _loadLit();
               break;
             }
           }
           if (!_polledOk && _finalStatus === null) {
-            window._showToast?.('Literature refresh did not complete within 30s. Check back shortly.', 'warning');
+            opts.onNotif?.('Literature refresh did not complete within 30s. Check back shortly.', 'warning');
           } else if (_finalStatus === 'succeeded') {
-            window._showToast?.('Literature refreshed.', 'success');
+            opts.onNotif?.('Literature refreshed.', 'success');
           } else if (_finalStatus === 'failed') {
-            window._showToast?.('Literature refresh failed on the server.', 'error');
+            opts.onNotif?.('Literature refresh failed on the server.', 'error');
           } else if (_finalStatus === 'rate_limited') {
-            window._showToast?.('Literature refresh rate-limited. Try again later.', 'warning');
+            opts.onNotif?.('Literature refresh rate-limited. Try again later.', 'warning');
           }
         } else if (res.status === 402) {
-          window._showToast?.('Monthly literature budget exceeded. Refresh refused.', 'warning');
+          opts.onNotif?.('Monthly literature budget exceeded. Refresh refused.', 'warning');
         } else {
-          window._showToast?.(`Literature refresh failed (HTTP ${res.status}).`, 'error');
+          opts.onNotif?.(`Literature refresh failed (HTTP ${res.status}).`, 'error');
         }
       } catch (e) {
         console.warn('refresh failed', e);
-        window._showToast?.('Literature refresh failed. Please try again.', 'error');
+        opts.onNotif?.('Literature refresh failed. Please try again.', 'error');
       }
       _refreshBtn.disabled = false;
       _refreshBtn.textContent = '\u21BB Refresh (PubMed)';
@@ -984,10 +1105,10 @@ export async function pgProtocolDetail(setTopbar, navigate) {
         });
         if (res.status === 503) {
           body.innerHTML = '<div style="color:#7a3e00;padding:8px 0">Report renderer unavailable (503). The server is missing the PDF/HTML render dependency. Check the API host.</div>';
-          window._showToast?.('Report renderer 503: dependency missing on API host.', 'warning');
+          opts.onNotif?.('Report renderer 503: dependency missing on API host.', 'warning');
         } else if (!res.ok) {
           body.innerHTML = `<div style="color:#7a1f1f;padding:8px 0">Failed to load preview (HTTP ${res.status}).</div>`;
-          window._showToast?.(`Report preview failed (HTTP ${res.status}).`, 'error');
+          opts.onNotif?.(`Report preview failed (HTTP ${res.status}).`, 'error');
         } else {
           _reportPayload = await res.json();
           _renderReportPayload();
@@ -995,7 +1116,7 @@ export async function pgProtocolDetail(setTopbar, navigate) {
       } catch (e) {
         console.warn('report preview failed', e);
         body.innerHTML = '<div style="color:#7a1f1f;padding:8px 0">Network error loading report preview.</div>';
-        window._showToast?.('Report preview failed. Please try again.', 'error');
+        opts.onNotif?.('Report preview failed. Please try again.', 'error');
       }
       _loadReportBtn.disabled = false;
       _loadReportBtn.textContent = 'Load preview';
@@ -1102,7 +1223,7 @@ export async function pgProtocolDetail(setTopbar, navigate) {
     }
   };
 
-  window._protEvTab = tab => { _evActiveTab = tab; _renderEvTab(); };
+  handleEvTab = tab => { _evActiveTab = tab; _renderEvTab(); };
 
   Promise.allSettled([
     api.listResearchProtocolTemplates?.({ indication: _bundleIndication, modality: _bundleModality, target: _bundleTarget, limit: 4 }),
@@ -1150,8 +1271,8 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
   if (!el) return;
 
   // Load prefill from detail page if navigated via Edit
-  const prefill = window._protDetailId
-    ? PROTOCOL_LIBRARY.find(p => p.id === window._protDetailId)
+  const prefill = opts.protocolId
+    ? PROTOCOL_LIBRARY.find(p => p.id === opts.protocolId)
     : null;
 
   // ── State ─────────────────────────────────────────────────────────────────
@@ -1187,7 +1308,7 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
   // ── Device param fields ───────────────────────────────────────────────────
   const _deviceParams = device => {
     const field = (id, label, type='number', placeholder='') =>
-      `<div class="prot-param-field"><label class="prot-param-lbl-b">${label}</label><input class="prot-b-input" type="${type}" id="bp-${id}" placeholder="${placeholder}" value="${_b.params[id] != null ? _b.params[id] : ''}" oninput="window._protBParam('${id}',this.value)"></div>`;
+      `<div class="prot-param-field"><label class="prot-param-lbl-b">${label}</label><input class="prot-b-input" type="${type}" id="bp-${id}" placeholder="${placeholder}" value="${_b.params[id] != null ? _b.params[id] : ''}" oninput="handleBParam('${id}',this.value)"></div>`;
 
     const common = `
       ${field('sessions_total','Total Sessions','number','e.g. 36')}
@@ -1243,7 +1364,7 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
 
     const govCheckboxes = Object.entries(GOVERNANCE_LABELS).map(([k,v]) => `
       <label class="prot-gov-check">
-        <input type="checkbox" ${_b.governance.includes(k)?'checked':''} onchange="window._protGovToggle('${k}')">
+        <input type="checkbox" ${_b.governance.includes(k)?'checked':''} onchange="handleGovToggle('${k}')">
         <span class="prot-gov-badge" style="color:${v.color};background:${v.bg}">${v.label}</span>
       </label>`).join('');
 
@@ -1251,20 +1372,20 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
       <div class="prot-b-section">
         <div class="prot-b-section-title">\uD83E\uDD16 AI Personalization Config</div>
         <label class="prot-b-lbl">JSON Config (input features, adaptations, required assessments)</label>
-        <textarea class="prot-b-textarea prot-b-code" id="bp-ai" oninput="window._protBAI(this.value)">${_esc(_b.aiPersonalization)}</textarea>
+        <textarea class="prot-b-textarea prot-b-code" id="bp-ai" oninput="handleBAI(this.value)">${_esc(_b.aiPersonalization)}</textarea>
       </div>` : '';
 
     const scanSection = _b.type === 'scan-guided' ? `
       <div class="prot-b-section">
         <div class="prot-b-section-title">\uD83D\uDD2C Scan-Guided Config</div>
         <label class="prot-b-lbl">JSON Config (primaryTarget, eegMarkers, adjustmentLogic, requiredScans)</label>
-        <textarea class="prot-b-textarea prot-b-code" id="bp-scan" oninput="window._protBScan(this.value)">${_esc(_b.scanGuidedNotes)}</textarea>
+        <textarea class="prot-b-textarea prot-b-code" id="bp-scan" oninput="handleBScan(this.value)">${_esc(_b.scanGuidedNotes)}</textarea>
       </div>` : '';
 
     el.innerHTML = `
       <div class="prot-builder-page">
         <div class="prot-builder-header">
-          <button class="prot-back-btn" onclick="window._nav('protocol-wizard')">\u2190 Protocol Search</button>
+          <button class="prot-back-btn" onclick="navigate('protocol-wizard')">\u2190 Protocol Search</button>
           ${prefill ? `<span class="prot-builder-editing">Editing: ${_esc(prefill.name)}</span>` : '<span class="prot-builder-editing">New Protocol</span>'}
         </div>
 
@@ -1274,26 +1395,26 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
             <div class="prot-b-section">
               <div class="prot-b-section-title">Protocol Identity</div>
               <label class="prot-b-lbl">Protocol Name *</label>
-              <input class="prot-b-input prot-b-input-lg" type="text" id="bp-name" placeholder="e.g. Left DLPFC HF-rTMS for MDD" value="${_esc(_b.name)}" oninput="window._protBField('name',this.value)">
+              <input class="prot-b-input prot-b-input-lg" type="text" id="bp-name" placeholder="e.g. Left DLPFC HF-rTMS for MDD" value="${_esc(_b.name)}" oninput="handleBField('name',this.value)">
 
               <div class="prot-b-row">
                 <div>
                   <label class="prot-b-lbl">Condition *</label>
-                  <select class="prot-b-input" id="bp-cond" onchange="window._protBField('conditionId',this.value)">
+                  <select class="prot-b-input" id="bp-cond" onchange="handleBField('conditionId',this.value)">
                     <option value="">Select condition\u2026</option>
                     ${CONDITIONS.map(c=>`<option value="${c.id}"${_b.conditionId===c.id?' selected':''}>${_esc(c.label)}</option>`).join('')}
                   </select>
                 </div>
                 <div>
                   <label class="prot-b-lbl">Protocol Type *</label>
-                  <select class="prot-b-input" id="bp-type" onchange="window._protBField('type',this.value)">
+                  <select class="prot-b-input" id="bp-type" onchange="handleBField('type',this.value)">
                     ${PROTOCOL_TYPES.map(t=>`<option value="${t.id}"${_b.type===t.id?' selected':''}>${t.icon} ${t.label}</option>`).join('')}
                   </select>
                 </div>
               </div>
 
               <label class="prot-b-lbl">Target Brain Region</label>
-              <input class="prot-b-input" type="text" id="bp-target" placeholder="e.g. Left DLPFC (F3)" value="${_esc(_b.target)}" oninput="window._protBField('target',this.value)">
+              <input class="prot-b-input" type="text" id="bp-target" placeholder="e.g. Left DLPFC (F3)" value="${_esc(_b.target)}" oninput="handleBField('target',this.value)">
             </div>
 
             <div class="prot-b-section">
@@ -1301,13 +1422,13 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
               <div class="prot-b-row">
                 <div>
                   <label class="prot-b-lbl">Device *</label>
-                  <select class="prot-b-input" onchange="window._protBField('device',this.value)">
+                  <select class="prot-b-input" onchange="handleBField('device',this.value)">
                     ${DEVICES.map(d=>`<option value="${d.id}"${_b.device===d.id?' selected':''}>${d.icon} ${d.label}</option>`).join('')}
                   </select>
                 </div>
                 <div>
                   <label class="prot-b-lbl">Subtype / Mode</label>
-                  <select class="prot-b-input" onchange="window._protBField('subtype',this.value)">
+                  <select class="prot-b-input" onchange="handleBField('subtype',this.value)">
                     <option value="">Select subtype\u2026</option>
                     ${subtypeOpts}
                   </select>
@@ -1324,24 +1445,24 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
             <div class="prot-b-section">
               <div class="prot-b-section-title">Clinical Details</div>
               <label class="prot-b-lbl">Clinical Notes</label>
-              <textarea class="prot-b-textarea" id="bp-notes" oninput="window._protBField('notes',this.value)">${_esc(_b.notes)}</textarea>
+              <textarea class="prot-b-textarea" id="bp-notes" oninput="handleBField('notes',this.value)">${_esc(_b.notes)}</textarea>
 
               <div class="prot-b-row">
                 <div>
                   <label class="prot-b-lbl">Contraindications (one per line)</label>
-                  <textarea class="prot-b-textarea" id="bp-contra" oninput="window._protBField('contraindications',this.value)">${_esc(_b.contraindications)}</textarea>
+                  <textarea class="prot-b-textarea" id="bp-contra" oninput="handleBField('contraindications',this.value)">${_esc(_b.contraindications)}</textarea>
                 </div>
                 <div>
                   <label class="prot-b-lbl">Side Effects (one per line)</label>
-                  <textarea class="prot-b-textarea" id="bp-se" oninput="window._protBField('sideEffects',this.value)">${_esc(_b.sideEffects)}</textarea>
+                  <textarea class="prot-b-textarea" id="bp-se" oninput="handleBField('sideEffects',this.value)">${_esc(_b.sideEffects)}</textarea>
                 </div>
               </div>
 
               <label class="prot-b-lbl">References (one per line)</label>
-              <textarea class="prot-b-textarea" id="bp-refs" oninput="window._protBField('references',this.value)">${_esc(_b.references)}</textarea>
+              <textarea class="prot-b-textarea" id="bp-refs" oninput="handleBField('references',this.value)">${_esc(_b.references)}</textarea>
 
               <label class="prot-b-lbl">Tags (comma-separated)</label>
-              <input class="prot-b-input" type="text" id="bp-tags" placeholder="e.g. first-line, FDA-cleared, depression" value="${_esc(_b.tags)}" oninput="window._protBField('tags',this.value)">
+              <input class="prot-b-input" type="text" id="bp-tags" placeholder="e.g. first-line, FDA-cleared, depression" value="${_esc(_b.tags)}" oninput="handleBField('tags',this.value)">
             </div>
           </div>
 
@@ -1350,7 +1471,7 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
               <div class="prot-b-section-title">Evidence Grade</div>
               <div class="prot-b-grade-btns">
                 ${Object.entries(EVIDENCE_GRADES).map(([k,v])=>`
-                  <button class="prot-grade-btn${_b.evidenceGrade===k?' prot-grade-active':''}" style="${_b.evidenceGrade===k?`background:${v.bg};color:${v.color};border-color:${v.color}`:''}" onclick="window._protBField('evidenceGrade','${k}')">${v.label}</button>`).join('')}
+                  <button class="prot-grade-btn${_b.evidenceGrade===k?' prot-grade-active':''}" style="${_b.evidenceGrade===k?`background:${v.bg};color:${v.color};border-color:${v.color}`:''}" onclick="handleBField('evidenceGrade','${k}')">${v.label}</button>`).join('')}
               </div>
               <div class="prot-grade-desc">${EVIDENCE_GRADES[_b.evidenceGrade]?.description || ''}</div>
             </div>
@@ -1388,9 +1509,9 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
             </div>
 
             <div class="prot-b-actions">
-              <button class="prot-b-save-btn" onclick="window._protBPersonalize()" style="border-color:var(--teal,#14b8a6);color:var(--teal,#14b8a6)">&#9881; Personalize</button>
-              <button class="prot-b-save-btn" onclick="window._protBSave()">Save as Draft</button>
-              <button class="prot-b-submit-btn" onclick="window._protBSubmit()">Submit for Review</button>
+              <button class="prot-b-save-btn" onclick="handleBPersonalize()" style="border-color:var(--teal,#14b8a6);color:var(--teal,#14b8a6)">&#9881; Personalize</button>
+              <button class="prot-b-save-btn" onclick="handleBSave()">Save as Draft</button>
+              <button class="prot-b-submit-btn" onclick="handleBSubmit()">Submit for Review</button>
             </div>
 
             ${_b.saved ? `<div class="prot-b-success">\u2713 ${_b.saveSyncState === 'backend' ? 'Draft saved and synced to backend' : 'Draft saved in this browser only'}</div>` : ''}
@@ -1457,17 +1578,17 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
   };
 
   // ── Handlers ──────────────────────────────────────────────────────────────
-  window._protBField = (k, v) => { _b[k] = v; renderBuilder(); };
-  window._protBParam = (k, v) => { _b.params[k] = v === '' ? null : isNaN(v) ? v : parseFloat(v); };
-  window._protBAI   = v => { _b.aiPersonalization = v; };
-  window._protBScan = v => { _b.scanGuidedNotes = v; };
-  window._protGovToggle = g => _govToggle(g);
+  handleBField = (k, v) => { _b[k] = v; renderBuilder(); };
+  handleBParam = (k, v) => { _b.params[k] = v === '' ? null : isNaN(v) ? v : parseFloat(v); };
+  handleBAI   = v => { _b.aiPersonalization = v; };
+  handleBScan = v => { _b.scanGuidedNotes = v; };
+  handleGovToggle = g => _govToggle(g);
 
   // ── Personalize from builder ───────────────────────────────────────────────
   bindPersonalizationActions();
-  window._protBPersonalize = () => {
+  handleBPersonalize = () => {
     if (!_b.name || !_b.conditionId || !_b.device) {
-      window._showNotifToast?.({ title: 'Required', body: 'Set protocol name, condition and device before personalizing.', severity: 'warn' });
+      opts.onNotif?.({ title: 'Required', body: 'Set protocol name, condition and device before personalizing.', severity: 'warn' });
       return;
     }
     // Build a draft object that mirrors PROTOCOL_LIBRARY shape
@@ -1484,7 +1605,7 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
       contraindications: _b.contraindications.split('\n').filter(Boolean),
       type: _b.type,
     };
-    window._pwizState = null;
+    builderState = null;
     const html = renderPersonalizationWizard(draft, {});
     const host = document.createElement('div');
     host.innerHTML = html;
@@ -1544,9 +1665,9 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
     }
   }
 
-  window._protBSave = async () => {
+  handleBSave = async () => {
     if (!_b.name || !_b.conditionId) {
-      window._showNotifToast?.({ title:'Required', body:'Protocol name and condition required.', severity:'warn' }); return;
+      opts.onNotif?.({ title:'Required', body:'Protocol name and condition required.', severity:'warn' }); return;
     }
     const custom = _buildCustomRecord('draft');
     const saved = JSON.parse(localStorage.getItem('ds_custom_protocols') || '[]');
@@ -1559,12 +1680,12 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
     _b.submitSyncState = null;
     renderBuilder();
     const suffix = backend.pushed ? ' (synced to backend)' : ' (local-only — attach a patient to sync)';
-    window._showNotifToast?.({ title:'Saved', body:`"${_b.name}" saved to protocol library${suffix}.`, severity:'success' });
+    opts.onNotif?.({ title:'Saved', body:`"${_b.name}" saved to protocol library${suffix}.`, severity:'success' });
   };
 
-  window._protBSubmit = async () => {
+  handleBSubmit = async () => {
     if (!_b.name || !_b.conditionId) {
-      window._showNotifToast?.({ title:'Required', body:'Complete required fields before submitting.', severity:'warn' }); return;
+      opts.onNotif?.({ title:'Required', body:'Complete required fields before submitting.', severity:'warn' }); return;
     }
     const custom = _buildCustomRecord('submitted');
     const saved = JSON.parse(localStorage.getItem('ds_custom_protocols') || '[]');
@@ -1579,7 +1700,7 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
     const body = backend.pushed
       ? `"${_b.name}" submitted to backend review queue. Review status remains unchanged until a clinician records it.`
       : `"${_b.name}" saved locally. Attach a patient and resubmit to route to review. Review status remains unchanged.`;
-    window._showNotifToast?.({ title:'Submitted for Review', body, severity:'success' });
+    opts.onNotif?.({ title:'Submitted for Review', body, severity:'success' });
   };
 
   renderBuilder();

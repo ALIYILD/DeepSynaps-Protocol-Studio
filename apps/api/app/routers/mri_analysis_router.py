@@ -1120,6 +1120,21 @@ def get_viewer_payload(
             status_code=404,
         )
     _gate_patient_access(actor, row.patient_id, db)
+    
+    # Check if deepsynaps_mri package with viewer payload builder is available
+    if build_viewer_payload is None or ViewerStimTarget is None:
+        return JSONResponse(
+            {
+                "code": "viewer_unavailable",
+                "message": (
+                    "MRI viewer payload builder is not available in this build "
+                    "(deepsynaps_mri package missing)."
+                ),
+                "documentation": "https://docs.deepsynaps.ai/api/mri#viewer-unavailable",
+            },
+            status_code=503,
+        )
+    
     return JSONResponse(_viewer_payload_from_report(analysis_id, _report_from_row(row)))
 
 
