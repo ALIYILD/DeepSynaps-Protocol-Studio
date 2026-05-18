@@ -463,7 +463,7 @@ async def create_data_console_export(
         try:
             require_clinic_access(session, actor.actor_id, resolved_clinic_id)
         except AccessDeniedError:
-            if actor.role != "admin":
+            if actor.role not in _CLINIC_AGGREGATE_ROLES:
                 raise HTTPException(status_code=403, detail="Access denied for this clinic.")
         result = create_data_export(
             session=session,
@@ -484,7 +484,10 @@ async def create_data_console_export(
         patient_id = request.get("patient_id")
         if not patient_id:
             raise HTTPException(status_code=422, detail="patient_id is required for patient export.")
-        require_patient_access(session, actor.actor_id, patient_id)
+        try:
+            require_patient_access(session, actor.actor_id, patient_id)
+        except AccessDeniedError:
+            raise HTTPException(status_code=403, detail="Access denied for this patient.")
         resolved_clinic_id = actor.clinic_id or ""
         result = create_data_export(
             session=session,

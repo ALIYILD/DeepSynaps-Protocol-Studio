@@ -138,8 +138,14 @@ class TestExportToCsv:
             reader = csv.reader(f)
             rows = list(reader)
 
+        expected_headers = []
+        for row in sample_export_data:
+            for key in row.keys():
+                if key not in expected_headers:
+                    expected_headers.append(key)
+
         # Header row
-        assert rows[0] == list(sample_export_data[0].keys())
+        assert rows[0] == expected_headers
         # Data rows
         assert len(rows) == 1 + len(sample_export_data)
 

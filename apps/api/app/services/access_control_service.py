@@ -6,7 +6,11 @@ All PHI access checks flow through here:
 - cross-clinic access prevention
 - audit logging on denial
 """
+import json
+from datetime import datetime, timezone
 from typing import Optional
+from uuid import uuid4
+
 from sqlalchemy.orm import Session
 
 from app.persistence.models import User, Patient, Clinic, AuditEventRecord
@@ -15,10 +19,61 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+_AUDIT_ROLE_MAP = {
+    "platform_admin": "admin",
+    "clinic_admin": "admin",
+    "admin": "admin",
+    "clinician": "clinician",
+    "guest": "guest",
+}
+
 
 class AccessDeniedError(Exception):
     """Raised when an access control check fails."""
     pass
+
+
+def _write_access_audit(
+    session: Session,
+    *,
+    actor_user_id: str,
+    action: str,
+    resource_type: str,
+    resource_id: str,
+    result: str,
+    reason: Optional[str],
+    sensitivity: str,
+    role: Optional[str] = None,
+) -> None:
+    """Bridge legacy access-control audit calls to the canonical audit repo API."""
+    if not actor_user_id:
+        actor_user_id = "unknown"
+
+    resolved_role = role
+    if resolved_role is None:
+        user = session.query(User).filter(User.id == actor_user_id).first()
+        resolved_role = getattr(user, "role", None) or "unknown"
+
+    note = json.dumps(
+        {
+            "result": result,
+            "reason": reason,
+            "sensitivity": sensitivity,
+        },
+        separators=(",", ":"),
+    )
+    canonical_role = _AUDIT_ROLE_MAP.get(str(resolved_role or "").lower(), "admin")
+    create_audit_event(
+        session=session,
+        event_id=f"access-{uuid4().hex[:24]}",
+        target_id=str(resource_id or ""),
+        target_type=resource_type,
+        action=action,
+        role=canonical_role,
+        actor_id=str(actor_user_id),
+        note=note,
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
 
 
 def can_access_clinic(session: Session, user_id: str, clinic_id: str) -> bool:
@@ -91,16 +146,16 @@ def can_access_patient(
     # Check clinic match
     if user.clinic_id != patient_clinic_id:
         if audit_on_denial:
-            create_audit_event(
+            _write_access_audit(
                 session=session,
                 actor_user_id=user_id,
-                patient_id=patient_id,
                 action="patient_access",
                 resource_type="patient",
                 resource_id=patient_id,
                 result="denied",
                 reason=f"cross-clinic access attempt: user clinic={user.clinic_id}, patient clinic={patient_clinic_id}",
-                sensitivity="phi"
+                sensitivity="phi",
+                role=user.role,
             )
         return False
     
@@ -119,16 +174,15 @@ def require_clinic_access(session: Session, user_id: str, clinic_id: str) -> Non
         AccessDeniedError: If user cannot access clinic
     """
     if not can_access_clinic(session, user_id, clinic_id):
-        create_audit_event(
+        _write_access_audit(
             session=session,
             actor_user_id=user_id,
-            patient_id=None,
             action="clinic_access",
             resource_type="clinic",
             resource_id=clinic_id,
             result="denied",
             reason=f"clinic access denied",
-            sensitivity="admin"
+            sensitivity="admin",
         )
         raise AccessDeniedError(f"User {user_id} cannot access clinic {clinic_id}")
 
@@ -164,14 +218,13 @@ def log_phi_access(
         action: What action was performed (read, export, etc.)
         resource_type: Type of resource accessed
     """
-    create_audit_event(
+    _write_access_audit(
         session=session,
         actor_user_id=actor_user_id,
-        patient_id=patient_id,
         action=action,
         resource_type=resource_type,
         resource_id=patient_id,
         result="allowed",
         reason=None,
-        sensitivity="phi"
+        sensitivity="phi",
     )
