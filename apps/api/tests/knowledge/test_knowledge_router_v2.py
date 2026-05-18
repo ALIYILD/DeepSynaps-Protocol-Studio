@@ -24,11 +24,23 @@ class ApiServiceError(Exception):
         self.code=code; self.message=message; self.status_code=status_code
         super().__init__(message)
 _err.ApiServiceError=ApiServiceError
-sys.modules["app.auth"]=_auth
-sys.modules["app.errors"]=_err
+_ORIGINAL_APP_MODULES = {
+    name: sys.modules.get(name)
+    for name in ("app.auth", "app.errors")
+}
 
-from knowledge_router_v2 import router as knowledge_router_v2
-import knowledge_router_v2 as _rm
+try:
+    sys.modules["app.auth"] = _auth
+    sys.modules["app.errors"] = _err
+
+    from knowledge_router_v2 import router as knowledge_router_v2
+    import knowledge_router_v2 as _rm
+finally:
+    for name, module in _ORIGINAL_APP_MODULES.items():
+        if module is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = module
 
 app=FastAPI()
 app.include_router(knowledge_router_v2)
