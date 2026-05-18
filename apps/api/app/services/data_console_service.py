@@ -157,10 +157,27 @@ def get_patient_rows(
         raise DataConsoleAccessError(f"Table '{table_name}' is not available in data console")
     
     allowed_columns = SAFE_TABLES[table_name]
-    
-    # Build safe query
+    sql_table = _TABLE_NAME_TO_SQL_TABLE.get(table_name, table_name)
+
+    # Build the right patient-scope query per logical table. Not every table
+    # uses a ``patient_id`` column; ``patients`` keys by ``id`` and the
+    # legacy ``audit_event_records`` view maps onto ``audit_events.target_id``.
     columns_str = ", ".join(allowed_columns)
-    query_str = f"SELECT {columns_str} FROM {table_name} WHERE patient_id = :patient_id LIMIT :limit OFFSET :offset"
+    if table_name == "patients":
+        query_str = (
+            f"SELECT {columns_str} FROM {sql_table} "
+            "WHERE id = :patient_id LIMIT :limit OFFSET :offset"
+        )
+    elif table_name == "audit_event_records":
+        query_str = (
+            f"SELECT {columns_str} FROM {sql_table} "
+            "WHERE target_id = :patient_id LIMIT :limit OFFSET :offset"
+        )
+    else:
+        query_str = (
+            f"SELECT {columns_str} FROM {sql_table} "
+            "WHERE patient_id = :patient_id LIMIT :limit OFFSET :offset"
+        )
     
     try:
         result = session.execute(
@@ -175,7 +192,7 @@ def get_patient_rows(
     # Convert to dicts and apply masking
     output = []
     for row in rows:
-        row_dict = dict(row)
+        row_dict = dict(row._mapping)
         
         if mask_phi:
             for field_name in row_dict.keys():
@@ -219,7 +236,21 @@ def get_patient_data_summary(
     # Count rows in each table for this patient
     for table_name in SAFE_TABLES.keys():
         try:
-            query_str = f"SELECT COUNT(*) as cnt FROM {table_name} WHERE patient_id = :patient_id"
+            sql_table = _TABLE_NAME_TO_SQL_TABLE.get(table_name, table_name)
+            if table_name == "patients":
+                query_str = (
+                    f"SELECT COUNT(*) as cnt FROM {sql_table} WHERE id = :patient_id"
+                )
+            elif table_name == "audit_event_records":
+                query_str = (
+                    f"SELECT COUNT(*) as cnt FROM {sql_table} "
+                    "WHERE target_id = :patient_id"
+                )
+            else:
+                query_str = (
+                    f"SELECT COUNT(*) as cnt FROM {sql_table} "
+                    "WHERE patient_id = :patient_id"
+                )
             result = session.execute(text(query_str), {"patient_id": patient_id})
             row = result.fetchone()
             count = row[0] if row else 0

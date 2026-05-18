@@ -23,14 +23,45 @@ import time
 from contextlib import contextmanager
 from typing import Generator
 
-from prometheus_client import (
-    CollectorRegistry,
-    Counter,
-    Gauge,
-    Histogram,
-    Info,
-    generate_latest,
-)
+try:
+    from prometheus_client import (
+        CollectorRegistry,
+        Counter,
+        Gauge,
+        Histogram,
+        Info,
+        generate_latest,
+    )
+    _PROMETHEUS_AVAILABLE = True
+except ModuleNotFoundError:
+    _PROMETHEUS_AVAILABLE = False
+
+    class CollectorRegistry:  # type: ignore[override]
+        """Fallback registry when prometheus_client is unavailable."""
+
+    class _NoopMetric:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def labels(self, **kwargs):
+            return self
+
+        def inc(self, amount: float = 1.0) -> None:
+            return None
+
+        def dec(self, amount: float = 1.0) -> None:
+            return None
+
+        def observe(self, value: float) -> None:
+            return None
+
+        def info(self, data) -> None:
+            return None
+
+    Counter = Gauge = Histogram = Info = _NoopMetric  # type: ignore[misc,assignment]
+
+    def generate_latest(registry) -> bytes:  # type: ignore[override]
+        return b"# prometheus_client not installed; metrics disabled\n"
 
 # ---------------------------------------------------------------------------
 # Registry
