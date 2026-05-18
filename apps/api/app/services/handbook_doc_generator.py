@@ -18,6 +18,8 @@ from __future__ import annotations
 import io, json, zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
+
+from app.utils.time_utils import utc_now
 from enum import Enum
 from typing import Dict, List, Optional
 
@@ -107,7 +109,7 @@ class Handbook:
 
     def __post_init__(self):
         if not self.date:
-            self.date = datetime.utcnow().strftime("%Y-%m-%d")
+            self.date = utc_now().strftime("%Y-%m-%d")
 
 # ---------------------------------------------------------------------------
 # Template Engine
@@ -156,7 +158,7 @@ class HandbookTemplate:
 
     def render_metadata(self, hb: Handbook) -> str:
         return json.dumps({
-            "generated_at": datetime.utcnow().isoformat(),
+            "generated_at": utc_now().isoformat(),
             "generator": "DeepSynaps Protocol Studio v1.0",
             "handbook_title": hb.title, "version": hb.version, "author": hb.author,
             "clinic": hb.clinic, "section_count": len(hb.sections),
@@ -360,7 +362,7 @@ async def generate_handbook_pdf(handbook: Handbook, include_evidence: bool = Tru
     pdf.add_page(); pdf.disclaimer()
     pdf.set_font("Helvetica", "B", 9); pdf.set_text_color(128, 128, 128)
     pdf.cell(0, 6, "Generation Metadata", ln=True); pdf.set_font("Helvetica", "", 8)
-    for k, v in {"generated_at": datetime.utcnow().isoformat(), "generator": "DeepSynaps Protocol Studio",
+    for k, v in {"generated_at": utc_now().isoformat(), "generator": "DeepSynaps Protocol Studio",
                  "section_count": len(handbook.sections), "evidence_count": len(handbook.evidence)}.items():
         pdf.cell(0, 5, f"{k}: {v}", ln=True)
     return pdf.output()

@@ -19,6 +19,8 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+
+from app.utils.time_utils import utc_now
 from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
@@ -139,7 +141,7 @@ class CHBMPAdapter(DatabaseAdapter):
         if cache_key in self._cache:
             self._cache_hits += 1
             cached = self._cache[cache_key]
-            if datetime.utcnow() < cached["expires_at"]:
+            if utc_now() < cached["expires_at"]:
                 logger.debug("CHBMP cache hit for key %s", cache_key[:16])
                 return cached["records"]
 
@@ -147,9 +149,9 @@ class CHBMPAdapter(DatabaseAdapter):
         records = await self._fetch_with_retry(query)
         self._cache[cache_key] = {
             "records": records,
-            "expires_at": datetime.utcnow() + timedelta(seconds=86400),
+            "expires_at": utc_now() + timedelta(seconds=86400),
         }
-        self._last_fetch = datetime.utcnow()
+        self._last_fetch = utc_now()
         return records
 
     async def _fetch_with_retry(
@@ -326,7 +328,7 @@ class CHBMPAdapter(DatabaseAdapter):
             source_database=self.source_name,
             source_version=self.source_version,
             source_record_id=record.get("subject_id", "unknown"),
-            ingestion_timestamp=datetime.utcnow(),
+            ingestion_timestamp=utc_now(),
             license_type="Open Access (CONP Portal)",
             license_url="https://portal.conp.ca/",
             attribution_text=(

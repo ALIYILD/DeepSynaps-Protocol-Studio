@@ -23,6 +23,8 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+
+from app.utils.time_utils import utc_now
 from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
@@ -269,7 +271,7 @@ class PROMISAdapter(DatabaseAdapter):
         if cache_key in self._cache:
             self._cache_hits += 1
             cached = self._cache[cache_key]
-            if datetime.utcnow() < cached["expires_at"]:
+            if utc_now() < cached["expires_at"]:
                 logger.debug("PROMIS cache hit for key %s", cache_key[:16])
                 return cached["records"]
 
@@ -277,9 +279,9 @@ class PROMISAdapter(DatabaseAdapter):
         records = await self._fetch_with_retry(query)
         self._cache[cache_key] = {
             "records": records,
-            "expires_at": datetime.utcnow() + timedelta(seconds=604800),  # 7 days
+            "expires_at": utc_now() + timedelta(seconds=604800),  # 7 days
         }
-        self._last_fetch = datetime.utcnow()
+        self._last_fetch = utc_now()
         return records
 
     async def _fetch_with_retry(
@@ -442,7 +444,7 @@ class PROMISAdapter(DatabaseAdapter):
             source_database=self.source_name,
             source_version=self._version,
             source_record_id=code,
-            ingestion_timestamp=datetime.utcnow(),
+            ingestion_timestamp=utc_now(),
             license_type="PROMIS Terms of Use",
             license_url="https://www.healthmeasures.net/explore-measurement-systems/promis",
             attribution_text=(

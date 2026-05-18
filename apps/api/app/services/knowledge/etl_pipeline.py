@@ -41,6 +41,8 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+
+from app.utils.time_utils import utc_now
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -288,7 +290,7 @@ class ETLPipeline:
         """
         job_id = job_id or self._generate_job_id(adapter_name, query)
         skip_stages = skip_stages or []
-        started_at = datetime.utcnow()
+        started_at = utc_now()
 
         result = ETLResult(
             job_id=job_id,
@@ -339,7 +341,7 @@ class ETLPipeline:
                         "adapter_name": adapter_name,
                         "query": query,
                         "raw_records": raw_records,
-                        "timestamp": datetime.utcnow().isoformat(),
+                        "timestamp": utc_now().isoformat(),
                     })
                 result.records_extracted = len(raw_records)
                 result.stage_reached = ETLStage.EXTRACT
@@ -350,7 +352,7 @@ class ETLPipeline:
 
             if not raw_records:
                 result.status = ETLStatus.SUCCESS
-                result.completed_at = datetime.utcnow()
+                result.completed_at = utc_now()
                 result.duration_seconds = (result.completed_at - started_at).total_seconds()
                 logger.info("ETL job '%s' complete: no raw records to process", job_id)
                 return result
@@ -370,7 +372,7 @@ class ETLPipeline:
                         "query": query,
                         "raw_records": raw_records,
                         "normalized_records": normalized_records,
-                        "timestamp": datetime.utcnow().isoformat(),
+                        "timestamp": utc_now().isoformat(),
                     })
                 result.records_transformed = len(normalized_records)
                 result.stage_reached = ETLStage.TRANSFORM
@@ -404,7 +406,7 @@ class ETLPipeline:
                         "raw_records": raw_records,
                         "normalized_records": normalized_records,
                         "valid_records": valid_records,
-                        "timestamp": datetime.utcnow().isoformat(),
+                        "timestamp": utc_now().isoformat(),
                     })
                 result.records_valid = len(valid_records)
                 result.stage_reached = ETLStage.VALIDATE
@@ -415,7 +417,7 @@ class ETLPipeline:
 
             if not valid_records:
                 result.status = ETLStatus.PARTIAL if result.records_transformed > 0 else ETLStatus.SUCCESS
-                result.completed_at = datetime.utcnow()
+                result.completed_at = utc_now()
                 result.duration_seconds = (result.completed_at - started_at).total_seconds()
                 logger.info("ETL job '%s' complete: no valid records after validation", job_id)
                 return result
@@ -454,7 +456,7 @@ class ETLPipeline:
                     "valid_records": valid_records,
                     "enriched_records": enriched_records,
                     "loaded_count": loaded_count,
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": utc_now().isoformat(),
                 })
                 logger.info("LOAD complete: %d records persisted", loaded_count)
 
@@ -480,7 +482,7 @@ class ETLPipeline:
                 "query": query,
                 "error": str(exc),
                 "stage": exc.stage,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": utc_now().isoformat(),
             })
 
         except Exception as exc:
@@ -497,11 +499,11 @@ class ETLPipeline:
                 "query": query,
                 "error": str(exc),
                 "stage": "unknown",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": utc_now().isoformat(),
             })
 
         finally:
-            result.completed_at = datetime.utcnow()
+            result.completed_at = utc_now()
             if result.started_at:
                 result.duration_seconds = (result.completed_at - result.started_at).total_seconds()
             logger.info(
@@ -574,8 +576,8 @@ class ETLPipeline:
                             "message": str(exc),
                             "severity": "critical",
                         }],
-                        started_at=datetime.utcnow(),
-                        completed_at=datetime.utcnow(),
+                        started_at=utc_now(),
+                        completed_at=utc_now(),
                     )
                     self._failed_jobs.append({
                         "job_id": job_id or f"batch-{idx}",
@@ -583,7 +585,7 @@ class ETLPipeline:
                         "query": query,
                         "error": str(exc),
                         "stage": "batch",
-                        "timestamp": datetime.utcnow().isoformat(),
+                        "timestamp": utc_now().isoformat(),
                     })
 
         await asyncio.gather(*[_run_one(i, j) for i, j in enumerate(jobs)])
@@ -613,7 +615,7 @@ class ETLPipeline:
             checkpoint = {
                 "_meta": {
                     "job_id": job_id,
-                    "saved_at": datetime.utcnow().isoformat(),
+                    "saved_at": utc_now().isoformat(),
                     "version": "1.0",
                 },
                 **state,
@@ -865,7 +867,7 @@ class ETLPipeline:
                     source_database=adapter.source_name,
                     source_version=adapter.source_version,
                     source_record_id=record.get("canonical_id", "unknown"),
-                    ingestion_timestamp=datetime.utcnow(),
+                    ingestion_timestamp=utc_now(),
                     license_type=adapter.get_license().license_type,
                 )
 
@@ -897,7 +899,7 @@ class ETLPipeline:
             # Integrity hash
             canonical_data = enriched_record.get("canonical_data", {})
             enriched_record["_data_hash"] = adapter._hash_record(canonical_data)
-            enriched_record["_enriched_at"] = datetime.utcnow().isoformat()
+            enriched_record["_enriched_at"] = utc_now().isoformat()
 
             enriched.append(enriched_record)
 
@@ -906,7 +908,7 @@ class ETLPipeline:
             "licenses": sorted(licenses),
             "record_count": len(enriched),
             "research_only_count": research_only_count,
-            "enriched_at": datetime.utcnow().isoformat(),
+            "enriched_at": utc_now().isoformat(),
         }
 
         return enriched, provenance_summary, confidence_breakdown, research_only_count
@@ -939,7 +941,7 @@ class ETLPipeline:
                 # lightweight stand-in. The cache key is the canonical_id
                 # combined with the source record ID for idempotency.
                 cache_key = self._generate_cache_key(record)
-                record["_loaded_at"] = datetime.utcnow().isoformat()
+                record["_loaded_at"] = utc_now().isoformat()
                 record["_cache_key"] = cache_key
                 loaded += 1
             except Exception as exc:
@@ -963,7 +965,7 @@ class ETLPipeline:
         """
         query_canonical = json.dumps(query, sort_keys=True, separators=(",", ":"), default=str)
         query_hash = hashlib.sha256(query_canonical.encode("utf-8")).hexdigest()[:16]
-        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        timestamp = utc_now().strftime("%Y%m%d%H%M%S")
         return f"{adapter_name}-{query_hash}-{timestamp}"
 
     def _generate_cache_key(self, record: Dict[str, Any]) -> str:

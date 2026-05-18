@@ -9,6 +9,8 @@ import math
 import random
 from datetime import datetime, timedelta
 
+from app.utils.time_utils import utc_now
+
 
 def generate_nof1_protocol(
     patient_id: str,
@@ -29,7 +31,7 @@ def generate_nof1_protocol(
     random.shuffle(base_sequence)
 
     # Build periods
-    start_date = datetime.utcnow()
+    start_date = utc_now()
     protocol_periods = []
     current_date = start_date
 

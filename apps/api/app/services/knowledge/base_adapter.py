@@ -12,6 +12,8 @@ import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
+
+from app.utils.time_utils import utc_now
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
@@ -249,7 +251,7 @@ class DatabaseAdapter(ABC):
         cached_at = entry.get("_cached_at")
         if cached_at is None:
             return False
-        age = (datetime.utcnow() - cached_at).total_seconds()
+        age = (utc_now() - cached_at).total_seconds()
         return age < self._cache_ttl_seconds
 
     def _get_cache_path(self, query: Union[str, Dict[str, Any]]) -> str:
@@ -264,7 +266,7 @@ class DatabaseAdapter(ABC):
 
     def _write_cache(self, cache_key: str, data: Any) -> None:
         """Store data in the in-memory cache."""
-        self._cache[cache_key] = {"data": data, "_cached_at": datetime.utcnow()}
+        self._cache[cache_key] = {"data": data, "_cached_at": utc_now()}
 
     def _read_cache(self, cache_key: str) -> Any:
         """Read data from the in-memory cache."""

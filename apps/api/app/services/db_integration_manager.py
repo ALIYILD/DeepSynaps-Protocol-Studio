@@ -21,6 +21,8 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
+
+from app.utils.time_utils import utc_now
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
@@ -304,7 +306,7 @@ class DBIntegrationManager:
         # Cache lookup
         if use_cache and cached and ckey in self._cache and not self._cache[ckey].is_expired:
             prov = ProvenanceRecord(database=database, source_name=src, query_id=qid,
-                                    query_hash=ckey, timestamp=datetime.utcnow(),
+                                    query_hash=ckey, timestamp=utc_now(),
                                     cache_hit=True, latency_ms=0.0,
                                     rows_returned=self._count_rows(self._cache[ckey].data))
             self._prov_log.append(prov)
@@ -320,7 +322,7 @@ class DBIntegrationManager:
                 self._dispatch(database, query, **kwargs), timeout=timeout or self.TIMEOUT)
             lat = (time.perf_counter() - t0) * 1000
             prov = ProvenanceRecord(database=database, source_name=src, query_id=qid,
-                                    query_hash=ckey, timestamp=datetime.utcnow(),
+                                    query_hash=ckey, timestamp=utc_now(),
                                     cache_hit=False, latency_ms=lat,
                                     rows_returned=self._count_rows(result))
             self._prov_log.append(prov)
@@ -340,7 +342,7 @@ class DBIntegrationManager:
                             fb_res = await asyncio.wait_for(
                                 self._dispatch(fb, query, **kwargs), timeout=timeout or self.TIMEOUT)
                             fprov = ProvenanceRecord(database=database, source_name=src, query_id=qid,
-                                                     query_hash=ckey, timestamp=datetime.utcnow(),
+                                                     query_hash=ckey, timestamp=utc_now(),
                                                      cache_hit=False, fallback_used=True,
                                                      latency_ms=(time.perf_counter() - t0) * 1000,
                                                      rows_returned=self._count_rows(fb_res))
@@ -351,7 +353,7 @@ class DBIntegrationManager:
                         except Exception as fbe:
                             logger.warning("Fallback %s failed: %s", fb, fbe)
             prov = ProvenanceRecord(database=database, source_name=src, query_id=qid,
-                                    query_hash=ckey, timestamp=datetime.utcnow(),
+                                    query_hash=ckey, timestamp=utc_now(),
                                     cache_hit=False, latency_ms=lat)
             self._prov_log.append(prov)
             return {"success": False, "data": None,
