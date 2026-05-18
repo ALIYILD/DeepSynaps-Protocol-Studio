@@ -18,6 +18,7 @@ from app.limiter import limiter
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 
 from deepsynaps_core_schema import (
     BrainRegionListResponse,
@@ -817,6 +818,7 @@ app.add_middleware(
 )
 
 app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 class MaxBodySizeMiddleware(BaseHTTPMiddleware):
