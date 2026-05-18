@@ -226,6 +226,49 @@ legitimate operator identity but the change behind it never ran
   that if/when someone resumes it, they do so via PR with `vite build`
   passing locally first.
 
+## Addendum (2026-05-18, later same day) — desktop staging-folder audit
+
+After the hotfix closed, the operator asked whether the local staging
+folder `~/Desktop/Kimi_Agent_临床OS部署计划` (163 files) was already
+reflected in GitHub. A full cross-reference was run against `origin/main`
+at HEAD `f4547e3a`.
+
+**Result: 121 of 163 files are functionally present in the repo.** Nothing
+in the staging folder represents missing production code. The bucket
+breakdown:
+
+| Bucket | Count | Notes |
+|---|---:|---|
+| Byte-identical at the same repo path | 74 | Already in GitHub. |
+| Byte-identical at a different repo path | 40 | Already in GitHub, just reorganized (desktop uses `infrastructure/scripts/*`, `deployment/scripts/*`, `security/scripts/*`, `testing/*`; repo uses flat `scripts/*` + co-located tests). |
+| `backend_wiring_files/*` flat-encoded paths | 6 | The agent encoded paths as `apps__api__app__persistence__models__wellness_models.py` etc. All 6 exist at the decoded paths in the repo. |
+| `clinicianSidebar_fixed.js` (rename duplicate) | 1 | MD5-identical to `apps/web/src/navigation/clinicianSidebar.js`. The `_fixed` suffix is misleading — it is the same file. |
+| Same repo path, **repo content is newer** | 5 | `apps/web/src/pages-{device,surgical,session}-planning.js`, `apps/web/src/pages-stimulation-targets.js`, `apps/api/app/services/handbook_evidence_service.py`. Desktop versions are stale — do **NOT** copy them over. |
+| Same basename in repo, different content | 3 | `pages-handbooks.js` (desktop 60K vs repo 62K), `deployment-checklist.sh` (~8 B drift), `rotate-secrets.sh` (~4 B drift). Trivial — worth eyeballing only if the specific file matters. |
+| **Not in repo, true orphans** | **17** | Agent self-narration: planning notes (`plan*.md`), audit reports (`*_audit*.md`, `audit_report_backend_safety.md`), build logs (`KIMI_BUILD_LOG.txt`), research briefs (`*_research_brief_*.md`), orphan tests (`handbooks-*-tests.js`, `test_patient_dashboard_bugs.js`), a debug PNG, and one runtime script (`REDEPLOY_FRONTEND.sh`). |
+| **RED FLAGS — must NEVER enter the repo** | **17** | 6× `push_*.py` agent push automation scripts; 4× `*_push_report.{md,json}` agent self-reports; 3× base64-encoded payload files totalling ~296 KB (`encoded_content.txt`, `sidebar_b64.txt`, `backend_wiring_base64_payloads.json`); 1× `final_round_deliverables.tar.gz` (447 KB); 3× `__pycache__/*.cpython-312.pyc` compiled Python. |
+
+The 6 `push_*.py` scripts are the same smoking-gun signature flagged in
+the runaway-agent memory: *"Branch committed its own push-to-github.sh
+helper (the agent couldn't figure out git push)."*
+
+**Decision:**
+
+- None of the 17 orphans is being added to the repo as part of this
+  closeout. Any addition would have to go through the salvage-PR flow
+  documented in `docs/engineering/salvage-pr-governance.md`, not via
+  drift from a desktop staging folder.
+- The 17 red-flag artifacts must never be committed. `.gitignore` already
+  excludes `*.pyc`; the push scripts and base64 payloads are agent
+  workflow detritus with no production value.
+- The 5 stale-content files at matching paths are not being touched.
+  The repo is ahead; the desktop versions are older. Copying them down
+  would be a regression.
+
+**The desktop staging folder is now considered triaged and safe to
+archive or delete by the operator.** No outstanding code is at risk of
+being lost. This addendum is the audit trail.
+
 ## Cross-references in memory
 
 This document is the canonical record of the 2026-05-18 hotfix. The
