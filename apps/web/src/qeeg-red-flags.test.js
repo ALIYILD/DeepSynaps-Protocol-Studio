@@ -110,4 +110,42 @@ describe('renderRedFlags', () => {
     assert.ok(html.includes('<th>Message</th>'), 'expected Message header');
     assert.ok(html.includes('<th>Recommendation</th>'), 'expected Recommendation header');
   });
+
+  // ── Branch-coverage additions: null fields and missing optional flags ─
+
+  it('tolerates flag rows with null severity / category / message (esc null-path)', () => {
+    // Hits the esc() v == null branch (line 10) for category/message/severity nulls.
+    const flags = {
+      flags: [{ severity: null, category: null, message: null, recommendation: undefined }],
+      flag_count: 1,
+      high_severity_count: 0,
+    };
+    const html = renderRedFlags(flags);
+    // Falsy severity falls into the grey `LOW` colour branch via _sevColor.
+    assert.ok(html.includes('#6b7280'));
+    // Null recommendation falls back to the em-dash.
+    assert.ok(html.includes('—'));
+    // Empty cells render as <td></td> for null category/message.
+    assert.ok(html.includes('<td></td>'));
+  });
+
+  it('defaults flag_count / high_severity_count to 0 when omitted', () => {
+    // Hits the `flags.flag_count || 0` and `flags.high_severity_count || 0`
+    // fallback branches on lines 27-28.
+    const html = renderRedFlags({ flags: [] });
+    assert.ok(html.includes('Total Flags'));
+    // Both summary boxes should render their default 0.
+    const zeroes = (html.match(/>0</g) || []).length;
+    assert.ok(zeroes >= 2, `expected at least two 0 cells in summary, got ${zeroes}`);
+  });
+
+  it('omits the disclaimer block when disclaimer is missing or empty', () => {
+    // Hits the `disclaimer ? …` ternary falsy branch on line 58 — disclaimer
+    // is normalised to '' on line 29 when omitted.
+    const html = renderRedFlags({ flags: [{ severity: 'HIGH', category: 'A', message: 'B', recommendation: 'C' }], flag_count: 1, high_severity_count: 1 });
+    // The disclaimer paragraph should not appear at all.
+    assert.equal(html.includes('font-size:11px;color:var(--text-secondary)">'), true);
+    // But the specific "decision-support" disclaimer copy must NOT appear.
+    assert.equal(html.includes('decision-support'), false);
+  });
 });

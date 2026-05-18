@@ -118,4 +118,41 @@ describe('normalizeClinicalContext', () => {
     assert.ok(typeof result.set_at === 'string');
     assert.ok(!isNaN(Date.parse(result.set_at)), 'set_at must be parseable as a date');
   });
+
+  // ── Branch-coverage additions: explicit input fields ────────────────────
+
+  it('keeps caller-supplied condition_label when it is a string', () => {
+    // Hits the typeof condition_label === 'string' true branch on line 102.
+    const result = normalizeClinicalContext({
+      preset_id: 'dystonia',
+      condition_label: 'Cervical dystonia (workup)',
+    });
+    assert.strictEqual(result.condition_label, 'Cervical dystonia (workup)');
+  });
+
+  it('keeps caller-supplied set_at when it is a string', () => {
+    // Hits the typeof set_at === 'string' true branch on line 107.
+    const ts = '2026-04-01T12:00:00Z';
+    const result = normalizeClinicalContext({ preset_id: 'essential_tremor', set_at: ts });
+    assert.strictEqual(result.set_at, ts);
+  });
+
+  it('ignores non-string custom_indication and yields empty string', () => {
+    // Hits the typeof custom_indication === 'string' false branch on line 104.
+    const result = normalizeClinicalContext({
+      preset_id: 'essential_tremor',
+      custom_indication: 42,
+    });
+    assert.strictEqual(result.custom_indication, '');
+  });
+
+  it('ignores non-string condition_label and falls back to preset label', () => {
+    // Hits the typeof condition_label === 'string' false branch on line 102.
+    const result = normalizeClinicalContext({
+      preset_id: 'dystonia',
+      condition_label: 99,
+    });
+    const preset = getVaPreset('dystonia');
+    assert.strictEqual(result.condition_label, preset.label);
+  });
 });
