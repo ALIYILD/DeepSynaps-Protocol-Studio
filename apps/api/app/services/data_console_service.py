@@ -7,7 +7,14 @@ Provides masked, allowlist-gated access to patient data for clinician review:
 - Audit logging of all access
 """
 import csv
+import copy
+import hashlib
 import io
+import json
+import os
+import tempfile
+import uuid
+from datetime import datetime, timezone
 from typing import Iterator, Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -466,3 +473,267 @@ def validate_console_query_safety(query: str) -> bool:
             return False
     
     return True
+
+
+def export_to_csv(data: List[Dict[str, Any]], filename: str, masked: bool = True) -> str:
+    """Write export data to a CSV file in the system temp directory."""
+    filepath = os.path.join(tempfile.gettempdir(), filename)
+    with open(filepath, "w", newline="", encoding="utf-8") as f:
+        if not data:
+            return filepath
+        writer = csv.DictWriter(f, fieldnames=list(data[0].keys()))
+        writer.writeheader()
+        writer.writerows(data)
+    return filepath
+
+
+def export_to_json(data: List[Dict[str, Any]], filename: str, masked: bool = True) -> str:
+    """Write export data to a JSON file in the system temp directory."""
+    filepath = os.path.join(tempfile.gettempdir(), filename)
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+    return filepath
+
+
+def export_to_fhir(data: List[Dict[str, Any]], patient_id: str) -> Dict[str, Any]:
+    """Convert export data into a minimal FHIR R4 Bundle."""
+    entries: List[Dict[str, Any]] = []
+    for index, row in enumerate(data):
+        resource_type = "Patient" if row.get("source_table") == "patients" else "Basic"
+        resource_id = row.get("patient_id") or row.get("id") or f"{patient_id}-{index}"
+        entries.append(
+            {
+                "resource": {
+                    "resourceType": resource_type,
+                    "id": str(resource_id),
+                    "identifier": [{"value": str(resource_id)}],
+                    "extension": [{"url": "https://deepsynaps.ai/source-table", "valueString": str(row.get("source_table", "unknown"))}],
+                },
+                "request": {"method": "PUT", "url": f"{resource_type}/{resource_id}"},
+            }
+        )
+    return {
+        "resourceType": "Bundle",
+        "id": f"deepsynaps-export-{uuid.uuid4().hex[:12]}",
+        "type": "collection",
+        "meta": {"lastUpdated": datetime.now(timezone.utc).isoformat()},
+        "entry": entries,
+    }
+
+
+def _generalize_dob(value: Any) -> Any:
+    if not value or value == "***-***-****":
+        return value
+    try:
+        year = int(str(value)[:4])
+    except (TypeError, ValueError):
+        return "*"
+    return f"{year - 1}-{year + 3}"
+
+
+def apply_k_anonymity(
+    data: List[Dict[str, Any]],
+    *,
+    k: int,
+    quasi_identifiers: List[str],
+) -> List[Dict[str, Any]]:
+    """Generalize quasi-identifiers until each equivalence class reaches k."""
+    if not data:
+        return []
+    if not quasi_identifiers:
+        return data
+
+    result = [copy.deepcopy(row) for row in data]
+
+    def _class_sizes(rows: List[Dict[str, Any]]) -> Dict[tuple[Any, ...], int]:
+        counts: Dict[tuple[Any, ...], int] = {}
+        for row in rows:
+            key = tuple(row.get(field) for field in quasi_identifiers)
+            counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    counts = _class_sizes(result)
+    if counts and min(counts.values()) >= k:
+        return result
+
+    for row in result:
+        for field in quasi_identifiers:
+            if field == "dob":
+                row[field] = _generalize_dob(row.get(field))
+            elif field == "gender":
+                row[field] = row.get(field) or "*"
+            else:
+                row[field] = "*"
+
+    counts = _class_sizes(result)
+    if counts and min(counts.values()) < k:
+        for row in result:
+            for field in quasi_identifiers:
+                row[field] = "*"
+
+    return result
+
+
+def apply_l_diversity(
+    data: List[Dict[str, Any]],
+    *,
+    l: int,
+    sensitive_attr: str,
+) -> List[Dict[str, Any]]:
+    """Suppress the sensitive attribute for groups with fewer than l distinct values."""
+    if not data:
+        return []
+
+    result = [copy.deepcopy(row) for row in data]
+    groups: Dict[tuple[Any, ...], set[Any]] = {}
+    for row in result:
+        key = tuple((k, row.get(k)) for k in row.keys() if k != sensitive_attr)
+        groups.setdefault(key, set()).add(row.get(sensitive_attr))
+
+    for row in result:
+        key = tuple((k, row.get(k)) for k in row.keys() if k != sensitive_attr)
+        if len(groups.get(key, set())) < l:
+            row[sensitive_attr] = "*"
+    return result
+
+
+def apply_full_deidentification(data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Apply a coarse Safe Harbor-style de-identification transform."""
+    if not data:
+        return []
+
+    direct_identifiers = {"first_name", "last_name", "email", "phone", "ssn", "address", "mrn"}
+    result = [copy.deepcopy(row) for row in data]
+    for row in result:
+        for field in direct_identifiers:
+            if field in row:
+                row[field] = None
+        patient_id = row.get("patient_id")
+        if patient_id is not None:
+            digest = hashlib.sha256(str(patient_id).encode("utf-8")).hexdigest()[:16]
+            row["patient_id"] = f"hash_{digest}"
+        if "dob" in row:
+            row["dob"] = _generalize_dob(row.get("dob"))
+        if "gender" in row and row.get("gender") is not None:
+            row["gender"] = "person"
+        if "primary_condition" in row and isinstance(row["primary_condition"], str):
+            row["primary_condition"] = row["primary_condition"][:40]
+    return result
+
+
+def _build_export_data(
+    session: Session,
+    clinic_id: str,
+    scope: str,
+    patient_id: Optional[str] = None,
+    *,
+    masked: bool = True,
+) -> List[Dict[str, Any]]:
+    """Build export rows for clinic or patient scope."""
+    rows: List[Dict[str, Any]] = []
+    if scope == "patient":
+        if not patient_id:
+            raise DataConsoleAccessError("patient_id is required for patient-scoped export")
+        for table_name in SAFE_TABLES:
+            try:
+                table_rows = get_patient_rows(
+                    session,
+                    actor_user_id="system-export",
+                    patient_id=patient_id,
+                    table_name=table_name,
+                    mask_phi=masked,
+                )
+            except Exception:
+                table_rows = []
+            for row in table_rows:
+                row = dict(row)
+                row.setdefault("source_table", table_name)
+                rows.append(row)
+        return rows
+
+    if scope != "clinic":
+        raise DataConsoleAccessError(f"Unsupported export scope: {scope}")
+
+    for table_name in SAFE_TABLES:
+        columns = _safe_columns(table_name)
+        query_str = _safe_table_query(table_name, select_columns=columns)
+        try:
+            result = session.execute(text(query_str), {"clinic_id": clinic_id})
+            for raw_row in result.fetchall():
+                row = dict(raw_row)
+                if masked:
+                    row = {k: mask_phi_field(v, k) for k, v in row.items()}
+                row["source_table"] = table_name
+                rows.append(row)
+        except Exception:
+            continue
+    return rows
+
+
+def create_audit_event(
+    session: Session,
+    *,
+    actor_id: str,
+    action: str,
+    scope: str,
+    record_count: int,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Best-effort audit hook for exports."""
+    logger.info(
+        "data-console audit actor=%s action=%s scope=%s record_count=%s metadata=%s",
+        actor_id,
+        action,
+        scope,
+        record_count,
+        metadata or {},
+    )
+
+
+def create_data_export(
+    session: Session,
+    clinic_id: str,
+    request: Dict[str, Any],
+    actor_id: str,
+) -> Dict[str, Any]:
+    """Create an export artifact and return download metadata."""
+    export_format = str(request.get("format", "csv")).lower()
+    scope = str(request.get("scope", "clinic")).lower()
+    patient_id = request.get("patient_id")
+    masked = bool(request.get("masked", True))
+    export_id = f"export_{uuid.uuid4().hex[:12]}"
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+    data = _build_export_data(session, clinic_id, scope, patient_id, masked=masked)
+
+    if export_format == "csv":
+        filename = f"{export_id}_{timestamp}.csv"
+        filepath = export_to_csv(data, filename, masked=masked)
+    elif export_format == "json":
+        filename = f"{export_id}_{timestamp}.json"
+        filepath = export_to_json(data, filename, masked=masked)
+    elif export_format == "fhir":
+        filename = f"{export_id}_{timestamp}.json"
+        filepath = export_to_json(export_to_fhir(data, patient_id or clinic_id), filename, masked=masked)
+    else:
+        raise DataConsoleAccessError(f"Unsupported export format: {export_format}")
+
+    create_audit_event(
+        session,
+        actor_id=actor_id,
+        action="data_export_created",
+        scope=scope,
+        record_count=len(data),
+        metadata={"format": export_format, "filepath": filepath},
+    )
+
+    return {
+        "export_id": export_id,
+        "download_url": f"/api/v1/data-console/exports/{os.path.basename(filepath)}",
+        "filename": os.path.basename(filepath),
+        "format": export_format,
+        "record_count": len(data),
+        "scope": scope,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "disclaimer": "This export is for clinical review only. PHI may be masked depending on scope and role.",
+    }
