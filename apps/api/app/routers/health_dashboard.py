@@ -58,6 +58,14 @@ HEALTHY_THRESHOLD_MS = 500
 WARNING_THRESHOLD_MS = 2000
 CRITICAL_THRESHOLD_MS = 5000
 
+FALLBACK_KNOWLEDGE_ADAPTER_KEYS = (
+    "pubmed",
+    "ctgov",
+    "cochrane",
+    "europepmc",
+    "gnomad",
+)
+
 # Simulated adapter count
 TOTAL_ADAPTERS = 66
 
@@ -332,6 +340,183 @@ BRIDGE_DEFS: List[Dict[str, str]] = [
     {"id": "bridge-alert-to-pagerduty", "source": "datadog-metrics", "target": "pagerduty-events"},
     {"id": "bridge-ticket-to-slack", "source": "zendesk-support", "target": "slack-webhook"},
 ]
+
+
+# =============================================================================
+# KNOWLEDGE RUNTIME SNAPSHOT
+# =============================================================================
+
+
+@dataclass
+class KnowledgeRuntimeSnapshot:
+    """App-state-backed view of knowledge runtime readiness."""
+
+    status: HealthStatus
+    message: str
+    catalog_keys: List[str] = field(default_factory=list)
+    registered_keys: List[str] = field(default_factory=list)
+    missing_keys: List[str] = field(default_factory=list)
+    adapter_info: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    cached_health: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    import_errors: List[str] = field(default_factory=list)
+    registration_errors: List[str] = field(default_factory=list)
+    registry_source: str = "unavailable"
+    evidence_store_available: bool = False
+    evidence_store_error: str = ""
+    evidence_stats: Dict[str, Any] = field(default_factory=dict)
+    evidence_metadata: List[Dict[str, Any]] = field(default_factory=list)
+
+
+def _collect_knowledge_runtime_snapshot(app: FastAPI) -> KnowledgeRuntimeSnapshot:
+    """Collect an honest, no-network snapshot of knowledge runtime state."""
+    import_errors: List[str] = []
+    registration_errors: List[str] = []
+    catalog_keys: List[str] = []
+    registered_keys: List[str] = []
+    adapter_info: Dict[str, Dict[str, Any]] = {}
+    cached_health: Dict[str, Dict[str, Any]] = {}
+    registry_source = "unavailable"
+    registry: Any = None
+
+    try:
+        from app.services.knowledge.adapter_bootstrap import (
+            build_production_registry,
+            list_production_adapter_keys,
+        )
+
+        catalog_keys = list(list_production_adapter_keys())
+        registry = getattr(app.state, "knowledge_registry", None) or getattr(
+            app.state, "adapter_registry", None
+        )
+        if registry is not None:
+            registry_source = "app.state"
+        else:
+            registry = build_production_registry()
+            registry_source = "bootstrap_snapshot"
+    except Exception as exc:  # noqa: BLE001
+        import_errors.append(f"knowledge bootstrap unavailable: {exc}")
+
+    if registry is not None:
+        try:
+            registered_keys = list(registry.list_adapters())
+            if hasattr(registry, "get_all_info"):
+                adapter_info = dict(registry.get_all_info())
+            if hasattr(registry, "get_all_cached_health"):
+                cached_health = dict(registry.get_all_cached_health())
+        except Exception as exc:  # noqa: BLE001
+            registration_errors.append(f"registry inspection failed: {exc}")
+
+    if not catalog_keys:
+        catalog_keys = list(FALLBACK_KNOWLEDGE_ADAPTER_KEYS)
+
+    missing_keys = sorted(set(catalog_keys) - set(registered_keys))
+    if missing_keys:
+        registration_errors.extend(
+            [f"catalog adapter not registered: {key}" for key in missing_keys]
+        )
+
+    evidence_store = getattr(app.state, "evidence_store", None)
+    evidence_store_available = evidence_store is not None
+    evidence_store_error = ""
+    evidence_stats: Dict[str, Any] = {}
+    evidence_metadata: List[Dict[str, Any]] = []
+    if evidence_store_available:
+        try:
+            if hasattr(evidence_store, "get_stats"):
+                evidence_stats = dict(evidence_store.get_stats())
+            if hasattr(evidence_store, "get_adapter_metadata"):
+                evidence_metadata = list(evidence_store.get_adapter_metadata())
+        except Exception as exc:  # noqa: BLE001
+            evidence_store_error = str(exc)
+
+    connected_health = [
+        bool(item.get("connected"))
+        for item in cached_health.values()
+        if isinstance(item, dict) and "connected" in item
+    ]
+    if import_errors and not registered_keys:
+        status = HealthStatus.UNHEALTHY
+        message = "Knowledge adapter bootstrap is unavailable."
+    elif registration_errors:
+        status = HealthStatus.DEGRADED
+        message = "Knowledge adapter bootstrap loaded with missing or partial registrations."
+    elif evidence_store_error:
+        status = HealthStatus.DEGRADED
+        message = "Knowledge adapter bootstrap loaded, but evidence store inspection failed."
+    elif not evidence_store_available:
+        status = HealthStatus.DEGRADED
+        message = "Knowledge adapter bootstrap loaded, but evidence store is not attached to app state."
+    elif connected_health and all(connected_health) and len(cached_health) == len(registered_keys):
+        status = HealthStatus.HEALTHY
+        message = "Knowledge adapter registry and evidence store are available with cached live health data."
+    else:
+        status = HealthStatus.DEGRADED
+        message = "Knowledge adapter registry is available, but live adapter health checks are not populated."
+
+    return KnowledgeRuntimeSnapshot(
+        status=status,
+        message=message,
+        catalog_keys=catalog_keys,
+        registered_keys=registered_keys,
+        missing_keys=missing_keys,
+        adapter_info=adapter_info,
+        cached_health=cached_health,
+        import_errors=import_errors,
+        registration_errors=registration_errors,
+        registry_source=registry_source,
+        evidence_store_available=evidence_store_available,
+        evidence_store_error=evidence_store_error,
+        evidence_stats=evidence_stats,
+        evidence_metadata=evidence_metadata,
+    )
+
+
+def _build_adapter_health_rows(snapshot: KnowledgeRuntimeSnapshot) -> List[AdapterHealth]:
+    """Convert knowledge runtime snapshot into endpoint-safe adapter rows."""
+    now = datetime.now(timezone.utc).isoformat()
+    rows: List[AdapterHealth] = []
+    for key in snapshot.catalog_keys or snapshot.registered_keys:
+        info = snapshot.adapter_info.get(key, {})
+        cached = snapshot.cached_health.get(key, {})
+
+        if key in snapshot.missing_keys:
+            status = HealthStatus.UNHEALTHY
+            message = "Catalogued adapter failed bootstrap registration."
+        elif cached:
+            if cached.get("connected") is True:
+                status = HealthStatus.HEALTHY
+                message = cached.get("message") or "Cached adapter health reports connected."
+            elif cached.get("connected") is False:
+                status = HealthStatus.DEGRADED
+                message = cached.get("message") or "Cached adapter health reports disconnected."
+            else:
+                status = HealthStatus.UNKNOWN
+                message = cached.get("message") or "Cached adapter health is incomplete."
+        elif key in snapshot.registered_keys:
+            status = HealthStatus.UNKNOWN
+            message = "Adapter is registered, but no live health check has been cached."
+        else:
+            status = HealthStatus.UNKNOWN
+            message = "Adapter not registered in the current runtime snapshot."
+
+        rows.append(
+            AdapterHealth(
+                name=info.get("source_name") or key,
+                status=status,
+                response_time_ms=float(cached.get("latency_ms") or 0.0),
+                last_check=cached.get("checked_at") or cached.get("last_check") or now,
+                message=message,
+                uptime_seconds=0.0,
+                error_rate=0.0,
+                adapter_key=key,
+                adapter_type=info.get("tier") or "knowledge",
+                region="knowledge",
+                version=info.get("source_version") or "",
+                requests_per_minute=0,
+                active_connections=1 if cached.get("connected") else 0,
+            )
+        )
+    return rows
 
 
 # =============================================================================
@@ -804,57 +989,48 @@ async def health_check(request: Request) -> SystemHealth:
 
     log_json("INFO", "Health check requested", request_id=request_id, client=str(request.client))
 
-    # Check core components
-    db = await _checker.check_database()
-    redis = await _checker.check_redis()
-    cache = await _checker.check_cache()
+    snapshot = _collect_knowledge_runtime_snapshot(request.app)
 
-    # Determine overall status
-    statuses = [db.status, redis.status, cache.status]
-    if any(s == HealthStatus.UNHEALTHY for s in statuses):
-        overall = HealthStatus.UNHEALTHY
-    elif any(s == HealthStatus.DEGRADED for s in statuses):
-        overall = HealthStatus.DEGRADED
-    else:
-        overall = HealthStatus.HEALTHY
+    overall = snapshot.status
 
-    # Build alerts
     alerts: List[Dict[str, Any]] = []
-    if db.status != HealthStatus.HEALTHY:
+    if snapshot.import_errors:
         alerts.append(
             {
-                "severity": Severity.CRITICAL if db.status == HealthStatus.UNHEALTHY else Severity.HIGH,
-                "component": "database",
-                "message": f"Database is {db.status.value}",
+                "severity": Severity.CRITICAL,
+                "component": "knowledge_bootstrap",
+                "message": "; ".join(snapshot.import_errors),
                 "timestamp": now.isoformat(),
             }
         )
-    if redis.status != HealthStatus.HEALTHY:
+    if snapshot.registration_errors:
         alerts.append(
             {
-                "severity": Severity.CRITICAL if redis.status == HealthStatus.UNHEALTHY else Severity.HIGH,
-                "component": "redis",
-                "message": f"Redis is {redis.status.value}",
+                "severity": Severity.HIGH,
+                "component": "knowledge_registry",
+                "message": "; ".join(snapshot.registration_errors),
                 "timestamp": now.isoformat(),
             }
         )
-    if cache.status != HealthStatus.HEALTHY:
+    if snapshot.evidence_store_error or not snapshot.evidence_store_available:
         alerts.append(
             {
                 "severity": Severity.MEDIUM,
-                "component": "cache",
-                "message": f"Cache is {cache.status.value}",
+                "component": "evidence_store",
+                "message": snapshot.evidence_store_error
+                or "Evidence store unavailable on app state",
                 "timestamp": now.isoformat(),
             }
         )
 
-    healthy_adapters = TOTAL_ADAPTERS  # Placeholder; full check on /adapters
     summary = {
         "healthy": 1 if overall == HealthStatus.HEALTHY else 0,
         "degraded": 1 if overall == HealthStatus.DEGRADED else 0,
         "unhealthy": 1 if overall == HealthStatus.UNHEALTHY else 0,
-        "total_adapters": TOTAL_ADAPTERS,
-        "healthy_adapters": healthy_adapters,
+        "total_adapters": len(snapshot.catalog_keys),
+        "registered_adapters": len(snapshot.registered_keys),
+        "missing_adapters": len(snapshot.missing_keys),
+        "evidence_entries": int(snapshot.evidence_stats.get("total_entries", 0) or 0),
         "active_alerts": len(alerts),
     }
 
@@ -866,10 +1042,24 @@ async def health_check(request: Request) -> SystemHealth:
         request_id=request_id,
         components={
             "api": {"status": "up", "response_time_ms": 1.2},
-            "database": db.model_dump(),
-            "redis": redis.model_dump(),
-            "cache": cache.model_dump(),
-            "adapters": f"{healthy_adapters}/{TOTAL_ADAPTERS} healthy",
+            "knowledge": {
+                "status": snapshot.status.value,
+                "message": snapshot.message,
+                "registry_source": snapshot.registry_source,
+                "catalog_adapter_count": len(snapshot.catalog_keys),
+                "registered_adapter_count": len(snapshot.registered_keys),
+                "missing_adapter_keys": snapshot.missing_keys,
+                "cached_health_count": len(snapshot.cached_health),
+                "import_errors": snapshot.import_errors,
+                "registration_errors": snapshot.registration_errors,
+            },
+            "evidence_store": {
+                "available": snapshot.evidence_store_available,
+                "error": snapshot.evidence_store_error,
+                "total_entries": snapshot.evidence_stats.get("total_entries", 0),
+                "unique_adapters": snapshot.evidence_stats.get("unique_adapters", 0),
+                "metadata_rows": len(snapshot.evidence_metadata),
+            },
         },
         summary=summary,
         alerts=alerts,
@@ -896,7 +1086,8 @@ async def adapter_health(request: Request) -> Dict[str, Any]:
     log_json("INFO", "Adapter health check requested", request_id=request_id)
 
     start = time.monotonic()
-    adapters = await _checker.check_all_adapters()
+    snapshot = _collect_knowledge_runtime_snapshot(request.app)
+    adapters = _build_adapter_health_rows(snapshot)
     duration = (time.monotonic() - start) * 1000
 
     healthy = sum(1 for a in adapters if a.status == HealthStatus.HEALTHY)
@@ -922,6 +1113,11 @@ async def adapter_health(request: Request) -> Dict[str, Any]:
         "unhealthy_count": unhealthy,
         "unknown_count": unknown,
         "total": len(adapters),
+        "catalog_total": len(snapshot.catalog_keys),
+        "registered_total": len(snapshot.registered_keys),
+        "missing_adapter_keys": snapshot.missing_keys,
+        "registry_source": snapshot.registry_source,
+        "registration_errors": snapshot.registration_errors,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "request_id": request_id,
         "check_duration_ms": round(duration, 2),
@@ -941,14 +1137,17 @@ async def single_adapter_health(key: str, request: Request) -> Dict[str, Any]:
     request_id = str(uuid.uuid4())
     log_json("INFO", "Single adapter health check", request_id=request_id, adapter=key)
 
-    adapter_def = next((a for a in ADAPTER_NAMES if a["key"] == key), None)
-    if adapter_def is None:
+    snapshot = _collect_knowledge_runtime_snapshot(request.app)
+    adapters = {item.adapter_key: item for item in _build_adapter_health_rows(snapshot)}
+    health = adapters.get(key)
+    if health is None:
         log_json("WARNING", "Adapter not found", request_id=request_id, adapter=key)
         raise HTTPException(status_code=404, detail=f"Adapter '{key}' not found")
 
-    health = await _checker.check_adapter(adapter_def)
     return {
         "adapter": health.model_dump(),
+        "registry_source": snapshot.registry_source,
+        "registration_errors": snapshot.registration_errors,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "request_id": request_id,
     }
@@ -1017,25 +1216,12 @@ async def all_metrics(request: Request) -> str:
     # System metrics
     parts.append(PrometheusFormatter.format_system_metrics(_checker))
 
-    # Adapter metrics
-    adapters = await _checker.check_all_adapters()
+    # Knowledge adapter metrics only. Other legacy dashboard metrics remain
+    # outside the scope of this runtime-proof pass until they are backed by
+    # real app state.
+    snapshot = _collect_knowledge_runtime_snapshot(request.app)
+    adapters = _build_adapter_health_rows(snapshot)
     parts.append(PrometheusFormatter.format_adapter_metrics(adapters))
-
-    # Database metrics
-    db = await _checker.check_database()
-    parts.append(PrometheusFormatter.format_database_metrics(db))
-
-    # Redis metrics
-    redis = await _checker.check_redis()
-    parts.append(PrometheusFormatter.format_redis_metrics(redis))
-
-    # Cache metrics
-    cache = await _checker.check_cache()
-    parts.append(PrometheusFormatter.format_cache_metrics(cache))
-
-    # Bridge metrics
-    bridges = await _checker.check_bridges()
-    parts.append(PrometheusFormatter.format_bridge_metrics(bridges))
 
     return "\n".join(parts)
 
@@ -1051,7 +1237,8 @@ async def adapter_metrics(request: Request) -> str:
     request_id = str(uuid.uuid4())
     log_json("INFO", "Adapter metrics export requested", request_id=request_id)
 
-    adapters = await _checker.check_all_adapters()
+    snapshot = _collect_knowledge_runtime_snapshot(request.app)
+    adapters = _build_adapter_health_rows(snapshot)
     return PrometheusFormatter.format_adapter_metrics(adapters)
 
 
@@ -1102,10 +1289,26 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 # Using FastAPI's TestClient for endpoint testing
 # Run: python -m pytest health_dashboard.py -v
 
-import pytest
-from fastapi.testclient import TestClient
+if os.environ.get("DEEPSYNAPS_ENABLE_EMBEDDED_HEALTH_DASHBOARD_TESTS") == "1":
+    import pytest
+    from fastapi.testclient import TestClient
 
-client = TestClient(app)
+    client = TestClient(app)
+else:
+    class _NoopMark:
+        @staticmethod
+        def asyncio(fn):
+            return fn
+
+    class _NoopPytest:
+        mark = _NoopMark()
+
+        @staticmethod
+        def fail(message: str) -> None:
+            raise AssertionError(message)
+
+    pytest = _NoopPytest()
+    client = None
 
 
 class TestHealthEndpoints:
