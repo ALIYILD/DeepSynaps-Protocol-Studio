@@ -16,19 +16,21 @@ Per-file audit of all 89 docs in `docs/kimi-salvage-2026-05-18/`, completed 2026
 
 The high DELETE rate reflects that `origin/master` had been writing docs against an **abandoned `apps/api/src/deepsynaps/` prototype layer** while real work continued on `apps/api/app/`. Hundreds of file paths, role names, env vars, and table names in the salvage docs simply don't exist in current main.
 
-## PROMOTE (9) — ready to graduate to canonical homes
+## PROMOTE (9) — graduated to canonical homes ✅
 
-| File | Suggested home | Why |
-| --- | --- | --- |
-| `BETA_FEEDBACK_WORKFLOW.md` | `docs/operations/` | Process doc; code-agnostic feedback categories/channels. |
-| `BETA_PR_PRIORITIZATION_MODEL.md` | `docs/operations/` | Pure 7-dimension scoring framework. |
-| `BETA_SAFETY_INCIDENT_WORKFLOW.md` | `docs/operations/safety/` | Process-only incident-response steps. |
-| `SUPPORT_AND_ESCALATION_WORKFLOW.md` | `docs/operations/` | Tier/SLA escalation matrix, code-agnostic. |
-| `WEEKLY_BETA_REVIEW_PROCESS.md` | `docs/operations/` | Meeting cadence/agenda template. |
-| `API_RESPONSE_COMPRESSION_TARGETS.md` | `docs/performance/` | Payload-target reference; route-family level. |
-| `docs/STABILIZATION_HEALTHCARE_UX_REVIEW.md` | `docs/design/` | Generic WCAG / clinical UX guidance. |
-| `docs/STABILIZATION_PERFORMANCE_REVIEW.md` | `docs/performance/` | Generic perf patterns; no false contract claims. |
-| `docs/OPEN_SOURCE_PHASE3_MULTIMODAL_INTELLIGENCE_STACK.md` | `docs/research/` | Vendor-neutral OSS landscape survey. |
+All nine were moved out of `docs/kimi-salvage-2026-05-18/` and into canonical homes via the same PR that records this audit closure. History preserved via `git mv`.
+
+| Original file | Now lives at |
+| --- | --- |
+| `BETA_FEEDBACK_WORKFLOW.md` | `docs/operations/BETA_FEEDBACK_WORKFLOW.md` |
+| `BETA_PR_PRIORITIZATION_MODEL.md` | `docs/operations/BETA_PR_PRIORITIZATION_MODEL.md` |
+| `BETA_SAFETY_INCIDENT_WORKFLOW.md` | `docs/operations/safety/BETA_SAFETY_INCIDENT_WORKFLOW.md` |
+| `SUPPORT_AND_ESCALATION_WORKFLOW.md` | `docs/operations/SUPPORT_AND_ESCALATION_WORKFLOW.md` |
+| `WEEKLY_BETA_REVIEW_PROCESS.md` | `docs/operations/WEEKLY_BETA_REVIEW_PROCESS.md` |
+| `API_RESPONSE_COMPRESSION_TARGETS.md` | `docs/performance/API_RESPONSE_COMPRESSION_TARGETS.md` |
+| `docs/STABILIZATION_HEALTHCARE_UX_REVIEW.md` | `docs/design/STABILIZATION_HEALTHCARE_UX_REVIEW.md` |
+| `docs/STABILIZATION_PERFORMANCE_REVIEW.md` | `docs/performance/STABILIZATION_PERFORMANCE_REVIEW.md` |
+| `docs/OPEN_SOURCE_PHASE3_MULTIMODAL_INTELLIGENCE_STACK.md` | `docs/research/OPEN_SOURCE_PHASE3_MULTIMODAL_INTELLIGENCE_STACK.md` |
 
 ## EDIT (25) — partial value, needs rewrite before promotion
 
