@@ -1,3 +1,4 @@
+<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->
 # Beta Risk Register — DeepSynaps Protocol Studio
 
 **Date:** 2026-05-17  
@@ -85,7 +86,7 @@
 | **Severity** | 5 (Critical) |
 | **Likelihood** | 1 (Rare) |
 | **Risk Score** | **5 — Medium** |
-| **Mitigation** | Clinic isolation enforced in all queries. `X-Clinic-ID` header required. Access control tests verify isolation. Every query includes `WHERE clinic_id = ?`. |
+| **Mitigation** | Clinic isolation enforced via `require_patient_owner()` in `apps/api/app/auth.py`. `require_minimum_role()` used throughout; `admin` role is cross-clinic by design. Access control tests verify isolation. Every query is scoped by `clinic_id`. |
 | **Owner** | L2 Technical |
 | **Status** | Mitigated — monitoring |
 
@@ -109,7 +110,7 @@
 | **Severity** | 4 (High) |
 | **Likelihood** | 2 (Unlikely) |
 | **Risk Score** | **8 — Medium** |
-| **Mitigation** | Export requires clinician/reviewer role. Export action logged in audit trail. Clinic isolation on export queries. Role-gated API endpoints. |
+| **Mitigation** | Export requires `clinician` or `reviewer` role (enforced via `require_minimum_role`). Export action logged in audit trail. Clinic isolation on export queries. Role-gated API endpoints. |
 | **Owner** | L2 Technical |
 | **Status** | Mitigated — monitoring |
 
@@ -125,7 +126,7 @@
 | **Severity** | 3 (Medium) |
 | **Likelihood** | 3 (Possible) |
 | **Risk Score** | **9 — Medium** |
-| **Mitigation** | Materialized views on PostgreSQL (5-50x speedup). Redis caching with 30s TTL. Summary endpoints use COUNT queries (not full records). Composite indexes on patient_access and multimodal_events. |
+| **Mitigation** | Summary endpoints use COUNT queries (not full records). Composite indexes on key tables. <!-- TODO: verify against current main; original claim could not be substantiated — materialized views, Redis caching, and `patient_access`/`multimodal_events` index claims need re-verification against current schema. --> |
 | **Owner** | L2 Technical |
 | **Status** | Mitigated — monitoring |
 
@@ -181,7 +182,7 @@
 | **Severity** | 4 (High) |
 | **Likelihood** | 1 (Rare) |
 | **Risk Score** | **4 — Low** |
-| **Mitigation** | RBAC enforced server-side. Role lookup from DB, not client-sent. Access control tests (71 tests) cover all 5 roles. Clinic isolation prevents cross-clinic access. |
+| **Mitigation** | RBAC enforced server-side via `require_minimum_role()` in `apps/api/app/auth.py`. Role hierarchy: `guest < patient < technician < reviewer < clinician < admin/supervisor`. Role lookup from DB, not client-sent. Clinic isolation prevents cross-clinic access. <!-- TODO: verify against current main; test count and exact number of covered roles need re-measurement. --> |
 | **Owner** | L2 Technical |
 | **Status** | Mitigated — monitoring |
 
@@ -193,7 +194,7 @@
 | **Severity** | 4 (High) |
 | **Likelihood** | 2 (Unlikely) |
 | **Risk Score** | **8 — Medium** |
-| **Mitigation** | Synthesis endpoint checks `ai_analysis_consent` flag. Consent changes logged in audit. Patient access table tracks consent per clinic. Onboarding requires consent setup. |
+| **Mitigation** | Synthesis endpoint checks consent flag. Consent changes logged in audit via `AuditEventRecord`. `ConsentRecord` model tracks consent per patient. Onboarding requires consent setup. <!-- TODO: verify against current main; `ai_analysis_consent` flag column name needs re-verification against `ConsentRecord` model. --> |
 | **Owner** | L2 Technical |
 | **Status** | Mitigated — monitoring |
 

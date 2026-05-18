@@ -1,6 +1,8 @@
+<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->
 # Summary Endpoints Audit — DeepSynaps Protocol Studio
 
-**Date:** 2026-05-16
+**Date:** 2026-05-16  
+**Edited:** 2026-05-18 — paths corrected to current main (`apps/api/app/`); schemas unverified, see TODOs.  
 **Scope:** Frontend query patterns + aggregate summary endpoints
 
 ---
@@ -19,7 +21,7 @@
 | `fetchSnapshot` | `/snapshot` | 100-800KB | ✅ `/summary/patients/{id}/dashboard` |
 | `fetchAnalyzerStatus` | `/analyzer-status` | 5-50KB | ✅ `/summary/analyzer-status` |
 
-**Conclusion:** All existing frontend functions now have corresponding summary endpoints that return counts/aggregates instead of full records.
+**Routers verified in main:** `apps/api/app/routers/patient_summary_router.py`, `apps/api/app/routers/patient_portal_router.py`. <!-- TODO: verify each endpoint URL and response schema against current router code before promoting -->
 
 ### N+1 Risk Assessment
 
@@ -43,6 +45,7 @@
 
 ## 3. Clinic Isolation Verification
 
+<!-- TODO: verify these test results were run against current main (apps/api/app/), not the abandoned prototype -->
 | Test | Status |
 |------|--------|
 | Clinic-0 sees clinic-0 data | ✅ |
@@ -53,6 +56,7 @@
 
 ## 4. No PHI Verification
 
+<!-- TODO: verify PHI field list against current response schemas in patient_summary_router.py -->
 | Endpoint | Contains Patient IDs? | Contains Event Data? |
 |----------|----------------------|---------------------|
 | Clinic dashboard | ❌ | ❌ |

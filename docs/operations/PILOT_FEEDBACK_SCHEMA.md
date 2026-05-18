@@ -1,6 +1,7 @@
+<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->
 # Pilot Feedback Form Schema — DeepSynaps Protocol Studio
 
-**Date:** 2026-05-17  
+**Date:** 2026-05-18  
 **Audience:** Product team, engineering, clinical safety  
 **Purpose:** Standardized feedback capture from beta pilot participants
 
@@ -16,7 +17,7 @@
 | `submitted_at` | ISO 8601 | Timestamp of submission | Auto (UTC) |
 | `clinic_id` | String | Clinic identifier | From auth context |
 | `user_id` | String | Submitting user ID | From auth context |
-| `user_role` | Enum | Role of submitter | `clinician`, `reviewer`, `clinic_admin`, `technician` |
+| `user_role` | Enum | Role of submitter | `guest`, `patient`, `technician`, `reviewer`, `clinician`, `admin` |
 | `module` | Enum | Affected module | See module list below |
 | `issue_type` | Enum | Type of feedback | See category list below |
 | `severity` | Enum | Impact severity | `critical`, `high`, `medium`, `low` |
@@ -79,7 +80,7 @@ safety_concern, bug, feature_request, documentation, other
 ```json
 {
   "feedback_id": "baf12345-6789-4abc-8def-0123456789ab",
-  "submitted_at": "2026-05-17T10:30:00+00:00",
+  "submitted_at": "2026-05-18T10:30:00+00:00",
   "clinic_id": "clinic-demo-001",
   "user_id": "clinician-001",
   "user_role": "clinician",
@@ -137,6 +138,8 @@ Content-Type: application/json
 Authorization: Bearer <token>
 ```
 
+> <!-- TODO: verify current contract; original claim could not be substantiated --> Confirm this endpoint exists in `apps/api/app/routers/` before relying on it in production tooling.
+
 ### Request Body
 
 ```json
@@ -158,7 +161,7 @@ Authorization: Bearer <token>
   "status": "received",
   "ticket_id": "BETA-2026-042",
   "response_sla": "4h",
-  "submitted_at": "2026-05-17T10:30:00+00:00"
+  "submitted_at": "2026-05-18T10:30:00+00:00"
 }
 ```
 

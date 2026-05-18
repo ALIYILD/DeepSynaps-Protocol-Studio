@@ -1,6 +1,8 @@
+<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->
 # Summary Endpoints — N+1 / Serial Hydration Hotspot Audit
 
 **Date:** 2026-05-17  
+**Edited:** 2026-05-18 — router paths corrected to current main; call-count estimates are architectural estimates, not measured benchmarks. <!-- TODO: verify proposed endpoint URLs against apps/api/app/routers/patient_summary_router.py before implementing -->  
 **Auditor:** Automated Architecture Audit  
 **Scope:** Frontend pages → backend API call patterns
 
@@ -123,6 +125,7 @@ The frontend (`apps/web/src/api.js`) currently has these fetch patterns:
 
 ## 5. Deferred Endpoints (Lower Priority)
 
+<!-- TODO: verify table existence against current Alembic migrations before scheduling any of these -->
 | Endpoint | Why Deferred |
 |----------|-------------|
 | `GET /api/v1/interventions/clinic-summary` | No interventions/sessions table exists yet |

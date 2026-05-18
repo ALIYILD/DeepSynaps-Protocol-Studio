@@ -1,3 +1,30 @@
+<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->
+<!--
+REGULATED-CLINICAL DOCUMENT — CONSERVATIVE EDIT POLICY APPLIED
+
+The FDA / EU-AI-Act / HIPAA / GDPR framework sections (AI Safety Wording
+Standards, Consent Management, Clinician Review Systems, Regulatory Alignment)
+are substantively preserved because the legal/regulatory content is
+independently verifiable and broadly accurate.
+
+IMPLEMENTATION CLAIMS THAT CANNOT BE VERIFIED AGAINST CURRENT MAIN are tagged
+with  <!-- TODO: clinical-governance review required against current main -->
+<!-- rather than rewritten.
+
+Specific known divergences:
+- Sections referencing `require_clinician_auth`, `kl.check_patient_access()`,
+  `patient_access` table, `ai_analysis_consent`, `cross_clinic_access`, or
+  `super_admin` role do NOT match current main. Current auth is
+  `require_minimum_role(actor, "clinician")` in `apps/api/app/auth.py`;
+  roles are guest/patient/technician/reviewer/clinician/admin/supervisor.
+- The "Regulatory Alignment" table row "CDS Software Criterion 3/4 — Compliant"
+  and "SaMD classification — In Progress" are aspirational claims whose current
+  status is unverified.
+- BIDS / FHIR export governance text is a design aspiration; actual export
+  implementation is in `apps/api/app/routers/export_router.py` and
+  `apps/api/app/services/bids_export.py` / `fhir_export.py`.
+-->
+
 # STABILIZATION_CLINICAL_GOVERNANCE.md
 
 > **Document Version:** 1.0.0
@@ -457,6 +484,12 @@ Physicians face **dual liability risk** with clinical AI:
 ---
 
 ## Regulatory Alignment (FDA/EU)
+
+<!-- TODO: clinical-governance review required against current main -->
+<!-- "Status" column values (Compliant / In Progress / Planned / Ongoing) are
+     aspirational assertions that have not been verified against the current
+     codebase or any external audit.  Do not cite these statuses in regulatory
+     filings without independent verification. -->
 
 ### FDA Alignment Summary
 

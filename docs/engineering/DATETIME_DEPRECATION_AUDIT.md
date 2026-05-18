@@ -1,90 +1,99 @@
+<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->
 # Datetime Deprecation Audit
 
-**Date:** 2026-05-17  
-**Auditor:** Automated Code Quality Audit  
+**Date:** 2026-05-17 (revised 2026-05-18)
+**Auditor:** Automated Code Quality Audit
 **Scope:** `datetime.utcnow()` and `datetime.utcfromtimestamp()` deprecation
+**Current status:** ~176 `utcnow()` calls remain in `apps/api/app/` as of 2026-05-18. The original salvage doc described 30 fixed instances in a prototype tree (`apps/api/src/deepsynaps/`) that was never merged to main. The strategy and helper pattern below remain valid and applicable to the current codebase.
 
 ---
 
-## 1. Findings Summary
+## 1. Current State (main)
 
-| Pattern | Count (Before) | Count (After) |
-|---------|---------------|--------------|
-| `datetime.utcnow()` in source | 17 | 0 |
-| `datetime.utcnow()` in tests | 13 | 0 |
-| `datetime.now()` in tests | ~25 | ~25 (intentionally naive for DB compat) |
-| `datetime.utcfromtimestamp()` | 0 | 0 |
+| Pattern | Count in `apps/api/app/` |
+|---------|--------------------------|
+| `datetime.utcnow()` | ~176 (🟢 grep-measured 2026-05-18) |
+| `datetime.utcfromtimestamp()` | <!-- TODO: verify against current main --> |
 
-**Total fixed: 30 instances**
+Files with `utcnow()` span routers, services, knowledge adapters, and persistence models. A systematic replacement pass is needed.
 
 ---
 
-## 2. Files Changed
+## 2. Recommended Strategy
 
-### Source Code (7 files)
+### UTC Helper (`time_utils.py`)
 
-| File | Instances | Replacement |
-|------|-----------|-------------|
-| `contracts.py` | 1 | `lambda: datetime.now(timezone.utc)` |
-| `hypothesis_engine.py` | 1 | `utc_now()` |
-| `correlation_engine.py` | 1 | `datetime.now(timezone.utc)` |
-| `confound_engine.py` | 1 | `datetime.now(timezone.utc)` |
-| `missing_data_engine.py` | 3 | `utc_now()` |
-| `evidence_engine.py` | 0 | Already clean |
-| `cache_service.py` | 2 | `datetime.now(timezone.utc)` |
+Create (or reuse if already present) `apps/api/app/utils/time_utils.py`:
 
-### Tests (6 files)
-
-| File | Instances | Replacement |
-|------|-----------|-------------|
-| `test_missing_data_engine.py` | 13 | `datetime.now(timezone.utc)` |
-| `test_hypothesis_engine.py` | 2 | `datetime.now(timezone.utc)` |
-| `test_evidence_engine.py` | 1 | `datetime.now(timezone.utc)` |
-| `test_api_endpoints.py` | 2 | `datetime.now(timezone.utc)` |
-| `test_deeptwin_api.py` | 1 | `datetime.now(timezone.utc)` |
-| `test_deeptwin_snapshot.py` | ~7 | `datetime.now(timezone.utc)` |
-
----
-
-## 3. Strategy
-
-### New UTC Helper (`time_utils.py`)
+<!-- TODO: verify against current main — check if apps/api/app/utils/time_utils.py already exists -->
 
 | Function | Return Type | Use Case |
 |----------|-------------|----------|
 | `utc_now()` | Aware UTC datetime | All new code, comparisons with aware timestamps |
 | `utc_iso()` | ISO 8601 string | API responses |
 | `utc_from_timestamp()` | Aware UTC datetime | Unix timestamp conversion |
-| `naive_utc_now()` | Naive UTC datetime | DB compatibility (documented bridge) |
-| `to_naive()` | Naive datetime | DB boundary conversion |
-| `to_aware()` | Aware datetime | DB read boundary conversion |
+| `naive_utc_now()` | Naive UTC datetime | DB compatibility bridge (documented) |
+| `to_naive()` | Naive datetime | DB write boundary |
+| `to_aware()` | Aware datetime | DB read boundary |
 
-### Decision: Aware vs Naive
+### Aware vs Naive Decision
 
-- **Source code:** Uses `utc_now()` (aware) everywhere
-- **Tests:** Use `datetime.now(timezone.utc)` (aware) for event creation
-- **DB boundary:** SQLite stores ISO strings which preserve timezone info
-- **No schema migration:** Existing `DateTime` columns work with aware ISO strings
+- **Source code:** Use `utc_now()` (aware) everywhere.
+- **Tests:** Use `datetime.now(timezone.utc)` for event creation.
+- **DB boundary:** SQLAlchemy `DateTime` columns — check current column definitions; use the bridge helpers at the boundary.
+- **No schema migration needed** unless columns are typed `TIMESTAMP WITH TIME ZONE` — verify actual column types in `apps/api/app/persistence/models/`.
 
-### What Was NOT Changed
+### What to NOT Change
 
 | Item | Reason |
 |------|--------|
-| Historical migration files | Out of scope — historical artifacts |
+| Historical alembic migration files | Out of scope |
 | `naive_utc_now()` helper | Intentionally preserves DB compatibility |
 | `datetime.now()` in tests for non-event timestamps | Acceptable for non-comparison usage |
-| DB schema | `DateTime` column stores ISO string — no migration needed |
 
 ---
 
-## 4. Verification
+## 3. Replacement Pattern
+
+```python
+# Before (deprecated, raises DeprecationWarning in Python 3.12+)
+from datetime import datetime
+ts = datetime.utcnow()
+
+# After
+from datetime import datetime, timezone
+ts = datetime.now(timezone.utc)
+
+# Or, using the shared helper:
+from app.utils.time_utils import utc_now
+ts = utc_now()
+```
+
+---
+
+## 4. Verification Commands
 
 ```bash
-# No deprecated patterns remain
-grep -rn "\.utcnow\|utcfromtimestamp" apps/api/src/deepsynaps/*.py
-# (only time_utils.py references them in docstrings and the bridge helper)
+# Count remaining deprecated patterns in current main
+grep -rn "\.utcnow()\|utcfromtimestamp" apps/api/app --include="*.py" | wc -l
 
-# All tests pass
-python3 -m pytest apps/api/tests/ -q
-# 489 passed, 1 warning (pytest mark)
+# List affected files
+grep -rl "\.utcnow()" apps/api/app --include="*.py"
+
+# Run tests after replacement
+cd apps/api && python -m pytest tests/ -q
 ```
+
+---
+
+## 5. Scope Note
+
+The original salvage doc listed 7 specific source files under `apps/api/src/deepsynaps/` — a path that does not exist in current main. The affected files in current main are distributed across:
+
+- `apps/api/app/routers/` (multiple router files)
+- `apps/api/app/services/` (multiple service files)
+- `apps/api/app/knowledge/` (multiple adapter files)
+- `apps/api/app/persistence/models/`
+- `apps/api/app/hermes_runtime_bundle/`
+
+<!-- TODO: verify against current main — run the grep commands above and update the table in section 1 with exact counts per directory -->

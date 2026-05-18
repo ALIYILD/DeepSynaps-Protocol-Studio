@@ -1,16 +1,19 @@
+<!-- Edited 2026-05-18 from kimi-salvage; original audit verdict EDIT. -->
 # Summary Endpoint Performance Report
 
-**Date:** 2026-05-16
+**Date:** 2026-05-16  
+**Edited:** 2026-05-18 — measurements below were taken against SQLite in-memory test data on the abandoned prototype tree; re-measure required on current main with Postgres before treating any figure as authoritative. <!-- TODO: re-run benchmarks against apps/api/app/ on staging (Fly deepsynaps-studio) -->
 
 ---
 
 ## Measured Performance
 
+<!-- TODO: these figures are from SQLite in-memory runs on origin/master — re-measure on Postgres/Fly before citing -->
 | Endpoint | Test Data | Response Time | Payload Size |
 |----------|-----------|--------------|-------------|
-| `GET /summary/clinic-dashboard` | 3 patients, 150 events, 20 audits | **<200ms** | ~2KB |
-| `GET /summary/patients/{id}/dashboard` | 50 events | **<200ms** | ~1KB |
-| `GET /summary/analyzer-status` | 150 events, 8 evidence | **<200ms** | ~3KB |
+| `GET /summary/clinic-dashboard` | 3 patients, 150 events, 20 audits | **<200ms** (⚪ unverified on main) | ~2KB |
+| `GET /summary/patients/{id}/dashboard` | 50 events | **<200ms** (⚪ unverified on main) | ~1KB |
+| `GET /summary/analyzer-status` | 150 events, 8 evidence | **<200ms** (⚪ unverified on main) | ~3KB |
 
 ## Comparison: Summary vs Full Objects
 
@@ -34,6 +37,7 @@
 - 150 events is small scale — production will have more
 - Network latency not measured (local test client)
 - Redis/cache layer could further improve (future PR)
+- <!-- TODO: remove Redis mention if Redis is still not implemented in apps/api/app/ -->
 
 ## Recommendations
 
