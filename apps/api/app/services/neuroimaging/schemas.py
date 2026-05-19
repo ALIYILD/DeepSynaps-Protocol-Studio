@@ -44,6 +44,10 @@ class EegModelSummary(BaseModel):
     input_window_samples: int
     param_count: int
     layer_count: int
+class NeuroglancerViewerResponse(BaseModel):
+    viewer_url: str
+    source: str
+    layer_type: str
 
 
 class NeuroimagingHealth(BaseModel):
@@ -61,6 +65,14 @@ class NeuroimagingHealth(BaseModel):
     # Phase 5 — driver-installed flags
     neo4j: bool = False
     biocypher: bool = False
+    # Phase 6 — Visualization. `neuroglancer` is True when the Apache-2.0
+    # `neuroglancer` PyPI client imports successfully in the API image.
+    neuroglancer: bool = False
+    # `freesurfer` is a service stub: FreeSurfer ships as a ~13GB GPL-style
+    # image and is documented as a separate Fly side-car (ops/freesurfer/),
+    # NOT installed in the main API image. This flag remains False until the
+    # side-car is stood up and the API integration switches it on.
+    freesurfer: bool = False
     versions: dict[str, str | None] = {}
 
 
