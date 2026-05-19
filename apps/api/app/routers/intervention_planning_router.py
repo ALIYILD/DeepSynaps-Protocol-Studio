@@ -37,9 +37,18 @@ from app.auth import (
     AuthenticatedActor,
     get_authenticated_actor,
     require_minimum_role,
+    require_patient_owner,
 )
 from app.database import get_db_session
 from app.repositories.audit import create_audit_event
+from app.repositories.patients import resolve_patient_clinic_id
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
+    """Cross-clinic ownership gate for patient-scoped intervention queries."""
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 
 router = APIRouter(prefix="/api/v1/intervention-planning", tags=["intervention-planning"])
 
@@ -286,6 +295,8 @@ def list_sessions(
 ) -> dict[str, Any]:
     """List intervention sessions scoped to clinic."""
     require_minimum_role(actor, "clinician")
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
     _audit_log(
         db, actor,
         action="sessions.list",

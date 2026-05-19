@@ -29,9 +29,22 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, desc, func
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.repositories.audit import create_audit_event
+from app.repositories.patients import resolve_patient_clinic_id
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
+    """Cross-clinic ownership gate for patient-scoped brain-map queries."""
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 from app.schemas.brainmap import (
     BrainMapPlanAuditEvent,
     BrainMapPlanAuditResponse,
@@ -267,7 +280,9 @@ def list_brain_map_plans(
     session: Session = Depends(get_db_session),
 ) -> BrainMapPlanListResponse:
     """List brain map plans with optional filtering."""
-    
+    if patient_id:
+        _gate_patient_access(actor, patient_id, session)
+
     # Build WHERE clause
     where_clauses = []
     params: dict[str, Any] = {}

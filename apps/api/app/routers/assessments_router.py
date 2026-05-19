@@ -617,6 +617,7 @@ def list_assessments_endpoint(
 ) -> AssessmentListResponse:
     require_minimum_role(actor, "clinician")
     if patient_id:
+        _gate_patient_access(actor, patient_id, session)
         records = list_assessments_for_patient(session, patient_id, actor.actor_id)
     else:
         records = list_assessments_for_clinician(session, actor.actor_id)

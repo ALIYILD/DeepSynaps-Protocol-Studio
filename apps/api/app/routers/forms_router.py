@@ -224,6 +224,8 @@ def list_submissions(
     db: Session = Depends(get_db_session),
 ) -> FormSubmissionListResponse:
     require_minimum_role(actor, "clinician")
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
     q = db.query(FormSubmission)
     if actor.role != "admin":
         q = q.filter(FormSubmission.clinician_id == actor.actor_id)
