@@ -2030,12 +2030,14 @@ class _ViewerStateIn(BaseModel):
     state: dict[str, Any] = Field(
         ...,
         description="Viewer state payload (slice_index, roi_visibility, overlay_alpha, etc.)",
-        example={
-            "slice_index": {"x": 100, "y": 100, "z": 50},
-            "roi_visibility": {"atlas": True, "custom_roi": False},
-            "overlay_alpha": 0.7,
-            "active_modality": "structural",
-            "crosshair_enabled": True,
+        json_schema_extra={
+            "example": {
+                "slice_index": {"x": 100, "y": 100, "z": 50},
+                "roi_visibility": {"atlas": True, "custom_roi": False},
+                "overlay_alpha": 0.7,
+                "active_modality": "structural",
+                "crosshair_enabled": True,
+            }
         },
     )
 
@@ -2145,18 +2147,20 @@ class _CapabilitiesOut(BaseModel):
     status: str = Field(
         ...,
         description="Capability status: ok, unavailable, degraded",
-        example="ok",
+        json_schema_extra={"example": "ok"},
     )
     pipeline_version: Optional[str] = Field(None, description="Pipeline module version")
     modules: dict[str, Any] = Field(
         ...,
         description="Per-module availability + metadata",
-        example={
-            "structural": {"available": True, "engine": "FastSurfer", "gpu": False},
-            "fmri": {"available": True, "networks_count": 17},
-            "dmri": {"available": False, "tracking_method": None},
-            "registration": {"available": True, "tool": "antspyx", "version": "0.3.24"},
-            "targeting": {"available": True, "conditions_supported": ["mdd", "ptsd"]},
+        json_schema_extra={
+            "example": {
+                "structural": {"available": True, "engine": "FastSurfer", "gpu": False},
+                "fmri": {"available": True, "networks_count": 17},
+                "dmri": {"available": False, "tracking_method": None},
+                "registration": {"available": True, "tool": "antspyx", "version": "0.3.24"},
+                "targeting": {"available": True, "conditions_supported": ["mdd", "ptsd"]},
+            }
         },
     )
     warnings: list[str] = Field(default_factory=list, description="Non-critical warnings")
@@ -4069,4 +4073,3 @@ def get_joint_biomarkers_endpoint(
     )
     result["disclaimer"] = _DISCLAIMER
     return result
-

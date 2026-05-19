@@ -364,7 +364,7 @@ async def get_patient_dashboard(
 @router.get("/patient-portal/home-tasks", response_model=dict)
 async def get_patient_home_tasks(
     patient_id: str = Query(...),
-    status: str = Query("all", regex="^(all|pending|completed)$"),
+    status: str = Query("all", pattern="^(all|pending|completed)$"),
     user: dict = Depends(require_patient_or_clinician),
 ):
     """List patient-scoped home tasks filtered by status."""
@@ -571,7 +571,7 @@ async def get_wearable_summary(
 @router.get("/patient-portal/education", response_model=dict)
 async def get_patient_education(
     patient_id: str = Query(...),
-    category: str = Query("all", regex="^(all|foundations|skills|lifestyle)$"),
+    category: str = Query("all", pattern="^(all|foundations|skills|lifestyle)$"),
     user: dict = Depends(require_patient),
 ):
     """List education centre items filtered by category."""
