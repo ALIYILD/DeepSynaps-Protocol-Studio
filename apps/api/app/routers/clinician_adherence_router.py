@@ -72,7 +72,7 @@ from fastapi import APIRouter, Depends, Path, Query, Response
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor
+from app.auth import AuthenticatedActor, get_authenticated_actor, require_patient_owner
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import (
@@ -81,6 +81,21 @@ from app.persistence.models import (
     PatientAdherenceEvent,
     User,
 )
+from app.repositories.patients import resolve_patient_clinic_id
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str | None, db: Session) -> None:
+    """Cross-clinic ownership gate for an optional patient_id query param.
+
+    No-op when no patient_id is supplied (the surface returns the actor's
+    clinic-scoped queue). When a specific patient_id is supplied, resolves
+    the patient's owning clinic and rejects callers outside that clinic.
+    """
+    if not patient_id:
+        return
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 
 
 router = APIRouter(
@@ -460,6 +475,7 @@ def list_events(
 ) -> HubListResponse:
     """List clinic-scoped adherence events for clinician triage."""
     _require_clinician_or_admin(actor)
+    _gate_patient_access(actor, patient_id, db)
     base = _scope_query(actor)(db)
 
     if severity and severity in _VALID_SEVERITIES:

@@ -93,10 +93,26 @@ from app.auth import (
     AuthenticatedActor,
     get_authenticated_actor,
     require_minimum_role,
+    require_patient_owner,
 )
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import AuditEventRecord, Patient, User
+from app.repositories.patients import resolve_patient_clinic_id
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str | None, db: Session) -> None:
+    """Cross-clinic ownership gate for an optional patient_id query param.
+
+    No-op when no patient_id is supplied (the surface returns the actor's
+    clinic-scoped queue). When a specific patient_id is supplied, resolves
+    the patient's owning clinic and rejects callers outside that clinic.
+    """
+    if not patient_id:
+        return
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 
 
 router = APIRouter(prefix="/api/v1/clinician-inbox", tags=["Clinician Inbox"])
@@ -628,6 +644,7 @@ def list_items(
 ) -> InboxListResponse:
     """List the HIGH-priority inbox items grouped by patient."""
     _gate_role(actor)
+    _gate_patient_access(actor, patient_id, db)
 
     since_dt = _parse_iso(since)
     until_dt = _parse_iso(until)
@@ -1057,6 +1074,7 @@ def export_csv(
     note carries the ``DEMO`` marker.
     """
     _gate_role(actor)
+    _gate_patient_access(actor, patient_id, db)
 
     rows = _query_high_priority_rows(
         db,
