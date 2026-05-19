@@ -1,0 +1,52 @@
+# Concurrent-session policy gate — wholesale-rewrite detection.
+#
+# Fails any PR whose commits wholesale-rewrite a protected runtime file
+# in a single commit. Motivated by the 2026-05-18 Intelligent Synaps v4
+# incident (commit 6d495ce4 rewrote apps/api/app/main.py wholesale,
+# 96% of file; removed /healthz and /api/v1/health endpoints; recovery
+# required 4 follow-up PRs).
+#
+# Policy: docs/engineering/concurrent-session-policy.md
+# Checker: scripts/check_concurrent_session_policy.py (stdlib only)
+#
+# To override on a legitimate rewrite, add to the commit message body:
+#     concurrent-session-policy: allow=wholesale-rewrite
+name: concurrent-session-check
+
+on:
+  pull_request:
+    paths:
+      - "apps/api/app/main.py"
+      - "apps/web/src/app.js"
+      - "apps/web/src/api.js"
+      - "apps/web/src/pages-knowledge-explorer.js"
+      - "apps/web/src/pages-brain-twin.js"
+      - "apps/web/src/pages-agents.js"
+      - "scripts/check_concurrent_session_policy.py"
+      - "docs/engineering/concurrent-session-policy.md"
+      - ".github/workflows/concurrent-session-check.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: scan for wholesale rewrites of protected runtime files
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need full history (or at least back to the PR base) so the
+          # script can read the file's prior line count via git show.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run concurrent-session policy checker
+        run: |
+          python3 scripts/check_concurrent_session_policy.py \
+            --base "origin/${{ github.event.pull_request.base.ref }}" \
+            --head "HEAD"
