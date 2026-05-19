@@ -617,6 +617,8 @@ class TestAtlasRegionAnalysis:
     async def test_atlas_region_analysis_no_adapters(self):
         """Should still return result with fallback mappings."""
         bridge = QEEGAnalyzerBridge({})
+        bridge._adapters["schaefer"] = None
+        bridge._adapter_available["schaefer"] = False
         result = await bridge.atlas_region_analysis(
             ["F3", "Cz", "P3"],
             atlas="schaefer",

@@ -123,16 +123,29 @@ def other_patient() -> Patient:
     """A different patient — used as the cross-patient IDOR target."""
     db = SessionLocal()
     try:
-        patient = Patient(
-            id="patient-adherence-other",
-            clinician_id="actor-clinician-demo",
-            first_name="Other",
-            last_name="Patient",
-            email="other-adherence@example.com",
-            consent_signed=True,
-            status="active",
-        )
-        db.add(patient)
+        patient = db.query(Patient).filter_by(email="other-adherence@example.com").first()
+        if patient is None:
+            patient = Patient(
+                id="patient-adherence-other",
+                clinician_id="actor-clinician-demo",
+                first_name="Other",
+                last_name="Patient",
+                email="other-adherence@example.com",
+                consent_signed=True,
+                status="active",
+            )
+            db.add(patient)
+            db.flush()
+        else:
+            patient.clinician_id = "actor-clinician-demo"
+            patient.first_name = "Other"
+            patient.last_name = "Patient"
+            patient.consent_signed = True
+            patient.status = "active"
+
+        db.query(PatientAdherenceEvent).filter_by(patient_id=patient.id).delete()
+        db.query(AdverseEvent).filter_by(patient_id=patient.id).delete()
+        db.query(ConsentRecord).filter_by(patient_id=patient.id).delete()
         db.commit()
         db.refresh(patient)
         return patient
@@ -460,9 +473,13 @@ class TestSideEffect:
             "/api/v1/audit-trail?surface=adherence_events",
             headers=auth_headers["admin"],
         ).json()["items"]
-        actions = {it.get("action") for it in audit}
+        parent_rows = [
+            it for it in audit
+            if f"parent={eid}" in (it.get("note") or "")
+        ]
+        actions = {it.get("action") for it in parent_rows}
         assert "adherence_events.side_effect_logged" in actions
-        # Low severity must not promote to clinician priority.
+        # Low severity must not promote to clinician priority for this event.
         assert "adherence_events.side_effect_to_clinician" not in actions
 
     def test_invalid_severity_returns_422(

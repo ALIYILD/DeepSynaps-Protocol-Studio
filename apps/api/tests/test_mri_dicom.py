@@ -79,6 +79,18 @@ sys.modules["dicognito.anonymizer"] = _MockDicognito.anonymizer
 _MockModels = ModuleType("app.persistence.models")
 _MockModels.MriAnalysis = MagicMock()
 _MockModels.MriReportAudit = MagicMock()
+_ORIGINAL_MODULES = {
+    "app.persistence.models": sys.modules.get("app.persistence.models"),
+    "pydicom": sys.modules.get("pydicom"),
+    "pydicom.errors": sys.modules.get("pydicom.errors"),
+    "pydicom.dataset": sys.modules.get("pydicom.dataset"),
+    "pydicom.uid": sys.modules.get("pydicom.uid"),
+    "nibabel": sys.modules.get("nibabel"),
+    "nibabel.orientations": sys.modules.get("nibabel.orientations"),
+    "dicom2nifti": sys.modules.get("dicom2nifti"),
+    "dicognito": sys.modules.get("dicognito"),
+    "dicognito.anonymizer": sys.modules.get("dicognito.anonymizer"),
+}
 sys.modules["app.persistence.models"] = _MockModels
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -116,6 +128,25 @@ from app.services.mri_dicom_service import (
     _validate_dicom_series_quality,
     _json_loads,
 )
+
+import app.services.mri_dicom_service as _mri_dicom_service
+
+_mri_dicom_service.pydicom = _MockPydicom
+_mri_dicom_service.Dataset = _MockPydicom.dataset.Dataset
+_mri_dicom_service.FileDataset = _MockPydicom.dataset.FileDataset
+_mri_dicom_service.ExplicitVRLittleEndian = _MockPydicom.uid.ExplicitVRLittleEndian
+_mri_dicom_service.generate_uid = _MockPydicom.uid.generate_uid
+_mri_dicom_service.nib = _MockNibabel
+_mri_dicom_service.dicom2nifti = _MockDicom2Nifti
+_mri_dicom_service.Anonymizer = _MockDicognito.anonymizer.Anonymizer
+_mri_dicom_service.MriAnalysis = _MockModels.MriAnalysis
+_mri_dicom_service.MriReportAudit = _MockModels.MriReportAudit
+
+for _module_name, _original_module in _ORIGINAL_MODULES.items():
+    if _original_module is not None:
+        sys.modules[_module_name] = _original_module
+    else:
+        sys.modules.pop(_module_name, None)
 
 # pytestmark is NOT set globally -- we apply @pytest.mark.asyncio only to
 # async test classes/methods to avoid pytest-asyncio warnings on sync tests.
