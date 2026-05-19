@@ -8,6 +8,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from "react";
+import NeuroimagingLiveRegistry from "./neuroimaging-live-registry.js";
 
 // ============================================================
 // COLOR SYSTEM — DeepSynaps Warm Low-Saturation Palette
@@ -2607,6 +2608,9 @@ export default function KnowledgeExplorerPage() {
 
       {/* Statistics */}
       <StatisticsSection adapters={ADAPTERS} />
+
+      {/* Category 4 Neuroimaging — live registry (additive; curated catalog above is unchanged) */}
+      <NeuroimagingLiveRegistry />
 
       {/* Detail Modal */}
       {selectedAdapter && (

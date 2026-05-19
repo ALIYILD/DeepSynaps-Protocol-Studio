@@ -4,6 +4,11 @@
 
 import { api } from './api.js';
 import { renderBrainMap10_20, SITES_10_20 } from './brain-map-svg.js';
+import {
+  renderNeuroimagingProvenancePanel,
+  renderNeuroimagingDisclaimerFooter,
+  DEFAULT_NEUROIMAGING_DISCLAIMER,
+} from './neuroimaging-provenance-card.js';
 
 // ── Tokens ───────────────────────────────────────────────────────────────────
 const T = {
@@ -200,6 +205,12 @@ function defaultState() {
     targetAnchor: 'F3',
     targetRegion: 'DLPFC-L',
     highlights: [],
+    // PR-2 (Category 4 neuroimaging): provenance pass-through.
+    // Populated from `full_artifact.target_candidates` when a plan is
+    // loaded; empty by default so legacy plans render unchanged.
+    targetCandidates: [],
+    // Optional override; null falls back to the stable default text.
+    decisionSupportDisclaimer: null,
     currentMA: 2.0,
     durationMin: 20,
     sessions: 20,
@@ -381,6 +392,24 @@ export async function pgBrainMapPlanner(setTopbar, navigate) {
     a.href = url; a.download = `brainmap-${S.targetRegion}-${Date.now()}.json`;
     document.body.appendChild(a); a.click();
     setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+  };
+
+  // PR-2 (Category 4 neuroimaging): apply a loaded plan's full_artifact
+  // into planner state so provenance round-trips on save without the
+  // planner inventing or losing anything. Safe to call with partial or
+  // missing artifacts — extracts only the fields we display.
+  window._bmApplyLoadedPlan = (plan) => {
+    const artifact = plan && plan.full_artifact;
+    if (!artifact || typeof artifact !== 'object') return;
+    const candidates = Array.isArray(artifact.target_candidates)
+      ? artifact.target_candidates
+      : [];
+    S.targetCandidates = candidates;
+    if (typeof artifact.decision_support_disclaimer === 'string'
+        && artifact.decision_support_disclaimer.trim()) {
+      S.decisionSupportDisclaimer = artifact.decision_support_disclaimer;
+    }
+    render(root, _ctx());
   };
 
   function renderSafety() {
@@ -658,6 +687,11 @@ function rightRail(ctx) {
               <span class="dv2bm-contra-label ${c.severity}">${esc(c.label)}</span>
             </label>`).join('')}
         </div>
+
+        ${renderNeuroimagingProvenancePanel(S.targetCandidates)}
+        ${(Array.isArray(S.targetCandidates) && S.targetCandidates.some((c) => c && c.neuroimaging_provenance))
+            ? renderNeuroimagingDisclaimerFooter(S.decisionSupportDisclaimer || DEFAULT_NEUROIMAGING_DISCLAIMER)
+            : ''}
 
       </div>
       <div class="dv2bm-right-foot">
