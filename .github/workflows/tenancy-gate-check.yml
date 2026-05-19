@@ -42,7 +42,12 @@ permissions:
 env:
   # Ratchet floor. Lower this number — and update the static audit doc —
   # in any PR that remediates an ungated patient-scoped route. Never raise.
-  TENANCY_GATE_MAX_UNGATED: "71"
+  #
+  # The 3 remaining ungated routes are all in
+  # ``apps/api/app/routers/knowledge_router_v2.py``. The operator has
+  # marked that file off-limits to automated remediation; an explicit
+  # operator decision is required before the floor moves to 0.
+  TENANCY_GATE_MAX_UNGATED: "3"
 
 jobs:
   scan:
