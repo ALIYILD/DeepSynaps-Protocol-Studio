@@ -9,6 +9,9 @@ import {
   isStale,
   BIOMARKERS_LINKED_MODULES,
   CURATED_REFERENCE_LITERATURE_ANCHORS,
+  CURATED_REFERENCE_PANEL_LABEL,
+  CURATED_REFERENCE_PANEL_CAPTION,
+  CURATED_REFERENCE_CARD_PILL_TITLE,
   buildBiomarkerEvidenceSearchQuery,
   pivotToLiveEvidenceSearch,
   parseBiomarkerSites,
@@ -178,5 +181,43 @@ test('pivotToLiveEvidenceSearch returns false when the marker yields no query', 
     assert.equal('_reEvidencePrefill' in fakeWindow, false);
   } finally {
     delete globalThis.window;
+  }
+});
+
+// ── Slice E: honest curated-reference copy ──────────────────────────────────
+
+test('CURATED_REFERENCE_PANEL_LABEL is the honest per-marker label', () => {
+  assert.equal(CURATED_REFERENCE_PANEL_LABEL, 'Curated reference count');
+  assert.match(CURATED_REFERENCE_PANEL_LABEL, /curated/i);
+});
+
+test('CURATED_REFERENCE_PANEL_CAPTION says the count is not live', () => {
+  assert.match(CURATED_REFERENCE_PANEL_CAPTION, /not a live/i);
+  assert.match(CURATED_REFERENCE_PANEL_CAPTION, /editorial snapshot/i);
+});
+
+test('CURATED_REFERENCE_CARD_PILL_TITLE explains pill provenance', () => {
+  assert.match(CURATED_REFERENCE_CARD_PILL_TITLE, /curated/i);
+  assert.match(CURATED_REFERENCE_CARD_PILL_TITLE, /not a live/i);
+});
+
+test('curated-reference copy avoids forbidden marketing language', () => {
+  // governance-allow: list intentionally contains forbidden phrases as
+  // the audit fixture this very test asserts against.
+  const forbidden = [
+    'proven',
+    'guaranteed',
+    'recommended protocol',
+    'best treatment',
+    'safe and effective',
+    'no risk',
+  ];
+  const haystack = [
+    CURATED_REFERENCE_PANEL_LABEL,
+    CURATED_REFERENCE_PANEL_CAPTION,
+    CURATED_REFERENCE_CARD_PILL_TITLE,
+  ].join(' ').toLowerCase();
+  for (const word of forbidden) {
+    assert.equal(haystack.includes(word.toLowerCase()), false, `Found forbidden term: ${word}`);
   }
 });

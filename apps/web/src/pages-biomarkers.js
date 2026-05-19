@@ -50,28 +50,22 @@ export const BIOMARKERS_LINKED_MODULES = Object.freeze([
 export const CURATED_REFERENCE_LITERATURE_ANCHORS = 6753;
 
 /**
- * Build a free-text live-evidence search query from a curated biomarker.
+ * Honest copy for per-marker reference-count panels.
  *
- * The curated reference catalog (this page) and the live evidence corpus
- * (/api/v1/evidence/papers via the Research Evidence "search" tab) are
- * separate data layers. Clinicians need a one-click pivot from one to
- * the other — the curated card is the *prompt* for a live search, not
- * a substitute.
- *
- * Strategy:
- *   1. Strip parenthetical abbreviations from the marker name so the
- *      query reads naturally to a literature index.
- *   2. Append the first 1-2 linked conditions when present — without
- *      these, "Frontal Alpha Asymmetry" alone matches a much wider
- *      literature than the clinician usually wants.
- *
- * Pure function — exported so the Biomarkers tests can lock in the
- * query shape without driving the DOM or `window._nav`.
+ * Each neuro-biomarker entry carries an ``evidence`` field — a curated
+ * literature count like "1,180 refs". It is an editorial snapshot, not a
+ * live PubMed query.
  */
+export const CURATED_REFERENCE_PANEL_LABEL = 'Curated reference count';
+export const CURATED_REFERENCE_PANEL_CAPTION =
+  'Editorial snapshot — not a live PubMed count.';
+export const CURATED_REFERENCE_CARD_PILL_TITLE =
+  'Curated reference count (editorial snapshot, not a live bibliometric query).';
+
+/* Slice D2 — biomarker → live evidence pivot. */
 export function buildBiomarkerEvidenceSearchQuery(marker) {
   if (!marker || typeof marker !== 'object') return '';
   const rawName = String(marker.name || '').trim();
-  // "Frontal Alpha Asymmetry (FAA)" -> "Frontal Alpha Asymmetry"
   const cleanName = rawName.replace(/\s*\([^)]*\)\s*$/, '').trim();
   if (!cleanName) return '';
   const conditions = Array.isArray(marker.conditions)
@@ -81,21 +75,10 @@ export function buildBiomarkerEvidenceSearchQuery(marker) {
   return `${cleanName} ${conditions.join(' ')}`.trim();
 }
 
-/**
- * Imperative side-effect helper: pivot to Research Evidence's live search
- * tab with the biomarker's query pre-filled. Returns false when the
- * marker yields no usable query so the caller can render a disabled
- * button instead of dispatching nav to nowhere.
- *
- * Kept separate from `buildBiomarkerEvidenceSearchQuery` so that
- * function stays pure / unit-testable.
- */
 export function pivotToLiveEvidenceSearch(marker) {
   const query = buildBiomarkerEvidenceSearchQuery(marker);
   if (!query) return false;
   if (typeof window === 'undefined') return false;
-  // Stable hooks already consumed by pages-research-evidence.js line 2279:
-  //   const defaultSearch = String(window._reEvidencePrefill || window._reSearch?.search || '').trim();
   window._reEvidencePrefill = query;
   window._reSearch = window._reSearch || {};
   window._reSearch.search = query;
@@ -106,8 +89,6 @@ export function pivotToLiveEvidenceSearch(marker) {
   return true;
 }
 
-// Expose the pivot helper as a window-scoped function so inline onclick
-// handlers in the modal can fire it. Idempotent — overwriting is safe.
 if (typeof window !== 'undefined') {
   window._bmPivotToLiveEvidence = function (markerJson) {
     let marker = null;
@@ -371,7 +352,7 @@ function _openBiomarkerModal(marker, group) {
           <div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
               <span style="font-size:10px;padding:3px 10px;border-radius:999px;background:${group.tone}18;color:${group.tone};letter-spacing:.08em;text-transform:uppercase;font-weight:600">${group.title}</span>
-              <span style="font-size:10px;padding:3px 10px;border-radius:999px;background:rgba(255,255,255,0.04);color:var(--text-tertiary);border:1px solid var(--border)">${marker.evidence}</span>
+              <span style="font-size:10px;padding:3px 10px;border-radius:999px;background:rgba(255,255,255,0.04);color:var(--text-tertiary);border:1px solid var(--border)" title="${esc(CURATED_REFERENCE_CARD_PILL_TITLE)}">${esc(marker.evidence)}</span>
             </div>
             <div style="font-size:22px;font-weight:700;color:var(--text-primary);line-height:1.2">${marker.name}</div>
             <div style="font-size:12px;color:var(--text-tertiary);font-family:var(--font-mono, monospace);margin-top:6px">${marker.notation}</div>
@@ -435,12 +416,12 @@ function _openBiomarkerModal(marker, group) {
             </ul>
           </div>
         ` : ''}
-        <div style="padding:14px 16px;border-radius:12px;background:${group.tone}0a;border:1px solid ${group.tone}22;display:flex;align-items:center;justify-content:space-between">
+        <div style="padding:14px 16px;border-radius:12px;background:${group.tone}0a;border:1px solid ${group.tone}22;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
           <div>
-            <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Evidence References</div>
-            <div style="font-size:18px;font-weight:700;color:var(--text-primary)">${marker.evidence}</div>
+            <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">${CURATED_REFERENCE_PANEL_LABEL}</div>
+            <div style="font-size:18px;font-weight:700;color:var(--text-primary)">${esc(marker.evidence)}</div>
           </div>
-          <div style="font-size:11px;color:${group.tone}">Peer-reviewed literature</div>
+          <div style="font-size:11px;color:var(--text-tertiary);line-height:1.45;max-width:240px;text-align:right">${CURATED_REFERENCE_PANEL_CAPTION}</div>
         </div>
         <div style="margin-top:12px;display:flex;justify-content:flex-end">
           <button type="button" class="btn btn-ghost btn-sm" data-testid="nb-pivot-live-evidence"
@@ -497,7 +478,7 @@ function _renderRefMarkerCard(marker, group, idx) {
           <div style="min-width:0;flex:1">
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px">
               <span style="font-size:9.5px;padding:2px 7px;border-radius:999px;background:${group.tone}18;color:${group.tone};letter-spacing:.08em;text-transform:uppercase">${group.title}</span>
-              <span style="font-size:9.5px;padding:2px 7px;border-radius:999px;background:rgba(255,255,255,0.04);color:var(--text-tertiary);border:1px solid var(--border)">${marker.evidence}</span>
+              <span style="font-size:9.5px;padding:2px 7px;border-radius:999px;background:rgba(255,255,255,0.04);color:var(--text-tertiary);border:1px solid var(--border)" title="${esc(CURATED_REFERENCE_CARD_PILL_TITLE)}">${esc(marker.evidence)}</span>
             </div>
             <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:3px;line-height:1.3">${marker.name}</div>
             <div style="font-size:10.5px;color:var(--text-tertiary);font-family:var(--font-mono, monospace);margin-bottom:6px">${marker.notation}</div>
