@@ -9,6 +9,8 @@ import {
   isStale,
   BIOMARKERS_LINKED_MODULES,
   CURATED_REFERENCE_LITERATURE_ANCHORS,
+  buildBiomarkerEvidenceSearchQuery,
+  pivotToLiveEvidenceSearch,
   parseBiomarkerSites,
   guessBiomarkerWaveformBand,
 } from './pages-biomarkers.js';
@@ -99,4 +101,82 @@ test('demo token suffix activates demo session when flag on', () => {
     isDemoSession({ env: { VITE_ENABLE_DEMO: '1', DEV: false }, token: 'offline-demo-demo-token' }),
     true
   );
+});
+
+// ── Slice D2: biomarker → live evidence pivot ───────────────────────────────
+
+test('buildBiomarkerEvidenceSearchQuery strips parenthetical abbreviations', () => {
+  const q = buildBiomarkerEvidenceSearchQuery({
+    name: 'Frontal Alpha Asymmetry (FAA)',
+    conditions: ['MDD', 'Anxiety'],
+  });
+  assert.equal(q, 'Frontal Alpha Asymmetry MDD Anxiety');
+});
+
+test('buildBiomarkerEvidenceSearchQuery includes first two conditions only', () => {
+  const q = buildBiomarkerEvidenceSearchQuery({
+    name: 'Peak Alpha Frequency',
+    conditions: ['MCI', "Alzheimer's", 'Post-concussion', 'TBI', 'Cognitive aging'],
+  });
+  assert.equal(q, "Peak Alpha Frequency MCI Alzheimer's");
+});
+
+test('buildBiomarkerEvidenceSearchQuery falls back to name alone when no conditions', () => {
+  const q = buildBiomarkerEvidenceSearchQuery({
+    name: 'Theta/Beta Ratio (TBR)',
+    conditions: [],
+  });
+  assert.equal(q, 'Theta/Beta Ratio');
+});
+
+test('buildBiomarkerEvidenceSearchQuery returns empty string for missing input', () => {
+  assert.equal(buildBiomarkerEvidenceSearchQuery(null), '');
+  assert.equal(buildBiomarkerEvidenceSearchQuery(undefined), '');
+  assert.equal(buildBiomarkerEvidenceSearchQuery({}), '');
+  assert.equal(buildBiomarkerEvidenceSearchQuery({ name: '   ' }), '');
+});
+
+test('buildBiomarkerEvidenceSearchQuery ignores non-string conditions defensively', () => {
+  const q = buildBiomarkerEvidenceSearchQuery({
+    name: 'Hemoglobin',
+    conditions: [null, undefined, 42, 'Depression', { x: 1 }, 'Fatigue'],
+  });
+  assert.equal(q, 'Hemoglobin Depression Fatigue');
+});
+
+test('pivotToLiveEvidenceSearch sets the documented prefill hooks', () => {
+  // The Research Evidence page reads `window._reEvidencePrefill` and
+  // `window._reSearch.search` at line 2279 of pages-research-evidence.js
+  // — those are the stable contract. Lock them in.
+  const navCalls = [];
+  const fakeWindow = {
+    _nav: (route) => navCalls.push(route),
+  };
+  globalThis.window = fakeWindow;
+  try {
+    const ok = pivotToLiveEvidenceSearch({
+      name: 'Frontal Alpha Asymmetry (FAA)',
+      conditions: ['MDD'],
+    });
+    assert.equal(ok, true);
+    assert.equal(fakeWindow._reEvidencePrefill, 'Frontal Alpha Asymmetry MDD');
+    assert.equal(fakeWindow._reSearch.search, 'Frontal Alpha Asymmetry MDD');
+    assert.equal(fakeWindow._resEvidenceTab, 'search');
+    assert.deepEqual(navCalls, ['research-evidence']);
+  } finally {
+    delete globalThis.window;
+  }
+});
+
+test('pivotToLiveEvidenceSearch returns false when the marker yields no query', () => {
+  const fakeWindow = { _nav: () => { throw new Error('should not be called'); } };
+  globalThis.window = fakeWindow;
+  try {
+    assert.equal(pivotToLiveEvidenceSearch(null), false);
+    assert.equal(pivotToLiveEvidenceSearch({}), false);
+    // No prefill should have been written.
+    assert.equal('_reEvidencePrefill' in fakeWindow, false);
+  } finally {
+    delete globalThis.window;
+  }
 });
