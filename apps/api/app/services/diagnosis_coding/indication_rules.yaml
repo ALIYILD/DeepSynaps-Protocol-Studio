@@ -1,0 +1,107 @@
+# Curated indication-rule scaffold for /api/v1/diagnosis/eligibility-context.
+#
+# This file is intentionally CONSERVATIVE. Each rule represents a publicly
+# verifiable regulatory clearance or technology appraisal that may be useful
+# CONTEXT for a clinician — it is NEVER a coverage decision, an
+# eligibility determination, or a guarantee of reimbursement.
+#
+# Forbidden language (enforced by tests):
+#   - "covered", "is covered", "is eligible", "approved indication",
+#     "approved for treatment", "guaranteed reimbursement"
+#
+# Acceptable language for `indication_context`:
+#   - "FDA-cleared device exists for X" (factual)
+#   - "NICE technology appraisal exists for X" (factual)
+#   - "Clinician/payer review required" (always include)
+#
+# Schema (per rule):
+#   id:                  stable kebab-case identifier
+#   modality:            normalized lowercase token (rtms, tdcs, neurofeedback,
+#                        dbs, vns, ecs, ect, tacs, taVNS, ...)
+#   diagnosis_codes:     map: coding_system -> [code, ...]
+#                        codes are ICD-10-CM, MeSH descriptors, or SNOMED ids
+#   jurisdiction:        optional ISO-3166-1 alpha-2 ("US", "GB") or "international"
+#   payer:               optional; null means "any payer in jurisdiction"
+#   regulatory_status:   short, factual token (e.g. "FDA_510k_cleared",
+#                        "NICE_TA_published", "CE_mark", "RESEARCH_USE_ONLY")
+#   evidence_references: list of {title, source, url, identifier?}
+#   indication_context:  prose paragraph; MUST include a clinician-review
+#                        caveat and MUST NOT use forbidden language.
+
+rules:
+  - id: rtms-mdd-fda
+    modality: rtms
+    diagnosis_codes:
+      icd10: [F32.0, F32.1, F32.2, F32.9, F33.0, F33.1, F33.2, F33.9]
+    jurisdiction: US
+    payer: null
+    regulatory_status: FDA_510k_cleared
+    evidence_references:
+      - title: FDA 510(k) K183469 — NeuroStar Advanced Therapy System
+        source: FDA
+        url: https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfPMN/pmn.cfm?ID=K183469
+        identifier: K183469
+      - title: FDA 510(k) K061053 — original NeuroStar TMS clearance
+        source: FDA
+        url: https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfPMN/pmn.cfm?ID=K061053
+        identifier: K061053
+    indication_context: >-
+      One or more FDA-cleared rTMS devices exist for treatment-resistant
+      major depressive disorder in adult patients. Clinician must verify
+      that the patient meets the device-specific labelling criteria and
+      that the local payer policy permits use; this service does not
+      determine coverage.
+
+  - id: rtms-mdd-nice
+    modality: rtms
+    diagnosis_codes:
+      icd10: [F32.0, F32.1, F32.2, F32.9, F33.0, F33.1, F33.2, F33.9]
+    jurisdiction: GB
+    payer: null
+    regulatory_status: NICE_TA_published
+    evidence_references:
+      - title: NICE IPG542 — Repetitive transcranial magnetic stimulation for depression
+        source: NICE
+        url: https://www.nice.org.uk/guidance/ipg542
+        identifier: IPG542
+    indication_context: >-
+      NICE has published interventional procedure guidance (IPG542) for
+      rTMS in depression. The guidance describes safety and efficacy
+      considerations; it is not a payer coverage decision. Clinician
+      must verify local commissioning policy before use.
+
+  - id: ect-treatment-resistant-depression
+    modality: ect
+    diagnosis_codes:
+      icd10: [F32.2, F32.3, F33.2, F33.3]
+    jurisdiction: international
+    payer: null
+    regulatory_status: ESTABLISHED_STANDARD_OF_CARE
+    evidence_references:
+      - title: WHO and major guideline bodies recognise ECT for severe depression
+        source: clinical_guidelines
+        url: ""
+    indication_context: >-
+      Electroconvulsive therapy is recognised by multiple clinical
+      guideline bodies as a treatment option for severe or treatment-
+      resistant depression. Use requires institution-specific clinical
+      governance, anaesthesia oversight, and informed consent. This
+      service does not authorise treatment.
+
+  - id: vns-treatment-resistant-depression-fda
+    modality: vns
+    diagnosis_codes:
+      icd10: [F33.2, F33.3]
+    jurisdiction: US
+    payer: null
+    regulatory_status: FDA_PMA_approved
+    evidence_references:
+      - title: FDA PMA P970003/S050 — VNS Therapy System
+        source: FDA
+        url: https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpma/pma.cfm?id=P970003
+        identifier: P970003
+    indication_context: >-
+      An FDA PMA exists for VNS therapy in chronic or recurrent
+      treatment-resistant depression in adult patients. Clinician must
+      verify device-specific labelling and that the local payer policy
+      permits use; this service does not determine coverage.
