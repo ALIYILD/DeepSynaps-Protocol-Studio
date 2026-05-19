@@ -17,6 +17,7 @@ import {
 import { getEvidenceUiStats } from './evidence-ui-live.js';
 import { renderLiveEvidencePanel } from './live-evidence.js';
 import { loadAndRenderFederatedSearch } from './research-evidence-federated-search.js';
+import { renderTerminologyExpansionPanel } from './diagnosis-coding-expansion.js';
 import { loadResearchBundleWorkspace } from './research-bundle-workspace.js';
 import { renderClinicalDisclaimer, renderModuleClinicalDisclaimer } from './clinical-disclaimer.js';
 import {
@@ -3265,6 +3266,27 @@ async function renderEvidenceSearch(body) {
       } catch {
         /* defensive — the module already swallows transport errors and
            emits the honest "not available on this build" notice. */
+      }
+      // Category 8 terminology expansion (PR #1062 backend + #1105 panel).
+      // Renders ICD-10 / MeSH / OLS code mappings beside federated results,
+      // with degraded-source reasons for UMLS + SNOMED CT and the mandatory
+      // decision-support disclaimer. Defensive — the module renders its own
+      // error state if /api/v1/diagnosis/query-expansion is missing.
+      try {
+        let termContainer = document.getElementById('re-ev-terminology-expansion');
+        if (!termContainer) {
+          termContainer = document.createElement('div');
+          termContainer.id = 're-ev-terminology-expansion';
+          termContainer.style.marginTop = '12px';
+          out.appendChild(termContainer);
+        }
+        await renderTerminologyExpansionPanel(api, termContainer, {
+          condition: rawQ,
+          targetWorkflow: 'evidence',
+          limit: 5,
+        });
+      } catch {
+        /* defensive — the panel renders its own error state. */
       }
     } catch (e) {
       out.innerHTML = _reEvidenceSearchErrorHtml('Evidence search', e);
