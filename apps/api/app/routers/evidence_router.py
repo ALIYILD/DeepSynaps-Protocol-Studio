@@ -119,6 +119,17 @@ from app.services.evidence_federation import (
     FederatedSearchResponse as _FederatedSearchOutput,
     federated_search,
 )
+from app.services.knowledge.adapter_bootstrap import (
+    list_disabled_adapter_keys,
+    list_production_adapter_keys,
+)
+from app.services.knowledge.evidence_categories import (
+    CLINICAL_EVIDENCE_REGISTRY_KEYS,
+    EvidenceCategory,
+    category_for_adapter,
+    is_subscription_source,
+)
+from app.services.knowledge.lifecycle import peek_registry_lifecycle_summary
 
 # ── Cross-platform temp paths for admin-refresh lock + log ──────────────────
 # `/tmp` is POSIX-only; on Windows it resolves to C:\tmp which may not exist.
@@ -785,6 +796,41 @@ class EvidenceSourceStatusOut(BaseModel):
     degraded_reason: Optional[str] = None
 
 
+# ── Category-3 clinical-evidence sources surface ───────────────────────────
+# Decision-support disclaimer. Exposed verbatim through the
+# /clinical-sources response so the frontend cannot accidentally drop it.
+CLINICAL_EVIDENCE_DECISION_SUPPORT_DISCLAIMER: str = (
+    "Decision support only. Not diagnosis, not prescription, not a "
+    "treatment recommendation. Evidence may be incomplete, outdated, or "
+    "population-specific. Clinician must verify source data."
+)
+
+
+class ClinicalEvidenceSourceOut(BaseModel):
+    """Lifecycle row for a single Category-3 clinical-evidence source."""
+
+    key: str
+    display_name: str
+    category: str
+    is_internal: bool
+    lifecycle_state: str
+    requires_subscription: bool
+    requires_credentials: bool
+    endpoint: Optional[str] = None
+    license_type: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ClinicalEvidenceSourcesOut(BaseModel):
+    """All Category-3 clinical-evidence sources (internal + external)."""
+
+    generated_at: str
+    decision_support_disclaimer: str
+    internal_source: ClinicalEvidenceSourceOut
+    external_sources: list[ClinicalEvidenceSourceOut]
+    summary: dict
+
+
 def _scoped_saved_citation_status_counts(
     actor: AuthenticatedActor,
     db: Session,
@@ -1153,6 +1199,197 @@ def evidence_source_status(
                 "degraded_reason": type(exc).__name__,
             }
         )
+
+
+# Display metadata for each Category-3 external source. Kept here rather
+# than fetched from the registry so /clinical-sources stays synchronous
+# and safe to call on a cold container (before adapters are instantiated).
+_CLINICAL_SOURCE_DISPLAY_META: dict[str, dict[str, Optional[str]]] = {
+    "pubmed": {
+        "display_name": "PubMed",
+        "endpoint": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/",
+        "license_type": "NCBI-terms",
+        "notes": (
+            "Primary literature search for neuromodulation evidence. "
+            "Live NCBI E-utilities adapter."
+        ),
+    },
+    "ctgov": {
+        "display_name": "ClinicalTrials.gov",
+        "endpoint": "https://clinicaltrials.gov/api/v2/studies",
+        "license_type": "US-public-domain",
+        "notes": "Active and completed neuromodulation trials. Live adapter.",
+    },
+    "cochrane": {
+        "display_name": "Cochrane Library",
+        "endpoint": "https://www.cochranelibrary.com/",
+        "license_type": "Cochrane-subscription",
+        "notes": (
+            "Systematic reviews. Subscription required; not callable "
+            "without credentials."
+        ),
+    },
+    "nice": {
+        "display_name": "NICE Guidelines",
+        "endpoint": "https://www.nice.org.uk/guidance",
+        "license_type": "OGL-v3.0",
+        "notes": "UK guidance on neuromodulation indications.",
+    },
+    "trip": {
+        "display_name": "Trip Database",
+        "endpoint": "https://www.tripdatabase.com/",
+        "license_type": "Trip-terms",
+        "notes": "Clinical search engine for evidence synthesis.",
+    },
+    "epistemonikos": {
+        "display_name": "Epistemonikos",
+        "endpoint": "https://www.epistemonikos.org/",
+        "license_type": "CC-BY-NC-4.0",
+        "notes": "Systematic review database.",
+    },
+    "pubmed_central": {
+        "display_name": "PubMed Central (PMC)",
+        "endpoint": "https://www.ncbi.nlm.nih.gov/pmc/tools/oa-service/",
+        "license_type": "NCBI-terms",
+        "notes": "Full-text open-access articles.",
+    },
+    "europepmc": {
+        "display_name": "Europe PMC",
+        "endpoint": "https://europepmc.org/RestfulWebService",
+        "license_type": "Europe-PMC-OA",
+        "notes": (
+            "European literature with funding/grant data. Live adapter."
+        ),
+    },
+    "crossref": {
+        "display_name": "CrossRef",
+        "endpoint": "https://api.crossref.org/",
+        "license_type": "CrossRef-public-data",
+        "notes": "Citation linking and DOI resolution.",
+    },
+    "acp_journal_club": {
+        "display_name": "ACP Journal Club",
+        "endpoint": "https://www.acpjournals.org/journal/aim",
+        "license_type": "ACP-subscription",
+        "notes": (
+            "Curated evidence summaries (subscription). Not callable "
+            "without credentials."
+        ),
+    },
+    "dynamed": {
+        "display_name": "DynaMed",
+        "endpoint": "https://www.dynamed.com/",
+        "license_type": "EBSCO-subscription",
+        "notes": (
+            "Point-of-care evidence (subscription). Not callable "
+            "without credentials."
+        ),
+    },
+    "eudract": {
+        "display_name": "EU Clinical Trials Register (EudraCT)",
+        "endpoint": "https://www.clinicaltrialsregister.eu/",
+        "license_type": "EU-public-domain",
+        "notes": "European clinical trials register.",
+    },
+}
+
+
+@router.get(
+    "/clinical-sources",
+    response_model=ClinicalEvidenceSourcesOut,
+)
+def evidence_clinical_sources(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ClinicalEvidenceSourcesOut:
+    """Category-3 clinical-evidence source lifecycle (internal + external).
+
+    Returns honest lifecycle state for every Category-3 source. Subscription
+    sources without credentials are reported as ``disabled`` rather than
+    ``healthy``. The internal DeepSynaps evidence corpus is read live —
+    paper/trial/device counts come from the SQLite terminal, never from
+    a hardcoded fallback.
+    """
+    require_minimum_role(actor, "clinician")
+    generated_at = datetime.now(timezone.utc).isoformat()
+
+    terminal_status = get_terminal_status()
+    if terminal_status.db_available:
+        paper_count = terminal_status.counts.papers
+        trial_count = terminal_status.counts.trials
+        internal_state = "healthy"
+        internal_notes = (
+            f"Indexed corpus: {paper_count} papers, {trial_count} trials. "
+            f"Last ingest: {terminal_status.last_updated or 'unknown'}."
+        )
+    else:
+        internal_state = "degraded"
+        internal_notes = (
+            "Evidence terminal DB is not available on this build; falling "
+            "back to bundled corpus only."
+        )
+
+    internal_source = ClinicalEvidenceSourceOut(
+        key="internal_evidence_db",
+        display_name="DeepSynaps Evidence Database",
+        category=EvidenceCategory.CLINICAL_EVIDENCE.value,
+        is_internal=True,
+        lifecycle_state=internal_state,
+        requires_subscription=False,
+        requires_credentials=False,
+        endpoint=None,
+        license_type="internal",
+        notes=internal_notes,
+    )
+
+    lifecycle_summary = peek_registry_lifecycle_summary()
+    per_adapter_states: dict[str, str] = lifecycle_summary.get("adapters", {})
+    disabled_keys = set(list_disabled_adapter_keys())
+
+    external_sources: list[ClinicalEvidenceSourceOut] = []
+    for key in CLINICAL_EVIDENCE_REGISTRY_KEYS:
+        display_meta = _CLINICAL_SOURCE_DISPLAY_META.get(key, {})
+        state = per_adapter_states.get(key, "catalogued")
+        requires_subscription = is_subscription_source(key)
+        # If a subscription source is reported as HEALTHY by an adapter
+        # without credentials, downgrade it to DISABLED rather than
+        # leaking a misleading green badge into the UI.
+        if requires_subscription and state == "healthy":
+            state = "disabled"
+        # Adapters explicitly turned off via env get DISABLED, not catalogued.
+        if key in disabled_keys and state == "catalogued":
+            state = "disabled"
+        external_sources.append(
+            ClinicalEvidenceSourceOut(
+                key=key,
+                display_name=str(display_meta.get("display_name") or key),
+                category=category_for_adapter(key).value,
+                is_internal=False,
+                lifecycle_state=state,
+                requires_subscription=requires_subscription,
+                requires_credentials=requires_subscription,
+                endpoint=display_meta.get("endpoint"),
+                license_type=display_meta.get("license_type"),
+                notes=display_meta.get("notes"),
+            )
+        )
+
+    by_state: dict[str, int] = {}
+    for row in (internal_source, *external_sources):
+        by_state[row.lifecycle_state] = by_state.get(row.lifecycle_state, 0) + 1
+    summary = {
+        "total": 1 + len(external_sources),
+        "internal_total": 1,
+        "external_total": len(external_sources),
+        "by_state": by_state,
+    }
+
+    return ClinicalEvidenceSourcesOut(
+        generated_at=generated_at,
+        decision_support_disclaimer=CLINICAL_EVIDENCE_DECISION_SUPPORT_DISCLAIMER,
+        internal_source=internal_source,
+        external_sources=external_sources,
+        summary=summary,
+    )
 
 
 @router.get("/terminal/status", response_model=EvidenceTerminalStatusOut)
