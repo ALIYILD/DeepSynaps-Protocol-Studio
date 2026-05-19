@@ -56,8 +56,8 @@ from app.services.knowledge.adapters.crossref_live_adapter import (
     CrossRefLiveAdapter,
 )
 from app.services.knowledge.adapters.dynamed_adapter import DynaMedAdapter
-from app.services.knowledge.adapters.epistemonikos_adapter import (
-    EpistemonikosAdapter,
+from app.services.knowledge.adapters.epistemonikos_live_adapter import (
+    EpistemonikosLiveAdapter,
 )
 from app.services.knowledge.adapters.eudract_adapter import EudraCTAdapter
 from app.services.knowledge.adapters.europepmc_adapter import EuropePMCAdapter
@@ -134,7 +134,7 @@ _ADAPTER_CATALOG: Dict[str, Tuple[Type[DatabaseAdapter], str, Dict[str, Any]]] =
     "pubmed_central":   (PubMedCentralLiveAdapter, "P1", {}),
     "nice":             (NICEAdapter,              "P1", {}),
     "trip":             (TripDatabaseAdapter,      "P2", {}),
-    "epistemonikos":    (EpistemonikosAdapter,     "P2", {}),
+    "epistemonikos":    (EpistemonikosLiveAdapter, "P2", {}),
     "crossref":         (CrossRefLiveAdapter,      "P1", {}),
     "eudract":          (EudraCTAdapter,           "P1", {}),
     "acp_journal_club": (ACPJournalClubAdapter,    "P2", {}),

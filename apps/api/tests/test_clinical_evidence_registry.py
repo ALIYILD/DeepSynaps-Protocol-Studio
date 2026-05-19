@@ -91,17 +91,15 @@ def _build_one(key: str) -> CataloguedOnlyAdapter | None:
     return instance
 
 
-# Cat-3 sources that remain catalogued-only after the live-adapter wire-up.
-# CrossRef + PubMed Central moved to live network adapters in
-# PRs #1074 / #1092 (catalog swap landed alongside this comment); they
-# are excluded from the catalogued-only contract tests and instead
-# covered by their dedicated test_crossref_live_adapter /
-# test_pubmed_central_live_adapter suites.
+# Cat-3 sources that remain catalogued-only after the live-adapter wire-ups.
+# Live network adapters now serve: CrossRef (#1074), PubMed Central (#1092),
+# and Epistemonikos (this PR). Those keys are excluded from the
+# catalogued-only contract tests and instead covered by their dedicated
+# test_<source>_live_adapter suites.
 _CATALOGUED_ONLY_CAT3_KEYS = [
     "eudract",
     "nice",
     "trip",
-    "epistemonikos",
     "acp_journal_club",
     "dynamed",
 ]
