@@ -55,6 +55,9 @@ class NeuroimagingHealth(BaseModel):
     dipy: bool = False
     braindecode: bool = False
     torch: bool = False
+    simnibs: bool = False
+    monai: bool = False
+    brainspace: bool = False
     versions: dict[str, str | None] = {}
 
 
@@ -107,11 +110,6 @@ class DtiScalarSummary(BaseModel):
     mean_fa: float
     mean_md: float
     voxel_count: int
-    # Phase 3 simulation libraries (SimNIBS CLI, MONAI, BrainSpace).
-    simnibs: bool = False
-    monai: bool = False
-    brainspace: bool = False
-    versions: dict[str, str | None] = {}
 
 
 class SimnibsHealth(BaseModel):
