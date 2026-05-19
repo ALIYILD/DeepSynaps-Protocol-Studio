@@ -32,13 +32,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from pydantic import BaseModel, Field
 
 # Local imports (from the same package)
-from confidence_engine import ConfidenceEngine, ConfidenceScore
-from cross_reference_mesh import CrossReferenceMesh, EntityProfile
-from evidence_fusion import EvidenceFusion, EvidencePiece, FusedEvidence
-from governance_layer import GovernanceLayer, SafetyResult
-from query_planner import QueryPlanner, QueryPlan, QueryIntent, BudgetConstraint
-from response_synthesizer import ResponseSynthesizer, AdapterResult, SynthesizedResponse
-from smart_cache import SmartCache
+from app.intelligent.confidence_engine import ConfidenceEngine, ConfidenceScore
+from app.intelligent.cross_reference_mesh import CrossReferenceMesh, EntityProfile
+from app.intelligent.evidence_fusion import EvidenceFusion, EvidencePiece, FusedEvidence
+from app.intelligent.governance_layer import GovernanceLayer, SafetyResult
+from app.intelligent.query_planner import QueryPlanner, QueryPlan, QueryIntent, BudgetConstraint
+from app.intelligent.response_synthesizer import ResponseSynthesizer, AdapterResult, SynthesizedResponse
+from app.intelligent.smart_cache import SmartCache
 
 logger = logging.getLogger("intelligent_synaps.orchestrator")
 

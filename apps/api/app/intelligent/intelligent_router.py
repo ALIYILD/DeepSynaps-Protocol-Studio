@@ -63,17 +63,17 @@ except ImportError:
         def __init__(self, *args: Any, **kwargs: Any) -> None: pass
 
 # Local imports
-from confidence_engine import ConfidenceEngine, ConfidenceScore
-from cross_reference_mesh import CrossReferenceMesh
-from evidence_fusion import EvidenceFusion, EvidencePiece, FusedEvidence
-from governance_layer import GovernanceLayer, SafetyResult
-from intelligent_orchestrator import (
+from app.intelligent.confidence_engine import ConfidenceEngine, ConfidenceScore
+from app.intelligent.cross_reference_mesh import CrossReferenceMesh
+from app.intelligent.evidence_fusion import EvidenceFusion, EvidencePiece, FusedEvidence
+from app.intelligent.governance_layer import GovernanceLayer, SafetyResult
+from app.intelligent.intelligent_orchestrator import (
     IntelligentOrchestrator, AdapterRegistry,
     OrchestratorResult, SearchResult, ProtocolResult,
 )
-from query_planner import QueryPlanner, QueryPlan
-from response_synthesizer import ResponseSynthesizer
-from smart_cache import SmartCache
+from app.intelligent.query_planner import QueryPlanner, QueryPlan
+from app.intelligent.response_synthesizer import ResponseSynthesizer
+from app.intelligent.smart_cache import SmartCache
 
 logger = logging.getLogger("intelligent_synaps.router")
 
@@ -319,7 +319,7 @@ def create_router() -> APIRouter:
                     "data": {"query_result": r.summary},
                     "confidence": r.confidence,
                 }
-                from response_synthesizer import AdapterResult
+                from app.intelligent.response_synthesizer import AdapterResult
                 adapter_results.append(AdapterResult(**ar_data))
 
             synthesized = await synthesizer.synthesize(

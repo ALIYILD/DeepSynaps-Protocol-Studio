@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -146,14 +146,14 @@ class ConfidenceScore(BaseModel):
     sample_n: Optional[int] = None
     publication_year: Optional[int] = None
 
-    @validator("*", pre=True, always=True)
-    def clamp_values(cls, v: Any, field: Any) -> Any:  # type: ignore[misc]
-        if isinstance(v, (int, float)) and field.name not in (
-            "source_name",
-            "study_design",
-            "sample_n",
-            "publication_year",
-        ):
+    @field_validator(
+        "data_quality", "evidence_strength", "sample_size",
+        "replication", "consistency", "temporal_relevance", "population_match",
+        mode="before",
+    )
+    @classmethod
+    def clamp_values(cls, v: Any) -> Any:  # type: ignore[misc]
+        if isinstance(v, (int, float)):
             return max(0.0, min(1.0, float(v)))
         return v
 
@@ -231,12 +231,16 @@ class CompositeWeights(BaseModel):
     temporal_relevance: float = 0.08
     population_match: float = 0.07
 
-    @validator("*")
-    def weights_sum_to_one(cls, v: Dict[str, float]) -> Dict[str, float]:  # type: ignore[misc]
-        total = sum(v.values())  # type: ignore[attr-defined]
+    @model_validator(mode="after")
+    def weights_sum_to_one(self) -> "CompositeWeights":  # type: ignore[misc]
+        total = (
+            self.data_quality + self.evidence_strength + self.sample_size
+            + self.replication + self.consistency + self.temporal_relevance
+            + self.population_match
+        )
         if not (0.99 <= total <= 1.01):
             raise ValueError(f"Weights must sum to 1.0, got {total}")
-        return v
+        return self
 
 
 class ScoredResult(BaseModel):
