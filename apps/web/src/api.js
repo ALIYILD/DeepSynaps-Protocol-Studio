@@ -3949,6 +3949,18 @@ export const api = {
   geneticAnalyzerDashboardSummary: () =>
     apiFetch('/api/v1/genetic-analyzer/dashboard'),
 
+  // ── Category 2 Genetics Inventory ───────────────────────────────────────
+  geneticsListAdapters: () =>
+    apiFetch('/api/v1/genetics/adapters'),
+  geneticsGetLifecycle: () =>
+    apiFetch('/api/v1/genetics/adapters/_lifecycle'),
+  geneticsQueryAdapter: (body) =>
+    apiFetch('/api/v1/genetics/query', { method: 'POST', body: JSON.stringify(body) }),
+  geneticsVariantAnnotation: (body) =>
+    apiFetch('/api/v1/genetics/variant-annotation', { method: 'POST', body: JSON.stringify(body) }),
+  geneticsPgxNeuromodulationCheck: (body) =>
+    apiFetch('/api/v1/genetics/pgx-neuromodulation-check', { method: 'POST', body: JSON.stringify(body) }),
+
   // ── Bio Database ─────────────────────────────────────────────────────────
   listBioCatalog: (params = {}) => {
     const q = new URLSearchParams(

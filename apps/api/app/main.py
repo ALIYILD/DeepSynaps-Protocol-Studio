@@ -125,6 +125,7 @@ from app.routers.knowledge_router_v2 import router as knowledge_router_v2
 from app.routers.knowledge_adapters_live_router import (
     router as knowledge_adapters_live_router,
 )
+from app.routers.pharmaceutical_router import router as pharmaceutical_router
 from app.routers.evidence_router import router as evidence_router
 from app.routers.health_dashboard import router as health_dashboard
 from app.lifespan_wiring import deepynaps_lifespan
@@ -187,6 +188,7 @@ from app.routers.reviewer_sla_calibration_threshold_tuning_router import (
 from app.routers.digital_phenotyping_router import router as digital_phenotyping_router
 from app.routers.labs_analyzer_router import router as labs_analyzer_router
 from app.routers.genetic_analyzer_router import router as genetic_analyzer_router
+from app.routers.genetics_router import router as genetics_router
 from app.routers.medication_analyzer_router import router as medication_analyzer_router
 # Movement analyzer is gated behind DEEPSYNAPS_ENABLE_MOVEMENT_ANALYZER=1.
 # The router imports `MovementBiomarkerTrend` from `app.persistence.models`,
@@ -529,6 +531,7 @@ app.include_router(virtual_care_router)
 app.include_router(forms_router)
 app.include_router(medications_router)
 app.include_router(genetic_analyzer_router)
+app.include_router(genetics_router)
 app.include_router(medication_analyzer_router)
 app.include_router(labs_analyzer_router)
 app.include_router(digital_phenotyping_router)
@@ -808,6 +811,7 @@ app.include_router(patient_portal_v2_router)
 app.include_router(handbook_v2_router)
 app.include_router(knowledge_router_v2)
 app.include_router(knowledge_adapters_live_router)
+app.include_router(pharmaceutical_router)
 app.include_router(evidence_router)
 app.include_router(health_dashboard)
 app.include_router(biomarker_router)
