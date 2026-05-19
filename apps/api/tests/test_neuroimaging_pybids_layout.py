@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -43,4 +44,17 @@ def test_query_files_returns_refs(tmp_path):
     assert len(refs) == 1
     ref = refs[0]
     assert ref.suffix == "T1w"
-    assert ref.subject is not None or ref.subject is None
+    # subject must be a 12-char hex pseudonym (SHA-256 first 12 hex digits)
+    assert ref.subject is not None
+    assert len(ref.subject) == 12
+    assert re.fullmatch(r"[0-9a-f]{12}", ref.subject)
+
+
+def test_neuroimaging_pybids_subject_is_hashed():
+    """Subject "01" → 12-char hex pseudonym, NOT the literal string "01"."""
+    from app.services.neuroimaging.pybids_query import _pseudo_subject
+
+    result = _pseudo_subject("01")
+    assert result != "01"
+    assert len(result) == 12
+    assert re.fullmatch(r"[0-9a-f]{12}", result)
