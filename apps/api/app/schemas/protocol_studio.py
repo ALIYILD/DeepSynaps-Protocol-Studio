@@ -114,6 +114,7 @@ class ProtocolStudioGenerateRequest(BaseModel):
     protocol_id: str | None = None
     include_off_label: bool = False
     constraints: dict[str, Any] = Field(default_factory=dict)
+    neuromodulation_context: dict[str, Any] = Field(default_factory=dict)
 
 
 class ProtocolStudioRecommendRequest(BaseModel):

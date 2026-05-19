@@ -289,6 +289,10 @@ def generate_deterministic_protocol_studio_draft(
             },
         }
 
+    neuromodulation_context = req.get("neuromodulation_context")
+    if isinstance(neuromodulation_context, dict) and neuromodulation_context:
+        patient_context_used["neuromodulation"] = neuromodulation_context
+
     if mode == "qeeg_guided" and (not counts or counts.qeeg <= 0):
         missing.append("qeeg")
     if mode == "mri_guided" and (not counts or counts.mri <= 0):
@@ -474,4 +478,3 @@ def generate_deterministic_protocol_studio_draft(
 def build_generation_preview_id() -> str:
     """Non-persistent identifier used when draft_id is unavailable."""
     return f"ps-preview-{uuid.uuid4().hex[:16]}"
-

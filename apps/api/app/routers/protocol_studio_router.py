@@ -531,6 +531,7 @@ def protocol_studio_generate(
         "protocol_id": body.protocol_id,
         "include_off_label": body.include_off_label,
         "constraints": body.constraints or {},
+        "neuromodulation_context": body.neuromodulation_context or {},
     }
 
     out: DraftResponseDict = generate_deterministic_protocol_studio_draft(db, actor=actor, req=req)
