@@ -13,6 +13,10 @@ import { mountMedicalImageCard } from './medical-image-card.js';
 import { api, downloadBlob } from './api.js';
 import { handleAPIError as handleConsentError, renderConsentStatusBadge, disableRunButton, enableRunButton } from './consent-error-handler.js';
 import { ensureAgentBrainStatus } from './agent-brain-status.js';
+import {
+  createNeuroimagingEvidenceController,
+  attachReferenceToProtocol,
+} from './protocol-neuroimaging-evidence.js';
 
 // Normalise a /api/v1/registry/protocols row into the shape pgProtocolSearch
 // renders (matches PROTOCOL_LIBRARY entries). Keeps the backend as the
@@ -1302,11 +1306,17 @@ export async function pgProtocolBuilderV2(setTopbar, navigate, opts = {}) {
     params: { ...( prefill?.parameters || {}) },
     aiPersonalization: prefill?.aiPersonalization ? JSON.stringify(prefill.aiPersonalization, null, 2) : '',
     scanGuidedNotes: prefill?.scanGuidedNotes ? JSON.stringify(prefill.scanGuidedNotes, null, 2) : '',
+    // Category 4 PR-4: attached neuroimaging catalog references.
+    neuroimagingRefs: [],
     saved: false,
     submitted: false,
     saveSyncState: null,
     submitSyncState: null,
   };
+
+  // Neuroimaging evidence controller — created once per builder invocation,
+  // re-used across re-renders so search results and attached counts persist.
+  let _neuroCtrl = null;
 
   const _govToggle = g => {
     if (_b.governance.includes(g)) _b.governance = _b.governance.filter(x => x !== g);
@@ -1498,6 +1508,8 @@ export async function pgProtocolBuilderV2(setTopbar, navigate, opts = {}) {
               <div id="prot-b-evidence-body" style="font-size:11.5px;color:var(--text-secondary)">
                 ${_b.conditionId && _b.device ? '<div style="color:var(--text-tertiary)">Loading\u2026</div>' : '<div style="color:var(--text-tertiary)">Select a condition and device above.</div>'}
               </div>
+              <!-- Category 4 PR-4: neuroimaging evidence panel host. Mounted lazily after render -->
+              <div id="prot-b-neuro-evidence-host" data-testid="prot-b-neuro-evidence-host" style="margin-top:10px;border-top:1px solid var(--border,#1e293b);padding-top:8px"></div>
             </div>
 
             <div class="prot-b-section">
@@ -1534,6 +1546,39 @@ export async function pgProtocolBuilderV2(setTopbar, navigate, opts = {}) {
       var _miHost = document.getElementById('ds-medical-image-card-protocols');
       if (_miHost && window._builderPatientId) mountMedicalImageCard(_miHost, { patientId: window._builderPatientId, audience: 'clinician' });
     } catch (_miErr) { /* non-fatal: medical-image card is optional */ }
+
+    // ── Category 4 PR-4: neuroimaging evidence panel ────────────────────────
+    // Mounts a controller that drives /api/v1/neuroimaging/search (anonymous)
+    // or /api/v1/neuroimaging/search-for-patient (patient-linked) and lets
+    // the clinician attach catalogue results onto _b.neuroimagingRefs. The
+    // refs flow into the protocol payload alongside `evidence_refs` so the
+    // backend review queue sees the neuroimaging provenance.
+    try {
+      const _neuroHost = document.getElementById('prot-b-neuro-evidence-host');
+      if (_neuroHost && !_neuroCtrl) {
+        _neuroCtrl = createNeuroimagingEvidenceController({
+          patientId: window._builderPatientId || null,
+          wizardMode: window._psWizard?.mode || null,
+          getQuery: () => ({
+            condition: _b.conditionId || null,
+            modality: _b.device || null,
+            region: _b.target || null,
+          }),
+          onAttach: (ref) => {
+            const next = attachReferenceToProtocol(_b, ref);
+            _b.neuroimagingRefs = next.neuroimagingRefs;
+            opts.onNotif?.({
+              title: 'Evidence attached',
+              body: `${ref.source_name} — decision support only. Verify against patient anatomy.`,
+              severity: 'info',
+            });
+          },
+        });
+        _neuroCtrl.mount(_neuroHost);
+      }
+    } catch (_neuroErr) {
+      // Non-fatal: panel is supplementary; builder still functions.
+    }
 
     // ── Evidence basis — async populate after render ──────────────────────
     // Fires only when condition + device are both selected.
@@ -1651,6 +1696,9 @@ export async function pgProtocolBuilderV2(setTopbar, navigate, opts = {}) {
       contraindications: _b.contraindications.split('\n').filter(Boolean),
       sideEffects: _b.sideEffects.split('\n').filter(Boolean),
       references: _b.references.split('\n').filter(Boolean),
+      // Category 4 PR-4: attached neuroimaging catalog references travel
+      // separately so the backend can distinguish them from free-text refs.
+      neuroimagingRefs: Array.isArray(_b.neuroimagingRefs) ? [..._b.neuroimagingRefs] : [],
       tags: _b.tags.split(',').map(s=>s.trim()).filter(Boolean),
       aiPersonalization: _b.aiPersonalization ? (() => { try { return JSON.parse(_b.aiPersonalization); } catch { return null; } })() : null,
       scanGuidedNotes: _b.scanGuidedNotes ? (() => { try { return JSON.parse(_b.scanGuidedNotes); } catch { return null; } })() : null,
@@ -1680,6 +1728,11 @@ export async function pgProtocolBuilderV2(setTopbar, navigate, opts = {}) {
           contraindications: custom.contraindications,
           sideEffects: custom.sideEffects,
           tags: custom.tags,
+          // Category 4 PR-4: structured neuroimaging refs alongside the
+          // free-text evidence_refs (each carries decision_support_disclaimer).
+          evidence_refs_neuroimaging: Array.isArray(custom.neuroimagingRefs)
+            ? custom.neuroimagingRefs
+            : [],
         },
         evidence_refs: custom.references || [],
         governance_state: governanceState,

@@ -907,6 +907,9 @@ def _gate_patient_access_neuro(
     require_patient_owner(actor, clinic_id)
 
 
+# core-schema-exempt: PR-4 router-local patient-linked search request body;
+# mirrors the PR-3 NeuroimagingSearchRequest plus a required patient_id.
+# Promote alongside PR-3's catalog DTOs in the post-Category-4 consolidation.
 class _PatientNeuroSearchRequest(BaseModel):
     """Patient-linked neuroimaging knowledge search body.
 

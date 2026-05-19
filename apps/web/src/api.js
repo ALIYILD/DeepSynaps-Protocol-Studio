@@ -7439,6 +7439,25 @@ export const api = {
 
   // ── All new page API methods defined above (lines 7207-7282) ──────────────
 
+  // ── Category 4 PR-4: Neuroimaging knowledge federation ──────────────────
+  // Anonymous catalog search delegates to PR-3 federation under
+  // /api/v1/neuroimaging/search. Patient-linked search calls the PR-4
+  // endpoint /api/v1/neuroimaging/search-for-patient, which enforces role
+  // gate + cross-clinic ownership + ai_analysis consent BEFORE federating.
+  //
+  // The patient_id is supplied via the body (not the URL) so it never
+  // appears in browser history / referrer / GET logs.
+  neuroimagingSearch: (body) =>
+    apiFetch('/api/v1/neuroimaging/search', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  neuroimagingSearchForPatient: (patientId, body) =>
+    apiFetch('/api/v1/neuroimaging/search-for-patient', {
+      method: 'POST',
+      body: JSON.stringify({ ...(body || {}), patient_id: patientId }),
+    }),
+
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).
