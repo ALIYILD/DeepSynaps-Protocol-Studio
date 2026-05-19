@@ -527,3 +527,296 @@ def test_every_catalogued_adapter_passes_isinstance_check_on_empty_config():
         "may have lost its inheritance or be defined under a parallel "
         "DatabaseAdapter ABC."
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 — fine-grained AdapterStage state machine
+# ---------------------------------------------------------------------------
+#
+# Validates the deterministic lifecycle progression introduced for the
+# "strict adapter runtime integrity framework" phase. The fine-grained
+# AdapterStage vocabulary drives the bootstrap pipeline and the
+# per-adapter ledger; the existing 7-value LifecycleState stays as the
+# public HTTP contract (backward compatible).
+
+
+def test_adapter_stage_vocabulary_is_complete():
+    """All 15 fine-grained stages must remain stable. Adding a new stage
+    is fine; renaming or removing one would silently break dashboards."""
+    from app.services.knowledge.lifecycle import AdapterStage
+
+    expected = {
+        # Progression
+        "declared", "imported", "instantiated", "validated",
+        "metadata_resolved", "registered", "healthy",
+        # Failure (terminal)
+        "failed_import", "failed_init", "failed_validation",
+        "failed_metadata", "failed_healthcheck",
+        # Operator-driven
+        "disabled", "degraded", "unknown",
+    }
+    assert {s.value for s in AdapterStage} == expected
+
+
+def test_every_stage_maps_to_a_public_state():
+    """The fine-grained-to-coarse mapping must cover every AdapterStage —
+    otherwise an internal stage would silently degrade in the public
+    /health payload."""
+    from app.services.knowledge.lifecycle import (
+        AdapterStage,
+        LifecycleState,
+        stage_to_public_state,
+    )
+
+    for stage in AdapterStage:
+        public = stage_to_public_state(stage)
+        assert isinstance(public, LifecycleState), (
+            f"stage_to_public_state({stage!r}) returned non-LifecycleState"
+        )
+
+
+def test_progression_stages_do_not_map_to_failure_public_states():
+    """A progression stage (DECLARED → ... → HEALTHY) must never map to
+    UNAVAILABLE or DEGRADED."""
+    from app.services.knowledge.lifecycle import (
+        AdapterStage,
+        LifecycleState,
+        stage_to_public_state,
+    )
+
+    bad_public = {LifecycleState.UNAVAILABLE, LifecycleState.DEGRADED}
+    for stage in (
+        AdapterStage.DECLARED,
+        AdapterStage.IMPORTED,
+        AdapterStage.INSTANTIATED,
+        AdapterStage.VALIDATED,
+        AdapterStage.METADATA_RESOLVED,
+        AdapterStage.REGISTERED,
+        AdapterStage.HEALTHY,
+    ):
+        assert stage_to_public_state(stage) not in bad_public
+
+
+def test_failure_stages_all_map_to_unavailable():
+    """Every FAILED_* stage must map to UNAVAILABLE — the public
+    vocabulary that triggers ops alerts."""
+    from app.services.knowledge.lifecycle import (
+        FAILURE_STAGES,
+        LifecycleState,
+        stage_to_public_state,
+    )
+
+    for stage in FAILURE_STAGES:
+        assert stage_to_public_state(stage) == LifecycleState.UNAVAILABLE
+
+
+def test_ledger_records_have_immutable_dataclass_shape():
+    """Each ledger record is a frozen dataclass."""
+    from app.services.knowledge.lifecycle import (
+        AdapterLifecycleRecord,
+        AdapterStage,
+        get_ledger,
+        record_stage,
+    )
+
+    ledger = get_ledger()
+    ledger.reset()
+    rec = record_stage("x", AdapterStage.DECLARED)
+    assert isinstance(rec, AdapterLifecycleRecord)
+    assert rec.key == "x"
+    assert rec.stage == AdapterStage.DECLARED
+    assert rec.entered_at is not None
+    assert rec.error_message is None
+    assert rec.traceback_snapshot is None
+
+    import dataclasses
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        rec.stage = AdapterStage.IMPORTED  # type: ignore[misc]
+
+
+def test_failure_record_captures_error_and_traceback():
+    """When a FAILED_* stage transition carries an exception, both
+    error_message and traceback_snapshot are populated so forensics
+    work without re-running the failure."""
+    from app.services.knowledge.lifecycle import (
+        AdapterStage,
+        get_ledger,
+        record_stage,
+    )
+
+    ledger = get_ledger()
+    ledger.reset()
+    try:
+        raise RuntimeError("simulated boot failure")
+    except RuntimeError as exc:
+        rec = record_stage("x", AdapterStage.FAILED_INIT, error=exc)
+    assert rec.error_message is not None
+    assert "RuntimeError" in rec.error_message
+    assert "simulated boot failure" in rec.error_message
+    assert rec.traceback_snapshot is not None
+    assert "raise RuntimeError" in rec.traceback_snapshot
+
+
+def test_ledger_for_key_returns_chronological_records():
+    from app.services.knowledge.lifecycle import (
+        AdapterStage,
+        get_ledger,
+        record_stage,
+    )
+
+    ledger = get_ledger()
+    ledger.reset()
+    record_stage("a", AdapterStage.DECLARED)
+    record_stage("b", AdapterStage.DECLARED)
+    record_stage(
+        "a", AdapterStage.IMPORTED, previous_stage=AdapterStage.DECLARED
+    )
+    a_records = ledger.for_key("a")
+    assert [r.stage for r in a_records] == [
+        AdapterStage.DECLARED,
+        AdapterStage.IMPORTED,
+    ]
+    assert [r.stage for r in ledger.for_key("b")] == [AdapterStage.DECLARED]
+
+
+def test_ledger_latest_stage_returns_most_recent():
+    from app.services.knowledge.lifecycle import (
+        AdapterStage,
+        get_ledger,
+        record_stage,
+    )
+
+    ledger = get_ledger()
+    ledger.reset()
+    record_stage("a", AdapterStage.DECLARED)
+    record_stage(
+        "a", AdapterStage.IMPORTED, previous_stage=AdapterStage.DECLARED
+    )
+    record_stage(
+        "a",
+        AdapterStage.FAILED_INIT,
+        previous_stage=AdapterStage.IMPORTED,
+        error=ValueError("bad config"),
+    )
+    assert ledger.latest_stage_for_key("a") == AdapterStage.FAILED_INIT
+
+
+def test_ledger_unknown_key_returns_none():
+    from app.services.knowledge.lifecycle import get_ledger
+
+    ledger = get_ledger()
+    ledger.reset()
+    assert ledger.latest_stage_for_key("does-not-exist") is None
+    assert ledger.for_key("does-not-exist") == []
+
+
+def test_ledger_reset_drops_all_records():
+    from app.services.knowledge.lifecycle import (
+        AdapterStage,
+        get_ledger,
+        record_stage,
+    )
+
+    ledger = get_ledger()
+    ledger.reset()
+    record_stage("a", AdapterStage.DECLARED)
+    record_stage("b", AdapterStage.DECLARED)
+    assert len(ledger.all_records()) == 2
+    ledger.reset()
+    assert ledger.all_records() == []
+
+
+def test_bootstrap_emits_declared_stage_for_every_catalog_key():
+    """build_production_registry must emit DECLARED for every catalogued
+    key, regardless of subsequent success or failure. Without this,
+    operators cannot tell which keys the bootstrap actually saw."""
+    from app.services.knowledge.adapter_bootstrap import (
+        build_production_registry,
+        list_production_adapter_keys,
+    )
+    from app.services.knowledge.lifecycle import AdapterStage, get_ledger
+
+    build_production_registry()
+    ledger = get_ledger()
+    for key in list_production_adapter_keys():
+        records = ledger.for_key(key)
+        assert any(r.stage == AdapterStage.DECLARED for r in records), (
+            f"adapter {key!r} did not emit DECLARED at bootstrap"
+        )
+
+
+def test_bootstrap_records_failure_provenance_with_traceback():
+    """Phase 1 central invariant: any adapter that fails at any stage
+    of build_production_registry MUST land in a FAILED_* stage with
+    error_message AND traceback_snapshot populated. No silent failures."""
+    from app.services.knowledge.adapter_bootstrap import (
+        build_production_registry,
+        list_production_adapter_keys,
+    )
+    from app.services.knowledge.lifecycle import (
+        FAILURE_STAGES,
+        get_ledger,
+    )
+
+    build_production_registry()
+    ledger = get_ledger()
+    for key in list_production_adapter_keys():
+        latest = ledger.latest_for_key(key)
+        if latest is None or latest.stage not in FAILURE_STAGES:
+            continue
+        assert latest.error_message is not None, (
+            f"adapter {key!r} terminal stage {latest.stage.value} has "
+            f"no error_message — Phase 1 invariant violated"
+        )
+        assert latest.traceback_snapshot is not None, (
+            f"adapter {key!r} terminal stage {latest.stage.value} has "
+            f"no traceback_snapshot — Phase 1 invariant violated"
+        )
+
+
+def test_compute_registry_lifecycle_prefers_ledger_failure_over_catalog():
+    """An adapter that recorded a terminal failure stage shows up as
+    UNAVAILABLE on /health, not silently as CATALOGUED. This is the
+    "ghost adapter" bug Phase 1 is designed to fix."""
+    from app.services.knowledge.lifecycle import (
+        AdapterStage,
+        LifecycleState,
+        compute_registry_lifecycle,
+        get_ledger,
+        record_stage,
+    )
+
+    class _EmptyRegistry:
+        def list_adapters(self):
+            return []
+
+        def get_all_cached_health(self):
+            return {}
+
+    ledger = get_ledger()
+    ledger.reset()
+    record_stage("ghost", AdapterStage.FAILED_INIT, error=RuntimeError("nope"))
+
+    states = compute_registry_lifecycle(
+        _EmptyRegistry(), catalog_keys=["ghost", "healthy_one"]
+    )
+    assert states["ghost"] == LifecycleState.UNAVAILABLE
+    # Adapter with no ledger entry AND not in registry stays CATALOGUED.
+    assert states["healthy_one"] == LifecycleState.CATALOGUED
+
+
+def test_public_lifecycle_state_vocabulary_unchanged():
+    """Backward-compat guard: LifecycleState still contains exactly the
+    7 values that /health and the live router contract on."""
+    from app.services.knowledge.lifecycle import LifecycleState
+
+    assert {s.value for s in LifecycleState} == {
+        "catalogued",
+        "registered",
+        "healthy",
+        "degraded",
+        "disabled",
+        "unavailable",
+        "unknown",
+    }
