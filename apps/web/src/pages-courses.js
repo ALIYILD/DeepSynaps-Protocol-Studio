@@ -1406,6 +1406,63 @@ export async function pgCourseDetail(setTopbar, navigate) {
   };
   window._cdCloseSafetyModal = _cdCloseSafetyModal;
 
+  // ── Off-label acknowledgement capture (must-have #5 frontend wiring) ──────
+  //
+  // The backend off-label gate (PR #1093) refuses to activate a course whose
+  // `on_label is False` until a signed `ConsentRecord(consent_type=
+  // 'off_label_acknowledgement')` exists for the patient × clinician. This
+  // helper catches the 403 from `api.activateCourse`, prompts the clinician,
+  // records the acknowledgement via `api.createConsent`, and retries the
+  // original activate call.
+  //
+  // The retry is parameterless: callers pass a closure that re-runs whichever
+  // `activateCourse` variant (clear path vs. safety-override) was in flight.
+  const _cdHandleOffLabelGate = async (courseId, retryActivate) => {
+    let course;
+    try {
+      course = await api.getCourse(courseId);
+    } catch (e) {
+      _cdFlash(e?.message || 'Could not load course for off-label acknowledgement.', 'error');
+      return;
+    }
+    const patientId = course?.patient_id;
+    const modalitySlug = course?.modality_slug || 'unknown';
+    if (!patientId) {
+      _cdFlash('Course is missing patient_id — cannot record off-label acknowledgement.', 'error');
+      return;
+    }
+    const confirmed = confirm(
+      'Off-label acknowledgement required\n\n' +
+      'Per DeepSynaps safety policy, this protocol is off-label. ' +
+      'Recording your acknowledgement creates a signed ConsentRecord ' +
+      '(consent_type=off_label_acknowledgement) that the activation gate reads.\n\n' +
+      'Confirm that off-label documentation and informed patient acknowledgement ' +
+      'are complete before continuing.'
+    );
+    if (!confirmed) {
+      _cdFlash('Activation cancelled — off-label acknowledgement not recorded.', 'error');
+      return;
+    }
+    try {
+      await api.createConsent({
+        patient_id: patientId,
+        consent_type: 'off_label_acknowledgement',
+        modality_slug: modalitySlug,
+        signed: true,
+      });
+    } catch (e) {
+      _cdFlash(e?.message || 'Failed to record off-label acknowledgement.', 'error');
+      return;
+    }
+    try {
+      await retryActivate();
+    } catch (e) {
+      // If the retry still 403s, the backend may have a different blocker;
+      // surface the message verbatim rather than silently retrying again.
+      _cdFlash(e?.message || 'Activation failed after recording acknowledgement.', 'error');
+    }
+  };
+
   window._activateCourseDetail = async function(courseId) {
     // Step 1 — preflight the patient's medical-history safety flags.
     let pre = null;
@@ -1418,11 +1475,20 @@ export async function pgCourseDetail(setTopbar, navigate) {
     // Step 2 — clear path: simple confirm then activate.
     if (!pre?.override_required) {
       if (!confirm('Approve and activate this course?\n\nThis will mark the course active and allow session logging.')) return;
+      const doActivate = () => api.activateCourse(courseId, { override_safety: false });
       try {
-        await api.activateCourse(courseId, { override_safety: false });
+        await doActivate();
         _cdFlash('Course activated.', 'info');
         window._nav('course-detail');
       } catch (e) {
+        if (e?.code === 'off_label_consent_missing') {
+          await _cdHandleOffLabelGate(courseId, async () => {
+            await doActivate();
+            _cdFlash('Course activated after off-label acknowledgement.', 'info');
+            window._nav('course-detail');
+          });
+          return;
+        }
         _cdFlash(e?.message || 'Activation failed.', 'error');
       }
       return;
@@ -1489,12 +1555,22 @@ export async function pgCourseDetail(setTopbar, navigate) {
     }
     const btn = document.getElementById('cd-sm-confirm');
     if (btn) { btn.disabled = true; btn.textContent = 'Activating…'; }
+    const doActivate = () => api.activateCourse(courseId, { override_safety: true, override_reason: reason });
     try {
-      await api.activateCourse(courseId, { override_safety: true, override_reason: reason });
+      await doActivate();
       _cdCloseSafetyModal();
       _cdFlash('Course activated with safety override. Audit event logged.', 'info');
       window._nav('course-detail');
     } catch (e) {
+      if (e?.code === 'off_label_consent_missing') {
+        _cdCloseSafetyModal();
+        await _cdHandleOffLabelGate(courseId, async () => {
+          await doActivate();
+          _cdFlash('Course activated with safety override after off-label acknowledgement. Audit event logged.', 'info');
+          window._nav('course-detail');
+        });
+        return;
+      }
       _cdFlash(e?.message || 'Activation failed.', 'error');
       if (btn) { btn.disabled = false; btn.textContent = 'Override & Activate'; }
     }
