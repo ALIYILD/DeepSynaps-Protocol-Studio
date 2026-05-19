@@ -21,9 +21,11 @@ from app.auth import (
     AuthenticatedActor,
     get_authenticated_actor,
     require_minimum_role,
+    require_patient_owner,
     UserRole,
 )
 from app.database import get_db_session
+from app.repositories.patients import resolve_patient_clinic_id
 
 from app.services.complementary_service import (
     get_complementary_patients,
@@ -74,6 +76,13 @@ async def CLINICIAN_OR_ADMIN(actor: AuthenticatedActor = Depends(get_authenticat
     if actor.role not in allowed:
         raise HTTPException(status_code=403, detail="Insufficient role for complementary therapy access")
     return actor
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
+    """Resolve patient's clinic; raise on cross-clinic or role mismatch."""
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 
 # ---------------------------------------------------------------------------
 # Pydantic Models
@@ -235,6 +244,7 @@ def get_complementary_patient_profile(
     db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
+    _gate_patient_access(user, patient_id, db)
     profile = get_patient_profile(db, patient_id)
     logger.info("AUDIT: action=%s user_id=%s detail=%s", "complementary_patient_profile_view", getattr(user, 'id', None), "Viewed complementary profile for patient {patient_id}")
     return profile
@@ -273,6 +283,7 @@ def get_patient_acupuncture_history(
     db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
+    _gate_patient_access(user, patient_id, db)
     history = get_acupuncture_history(db, patient_id, limit=limit)
     return {
         "patient_id": patient_id,
@@ -315,6 +326,7 @@ def get_patient_neurofeedback_history(
     db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
+    _gate_patient_access(user, patient_id, db)
     history = get_neurofeedback_history(db, patient_id, limit=limit)
     return {
         "patient_id": patient_id,
@@ -357,6 +369,7 @@ def get_patient_ces_history(
     db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
+    _gate_patient_access(user, patient_id, db)
     history = get_ces_history(db, patient_id, limit=limit)
     return {
         "patient_id": patient_id,
@@ -399,6 +412,7 @@ def get_patient_pbm_history(
     db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
+    _gate_patient_access(user, patient_id, db)
     history = get_pbm_history(db, patient_id, limit=limit)
     return {
         "patient_id": patient_id,
@@ -441,6 +455,7 @@ def get_patient_mindbody_history(
     db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
+    _gate_patient_access(user, patient_id, db)
     history = get_mindbody_history(db, patient_id, limit=limit)
     return {
         "patient_id": patient_id,
@@ -483,6 +498,7 @@ def get_patient_massage_history(
     db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
+    _gate_patient_access(user, patient_id, db)
     history = get_massage_history(db, patient_id, limit=limit)
     return {
         "patient_id": patient_id,
@@ -525,6 +541,7 @@ def get_patient_music_art_history(
     db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
+    _gate_patient_access(user, patient_id, db)
     history = get_music_art_history(db, patient_id, limit=limit)
     return {
         "patient_id": patient_id,
@@ -635,6 +652,7 @@ def get_patient_protocols(
     db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
+    _gate_patient_access(user, patient_id, db)
     protocols = get_protocols_for_patient(db, patient_id)
     return {
         "patient_id": patient_id,
@@ -653,6 +671,7 @@ def get_patient_active_protocols(
     db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
+    _gate_patient_access(user, patient_id, db)
     protocols = get_protocols_for_patient(db, patient_id)
     active = [p for p in protocols if p.get("status") == "active"]
     return {
@@ -824,6 +843,7 @@ def get_patient_progress(
     db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
+    _gate_patient_access(user, patient_id, db)
     summary = get_progress_summary(db, patient_id)
     logger.info("AUDIT: action=%s user_id=%s detail=%s", "progress_summary_view", getattr(user, 'id', None), "Viewed progress summary for patient {patient_id}")
     return summary
@@ -863,6 +883,7 @@ def deactivate_patient_therapy(
     db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
+    _gate_patient_access(user, patient_id, db)
     result = deactivate_therapy(db, patient_id, therapy_type)
     if not result.get("success"):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=result.get("error"))
@@ -944,6 +965,7 @@ def get_acupuncture_history_alias(
     db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
+    _gate_patient_access(user, patient_id, db)
     return get_patient_acupuncture_history(patient_id, db=db, user=user)
 
 
@@ -953,4 +975,5 @@ def get_neurofeedback_history_alias(
     db: Session = Depends(get_db_session),
     user: Any = Depends(CLINICIAN_OR_ADMIN),
 ):
+    _gate_patient_access(user, patient_id, db)
     return get_patient_neurofeedback_history(patient_id, db=db, user=user)
