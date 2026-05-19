@@ -41,6 +41,7 @@ from .pynwb_io import write_minimal_nwb, read_nwb_summary
 from .neurokit_physio import HAS_NEUROKIT, process_ecg, process_eda, process_rsp
 from .nilearn_io import mask_nifti, extract_atlas_timeseries, compute_connectome
 from .dipy_dwi import load_dwi, fit_dti
+from .braindecode_models import build_eegnet, forward_pass, HAS_BRAINDECODE, HAS_TORCH
 from .schemas import (
     NiftiSummary,
     LayoutSummary,
