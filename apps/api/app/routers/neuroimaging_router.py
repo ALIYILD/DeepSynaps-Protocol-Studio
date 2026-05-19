@@ -885,3 +885,66 @@ async def brainspace_gradients(
         )
 
     return compute_gradients(matrix, n_components=body.n_components)
+# ============================================================================
+# Phase 4 — Real-time acquisition (BrainFlow read-only) + NeuroSimo stub
+# ============================================================================
+from app.services.neuroimaging.brainflow_acquisition import (
+    HAS_BRAINFLOW,
+    list_supported_boards as _brainflow_list_boards,
+    board_session_meta as _brainflow_session_meta,
+)
+
+
+class _BrainflowSessionMetaRequest(BaseModel):
+    board_id: int
+
+
+@router.get("/realtime/brainflow/boards")
+def get_brainflow_boards(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+):
+    """List BrainFlow-supported board IDs. Read-only; no hardware probe."""
+    require_minimum_role(actor, "clinician")
+    if not HAS_BRAINFLOW:
+        raise ApiServiceError(
+            status_code=503,
+            code="neuroimaging_library_unavailable",
+            message="brainflow is not installed",
+        )
+    return _brainflow_list_boards()
+
+
+@router.post("/realtime/brainflow/session-meta")
+def post_brainflow_session_meta(
+    body: _BrainflowSessionMetaRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+):
+    """Return board metadata (sampling rate, EEG channel count). No hardware open."""
+    require_minimum_role(actor, "clinician")
+    if not HAS_BRAINFLOW:
+        raise ApiServiceError(
+            status_code=503,
+            code="neuroimaging_library_unavailable",
+            message="brainflow is not installed",
+        )
+    try:
+        return _brainflow_session_meta(body.board_id)
+    except Exception as exc:  # brainflow raises BrainFlowError on bad board_id
+        raise ApiServiceError(
+            status_code=422,
+            code="invalid_board_id",
+            message=f"BrainFlow rejected board_id={body.board_id}: {exc}",
+        )
+
+
+@router.get("/realtime/neurosimo/health")
+def get_neurosimo_health(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+):
+    """NeuroSimo is documented as a future ROS2 side-car. Always 503."""
+    require_minimum_role(actor, "clinician")
+    raise ApiServiceError(
+        status_code=503,
+        code="neurosimo_service_not_available",
+        message="NeuroSimo side-car not deployed. Closed-loop EEG-TMS lives in a separate ROS2 container.",
+    )

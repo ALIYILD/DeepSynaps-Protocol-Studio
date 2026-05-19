@@ -73,6 +73,8 @@ class NeuroimagingHealth(BaseModel):
     # NOT installed in the main API image. This flag remains False until the
     # side-car is stood up and the API integration switches it on.
     freesurfer: bool = False
+    brainflow: bool = False
+    neurosimo: bool = False
     versions: dict[str, str | None] = {}
 
 
