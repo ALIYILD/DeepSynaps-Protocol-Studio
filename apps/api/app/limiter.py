@@ -38,8 +38,47 @@ from __future__ import annotations
 
 import logging
 
-from slowapi import Limiter
-from slowapi.util import get_remote_address
+try:
+    from slowapi import Limiter
+    from slowapi.util import get_remote_address
+
+    _HAS_SLOWAPI = True
+except ImportError:  # pragma: no cover - exercised in degraded local envs
+    Limiter = None  # type: ignore[assignment]
+    _HAS_SLOWAPI = False
+
+    def get_remote_address(_: object) -> str:
+        return "0.0.0.0"
+
+    class _NoopLimiter:
+        """Fallback limiter that preserves decorator/import contracts only."""
+
+        def __init__(
+            self,
+            *,
+            key_func: object | None = None,
+            default_limits: list[str] | None = None,
+            storage_uri: str | None = None,
+        ) -> None:
+            self.key_func = key_func
+            self.default_limits = default_limits or []
+            self._storage_uri = storage_uri
+            self._storage = None
+
+        def limit(self, *_args: object, **_kwargs: object):
+            def decorator(func):
+                return func
+
+            return decorator
+
+        def shared_limit(self, *_args: object, **_kwargs: object):
+            def decorator(func):
+                return func
+
+            return decorator
+
+        def exempt(self, func):
+            return func
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +98,16 @@ def _redact_uri(uri: str) -> str:
 
 def _build_limiter() -> Limiter:
     """Construct the shared Limiter, picking Redis storage when configured."""
+    if not _HAS_SLOWAPI:
+        logger.warning(
+            "slowapi is not installed — rate limiting is disabled and routes "
+            "using @limiter.limit will run without enforcement."
+        )
+        return _NoopLimiter(  # type: ignore[return-value]
+            key_func=get_remote_address,
+            default_limits=["200/minute"],
+        )
+
     # Lazy-import settings so importing this module never triggers full
     # settings validation in test contexts that pre-load the limiter.
     try:

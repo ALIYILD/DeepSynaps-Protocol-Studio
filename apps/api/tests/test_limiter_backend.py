@@ -10,7 +10,11 @@ These tests pin the env-var-driven backend selection in
 """
 from __future__ import annotations
 
+import importlib
 import logging
+import sys
+
+import pytest
 
 
 
@@ -33,6 +37,8 @@ def _rebuild(monkeypatch, *, redis_uri: str = "", app_env: str = "test"):
 
 def test_limiter_uses_in_memory_when_redis_uri_unset(monkeypatch) -> None:
     mod = _rebuild(monkeypatch, redis_uri="", app_env="test")
+    if not mod._HAS_SLOWAPI:
+        pytest.skip("slowapi not installed in this environment")
     # In-memory storage from the limits package — class name is "MemoryStorage".
     storage = mod.limiter._storage
     assert "Memory" in type(storage).__name__, type(storage).__name__
@@ -40,14 +46,18 @@ def test_limiter_uses_in_memory_when_redis_uri_unset(monkeypatch) -> None:
 
 def test_limiter_warns_on_in_memory_in_production(monkeypatch, caplog) -> None:
     caplog.set_level(logging.WARNING, logger="app.limiter")
-    _rebuild(monkeypatch, redis_uri="", app_env="production")
+    mod = _rebuild(monkeypatch, redis_uri="", app_env="production")
+    if not mod._HAS_SLOWAPI:
+        pytest.skip("slowapi not installed in this environment")
     msgs = [r.getMessage() for r in caplog.records]
     assert any("in-memory storage in app_env=production" in m for m in msgs), msgs
 
 
 def test_limiter_silent_in_dev_when_in_memory(monkeypatch, caplog) -> None:
     caplog.set_level(logging.WARNING, logger="app.limiter")
-    _rebuild(monkeypatch, redis_uri="", app_env="development")
+    mod = _rebuild(monkeypatch, redis_uri="", app_env="development")
+    if not mod._HAS_SLOWAPI:
+        pytest.skip("slowapi not installed in this environment")
     msgs = [r.getMessage() for r in caplog.records]
     assert not any("in-memory storage" in m for m in msgs), msgs
 
@@ -72,6 +82,8 @@ def test_limiter_picks_redis_backend_when_uri_set(monkeypatch, caplog) -> None:
     caplog.set_level(logging.INFO, logger="app.limiter")
     fake_uri = "redis://default:s3cret@127.0.0.1:6379/0"
     mod = _rebuild(monkeypatch, redis_uri=fake_uri, app_env="staging")
+    if not mod._HAS_SLOWAPI:
+        pytest.skip("slowapi not installed in this environment")
 
     # SlowAPI exposes the storage URI as a private attribute; we assert on
     # it directly because hitting Redis would require a live instance.
@@ -81,3 +93,24 @@ def test_limiter_picks_redis_backend_when_uri_set(monkeypatch, caplog) -> None:
     msgs = [r.getMessage() for r in caplog.records]
     assert any("shared Redis backend" in m and "***" in m for m in msgs), msgs
     assert "s3cret" not in " ".join(msgs)
+
+
+def test_limiter_degrades_cleanly_when_slowapi_missing(monkeypatch, caplog) -> None:
+    caplog.set_level(logging.WARNING, logger="app.limiter")
+    import app.limiter as limiter_mod
+
+    with monkeypatch.context() as m:
+        m.setitem(sys.modules, "slowapi", None)
+        m.setitem(sys.modules, "slowapi.util", None)
+        degraded = importlib.reload(limiter_mod)
+
+        @degraded.limiter.limit("5/minute")
+        def _handler() -> str:
+            return "ok"
+
+        assert _handler() == "ok"
+        assert degraded.limiter._storage is None
+
+    importlib.reload(limiter_mod)
+    msgs = [r.getMessage() for r in caplog.records]
+    assert any("rate limiting is disabled" in m for m in msgs), msgs
