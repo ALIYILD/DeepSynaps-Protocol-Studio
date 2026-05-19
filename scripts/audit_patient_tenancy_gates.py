@@ -88,6 +88,11 @@ GATE_CALL_NAMES: Set[str] = {
     "_resolve_patient_for_actor_hpt",
     "_resolve_patient_for_actor_pm",
     "_resolve_patient_for_patient_actor",
+    # Clinician-ownership gate in patients_router. Resolves the Patient row
+    # only if the actor is the assigned clinician (or admin); raises 404 on
+    # cross-ownership. Stricter than require_patient_owner (single clinician
+    # vs. whole clinic) but the cross-clinic-leak guarantee is the same.
+    "_get_patient_for_actor",       # patients_router
 }
 
 HTTP_METHOD_DECORATORS: Set[str] = {
@@ -330,13 +335,14 @@ def emit_markdown(handlers: List[RouteHandler]) -> str:
         "primitives — `require_patient_owner`, `_gate_patient_access`, "
         "`_gate_patient`, `_check_patient_access`, "
         "`_check_patient_clinic_access`, `_enforce_patient_scope`, "
-        "`resolve_analytics_patient_id`, or one of the "
-        "`_resolve_patient_for_actor*` helpers — OR a parameter uses "
-        "`Depends(...)` on one of those callables. The canonical primitive "
-        "is `app.auth.require_patient_owner`; the remaining names are "
-        "domain-specific shims that have been verified to delegate to it, "
-        "either directly or via a stricter self-only contract that has "
-        "the same cross-clinic safety guarantees."
+        "`_get_patient_for_actor`, `resolve_analytics_patient_id`, or one "
+        "of the `_resolve_patient_for_actor*` helpers — OR a parameter "
+        "uses `Depends(...)` on one of those callables. The canonical "
+        "primitive is `app.auth.require_patient_owner`; the remaining "
+        "names are domain-specific shims that have been verified to "
+        "delegate to it, either directly or via a stricter self-only or "
+        "clinician-ownership contract that has the same cross-clinic "
+        "safety guarantees."
     )
     out.append("")
     out.append("## Headline numbers\n")

@@ -42,7 +42,7 @@ permissions:
 env:
   # Ratchet floor. Lower this number — and update the static audit doc —
   # in any PR that remediates an ungated patient-scoped route. Never raise.
-  TENANCY_GATE_MAX_UNGATED: "79"
+  TENANCY_GATE_MAX_UNGATED: "71"
 
 jobs:
   scan:

@@ -1658,6 +1658,13 @@ def get_medical_history_ai_context(
     AI summarization or report generation so they know exactly what the
     model sees.
     """
+    # Router-layer tenancy gate. The service-layer
+    # ``build_patient_medical_context`` already enforces clinic-scoped
+    # access via the repository's ``get_patient(..., clinic_id=...)``
+    # filter, but the explicit router-layer gate matches the rest of
+    # patients_router and keeps the scanner's audit honest.
+    _gate_patient_access(actor, patient_id, session)
+
     from app.services.patient_context import build_patient_medical_context
     ctx = build_patient_medical_context(session, actor, patient_id)
     return MedicalHistoryAIContextResponse(patient_id=patient_id, **ctx)
