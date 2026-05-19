@@ -106,6 +106,7 @@ from app.routers.protocols_saved_router import router as protocols_saved_router
 from app.routers.protocols_generate_router import router as protocols_generate_router
 from app.routers.protocol_studio_router import router as protocol_studio_router
 from app.routers.brainmap_router import router as brainmap_router
+from app.routers.neuromodulation_router import router as neuromodulation_router
 from app.routers.neuro_signs import router as neuro_signs_router
 from app.routers.leads_reception_router import router as leads_reception_router
 from app.routers.onboarding_router import router as onboarding_router
@@ -186,6 +187,7 @@ from app.routers.reviewer_sla_calibration_threshold_tuning_router import (
     router as reviewer_sla_calibration_threshold_tuning_router,
 )
 from app.routers.digital_phenotyping_router import router as digital_phenotyping_router
+from app.routers.electrophysiology_router import router as electrophysiology_router
 from app.routers.labs_analyzer_router import router as labs_analyzer_router
 from app.routers.genetic_analyzer_router import router as genetic_analyzer_router
 from app.routers.genetics_router import router as genetics_router
@@ -532,6 +534,7 @@ app.include_router(forms_router)
 app.include_router(medications_router)
 app.include_router(genetic_analyzer_router)
 app.include_router(genetics_router)
+app.include_router(electrophysiology_router)
 app.include_router(medication_analyzer_router)
 app.include_router(labs_analyzer_router)
 app.include_router(digital_phenotyping_router)
@@ -811,6 +814,7 @@ app.include_router(patient_portal_v2_router)
 app.include_router(handbook_v2_router)
 app.include_router(knowledge_router_v2)
 app.include_router(knowledge_adapters_live_router)
+app.include_router(neuromodulation_router)
 app.include_router(pharmaceutical_router)
 app.include_router(evidence_router)
 app.include_router(health_dashboard)
