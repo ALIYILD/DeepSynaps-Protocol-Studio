@@ -79,6 +79,10 @@ from app.repositories.treatment_courses import (
     record_protocol_approval,
     reset_protocol_approvals,
 )
+from app.services.consent_enforcement import (
+    ConsentMissingError,
+    require_off_label_acknowledgement,
+)
 from app.services.protocol_registry import build_course_structure_from_protocol, get_protocol_parameters
 from app.services.registries import get_protocol
 
@@ -612,6 +616,32 @@ def activate_course(
             ),
             status_code=403,
         )
+
+    # ── Off-label acknowledgement gate (must-have #5, PR #1089) ──────────────
+    # Per docs/safety_evidence_policy.md, all neuromodulation administered
+    # via DeepSynaps Studio is off-label except TPS (NEUROLITH®) for
+    # Alzheimer's and CES (Alpha-Stim®) for anxiety/depression/insomnia. A
+    # persisted ConsentRecord with consent_type='off_label_acknowledgement'
+    # is required before an off-label course can move from draft to active.
+    # The acknowledgement is keyed on (patient_id, clinician_id,
+    # consent_type) so re-using an unrelated patient's ack is not possible.
+    if course.on_label is False:
+        try:
+            require_off_label_acknowledgement(
+                db,
+                patient_id=course.patient_id,
+                actor=actor,
+                modality_slug=course.modality_slug or "unknown",
+            )
+        except ConsentMissingError as exc:
+            raise ApiServiceError(
+                code="off_label_consent_missing",
+                message=(
+                    "Off-label acknowledgement consent required before activating "
+                    "this course. " + str(exc)
+                ),
+                status_code=403,
+            )
 
     now = datetime.now(timezone.utc)
     course.status = "active"
