@@ -4014,6 +4014,19 @@ export const api = {
   electrophysiologySearch: (body) =>
     apiFetch('/api/v1/electrophysiology/search', { method: 'POST', body: JSON.stringify(body || {}) }),
 
+  // ── Category 4 Neuroimaging Reference Inventory ────────────────────────
+  // PR-2 frontend wiring; backend lands via PR #1053. Endpoints degrade
+  // gracefully when the router is not yet deployed (404 surfaced to the
+  // caller, which renders honest "registry unavailable" empty states).
+  neuroimagingListAdapters: () =>
+    apiFetch('/api/v1/neuroimaging/adapters'),
+  neuroimagingGetAdapter: (key) =>
+    apiFetch(`/api/v1/neuroimaging/adapters/${encodeURIComponent(key)}`),
+  neuroimagingGetLifecycle: () =>
+    apiFetch('/api/v1/neuroimaging/_lifecycle'),
+  neuroimagingSearch: (body) =>
+    apiFetch('/api/v1/neuroimaging/search', { method: 'POST', body: JSON.stringify(body || {}) }),
+
   // ── Bio Database ─────────────────────────────────────────────────────────
   listBioCatalog: (params = {}) => {
     const q = new URLSearchParams(
