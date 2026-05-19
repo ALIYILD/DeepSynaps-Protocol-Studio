@@ -41,4 +41,24 @@ class NeuroimagingHealth(BaseModel):
     nibabel: bool
     pybids: bool
     pynwb: bool
+    neurokit2: bool = False
     versions: dict[str, str | None] = {}
+
+
+class EcgFeatures(BaseModel):
+    mean_hr_bpm: float
+    hrv_sdnn_ms: float
+    rpeak_count: int
+    signal_length: int
+
+
+class EdaFeatures(BaseModel):
+    mean_tonic_microsiemens: float
+    scr_count: int
+    signal_length: int
+
+
+class RspFeatures(BaseModel):
+    mean_rate_bpm: float
+    rrv_sdbb_ms: float
+    signal_length: int
