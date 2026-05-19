@@ -464,3 +464,66 @@ def test_deferred_adapters_lifecycle_state_is_unknown(monkeypatch):
             f"Deferred source {key!r} appeared in lifecycle summary; expected "
             f"absent. Check that it has not been re-added to _ADAPTER_CATALOG."
         )
+
+
+# ---------------------------------------------------------------------------
+# ABC-inheritance invariant for catalogued adapters
+# ---------------------------------------------------------------------------
+#
+# Before 2026-05-19, FAERS and OnSIDES adapters were declared as plain
+# classes (no `(DatabaseAdapter)` inheritance) despite being in the
+# production catalog. AdapterRegistry.register() rejects non-DatabaseAdapter
+# instances, so both keys were silently dropped from every built registry
+# while still appearing in the catalog — they showed up CATALOGUED on
+# /health forever. The audit subagent that surfaced this on 2026-05-19
+# also flagged it as RED-critical because the failure was silent.
+#
+# This invariant prevents the regression returning.
+
+
+def test_every_catalogued_adapter_class_inherits_databaseadapter():
+    """Each class registered in _ADAPTER_CATALOG must be a DatabaseAdapter
+    subclass at the class level — separate from instantiation, so this
+    catches the bug even if `__init__` has pre-existing issues."""
+    from app.services.knowledge.base_adapter import DatabaseAdapter
+
+    catalog = adapter_bootstrap._ADAPTER_CATALOG
+    offenders: list = []
+    for key, (cls, _tier, _cfg) in catalog.items():
+        if not issubclass(cls, DatabaseAdapter):
+            offenders.append((key, cls.__module__ + "." + cls.__name__))
+    assert not offenders, (
+        "Catalogued adapter class(es) do not inherit DatabaseAdapter — "
+        f"registry will silently drop them: {offenders}. Add "
+        "`(DatabaseAdapter)` to the class declaration and ensure the "
+        "ABC is imported."
+    )
+
+
+def test_every_catalogued_adapter_passes_isinstance_check_on_empty_config():
+    """Every catalogued class, instantiated with empty config, must satisfy
+    isinstance(_, DatabaseAdapter) — the exact predicate AdapterRegistry
+    uses at register() time. Adapters whose __init__ raises on empty config
+    are skipped (separate from the inheritance question)."""
+    from app.services.knowledge.base_adapter import DatabaseAdapter
+
+    catalog = adapter_bootstrap._ADAPTER_CATALOG
+    failures: list = []
+    for key, (cls, _tier, _cfg) in catalog.items():
+        try:
+            instance = cls({})
+        except Exception:
+            # Constructor-raises-on-empty-config is tracked separately
+            # (Priority 6 audit). Inheritance is the lane this test guards.
+            continue
+        if not isinstance(instance, DatabaseAdapter):
+            failures.append(
+                f"{key} -> {cls.__module__}.{cls.__name__} "
+                f"(instance type {type(instance).__module__}.{type(instance).__name__})"
+            )
+    assert not failures, (
+        "Catalogued adapter instance(s) failed isinstance(DatabaseAdapter) "
+        f"despite being constructed successfully: {failures}. The class "
+        "may have lost its inheritance or be defined under a parallel "
+        "DatabaseAdapter ABC."
+    )
