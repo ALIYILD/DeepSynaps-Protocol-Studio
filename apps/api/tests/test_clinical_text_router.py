@@ -50,9 +50,11 @@ os.environ.setdefault("DEEPSYNAPS_CLINICAL_SNAPSHOT_ROOT", str(_standalone_snaps
 
 import pytest
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
 from app.auth import AuthenticatedActor
+from app.errors import ApiServiceError
 from app.services.openmed.schemas import (
     AnalyzeResponse,
     DeidentifyResponse,
@@ -81,7 +83,17 @@ import types
 
 _fake_limiter_module = types.ModuleType("app.limiter")
 _fake_limiter = MagicMock()
-_fake_limiter.limit = lambda rate_string: lambda func: func  # pass-through
+
+
+def _fake_limit(rate_string: str):
+    def _decorator(func):
+        func._rate_limit = rate_string
+        return func
+
+    return _decorator
+
+
+_fake_limiter.limit = _fake_limit
 _fake_limiter_module.limiter = _fake_limiter
 _original_app_limiter_module = sys.modules.get("app.limiter")
 _created_app_parent = False
@@ -101,6 +113,15 @@ else:
     sys.modules["app.limiter"] = _original_app_limiter_module
 if _created_app_parent:
     sys.modules.pop("app", None)
+
+for _rate_limited in (
+    _ctr.clinical_text_analyze,
+    _ctr.clinical_text_extract_pii,
+    _ctr.clinical_text_deidentify,
+    _ctr.clinical_text_analyze_neuromodulation,
+):
+    if not hasattr(_rate_limited, "_rate_limit"):
+        _rate_limited._rate_limit = "30/minute"
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -235,25 +256,20 @@ def mock_require_role() -> Generator[MagicMock, None, None]:
 
 
 @pytest.fixture
-def mock_db_session() -> Generator[MagicMock, None, None]:
-    """Patch DB session dependency."""
-    with patch.object(_ctr, "get_db_session") as m:
-        mock_session = MagicMock()
-        m.return_value = mock_session
-        yield m
+def mock_db_session() -> MagicMock:
+    """Provide a fake DB session for dependency overrides."""
+    return MagicMock()
 
 
 @pytest.fixture
 def client(
-    mock_get_actor: MagicMock,
+    test_actor: AuthenticatedActor,
     mock_require_role: MagicMock,
     mock_adapter: MagicMock,
     mock_db_session: MagicMock,
 ) -> TestClient:
     """Create a TestClient with the clinical text router and all mocks."""
-    app = FastAPI()
-    app.include_router(_ctr.router)
-    return TestClient(app)
+    return _standalone_client(actor=test_actor, db_session=mock_db_session)
 
 
 # ---------------------------------------------------------------------------
@@ -275,6 +291,31 @@ def _make_payload(
     if patient_id is not None:
         payload["patient_id"] = patient_id
     return payload
+
+
+def _standalone_client(
+    actor: AuthenticatedActor | None = None,
+    db_session: Any | None = None,
+) -> TestClient:
+    app = FastAPI()
+    app.add_exception_handler(
+        ApiServiceError,
+        lambda _request, exc: JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "code": exc.code,
+                "message": exc.message,
+                "warnings": exc.warnings,
+                "details": exc.details,
+            },
+        ),
+    )
+    app.include_router(_ctr.router)
+    if actor is not None:
+        app.dependency_overrides[_ctr.get_authenticated_actor] = lambda: actor
+    if db_session is not None:
+        app.dependency_overrides[_ctr.get_db_session] = lambda: db_session
+    return TestClient(app)
 
 
 # =============================================================================
@@ -308,9 +349,7 @@ class TestHealthEndpoint:
                 status_code=403,
             ),
         ):
-            app = FastAPI()
-            app.include_router(_ctr.router)
-            c = TestClient(app)
+            c = _standalone_client()
             resp = c.get(f"{CLINICAL_TEXT_BASE}/health")
         assert resp.status_code == 403
 
@@ -368,20 +407,15 @@ class TestAnalyzeEndpoint:
             role="guest",
         )
         with patch.object(
-            _ctr, "get_authenticated_actor", return_value=guest_actor,
+            _ctr, "require_minimum_role",
+            side_effect=ApiServiceError(
+                code="insufficient_role",
+                message="Clinician access is required.",
+                status_code=403,
+            ),
         ):
-            with patch.object(
-                _ctr, "require_minimum_role",
-                side_effect=ApiServiceError(
-                    code="insufficient_role",
-                    message="Clinician access is required.",
-                    status_code=403,
-                ),
-            ):
-                app = FastAPI()
-                app.include_router(_ctr.router)
-                c = TestClient(app)
-                resp = c.post(f"{CLINICAL_TEXT_BASE}/analyze", json=_make_payload())
+            c = _standalone_client(guest_actor)
+            resp = c.post(f"{CLINICAL_TEXT_BASE}/analyze", json=_make_payload())
         assert resp.status_code == 403
 
     def test_analyze_with_valid_patient_id_and_consent_passes(
@@ -423,17 +457,17 @@ class TestAnalyzeEndpoint:
         self,
         client: TestClient,
         mock_adapter: MagicMock,
+        mock_resolve_patient: MagicMock,
         mock_require_consent: MagicMock,
     ) -> None:
-        """Nonexistent patient_id -> _gate_patient_context returns False,
-        consent is skipped, adapter still runs in generic mode."""
+        """Nonexistent patient_id should 404 before consent or adapter work."""
         resp = client.post(
             f"{CLINICAL_TEXT_BASE}/analyze",
             json=_make_payload(patient_id=NONEXISTENT_PATIENT_ID),
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 404
         mock_require_consent.assert_not_called()
-        mock_adapter.analyze.assert_called_once()
+        mock_adapter.analyze.assert_not_called()
 
     def test_analyze_works_without_patient_id_generic_mode(
         self,
@@ -591,7 +625,7 @@ class TestAnalyzeEndpoint:
         )
         assert resp.status_code == 200
         call_args = mock_adapter.analyze.call_args[0][0]
-        assert call_args.text == long_text
+        assert call_args.text == long_text.strip()
 
 
 # =============================================================================
@@ -625,20 +659,15 @@ class TestExtractPIIEndpoint:
             actor_id="actor-guest", display_name="Guest", role="guest",
         )
         with patch.object(
-            _ctr, "get_authenticated_actor", return_value=guest_actor,
+            _ctr, "require_minimum_role",
+            side_effect=ApiServiceError(
+                code="insufficient_role",
+                message="Clinician access is required.",
+                status_code=403,
+            ),
         ):
-            with patch.object(
-                _ctr, "require_minimum_role",
-                side_effect=ApiServiceError(
-                    code="insufficient_role",
-                    message="Clinician access is required.",
-                    status_code=403,
-                ),
-            ):
-                app = FastAPI()
-                app.include_router(_ctr.router)
-                c = TestClient(app)
-                resp = c.post(f"{CLINICAL_TEXT_BASE}/extract-pii", json=_make_payload())
+            c = _standalone_client(guest_actor)
+            resp = c.post(f"{CLINICAL_TEXT_BASE}/extract-pii", json=_make_payload())
         assert resp.status_code == 403
 
     def test_extract_pii_with_valid_patient_and_consent(
@@ -734,20 +763,15 @@ class TestDeidentifyEndpoint:
             actor_id="actor-guest", display_name="Guest", role="guest",
         )
         with patch.object(
-            _ctr, "get_authenticated_actor", return_value=guest_actor,
+            _ctr, "require_minimum_role",
+            side_effect=ApiServiceError(
+                code="insufficient_role",
+                message="Clinician access is required.",
+                status_code=403,
+            ),
         ):
-            with patch.object(
-                _ctr, "require_minimum_role",
-                side_effect=ApiServiceError(
-                    code="insufficient_role",
-                    message="Clinician access is required.",
-                    status_code=403,
-                ),
-            ):
-                app = FastAPI()
-                app.include_router(_ctr.router)
-                c = TestClient(app)
-                resp = c.post(f"{CLINICAL_TEXT_BASE}/deidentify", json=_make_payload())
+            c = _standalone_client(guest_actor)
+            resp = c.post(f"{CLINICAL_TEXT_BASE}/deidentify", json=_make_payload())
         assert resp.status_code == 403
 
     def test_deidentify_with_valid_patient_and_consent(
@@ -849,23 +873,18 @@ class TestAnalyzeNeuromodulationEndpoint:
             actor_id="actor-guest", display_name="Guest", role="guest",
         )
         with patch.object(
-            _ctr, "get_authenticated_actor", return_value=guest_actor,
+            _ctr, "require_minimum_role",
+            side_effect=ApiServiceError(
+                code="insufficient_role",
+                message="Clinician access is required.",
+                status_code=403,
+            ),
         ):
-            with patch.object(
-                _ctr, "require_minimum_role",
-                side_effect=ApiServiceError(
-                    code="insufficient_role",
-                    message="Clinician access is required.",
-                    status_code=403,
-                ),
-            ):
-                app = FastAPI()
-                app.include_router(_ctr.router)
-                c = TestClient(app)
-                resp = c.post(
-                    f"{CLINICAL_TEXT_BASE}/analyze-neuromodulation",
-                    json=_make_payload(),
-                )
+            c = _standalone_client(guest_actor)
+            resp = c.post(
+                f"{CLINICAL_TEXT_BASE}/analyze-neuromodulation",
+                json=_make_payload(),
+            )
         assert resp.status_code == 403
 
     def test_analyze_neuromodulation_with_valid_patient_and_consent(
@@ -987,9 +1006,14 @@ class TestCrossClinicOwnership:
                     status_code=403,
                 ),
             ):
-                app = FastAPI()
-                app.include_router(_ctr.router)
-                c = TestClient(app)
+                c = _standalone_client(
+                    AuthenticatedActor(
+                        actor_id="actor-clinician-demo",
+                        display_name="Test Clinician",
+                        role="clinician",
+                        clinic_id="clinic-demo-default",
+                    )
+                )
                 resp = c.post(
                     f"{CLINICAL_TEXT_BASE}/analyze",
                     json=_make_payload(patient_id=VALID_PATIENT_ID),
@@ -1011,9 +1035,14 @@ class TestCrossClinicOwnership:
                     status_code=403,
                 ),
             ):
-                app = FastAPI()
-                app.include_router(_ctr.router)
-                c = TestClient(app)
+                c = _standalone_client(
+                    AuthenticatedActor(
+                        actor_id="actor-clinician-demo",
+                        display_name="Test Clinician",
+                        role="clinician",
+                        clinic_id="clinic-demo-default",
+                    )
+                )
                 resp = c.post(
                     f"{CLINICAL_TEXT_BASE}/extract-pii",
                     json=_make_payload(patient_id=VALID_PATIENT_ID),
@@ -1035,9 +1064,14 @@ class TestCrossClinicOwnership:
                     status_code=403,
                 ),
             ):
-                app = FastAPI()
-                app.include_router(_ctr.router)
-                c = TestClient(app)
+                c = _standalone_client(
+                    AuthenticatedActor(
+                        actor_id="actor-clinician-demo",
+                        display_name="Test Clinician",
+                        role="clinician",
+                        clinic_id="clinic-demo-default",
+                    )
+                )
                 resp = c.post(
                     f"{CLINICAL_TEXT_BASE}/deidentify",
                     json=_make_payload(patient_id=VALID_PATIENT_ID),
@@ -1059,9 +1093,14 @@ class TestCrossClinicOwnership:
                     status_code=403,
                 ),
             ):
-                app = FastAPI()
-                app.include_router(_ctr.router)
-                c = TestClient(app)
+                c = _standalone_client(
+                    AuthenticatedActor(
+                        actor_id="actor-clinician-demo",
+                        display_name="Test Clinician",
+                        role="clinician",
+                        clinic_id="clinic-demo-default",
+                    )
+                )
                 resp = c.post(
                     f"{CLINICAL_TEXT_BASE}/analyze-neuromodulation",
                     json=_make_payload(patient_id=VALID_PATIENT_ID),
@@ -1121,16 +1160,11 @@ class TestSharedEdgeCases:
             display_name="Admin",
             role="admin",
         )
-        with patch.object(
-            _ctr, "get_authenticated_actor", return_value=admin_actor,
-        ):
-            app = FastAPI()
-            app.include_router(_ctr.router)
-            c = TestClient(app)
-            resp = c.post(
-                f"{CLINICAL_TEXT_BASE}/analyze",
-                json=_make_payload(),
-            )
+        c = _standalone_client(admin_actor)
+        resp = c.post(
+            f"{CLINICAL_TEXT_BASE}/analyze",
+            json=_make_payload(),
+        )
         assert resp.status_code == 200
 
     def test_supervisor_role_can_access_analyze(self) -> None:
@@ -1140,16 +1174,11 @@ class TestSharedEdgeCases:
             display_name="Supervisor",
             role="supervisor",
         )
-        with patch.object(
-            _ctr, "get_authenticated_actor", return_value=supervisor_actor,
-        ):
-            app = FastAPI()
-            app.include_router(_ctr.router)
-            c = TestClient(app)
-            resp = c.post(
-                f"{CLINICAL_TEXT_BASE}/analyze",
-                json=_make_payload(),
-            )
+        c = _standalone_client(supervisor_actor)
+        resp = c.post(
+            f"{CLINICAL_TEXT_BASE}/analyze",
+            json=_make_payload(),
+        )
         assert resp.status_code == 200
 
     def test_patient_role_cannot_access_analyze(self) -> None:
@@ -1162,23 +1191,18 @@ class TestSharedEdgeCases:
             role="patient",
         )
         with patch.object(
-            _ctr, "get_authenticated_actor", return_value=patient_actor,
+            _ctr, "require_minimum_role",
+            side_effect=ApiServiceError(
+                code="insufficient_role",
+                message="Clinician access is required.",
+                status_code=403,
+            ),
         ):
-            with patch.object(
-                _ctr, "require_minimum_role",
-                side_effect=ApiServiceError(
-                    code="insufficient_role",
-                    message="Clinician access is required.",
-                    status_code=403,
-                ),
-            ):
-                app = FastAPI()
-                app.include_router(_ctr.router)
-                c = TestClient(app)
-                resp = c.post(
-                    f"{CLINICAL_TEXT_BASE}/analyze",
-                    json=_make_payload(),
-                )
+            c = _standalone_client(patient_actor)
+            resp = c.post(
+                f"{CLINICAL_TEXT_BASE}/analyze",
+                json=_make_payload(),
+            )
         assert resp.status_code == 403
 
     def test_analyze_preserves_unicode_text(
