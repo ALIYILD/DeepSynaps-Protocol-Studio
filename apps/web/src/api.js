@@ -1941,6 +1941,28 @@ export const api = {
     }),
 
   // ── Neuromodulation research bundle (Desktop-backed enriched corpus) ────
+  // ── Category 8 — Diagnosis Coding (decision-support only) ───────────────
+  // Wraps /api/v1/diagnosis/*. Each response carries a disclaimer; callers
+  // MUST render the `decision_support_disclaimer` field and MUST NOT treat
+  // returned codes as a diagnosis, eligibility decision, or coverage
+  // guarantee.
+  diagnosisCodingSources: () => apiFetch('/api/v1/diagnosis/sources'),
+  diagnosisNormalize: (payload) =>
+    apiFetch('/api/v1/diagnosis/normalize', {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  diagnosisQueryExpansion: (payload) =>
+    apiFetch('/api/v1/diagnosis/query-expansion', {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  diagnosisEligibilityContext: (payload) =>
+    apiFetch('/api/v1/diagnosis/eligibility-context', {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+
   researchHealth: () => apiFetch('/api/v1/evidence/research/health'),
   listResearchDatasets: () => apiFetch('/api/v1/evidence/research/datasets'),
   downloadResearchDatasetUrl: (datasetKey) =>
