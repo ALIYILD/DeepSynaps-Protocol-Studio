@@ -132,6 +132,7 @@ class OpenFDAAdapter(DatabaseAdapter):
 
     def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
         super().__init__(config)
+        self._version: str = self.config.get("version", "current")
         self._api_key: Optional[str] = self.config.get("api_key")
         self._base_url: str = self.config.get("base_url", BASE_URL).rstrip("/")
         self._timeout: ClientTimeout = ClientTimeout(

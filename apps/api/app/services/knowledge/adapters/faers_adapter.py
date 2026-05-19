@@ -29,6 +29,8 @@ from typing import Any, Dict, Final, List, Optional, Set, Tuple
 
 import httpx
 
+from ..base_adapter import DatabaseAdapter, LicenseMetadata as BaseLicenseMetadata
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -257,7 +259,7 @@ class TokenBucketRateLimiter:
 # FAERS Adapter
 # ---------------------------------------------------------------------------
 
-class FAERSAdapter:
+class FAERSAdapter(DatabaseAdapter):
     """Adapter for the FDA Adverse Event Reporting System (FAERS).
 
     Queries the openFDA /drug/event.json endpoint with full governance
@@ -266,10 +268,8 @@ class FAERSAdapter:
     """
 
     def __init__(self, config: Dict[str, Any] | None = None) -> None:
-        self.config = config or {}
-        self._cache: Dict[str, Any] = {}
+        super().__init__(config)
         self._version = self.config.get("version", "quarterly")
-        self._connected = False
         self._api_key: str = self.config.get("api_key", "")
         self._client: Optional[httpx.AsyncClient] = None
         self._rate_limiter = TokenBucketRateLimiter(RATE_LIMIT_CALLS, RATE_LIMIT_PERIOD)
@@ -553,8 +553,8 @@ class FAERSAdapter:
             research_only_reason=FAERS_RESEARCH_ONLY_REASON,
         )
 
-    def get_license(self) -> LicenseMetadata:
-        return LicenseMetadata(
+    def get_license(self) -> BaseLicenseMetadata:
+        return BaseLicenseMetadata(
             license_type="Public Domain",
             allows_research=True,
             allows_commercial=True,

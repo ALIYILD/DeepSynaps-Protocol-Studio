@@ -1,12 +1,13 @@
 # Knowledge-adapter roadmap — 2026-05-18
 
-**Status:** Planning document. Lists every biomedical database known to the
-Knowledge Layer effort and where each one stands relative to production.
+**Status:** Planning document. The canonical production inventory lives in
+`apps/api/app/services/knowledge/adapter_bootstrap.py`; use that file, not
+this roadmap, to answer "what ships in production today".
 
-This roadmap is the source-of-truth for the rebuild that follows from the
+This roadmap is the planning reference for the rebuild that follows from the
 [salvage notes](./kimi-knowledge-salvage-notes.md). It is intentionally
 short on prose and heavy on tables: it exists so each adapter PR has a
-single place to update its row.
+single place to update its row without redefining the production inventory.
 
 ## Layout
 
@@ -30,7 +31,7 @@ single place to update its row.
 
 ---
 
-## 1. Currently in production (16 adapters)
+## 1. Currently in production (21 adapters)
 
 All located at `apps/api/app/services/knowledge/adapters/` and imported by 9
 production files. **Do not duplicate.** These are the working baseline.
@@ -53,10 +54,17 @@ production files. **Do not duplicate.** These are the working baseline.
 | ✅ | ABIDE | Neuroimaging cohort | `abide_adapter.py` |
 | ✅ | PROMIS | Outcomes | `promis_adapter.py` |
 | ✅ | SimNIBS | Simulation | `simnibs_adapter.py` |
+| ✅ | PubMed | Literature | `pubmed_adapter.py` |
+| ✅ | ClinicalTrials.gov | Literature / Trials | `clinicaltrials_adapter.py` |
+| ✅ | Cochrane | Evidence synthesis | `cochrane_adapter.py` |
+| ✅ | Europe PMC | Literature | `europepmc_adapter.py` |
+| ✅ | gnomAD | Genetics | `gnomad_adapter.py` |
 
 ## 2. Ready to implement — Batch 1 (first proof-of-concept)
 
-These three are the recommended initial PR set. All open, no auth, well-documented APIs. Implementing this batch validates the re-implementation pattern end-to-end (real ABC → real registry → real test → CI green) before scaling out.
+Historical note: this batch was the original proof-of-concept plan. PubMed,
+ClinicalTrials.gov, and gnomAD are now in production, so keep these rows as
+reference only rather than as current implementation targets.
 
 | # | Database | Briefing | Kimi ref | Source URL | Tier | Rate limit | Auth |
 |---|---|---|---|---|---|---|---|
@@ -65,6 +73,9 @@ These three are the recommended initial PR set. All open, no auth, well-document
 | 3 | gnomAD | BATCH4 § 4 | `apps/api/app/knowledge/gnomad_adapter.py` | `https://gnomad.broadinstitute.org/api/` | A | reasonable-use | None |
 
 ## 3. Ready to implement — Batch 2 (literature/evidence)
+
+Historical note: Europe PMC and Cochrane from this batch are now in
+production. NICE Evidence, Semantic Scholar, and bioRxiv remain planning rows.
 
 | # | Database | Briefing | Kimi ref | Source URL | Tier | Rate limit | Auth |
 |---|---|---|---|---|---|---|---|
@@ -186,9 +197,8 @@ corresponding Kimi reference file may then be deleted (separate PR).
 
 ## Current scoreboard
 
-- ✅ Implemented in production: **16 / 50** (32%)
-- 📋 Briefed and ready to implement: **24 / 50** (48%)
-- 🚧 Need additional research: **10 / 50** (20%)
-- Total addressable: **50** databases described in Kimi material, plus the
-  16 already in production = **66** distinct knowledge sources for the
-  Knowledge Layer once complete.
+- ✅ Implemented in production: **21** adapters in the canonical bootstrap
+- 📋 Historical planning rows that still need implementation or review: **45**
+- 🚧 Additional-research rows inside the planning set: **10**
+- Total addressable inventory once the roadmap is fully reconciled: **66**
+  distinct knowledge sources

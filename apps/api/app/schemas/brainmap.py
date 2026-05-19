@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class BrainMapPlanCreate(BaseModel):
@@ -28,6 +28,8 @@ class BrainMapPlanCreate(BaseModel):
 
 class BrainMapPlanResponse(BaseModel):
     """Full brain map plan response."""
+    model_config = ConfigDict(from_attributes=True)
+
     id: str = Field(..., description="Plan ID")
     patient_id: Optional[str] = Field(None, description="Patient ID")
     created_by: str = Field(..., description="Creator actor_id")
@@ -48,10 +50,6 @@ class BrainMapPlanResponse(BaseModel):
     full_artifact: dict[str, Any] = Field(..., description="Full artifact JSON")
     notes: Optional[str] = Field(None, description="Notes")
 
-    class Config:
-        from_attributes = True
-
-
 class BrainMapPlanListResponse(BaseModel):
     """List of brain map plans."""
     plans: list[BrainMapPlanResponse]
@@ -68,16 +66,14 @@ class BrainMapPlanStatusUpdate(BaseModel):
 
 class BrainMapPlanAuditEvent(BaseModel):
     """Audit trail entry for a brain map plan."""
+    model_config = ConfigDict(from_attributes=True)
+
     id: int = Field(..., description="Audit event ID")
     plan_id: str = Field(..., description="Plan ID")
     actor_id: str = Field(..., description="Actor who performed action")
     action: str = Field(..., description="Action: create | read | update | archive | export_json | export_pdf")
     timestamp: str = Field(..., description="ISO 8601 timestamp")
     metadata: Optional[dict[str, Any]] = Field(None, description="Action metadata")
-
-    class Config:
-        from_attributes = True
-
 
 class BrainMapPlanAuditResponse(BaseModel):
     """Audit trail for a plan."""

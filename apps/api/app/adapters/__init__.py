@@ -1,9 +1,11 @@
 """
 DeepSynaps Knowledge Layer — Graceful Adapter Loader
 
-Fault-tolerant module-level imports for all 66 adapters.
-Each adapter is wrapped in individual try/except so missing files
-don't crash the entire application.
+Fault-tolerant module-level imports for the legacy planned adapter inventory.
+This module is not the production source of truth; the canonical production
+fleet lives in ``app.services.knowledge.adapter_bootstrap``. Each adapter is
+wrapped in individual try/except so missing files don't crash the entire
+application.
 
 Usage:
     from app.adapters import get_adapter, list_available_adapters, list_failed_adapters
@@ -50,7 +52,7 @@ _adapter_cache: Dict[str, Any] = {}
 
 
 # ---------------------------------------------------------------------------
-# 66 Adapter import specifications: (registry_key, module_path, class_name)
+# Legacy adapter import specifications: (registry_key, module_path, class_name)
 # ---------------------------------------------------------------------------
 
 _ADAPTER_IMPORTS: List[Tuple[str, str, str]] = [

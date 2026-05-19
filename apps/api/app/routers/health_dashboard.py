@@ -5,7 +5,7 @@ Health Dashboard API - Production System Health Monitoring
 
 A comprehensive FastAPI-based health monitoring system providing:
 - System-wide and per-component health checks
-- Adapter health monitoring (66 adapters)
+- Adapter health monitoring
 - Bridge connectivity status
 - Database and Redis connectivity checks
 - Cache statistics
@@ -66,7 +66,8 @@ FALLBACK_KNOWLEDGE_ADAPTER_KEYS = (
     "gnomad",
 )
 
-# Simulated adapter count
+# Simulated legacy adapter count used by this dashboard model. This is not the
+# canonical production inventory; see app.services.knowledge.adapter_bootstrap.
 TOTAL_ADAPTERS = 66
 
 # Structured logging
@@ -587,7 +588,7 @@ class HealthChecker:
         return health
 
     async def check_all_adapters(self) -> List[AdapterHealth]:
-        """Check health of all 66 adapters concurrently."""
+        """Check health of the dashboard's modeled adapter fleet concurrently."""
         tasks = [self.check_adapter(ad) for ad in ADAPTER_NAMES]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -1077,7 +1078,7 @@ async def health_check(request: Request) -> SystemHealth:
 
 @router.get("/adapters", summary="All adapter health status")
 async def adapter_health(request: Request) -> Dict[str, Any]:
-    """Check and return health status for all 66 adapters.
+    """Check and return health status for the dashboard's modeled adapter fleet.
 
     Performs concurrent health checks across all registered adapters
     and returns aggregated results with healthy/unhealthy counts.
@@ -1232,7 +1233,7 @@ async def adapter_metrics(request: Request) -> str:
 
     Includes adapter_up, adapter_response_time_ms, adapter_error_rate,
     adapter_uptime_seconds, adapter_active_connections, and
-    adapter_requests_per_minute for all 66 adapters.
+    adapter_requests_per_minute for the dashboard's modeled adapter fleet.
     """
     request_id = str(uuid.uuid4())
     log_json("INFO", "Adapter metrics export requested", request_id=request_id)

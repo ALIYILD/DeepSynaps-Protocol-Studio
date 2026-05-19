@@ -114,6 +114,7 @@ class PharmGKBAdapter(DatabaseAdapter):
 
     def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
         super().__init__(config)
+        self._version: str = self.config.get("version", "v1")
         self._api_key: Optional[str] = self.config.get("api_key")
         if not self._api_key:
             logger.warning("PharmGKB API key not provided — some endpoints may reject requests.")

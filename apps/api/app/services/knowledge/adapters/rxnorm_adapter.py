@@ -99,6 +99,7 @@ class RxNormAdapter(DatabaseAdapter):
 
     def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
         super().__init__(config)
+        self._version: str = self.config.get("version", "current")
         self._base_url: str = self.config.get("base_url", BASE_URL).rstrip("/")
         self._timeout: ClientTimeout = ClientTimeout(
             total=self.config.get("timeout", 30), connect=10

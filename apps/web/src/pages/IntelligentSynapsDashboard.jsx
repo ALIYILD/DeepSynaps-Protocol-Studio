@@ -48,7 +48,7 @@ const STATUS_CONFIG = {
 };
 
 const ADAPTER_NAMES = [
-    /* 66 adapters mapped to their display names */
+    /* Legacy dashboard display list; not the canonical production inventory. */
     'Core NLP Engine','MedSpaCy NER','SciSpaCy Linker','UMLS Resolver',
     'SNOMED CT Mapper','ICD-10 Validator','PubMed Retriever','Semantic Scholar',
     'BioRxiv Fetcher','ClinicalTrials.gov','Cochrane Library','Embase Adapter',

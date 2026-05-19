@@ -27,11 +27,12 @@ async def deepynaps_lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Redis cache unavailable: {e}")
 
-    # 2. Initialize circuit breakers for all 67 adapters
+    # 2. Initialize circuit breakers for the legacy knowledge-adapter set.
+    # Production adapter count lives in app.services.knowledge.adapter_bootstrap.
     try:
         from app.knowledge.circuit_breaker import CircuitBreakerRegistry
         app.state.circuit_breakers = CircuitBreakerRegistry()
-        logger.info("Circuit breakers initialized (67 adapters)")
+        logger.info("Circuit breakers initialized for legacy knowledge adapters")
     except Exception as e:
         logger.warning(f"Circuit breakers unavailable: {e}")
 

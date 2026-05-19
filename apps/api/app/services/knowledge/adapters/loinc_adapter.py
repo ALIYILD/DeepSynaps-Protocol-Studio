@@ -123,6 +123,7 @@ class LOINCAdapter(DatabaseAdapter):
 
     def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
         super().__init__(config)
+        self._version: str = self.config.get("version", "current")
         self._username: Optional[str] = self.config.get("username")
         self._password: Optional[str] = self.config.get("password")
         self._base_url: str = self.config.get("base_url", FHIR_BASE).rstrip("/")

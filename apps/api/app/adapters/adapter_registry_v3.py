@@ -2,7 +2,11 @@
 DeepSynaps Knowledge Layer — Adapter Registry v3
 ================================================
 
-Complete fault-tolerant rewrite with:
+Legacy planned adapter registry retained for reference and migration support.
+It is not the canonical production inventory; production adapters are defined
+by ``app.services.knowledge.adapter_bootstrap``.
+
+Historical design goals:
 - Individual try/except per adapter import
 - 12-category intelligent routing
 - Dependency injection support
@@ -120,7 +124,7 @@ class AdapterMeta:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# ADAPTER REGISTRY — ALL 66 ADAPTERS ACROSS 12 CATEGORIES
+# LEGACY PLANNED ADAPTER REGISTRY — historical 66-adapter target
 # ═══════════════════════════════════════════════════════════════════════════════
 
 ADAPTER_REGISTRY: Dict[str, Dict[str, Any]] = {
@@ -1567,7 +1571,10 @@ class AdapterRegistry:
             return self._init_summary()
 
         logger.info("=" * 60)
-        logger.info("AdapterRegistry v3 — Initializing 66 adapters")
+        logger.info(
+            "AdapterRegistry v3 — Initializing legacy planned adapter registry (%s entries)",
+            len(self._registry),
+        )
         logger.info("=" * 60)
 
         success = 0

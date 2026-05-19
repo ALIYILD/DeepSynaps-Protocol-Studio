@@ -1,8 +1,9 @@
 """
 Live knowledge-adapter HTTP surface.
 
-Exposes the 5 production-wired knowledge adapters (PubMed, ClinicalTrials.gov,
-Cochrane, Europe PMC, gnomAD) via REST. Backed by the canonical
+Exposes the canonical production-wired knowledge adapters via REST. The
+adapter fleet is defined by ``app.services.knowledge.adapter_bootstrap``;
+do not hardcode counts here. Backed by the canonical
 ``AdapterRegistry`` from ``app.services.knowledge.adapter_registry`` and the
 singleton bootstrap in ``app.services.knowledge.adapter_bootstrap``.
 

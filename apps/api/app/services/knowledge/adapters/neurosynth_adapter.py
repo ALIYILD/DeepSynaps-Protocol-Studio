@@ -154,6 +154,7 @@ class NeurosynthAdapter(DatabaseAdapter):
 
     def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
         super().__init__(config)
+        self._version: str = self.config.get("version", "current")
         self._sqlite_path: Optional[str] = self.config.get("sqlite_path")
         self._timeout: ClientTimeout = ClientTimeout(
             total=self.config.get("timeout", 60), connect=15

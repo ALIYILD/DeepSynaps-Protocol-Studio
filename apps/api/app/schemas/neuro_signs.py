@@ -1,20 +1,18 @@
-"""
-Pydantic schemas for NeuroSign API endpoints.
-"""
+"""Pydantic schemas for NeuroSign API endpoints."""
 
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class NeuroSignSourceRef(BaseModel):
     """Evidence source reference."""
+    model_config = ConfigDict(frozen=True)
+
     title: str
     url: Optional[str] = None
     year: Optional[int] = None
-    
-    class Config:
-        frozen = True
 
 
 class NeuroSignBase(BaseModel):
@@ -85,14 +83,13 @@ class NeuroSignUpdate(BaseModel):
 
 class NeuroSignResponse(NeuroSignBase):
     """Schema for responding with a sign detail."""
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     created_at: datetime
     updated_at: datetime
     created_by: Optional[str] = None
     updated_by: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
 
 
 class CaseNeuroSignCreate(BaseModel):
@@ -114,6 +111,8 @@ class CaseNeuroSignUpdate(BaseModel):
 
 class CaseNeuroSignResponse(BaseModel):
     """Schema for responding with a case sign."""
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     case_id: str
     neuro_sign_id: str
@@ -125,9 +124,6 @@ class CaseNeuroSignResponse(BaseModel):
     inserted_into_report: bool
     created_at: datetime
     updated_at: datetime
-    
-    class Config:
-        from_attributes = True
 
 
 class NeuroSignAnnotationCreate(BaseModel):
@@ -141,6 +137,8 @@ class NeuroSignAnnotationCreate(BaseModel):
 
 class NeuroSignAnnotationResponse(BaseModel):
     """Schema for responding with an annotation."""
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     neuro_sign_id: str
     shape_type: str
@@ -149,9 +147,6 @@ class NeuroSignAnnotationResponse(BaseModel):
     color: Optional[str] = None
     created_at: datetime
     updated_at: datetime
-    
-    class Config:
-        from_attributes = True
 
 
 class NeuroSignListResponse(BaseModel):

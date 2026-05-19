@@ -2,10 +2,10 @@
 """
 knowledge_router_v2.py - Comprehensive REST API Router for Knowledge Layer
 
-Exposes ALL 66 database adapters, 4 analyzer bridges, the multimodal synthesizer,
-and DeepTwin as fully typed, documented, and secured REST endpoints.
-
-Total: 151 endpoints
+Legacy knowledge router that now derives adapter inventory from the canonical
+compatibility facade in ``app.knowledge.adapter_registry`` instead of a
+separate hardcoded 66-adapter plan. The router still exposes analyzer bridges,
+multimodal synthesis, and DeepTwin endpoints.
 """
 
 from __future__ import annotations
@@ -61,7 +61,11 @@ def require_minimum_role(min_role: str):
     return _dep
 
 try:
-    from app.knowledge.adapter_registry import AdapterRegistry, get_registry
+    from app.knowledge.adapter_registry import (
+        AdapterRegistry,
+        get_registry,
+        list_adapters as list_registry_adapters,
+    )
 except ImportError:
     class AdapterRegistry:
         def __init__(self) -> None:
@@ -78,6 +82,8 @@ except ImportError:
             return {}
     def get_registry() -> AdapterRegistry:
         return AdapterRegistry()
+    def list_registry_adapters() -> List[Dict[str, Any]]:
+        return []
 
 try:
     from app.knowledge.medication_analyzer_bridge import MedicationAnalyzerBridge
@@ -163,78 +169,21 @@ def get_safety_checker() -> SafetyChecker:
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/knowledge", tags=["Knowledge Layer"])
 
-# ===========================================================================
-# CONSTANTS - 66 Knowledge Adapters
-# ===========================================================================
+def _build_adapter_definitions() -> List[Dict[str, str]]:
+    definitions: List[Dict[str, str]] = []
+    for meta in list_registry_adapters():
+        definitions.append(
+            {
+                "key": meta["key"],
+                "name": meta.get("display_name", meta["key"]),
+                "category": meta.get("category", "unknown"),
+                "description": meta.get("description", ""),
+            }
+        )
+    return definitions
 
-ADAPTER_DEFINITIONS = [
-    {"key": "pubmed", "name": "PubMed / MEDLINE", "category": "biomedical_literature"},
-    {"key": "pubmed_central", "name": "PubMed Central", "category": "biomedical_literature"},
-    {"key": "embase", "name": "Embase", "category": "biomedical_literature"},
-    {"key": "cochrane", "name": "Cochrane Library", "category": "biomedical_literature"},
-    {"key": "scopus", "name": "Scopus", "category": "biomedical_literature"},
-    {"key": "web_of_science", "name": "Web of Science", "category": "biomedical_literature"},
-    {"key": "google_scholar", "name": "Google Scholar", "category": "biomedical_literature"},
-    {"key": "ieee_xplore", "name": "IEEE Xplore", "category": "biomedical_literature"},
-    {"key": "springer_link", "name": "Springer Link", "category": "biomedical_literature"},
-    {"key": "wiley_online", "name": "Wiley Online Library", "category": "biomedical_literature"},
-    {"key": "nature_publications", "name": "Nature Portfolio", "category": "biomedical_literature"},
-    {"key": "science_direct", "name": "ScienceDirect", "category": "biomedical_literature"},
-    {"key": "clinicaltrials", "name": "ClinicalTrials.gov", "category": "clinical_trials"},
-    {"key": "who_ictrp", "name": "WHO ICTRP", "category": "clinical_trials"},
-    {"key": "eu_ctis", "name": "EU CTIS", "category": "clinical_trials"},
-    {"key": "anzctr", "name": "ANZCTR", "category": "clinical_trials"},
-    {"key": "jprn", "name": "JPRN", "category": "clinical_trials"},
-    {"key": "chictr", "name": "ChiCTR", "category": "clinical_trials"},
-    {"key": "drugbank", "name": "DrugBank", "category": "pharmacology"},
-    {"key": "chembl", "name": "ChEMBL", "category": "pharmacology"},
-    {"key": "pubchem", "name": "PubChem", "category": "pharmacology"},
-    {"key": "rxnorm", "name": "RxNorm", "category": "pharmacology"},
-    {"key": "atc_codes", "name": "ATC/DDD Index", "category": "pharmacology"},
-    {"key": "dailymed", "name": "DailyMed", "category": "pharmacology"},
-    {"key": "fdadrug", "name": "FDA Orange Book", "category": "pharmacology"},
-    {"key": "pharmgkb", "name": "PharmGKB", "category": "pharmacology"},
-    {"key": "ncbi_gene", "name": "NCBI Gene", "category": "genomics"},
-    {"key": "clinvar", "name": "ClinVar", "category": "genomics"},
-    {"key": "dbsnp", "name": "dbSNP", "category": "genomics"},
-    {"key": "gnomad", "name": "gnomAD", "category": "genomics"},
-    {"key": "ensembl", "name": "Ensembl", "category": "genomics"},
-    {"key": "uniprot", "name": "UniProt", "category": "genomics"},
-    {"key": "gtex", "name": "GTEx Portal", "category": "genomics"},
-    {"key": "reactome", "name": "Reactome", "category": "genomics"},
-    {"key": "neurovault", "name": "NeuroVault", "category": "neuroimaging"},
-    {"key": "openneuro", "name": "OpenNeuro", "category": "neuroimaging"},
-    {"key": "brainmap", "name": "BrainMap", "category": "neuroimaging"},
-    {"key": "nimare", "name": "NiMARE", "category": "neuroimaging"},
-    {"key": "hcp", "name": "Human Connectome Project", "category": "neuroimaging"},
-    {"key": "fcon1000", "name": "FCON1000", "category": "neuroimaging"},
-    {"key": "eeglab_datasets", "name": "EEGLAB Datasets", "category": "eeg_qeeg"},
-    {"key": "bids_eeg", "name": "BIDS-EEG", "category": "eeg_qeeg"},
-    {"key": "physionet_eeg", "name": "PhysioNet EEG", "category": "eeg_qeeg"},
-    {"key": "erp_core", "name": "ERP CORE", "category": "eeg_qeeg"},
-    {"key": "icd10", "name": "ICD-10", "category": "psychiatric_classifications"},
-    {"key": "icd11", "name": "ICD-11", "category": "psychiatric_classifications"},
-    {"key": "dsm5", "name": "DSM-5-TR", "category": "psychiatric_classifications"},
-    {"key": "snomed_ct", "name": "SNOMED CT", "category": "psychiatric_classifications"},
-    {"key": "hpo", "name": "Human Phenotype Ontology", "category": "phenotyping"},
-    {"key": "mondo", "name": "MONDO", "category": "phenotyping"},
-    {"key": "symptomate", "name": "Symptom Ontology", "category": "phenotyping"},
-    {"key": "psyche_db", "name": "PsycheDB", "category": "phenotyping"},
-    {"key": "go", "name": "Gene Ontology", "category": "ontologies"},
-    {"key": "chebi", "name": "ChEBI", "category": "ontologies"},
-    {"key": "mondo_ontology", "name": "MONDO Ontology", "category": "ontologies"},
-    {"key": "mesh", "name": "MeSH", "category": "ontologies"},
-    {"key": "umls", "name": "UMLS", "category": "ontologies"},
-    {"key": "bioportal", "name": "BioPortal", "category": "ontologies"},
-    {"key": "ema", "name": "EMA Guidelines", "category": "regulatory"},
-    {"key": "fda_guidance", "name": "FDA Guidance", "category": "regulatory"},
-    {"key": "nice_guidelines", "name": "NICE Guidelines", "category": "regulatory"},
-    {"key": "apa_guidelines", "name": "APA Guidelines", "category": "regulatory"},
-    {"key": "patient_voices", "name": "Patient Voices DB", "category": "patient_reported"},
-    {"key": "proqolid", "name": "PROQOLID", "category": "patient_reported"},
-    {"key": "promis", "name": "PROMIS", "category": "patient_reported"},
-    {"key": "neuroqol", "name": "Neuro-QOL", "category": "patient_reported"},
-]
+
+ADAPTER_DEFINITIONS = _build_adapter_definitions()
 
 ADAPTER_KEYS = [a["key"] for a in ADAPTER_DEFINITIONS]
 ADAPTER_BY_KEY = {a["key"]: a for a in ADAPTER_DEFINITIONS}
@@ -669,7 +618,7 @@ async def list_adapters(
     registry: AdapterRegistry = Depends(get_registry),
     actor: AuthenticatedActor = Depends(require_minimum_role("guest")),
 ):
-    """List all 66 knowledge adapters with optional category filter."""
+    """List the canonical knowledge adapters with optional category filter."""
     adapters_meta = []
     for defn in ADAPTER_DEFINITIONS:
         if category and defn["category"] != category:
@@ -818,7 +767,7 @@ async def search_adapters_post(
 
 
 # ===========================================================================
-# SECTION 3 - INDIVIDUAL ADAPTER QUERIES (66 adapters x 2 = 132 endpoints)
+# SECTION 3 - INDIVIDUAL ADAPTER QUERIES
 # ===========================================================================
 
 def _make_adapter_search_endpoint(adapter_key):
@@ -879,7 +828,7 @@ def _make_adapter_status_endpoint(adapter_key):
     return _status_adapter
 
 
-# Register 132 dynamic endpoints
+# Register one search + one status endpoint for each canonical adapter.
 for _ad in ADAPTER_DEFINITIONS:
     _key = _ad["key"]
     _name = _ad["name"]
@@ -889,6 +838,25 @@ for _ad in ADAPTER_DEFINITIONS:
     router.add_api_route(path=f"/{_key}/status", endpoint=_make_adapter_status_endpoint(_key),
         methods=["GET"], response_model=AdapterHealthResponse,
         summary=f"Health {_name}", description=f"Health check for {_name}.")
+
+
+if "ctgov" in ADAPTER_BY_KEY:
+    router.add_api_route(
+        path="/clinicaltrials/search",
+        endpoint=_make_adapter_search_endpoint("ctgov"),
+        methods=["GET"],
+        response_model=AdapterSearchResponse,
+        summary="Search ClinicalTrials.gov",
+        description="Compatibility alias for the canonical ctgov adapter.",
+    )
+    router.add_api_route(
+        path="/clinicaltrials/status",
+        endpoint=_make_adapter_status_endpoint("ctgov"),
+        methods=["GET"],
+        response_model=AdapterHealthResponse,
+        summary="Health ClinicalTrials.gov",
+        description="Compatibility alias for the canonical ctgov adapter.",
+    )
 
 
 # ===========================================================================

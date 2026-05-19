@@ -130,6 +130,7 @@ class ClinVarAdapter(DatabaseAdapter):
 
     def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
         super().__init__(config)
+        self._version: str = self.config.get("version", "current")
         self._ncbi_api_key: Optional[str] = self.config.get("ncbi_api_key")
         self._timeout: ClientTimeout = ClientTimeout(
             total=self.config.get("timeout", 60), connect=15

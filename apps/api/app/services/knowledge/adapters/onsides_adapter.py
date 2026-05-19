@@ -34,6 +34,8 @@ from typing import Any, Dict, Final, List, Optional, Tuple
 
 import httpx
 
+from ..base_adapter import DatabaseAdapter, LicenseMetadata as BaseLicenseMetadata
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -153,7 +155,7 @@ class TokenBucketRateLimiter:
 # OnSIDES Adapter
 # ---------------------------------------------------------------------------
 
-class OnSIDESAdapter:
+class OnSIDESAdapter(DatabaseAdapter):
     """Adapter for the OnSIDES (ON Side Effects) dataset.
 
     Provides access to NLP-extracted adverse events from FDA drug labels.
@@ -161,10 +163,8 @@ class OnSIDESAdapter:
     """
 
     def __init__(self, config: Dict[str, Any] | None = None) -> None:
-        self.config = config or {}
-        self._cache: Dict[str, Any] = {}
+        super().__init__(config)
         self._version = self.config.get("version", "current")
-        self._connected = False
         self._client: Optional[httpx.AsyncClient] = None
         self._rate_limiter = TokenBucketRateLimiter(120, 60)
         self._request_count = 0
@@ -530,8 +530,8 @@ class OnSIDESAdapter:
             research_only_reason=ONSIDES_RESEARCH_ONLY_REASON,
         )
 
-    def get_license(self) -> LicenseMetadata:
-        return LicenseMetadata(
+    def get_license(self) -> BaseLicenseMetadata:
+        return BaseLicenseMetadata(
             license_type="CC BY 4.0",
             allows_research=True,
             allows_commercial=True,
