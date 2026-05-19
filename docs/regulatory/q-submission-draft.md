@@ -28,7 +28,7 @@
 - Device name: [TBD: clinical lead]
 - Intended use: [TBD: clinical lead]
 - Indications for use: [TBD: clinical lead]
-- Product code: `IPF` (tDCS-adjacent) or `OBP` (TMS-adjacent) — see `../fda-product-codes.md` for rationale; final code [TBD: regulatory consultant verify product code & regulation citation]
+- Product code: `[TBD: regulatory consultant — IPF/OOA cited as tDCS-adjacent anchors in ../fda-product-codes.md, OBP for TMS-adjacent; final code per substantial equivalence analysis]`
 - Regulation citation: [TBD]
 - Device class: [TBD: regulatory consultant — Class II expected]
 - Predicate: see [./predicate-analysis.md](./predicate-analysis.md)
@@ -58,7 +58,7 @@
 
 ### 4.3 Software level of concern
 
-Per FDA "Content of Premarket Submissions for Device Software Functions" guidance: [TBD: software lead — see ./iec-62304-lifecycle.md §1]
+Per FDA "Content of Premarket Submissions for Device Software Functions" guidance: [TBD: software lead — see ./iec-62304-lifecycle.md §4.3]
 
 ### 4.4 Cybersecurity
 
@@ -102,7 +102,7 @@ Per FDA September 2023 final cybersecurity guidance: [TBD: software lead]
 
 ## 8. Fees and administrative
 
-Q-Submissions themselves carry no FDA user fee. The anticipated 510(k) submission carries a fee (FY2026 small-business standard cited upstream as USD 7,301 [TBD: regulatory consultant confirm FY2026 schedule and small-business status]).
+Q-Submissions themselves carry no FDA user fee. The anticipated 510(k) submission carries a fee (if the 510(k) is filed under the FY2026 small-business standard tier, the user fee was cited upstream as USD 7,301 — verify against the current FDA fee schedule and small-business eligibility status: [TBD: regulatory consultant]).
 
 ---
 

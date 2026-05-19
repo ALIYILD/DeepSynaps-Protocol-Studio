@@ -4,9 +4,9 @@
 
 ---
 
-## 1. Software safety classification (Clause 4.3)
+## 4.3 Software safety classification
 
-DeepSynaps Protocol Studio provides clinical decision support to a licensed clinician who retains the treatment decision; the software does not directly drive stimulator output or patient-connected delivery. Class C (death or serious injury possible) is reserved for direct-control software. Class A (no injury possible) understates risk because erroneous protocol recommendations could contribute to harm if accepted unchallenged. Class B (non-serious injury possible) reflects the assistive role.
+DeepSynaps Protocol Studio provides clinical decision support to a licensed clinician who retains the treatment decision; the software does not directly drive stimulator output or patient-connected delivery. Class C (death or serious injury possible) is reserved for direct-control software. Class A (no injury possible) understates risk because erroneous protocol recommendations could contribute to harm if accepted unchallenged. Class B (non-serious injury possible) reflects the assistive role. In ISO 14971 hazard severity vocabulary, the credible worst-case harm from an erroneous protocol recommendation that a licensed clinician fails to catch is `[TBD: clinical safety officer — likely 'non-serious injury' or 'minor harm', requires hazard analysis]`. This maps to IEC 62304 Class B per the 2015 amendment's harmonization.
 
 **Proposed classification: Class B.**
 
@@ -14,7 +14,7 @@ DeepSynaps Protocol Studio provides clinical decision support to a licensed clin
 
 ---
 
-## 2. Software development plan (Clause 5.1)
+## 5.1 Software development plan
 
 - Roles and responsibilities: [TBD: quality manager]
 - Lifecycle model: [TBD: software lead]
@@ -22,7 +22,7 @@ DeepSynaps Protocol Studio provides clinical decision support to a licensed clin
 
 ---
 
-## 3. Software requirements analysis (Clause 5.2)
+## 5.2 Software requirements analysis
 
 - Requirements traceability: [TBD: software lead — link to issue tracker]
 - Functional requirements: [TBD: clinical lead]
@@ -32,20 +32,20 @@ DeepSynaps Protocol Studio provides clinical decision support to a licensed clin
 
 ---
 
-## 4. Software architectural design (Clause 5.3)
+## 5.3 Software architectural design
 
 - SOUP (Software of Unknown Provenance) inventory: [TBD: software lead — generate from `apps/api/pyproject.toml` and `apps/web/package.json`]
 - Architectural decomposition: [TBD: software lead]
 
 ---
 
-## 5. Software detailed design (Clause 5.4)
+## 5.4 Software detailed design
 
 - Per-unit detailed design: [TBD: software lead]
 
 ---
 
-## 6. Software unit implementation and verification (Clause 5.5)
+## 5.5 Software unit implementation and verification
 
 Verification evidence: pytest suite under `apps/api/tests/` — examples include:
 - `apps/api/tests/test_audit_repository.py`
@@ -55,20 +55,20 @@ Acceptance criteria: [TBD: software lead]
 
 ---
 
-## 7. Software integration and integration testing (Clause 5.6)
+## 5.6 Software integration and integration testing
 
 - Integration test inventory: [TBD: software lead — extract from `apps/api/tests/` using `*integration*` and `*launch_audit*` filename patterns]
 
 ---
 
-## 8. Software system testing (Clause 5.7)
+## 5.7 Software system testing
 
 - System test plan: [TBD: software lead]
 - Test artefact locations: `tests/` and `e2e/` at repository root
 
 ---
 
-## 9. Software release (Clause 5.8)
+## 5.8 Software release
 
 - Deploy pipeline: `.github/workflows/deploy-netlify.yml`
 - Fly application: `deepsynaps-studio`
@@ -77,14 +77,14 @@ Acceptance criteria: [TBD: software lead]
 
 ---
 
-## 10. Software maintenance process (Clause 6)
+## 6 Software maintenance process
 
 - Change control: git pull-request workflow + `apps/api/alembic/versions/` for schema changes
 - Problem report process: [TBD: quality manager]
 
 ---
 
-## 11. Software risk management process (Clause 7)
+## 7 Software risk management process
 
 - Risk file ownership per ISO 14971: [TBD: clinical safety officer]
 - Existing safety context:
@@ -93,14 +93,14 @@ Acceptance criteria: [TBD: software lead]
 
 ---
 
-## 12. Software configuration management (Clause 8)
+## 8 Software configuration management
 
 - Source CM: git (GitHub repository ALIYILD/DeepSynaps-Protocol-Studio)
 - Deployment CM: [TBD: software lead]
 
 ---
 
-## 13. Software problem resolution (Clause 9)
+## 9 Software problem resolution
 
 Audit trail evidence:
 - `apps/api/app/services/audit.py`
@@ -111,7 +111,7 @@ Resolution process: [TBD: quality manager]
 
 ---
 
-## 14. Sign-off log
+## A Sign-off log
 
 | Role | Name | Date | Signature |
 |------|------|------|-----------|
