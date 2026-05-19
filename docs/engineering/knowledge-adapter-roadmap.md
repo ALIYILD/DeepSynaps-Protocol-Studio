@@ -26,6 +26,7 @@ single place to update its row.
 | ✅ | Already in production at the prod path. Working, imported, tested |
 | 📋 | Briefed by Kimi research, ready to implement against the production ABC |
 | 🚧 | Needs additional research — Kimi file exists but has no `self.name` set, suggesting truncated chat output |
+| 🔄 | Newly catalogued from external source (operator-supplied), briefing pending |
 | ⏳ | Out of scope for current roadmap (licensed, restricted, web-scrape only) |
 
 ---
@@ -155,6 +156,29 @@ truncated mid-response. Each must be re-researched from primary sources
 | 49 | PEDro | `pedro_adapter.py` | No metadata in file |
 | 50 | UNII | `unii_adapter.py` | No metadata in file |
 
+## 10. Category 11 — Literature aggregators (added 2026-05-19)
+
+Operator-supplied entries from an external numbered catalog (`#87`–`#90`,
+"Category 11: LITERATURE"). Two of the four are already tracked elsewhere
+in this doc; the other two are net-new to the roadmap.
+
+| # | Database | Status | Access | API Endpoint | Clinical use | In-doc cross-ref |
+|---|---|---|---|---|---|---|
+| 87 | Semantic Scholar | 📋 | Free | `https://api.semanticscholar.org/graph/v1/` | AI-powered literature search; rank by citation velocity for rare-condition neuromodulation queries | **Already at Batch 2 row #7** — implementation pending |
+| 88 | OpenAlex | 🔄 | Free | `https://api.openalex.org/` | Open scholarly graph; citation analysis, author/affiliation networks for evidence triangulation | New — needs briefing |
+| 89 | Dimensions | 🔄 | Free / Paid | `https://www.dimensions.ai/` (Dimensions Analytics API) | Research analytics + funding data; useful for identifying active neuromodulation research programs and grant-backed cohorts | New — needs briefing. API tier varies; verify free-tier scope before implementation |
+| 90 | CORE | 📋 | Free | `https://api.core.ac.uk/v3/` | Open-access full-text aggregation; full-text retrieval for systematic reviews | **Already at Batch 6 row #36** — implementation pending |
+
+**Net-new additions to total addressable:** 2 (OpenAlex, Dimensions). Total now **52 catalogued** + 16 already in production = **68** distinct knowledge sources once the roadmap is complete.
+
+**Briefing-required for the two new entries** before implementation. Each
+needs the same shape as existing batch rows: source URL, rate limit, auth
+posture, sample query, response shape, evidence-grade mapping, license terms.
+
+The two existing entries (Semantic Scholar #87, CORE #90) do not need
+duplicate work — they are already in earlier batches with full briefings
+in the corresponding BATCH reports.
+
 ---
 
 ## How to implement a row from this table
@@ -186,9 +210,10 @@ corresponding Kimi reference file may then be deleted (separate PR).
 
 ## Current scoreboard
 
-- ✅ Implemented in production: **16 / 50** (32%)
-- 📋 Briefed and ready to implement: **24 / 50** (48%)
-- 🚧 Need additional research: **10 / 50** (20%)
-- Total addressable: **50** databases described in Kimi material, plus the
-  16 already in production = **66** distinct knowledge sources for the
-  Knowledge Layer once complete.
+- ✅ Implemented in production: **16 / 52** (31%)
+- 📋 Briefed and ready to implement: **24 / 52** (46%)
+- 🚧 Need additional research (Kimi-truncated): **10 / 52** (19%)
+- 🔄 Newly catalogued, briefing pending (Category 11 additions 2026-05-19): **2 / 52** (4%) — OpenAlex, Dimensions
+- Total addressable: **52** databases tracked here, plus the 16 already
+  in production = **68** distinct knowledge sources for the Knowledge
+  Layer once complete.
