@@ -66,9 +66,14 @@ def test_health_returns_200_with_clinician(monkeypatch):
     assert body.get("versions") == {}
 
 
+<<<<<<< HEAD
 def test_health_includes_neurokit2_true_when_installed(monkeypatch):
     """When neurokit2 is installed, health.neurokit2 == True."""
     pytest.importorskip("neurokit2")
+=======
+def test_health_includes_phase5_knowledge_graph_keys(monkeypatch):
+    """Phase 5 — health response carries neo4j and biocypher flags."""
+>>>>>>> feat(api): Phase 5 — Knowledge Graph (Neo4j + BioCypher)
     monkeypatch.setenv("DEEPSYNAPS_ENABLE_NEUROIMAGING", "1")
     import app.main as main_mod
     mod = importlib.reload(main_mod)
@@ -80,6 +85,7 @@ def test_health_includes_neurokit2_true_when_installed(monkeypatch):
     )
     assert response.status_code == 200
     body = response.json()
+<<<<<<< HEAD
     assert body.get("neurokit2") is True
     assert body.get("nilearn") is True
     assert body.get("dipy") is True
@@ -102,3 +108,14 @@ def test_flag_on_mounts_phase3_routes(monkeypatch):
     assert "/api/v1/neuroimaging/simnibs/health" in paths
     assert "/api/v1/neuroimaging/monai/build-unet" in paths
     assert "/api/v1/neuroimaging/brainspace/gradients" in paths
+=======
+    assert "neo4j" in body
+    assert "biocypher" in body
+    assert isinstance(body["neo4j"], bool)
+    assert isinstance(body["biocypher"], bool)
+    # Health values must reflect the import-level flags, not always-default-False.
+    from app.services.neuroimaging.kg_neo4j import HAS_NEO4J_DRIVER
+    from app.services.neuroimaging.kg_biocypher import HAS_BIOCYPHER
+    assert body["neo4j"] is HAS_NEO4J_DRIVER
+    assert body["biocypher"] is HAS_BIOCYPHER
+>>>>>>> feat(api): Phase 5 — Knowledge Graph (Neo4j + BioCypher)

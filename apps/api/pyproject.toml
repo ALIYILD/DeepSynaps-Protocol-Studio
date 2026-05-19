@@ -75,6 +75,13 @@ dependencies = [
     # decomposition. MONAI is in the [neuro-dl] extra; SimNIBS is GPL-3.0 and
     # is shelled out (NOT a Python dep) to keep the API MIT-clean.
     "brainspace>=0.1.10,<0.2.0",
+    # Phase 5 Knowledge Graph (Neo4j + BioCypher) — see docs/DeepSynaps_OpenSource_Neurotech_Architecture.md
+    # Pure-Python libs; both safe to add to base deps. No live Neo4j connection
+    # is opened at import time — the driver is lazily constructed only when
+    # NEO4J_URI / NEO4J_USER / NEO4J_PASSWORD are configured and a /kg/* route
+    # is exercised. See app/services/neuroimaging/kg_neo4j.py for details.
+    "neo4j>=5.20,<6.0",
+    "biocypher>=0.9.0,<1.0.0",
     # Reports stream HTML→PDF render path (PR #144 night shift). Imported in
     # packages/render-engine/src/deepsynaps_render_engine/renderers.py via
     # try/except → raises PdfRendererUnavailable when missing, so the
