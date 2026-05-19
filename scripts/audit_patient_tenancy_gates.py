@@ -441,6 +441,20 @@ def main(argv: Iterable[str]) -> int:
             "is clean."
         ),
     )
+    parser.add_argument(
+        "--max-ungated",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Ratchet mode. Exit non-zero if the number of ungated patient-"
+            "scoped routes EXCEEDS N. The baseline ratchet for the CI "
+            "invariant lives in .github/workflows/tenancy-gate-check.yml; "
+            "PRs that remediate ungated routes are expected to lower the "
+            "number there, never raise it. Implies --check semantics "
+            "(non-zero exit) but with a tolerance threshold."
+        ),
+    )
     args = parser.parse_args(list(argv))
 
     handlers = analyse_all()
@@ -451,8 +465,23 @@ def main(argv: Iterable[str]) -> int:
         sys.stdout.write(emit_markdown(handlers))
         sys.stdout.write("\n")
 
+    ungated = [h for h in handlers if h.patient_scoped and not h.gated]
+
+    if args.max_ungated is not None:
+        if len(ungated) > args.max_ungated:
+            sys.stderr.write(
+                f"FAIL: {len(ungated)} patient-scoped route(s) ungated "
+                f"(allowed ratchet: {args.max_ungated}). A new ungated "
+                f"patient-scoped route was added. Either gate the new "
+                f"route (call require_patient_owner or _gate_patient_access "
+                f"in the handler body) or — if you fixed a previously-"
+                f"ungated route — lower --max-ungated in the workflow to "
+                f"match the new floor.\n"
+            )
+            return 1
+        return 0
+
     if args.check:
-        ungated = [h for h in handlers if h.patient_scoped and not h.gated]
         if ungated:
             sys.stderr.write(
                 f"FAIL: {len(ungated)} patient-scoped route(s) ungated. "
