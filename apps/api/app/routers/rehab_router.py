@@ -24,11 +24,19 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role, require_patient_owner
 from app.database import get_db_session
 from app.repositories.audit import create_audit_event
+from app.repositories.patients import resolve_patient_clinic_id
 
 router = APIRouter(prefix="/api/v1/rehab", tags=["rehab"])
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
+    """Resolve patient's clinic; raise on cross-clinic or role mismatch."""
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -233,6 +241,7 @@ def get_rehab_patient_profile(
 ) -> dict[str, Any]:
     """Get full rehabilitation profile for a patient."""
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     from app.services.rehab_service import get_rehab_profile
 
@@ -302,6 +311,7 @@ def get_assessment_history(
 ) -> list[dict[str, Any]]:
     """Get assessment history for a patient."""
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     from app.services.rehab_service import get_assessment_history as service_history
 
@@ -416,6 +426,7 @@ def get_patient_protocols(
 ) -> list[dict[str, Any]]:
     """Get all protocols for a patient."""
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     from app.services.rehab_service import get_patient_protocols as service_protocols
 
@@ -528,6 +539,7 @@ def get_session_history(
 ) -> list[dict[str, Any]]:
     """Get session history for a patient."""
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     from app.services.rehab_service import get_session_history as service_sessions
 
@@ -553,6 +565,7 @@ def get_progress_summary(
 ) -> ProgressSummaryResponse:
     """Get comprehensive progress summary with trends and plateau detection."""
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     from app.services.rehab_service import get_progress_summary as service_progress
 
@@ -610,6 +623,7 @@ def get_goals(
 ) -> list[GoalItem]:
     """Get goal tracking for a patient."""
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     from app.services.rehab_service import get_goals as service_goals
 
@@ -710,6 +724,7 @@ def get_safety_alerts(
 ) -> SafetyAlertResponse:
     """Get safety alerts for a patient based on recent sessions."""
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
 
     from app.services.rehab_service import (
         REHAB_SAFETY_DISCLAIMER,
