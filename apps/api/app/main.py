@@ -328,6 +328,7 @@ from app.routers.ai_tier2_tms_response_router import router as ai_tier2_tms_resp
 from app.routers.ai_tier2_brainharmony_router import router as ai_tier2_brainharmony_router
 from app.routers.ai_tier2_efield_router import router as ai_tier2_efield_router
 from app.routers.ai_tier3_edge_router import router as ai_tier3_edge_router
+from app.routers.ai_tier1_unimedvl_router import router as ai_tier1_unimedvl_router
 from app.middleware.demo_detection import register_demo_middleware
 from app.monitoring.middleware import MetricsMiddleware, register_metrics_endpoint
 from app.sentry_setup import init_sentry
@@ -864,6 +865,7 @@ app.include_router(ai_tier2_tms_response_router)
 app.include_router(ai_tier2_brainharmony_router)
 app.include_router(ai_tier2_efield_router)
 app.include_router(ai_tier3_edge_router)
+app.include_router(ai_tier1_unimedvl_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
