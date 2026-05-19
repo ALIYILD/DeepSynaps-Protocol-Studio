@@ -113,6 +113,12 @@ from app.services.evidence_intelligence import (
     query_evidence,
     save_citation,
 )
+from app.services.evidence_federation import (
+    FEDERATED_SEARCH_DECISION_SUPPORT_DISCLAIMER as FEDERATED_DISCLAIMER,
+    FederatedSearchRequest as _FederatedSearchInput,
+    FederatedSearchResponse as _FederatedSearchOutput,
+    federated_search,
+)
 
 # ── Cross-platform temp paths for admin-refresh lock + log ──────────────────
 # `/tmp` is POSIX-only; on Windows it resolves to C:\tmp which may not exist.
@@ -882,6 +888,102 @@ def evidence_query(
         result_count=len(result.supporting_papers),
     )
     return result
+
+
+# ── Federated clinical-evidence search (Slice C) ───────────────────────────
+
+
+class FederatedSearchIn(BaseModel):
+    """Caller-supplied federation parameters."""
+
+    query: str = Field(..., min_length=1, max_length=500)
+    condition: Optional[str] = Field(default=None, max_length=120)
+    modality: Optional[str] = Field(default=None, max_length=120)
+    include_trials: bool = True
+    include_guidelines: bool = True
+    limit: int = Field(default=25, ge=1, le=100)
+    per_source_limit: int = Field(default=25, ge=1, le=100)
+
+
+class FederatedSourceStatusOut(BaseModel):
+    key: str
+    display_name: str
+    is_internal: bool
+    requires_subscription: bool
+    result_count: int = 0
+    status: str
+    message: Optional[str] = None
+    latency_ms: Optional[int] = None
+
+
+class FederatedSearchOut(BaseModel):
+    query: str
+    generated_at: str
+    decision_support_disclaimer: str
+    internal_results: list[dict] = Field(default_factory=list)
+    external_results: list[dict] = Field(default_factory=list)
+    deduplication_summary: dict = Field(default_factory=dict)
+    source_status: list[FederatedSourceStatusOut] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    limit_applied: int
+
+
+@router.post("/federated-search", response_model=FederatedSearchOut)
+async def evidence_federated_search(
+    body: FederatedSearchIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> FederatedSearchOut:
+    """Query internal corpus + every Category-3 external adapter in parallel.
+
+    Honest-degraded contract:
+
+    - The internal DeepSynaps DB is queried first; its results are
+      returned under ``internal_results`` separately from
+      ``external_results`` so a clinician can always tell what came
+      from where.
+    - Adapters that have no live transport (the ``CataloguedOnlyAdapter``
+      stubs) are surfaced with ``status="catalogued"`` and contribute
+      zero rows. They never fabricate.
+    - Adapters that crash for any other reason are surfaced with
+      ``status="error"`` and the call still returns 200 — partial
+      failure is the contract.
+    - ``decision_support_disclaimer`` is always present verbatim.
+    """
+    require_minimum_role(actor, "clinician")
+    response: _FederatedSearchOutput = await federated_search(
+        _FederatedSearchInput(
+            query=body.query.strip(),
+            condition=body.condition,
+            modality=body.modality,
+            include_trials=body.include_trials,
+            include_guidelines=body.include_guidelines,
+            limit=body.limit,
+            per_source_limit=body.per_source_limit,
+        )
+    )
+    return FederatedSearchOut(
+        query=response.query,
+        generated_at=response.generated_at,
+        decision_support_disclaimer=response.decision_support_disclaimer,
+        internal_results=response.internal_results,
+        external_results=response.external_results,
+        deduplication_summary=response.deduplication_summary,
+        source_status=[
+            FederatedSourceStatusOut(
+                key=s.key,
+                display_name=s.display_name,
+                is_internal=s.is_internal,
+                requires_subscription=s.requires_subscription,
+                result_count=s.result_count,
+                status=s.status,
+                message=s.message,
+                latency_ms=s.latency_ms,
+            )
+            for s in response.source_status
+        ],
+        warnings=response.warnings,
+        limit_applied=response.limit_applied,
+    )
 
 
 @router.post("/by-finding", response_model=EvidenceResult)
