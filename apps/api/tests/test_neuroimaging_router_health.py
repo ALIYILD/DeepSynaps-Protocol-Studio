@@ -55,3 +55,20 @@ def test_health_returns_200_with_clinician(monkeypatch):
     assert "pybids" in body
     assert "pynwb" in body
     assert body.get("versions") == {}
+
+
+def test_health_includes_neurokit2_true_when_installed(monkeypatch):
+    """When neurokit2 is installed, health.neurokit2 == True."""
+    pytest.importorskip("neurokit2")
+    monkeypatch.setenv("DEEPSYNAPS_ENABLE_NEUROIMAGING", "1")
+    import app.main as main_mod
+    mod = importlib.reload(main_mod)
+    from fastapi.testclient import TestClient
+    client = TestClient(mod.app)
+    response = client.get(
+        "/api/v1/neuroimaging/health",
+        headers={"Authorization": "Bearer clinician-demo-token"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body.get("neurokit2") is True
