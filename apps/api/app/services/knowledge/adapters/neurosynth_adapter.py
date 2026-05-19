@@ -176,7 +176,8 @@ class NeurosynthAdapter(DatabaseAdapter):
 
     @property
     def source_version(self) -> str:
-        return self._version
+        # Neurosynth dataset is mirrored as a single live snapshot.
+        return "current"
 
     # -- cache key generation -------------------------------------------------
 

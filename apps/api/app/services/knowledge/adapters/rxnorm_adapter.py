@@ -117,7 +117,10 @@ class RxNormAdapter(DatabaseAdapter):
 
     @property
     def source_version(self) -> str:
-        return self._version
+        # RxNorm rolls forward; NLM doesn't expose a stable version
+        # identifier via the REST API. Match the convention used by
+        # onsides/allen_brain/adni: report "current".
+        return "current"
 
     # -- cache key generation -------------------------------------------------
 
