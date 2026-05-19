@@ -165,19 +165,62 @@ in this doc; the other two are net-new to the roadmap.
 | # | Database | Status | Access | API Endpoint | Clinical use | In-doc cross-ref |
 |---|---|---|---|---|---|---|
 | 87 | Semantic Scholar | 📋 | Free | `https://api.semanticscholar.org/graph/v1/` | AI-powered literature search; rank by citation velocity for rare-condition neuromodulation queries | **Already at Batch 2 row #7** — implementation pending |
-| 88 | OpenAlex | 🔄 | Free | `https://api.openalex.org/` | Open scholarly graph; citation analysis, author/affiliation networks for evidence triangulation | New — needs briefing |
-| 89 | Dimensions | 🔄 | Free / Paid | `https://www.dimensions.ai/` (Dimensions Analytics API) | Research analytics + funding data; useful for identifying active neuromodulation research programs and grant-backed cohorts | New — needs briefing. API tier varies; verify free-tier scope before implementation |
+| 88 | OpenAlex | 📋 | Free API key + $1/day usage credit | `https://api.openalex.org/` | Open scholarly graph; citation analysis, author/affiliation networks for evidence triangulation | Briefed 2026-05-19 — see § 10.1 below |
+| 89 | Dimensions | ⚠️ 🔄 | Subscription / by-application; no public REST | DSL endpoint (Dimensions Search Language v2.15.0) | Research analytics + funding data | Briefed 2026-05-19 — **license restriction likely blocks our use case**; see § 10.2 below |
 | 90 | CORE | 📋 | Free | `https://api.core.ac.uk/v3/` | Open-access full-text aggregation; full-text retrieval for systematic reviews | **Already at Batch 6 row #36** — implementation pending |
 
 **Net-new additions to total addressable:** 2 (OpenAlex, Dimensions). Total now **52 catalogued** + 16 already in production = **68** distinct knowledge sources once the roadmap is complete.
 
-**Briefing-required for the two new entries** before implementation. Each
-needs the same shape as existing batch rows: source URL, rate limit, auth
-posture, sample query, response shape, evidence-grade mapping, license terms.
-
 The two existing entries (Semantic Scholar #87, CORE #90) do not need
 duplicate work — they are already in earlier batches with full briefings
 in the corresponding BATCH reports.
+
+### § 10.1 OpenAlex (#88) — briefing 2026-05-19
+
+| Field | Value |
+|---|---|
+| Base URL | `https://api.openalex.org` |
+| Auth | **API key required.** Free key at `https://openalex.org/settings/api`. Sent as a query parameter. |
+| Pricing | Free tier = **$1/day usage credit** (usage-based, different ops cost different amounts). Higher limits and bulk snapshots require a paid plan (`https://openalex.org/pricing`). |
+| Rate limit | Not published as a fixed req/sec. Throttled via the daily credit pool. |
+| Entities (22) | Primary: `/works`, `/authors`, `/sources`, `/institutions`, `/topics`, `/keywords`, `/publishers`, `/funders`, `/awards`. Auxiliary: `/domains`, `/fields`, `/subfields`, `/sdgs`, `/countries`, `/continents`, `/languages`, `/work-types`, `/source-types`, `/institution-types`, `/licenses`, `/concepts` (legacy). |
+| External ID lookup | DOI, ORCID, ROR, PMID |
+| Pagination | `page` (offset-style, max 100/page) **or** `cursor` (recommended for >10 000 results) |
+| Response shape | `{ meta: {count, page, per_page, response_time_ms}, results: [...], group_by: ... }` |
+| Filtering | Rich filter DSL (e.g., `is_oa:true,cited_by_count:>50`); `select=…` for field projection; `group_by=…` for aggregation |
+| Data license | **CC0 1.0** — clean, permissive, suitable for re-distribution and derivative use |
+| Status change | Previous "polite pool with mailto" no-auth model **is gone** — every adapter implementation needs the API-key path. |
+
+**Implementation notes for the eventual adapter PR:**
+- Subclass `DatabaseAdapter` per the standard ABC. Config: `{api_key: str, base_url: str = "https://api.openalex.org"}`.
+- `fetch` should default to `/works?search=<term>&select=id,doi,title,publication_year,cited_by_count,open_access,authorships,concepts,abstract_inverted_index&per-page=25` and use cursor pagination.
+- `_evidence_level` should derive from work type + citation count (peer-reviewed vs preprint vs dataset).
+- `_confidence` can use `cited_by_count` and `is_oa` as input signals.
+- Cost-tracking: log per-request cost (returned in response headers when available) so the adapter can warn at, say, 80% of daily credit.
+
+### § 10.2 Dimensions (#89) — briefing 2026-05-19 ⚠️
+
+| Field | Value |
+|---|---|
+| Base URL | Not a standard REST endpoint. Access via DSL (Dimensions Search Language) v2.15.0. |
+| Auth | **Institutional subscription** primary access. **Free tier exists** for "eligible scientometric research projects" via Digital Science. No public free REST endpoint. |
+| Pricing | Not publicly documented; subscription model |
+| Rate limit | Not publicly documented |
+| Queryable sources | Publications, Grants, Patents, Clinical Trials, Policy Documents, Datasets, Source Titles, Reports, Researchers, Organizations, Funder Groups, Research Org Groups |
+| Query language | Dimensions Search Language (DSL) — proprietary, not standard REST/GraphQL |
+| **License restriction** | **Explicit:** *"The Dimensions Analytics API is not intended for bulk data or to power dashboards or other derivative products."* The API is positioned for "complex analytical tasks". |
+
+**Operator decision required before implementation:**
+
+The license clause above is the central concern. The DeepSynaps Knowledge Layer is, by design, a derivative product that surfaces ranked external evidence to clinicians via a dashboard-style UI — exactly the use case Dimensions excludes.
+
+Three plausible paths:
+
+1. **Drop from roadmap.** Change status from 🔄 to ⏳ (out of scope) with the license clause as the rationale. Recommended unless (2) or (3) applies.
+2. **Negotiate a commercial license** that permits the derivative-product use case. Requires sales conversation with Digital Science. Out of scope for engineering.
+3. **Re-scope the integration** to a query-time analytical lookup (e.g., a clinician-initiated "show me funded research programs for this rare condition" tab) that may fall under the permitted "complex analytical tasks" umbrella. Requires legal review of the use case before implementation.
+
+This briefing **does not advance the status to 📋**. The 🔄 + ⚠️ markers remain until the operator selects a path.
 
 ---
 
@@ -213,7 +256,7 @@ corresponding Kimi reference file may then be deleted (separate PR).
 - ✅ Implemented in production: **16 / 52** (31%)
 - 📋 Briefed and ready to implement: **24 / 52** (46%)
 - 🚧 Need additional research (Kimi-truncated): **10 / 52** (19%)
-- 🔄 Newly catalogued, briefing pending (Category 11 additions 2026-05-19): **2 / 52** (4%) — OpenAlex, Dimensions
+- 🔄 Newly catalogued (Category 11 additions 2026-05-19): **1 / 52** (2%) — Dimensions, blocked on license; see § 10.2 for the operator decision required. OpenAlex moved to 📋 after briefing — see § 10.1.
 - Total addressable: **52** databases tracked here, plus the 16 already
   in production = **68** distinct knowledge sources for the Knowledge
   Layer once complete.
