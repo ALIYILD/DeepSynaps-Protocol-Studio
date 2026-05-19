@@ -74,6 +74,10 @@ def test_health_includes_neurokit2_true_when_installed(monkeypatch):
     assert body.get("neurokit2") is True
     assert body.get("nilearn") is True
     assert body.get("dipy") is True
+    assert "braindecode" in body
+    assert "torch" in body
+    assert isinstance(body["braindecode"], bool)
+    assert isinstance(body["torch"], bool)
 
 
 def test_flag_on_mounts_phase2b_routes(monkeypatch):

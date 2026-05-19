@@ -37,6 +37,15 @@ class NwbSummary(BaseModel):
     processing_keys: list[str]
 
 
+class EegModelSummary(BaseModel):
+    model_name: str
+    n_channels: int
+    n_classes: int
+    input_window_samples: int
+    param_count: int
+    layer_count: int
+
+
 class NeuroimagingHealth(BaseModel):
     nibabel: bool
     pybids: bool
@@ -44,6 +53,8 @@ class NeuroimagingHealth(BaseModel):
     neurokit2: bool = False
     nilearn: bool = False
     dipy: bool = False
+    braindecode: bool = False
+    torch: bool = False
     versions: dict[str, str | None] = {}
 
 
