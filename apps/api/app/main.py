@@ -314,6 +314,7 @@ from app.routers.intervention_planning_router import router as intervention_plan
 from app.routers.ecosystem_router import router as ecosystem_router
 from app.routers.patient_portal_v2_router import router as patient_portal_v2_router
 from app.routers.handbook_v2_router import router as handbook_v2_router
+from app.routers.ai_tier1_llm_router import router as ai_tier1_llm_router
 from app.middleware.demo_detection import register_demo_middleware
 from app.monitoring.middleware import MetricsMiddleware, register_metrics_endpoint
 from app.sentry_setup import init_sentry
@@ -836,6 +837,7 @@ app.include_router(diagnosis_coding_router)
 app.include_router(health_dashboard)
 app.include_router(biomarker_router)
 app.include_router(intervention_intelligence_router)
+app.include_router(ai_tier1_llm_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
