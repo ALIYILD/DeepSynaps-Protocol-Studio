@@ -10,6 +10,7 @@ import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixture
 import { NEURO_BIOMARKER_REFERENCE } from './neuro-biomarker-data.js';
 import { renderBrainMap10_20, SITES_10_20 } from './brain-map-svg.js';
 import { renderMRINeuromarkersTab, bindMRINeuromarkersTab, MRI_NEUROMARKERS_STYLES } from './pages-biomarkers-mri.js';
+import { renderElectrophysiologyReferenceCard } from './electrophysiology-reference-card.js';
 import {
   BLOOD_LAB_BIOMARKERS, NEUROINFLAMMATION_BIOMARKERS,
   HORMONE_BIOMARKERS, IMMUNE_INFLAMMATION_BIOMARKERS,
@@ -516,6 +517,8 @@ function _renderReferenceTab() {
         </div>
       </section>
 
+      ${renderElectrophysiologyReferenceCard(electrophysiologyInventory, electrophysiologySearch)}
+
       ${NEURO_BIOMARKER_REFERENCE.map(_renderRefGroup).join('')}
     </div>
   `;
@@ -897,6 +900,8 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
   let labsDemo = false;
   /** @type {'api'|'demo_fixture'|'unavailable'} */
   let labsSourceKind = 'unavailable';
+  let electrophysiologyInventory = { total: 0, adapters: [] };
+  let electrophysiologySearch = null;
   let wearableOut = null;
   let qeegItems = [];
   let mriItems = [];
@@ -987,6 +992,23 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
         using_demo_data: !!labsDemo,
       });
     } catch { /* best-effort audit */ }
+  }
+
+  try {
+    electrophysiologyInventory = await api.electrophysiologyListAdapters();
+  } catch {
+    electrophysiologyInventory = { total: 0, adapters: [] };
+  }
+  try {
+    electrophysiologySearch = await api.electrophysiologySearch({
+      modality: 'qEEG',
+      condition: 'biomarker reference',
+      recording_condition: 'unknown',
+      frequency_band: 'theta',
+      biomarker: 'theta/beta',
+    });
+  } catch {
+    electrophysiologySearch = null;
   }
 
   function renderWorkspaceTab() {
@@ -1187,6 +1209,7 @@ export async function pgBiomarkersWorkspace(setTopbar, navigate) {
               </div>
             ` : `<div style="padding:12px;border-radius:10px;border:1px dashed var(--border);font-size:12px;color:var(--text-tertiary)">No MRI analyses on file.</div>`}
           </div>
+          ${renderElectrophysiologyReferenceCard(electrophysiologyInventory, electrophysiologySearch)}
         </section>
 
         <section style="margin-bottom:18px">

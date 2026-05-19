@@ -35,6 +35,8 @@ class ElectrophysiologyAdapterRow(BaseModel):
     biomarker_tags: List[str]
     artifact_tags: List[str]
     access_license_notes: str
+    clinical_utility: str
+    dataset_type: str
     provenance: Dict[str, Any]
     limitations: List[str]
     warnings: List[str]

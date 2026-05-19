@@ -3961,6 +3961,38 @@ export const api = {
   geneticsPgxNeuromodulationCheck: (body) =>
     apiFetch('/api/v1/genetics/pgx-neuromodulation-check', { method: 'POST', body: JSON.stringify(body) }),
 
+  // ── Category 5 Neuromodulation Inventory ───────────────────────────────
+  neuromodulationListSources: () =>
+    apiFetch('/api/v1/neuromodulation/sources'),
+  neuromodulationGetLifecycle: () =>
+    apiFetch('/api/v1/neuromodulation/sources/_lifecycle'),
+  neuromodulationQuerySource: (body) =>
+    apiFetch('/api/v1/neuromodulation/query', { method: 'POST', body: JSON.stringify(body || {}) }),
+  neuromodulationPlanningContext: (body) =>
+    apiFetch('/api/v1/neuromodulation/planning-context', { method: 'POST', body: JSON.stringify(body || {}) }),
+  neuromodulationSimnibsStatus: (body) =>
+    apiFetch('/api/v1/neuromodulation/simnibs/status', { method: 'POST', body: JSON.stringify(body || {}) }),
+  neuromodulationSimnibsPlan: (body) =>
+    apiFetch('/api/v1/neuromodulation/simnibs/plan', { method: 'POST', body: JSON.stringify(body || {}) }),
+
+  // ── Category 1 Pharmaceutical Inventory ─────────────────────────────────
+  pharmaceuticalListAdapters: () =>
+    apiFetch('/api/v1/pharmaceutical/adapters'),
+  pharmaceuticalGetAdapter: (key) =>
+    apiFetch(`/api/v1/pharmaceutical/adapters/${encodeURIComponent(key)}`),
+  pharmaceuticalQuery: (body) =>
+    apiFetch('/api/v1/pharmaceutical/query', { method: 'POST', body: JSON.stringify(body || {}) }),
+  pharmaceuticalMedicationSafetyCheck: (body) =>
+    apiFetch('/api/v1/pharmaceutical/medication-safety-check', { method: 'POST', body: JSON.stringify(body || {}) }),
+
+  // ── Category 7 Electrophysiology Reference Inventory ────────────────────
+  electrophysiologyListAdapters: () =>
+    apiFetch('/api/v1/electrophysiology/adapters'),
+  electrophysiologyGetLifecycle: () =>
+    apiFetch('/api/v1/electrophysiology/adapters/_lifecycle'),
+  electrophysiologySearch: (body) =>
+    apiFetch('/api/v1/electrophysiology/search', { method: 'POST', body: JSON.stringify(body || {}) }),
+
   // ── Bio Database ─────────────────────────────────────────────────────────
   listBioCatalog: (params = {}) => {
     const q = new URLSearchParams(

@@ -166,6 +166,14 @@ def build_electrophysiology_inventory() -> List[Dict[str, Any]]:
         row["lifecycle_state"] = spec.lifecycle_state
         row["clinical_utility"] = spec.clinical_utility_summary
         row["dataset_name"] = spec.display_name
+        row["provenance"] = {
+            "source_url": spec.source_url,
+            "source_version": "catalogued",
+            "license_type": spec.access_type,
+            "retrieval_method": "catalogued",
+            "reference_only": True,
+            "notes": spec.provenance_notes,
+        }
         row["decision_support_disclaimer"] = DECISION_SUPPORT_DISCLAIMER
         rows.append(row)
     return rows
@@ -252,6 +260,8 @@ def search_electrophysiology_reference_datasets(query: Dict[str, Any]) -> Dict[s
             "biomarker_tags": list(spec.biomarker_tags),
             "artifact_tags": list(spec.artifact_tags),
             "access_license_notes": spec.access_license_notes,
+            "clinical_utility": spec.clinical_utility_summary,
+            "dataset_type": spec.dataset_type,
             "provenance": {
                 "source_url": spec.source_url,
                 "source_version": "catalogued",

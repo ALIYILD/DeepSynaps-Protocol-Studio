@@ -52,6 +52,7 @@ import { renderClinicianReport, mountClinicianReport } from './qeeg-clinician-re
 import { renderTimeline, mountTimeline } from './qeeg-timeline.js';
 import { EvidenceChip, createEvidenceQueryForTarget, initEvidenceDrawer, openEvidenceDrawer, wireEvidenceChips } from './evidence-intelligence.js';
 import { renderLearningEEGReferenceCard } from './learning-eeg-reference.js';
+import { renderElectrophysiologyReferenceCard } from './electrophysiology-reference-card.js';
 import { renderUploadWorkflow, mountUploadWorkflow, resetUploadWorkflow } from './qeeg-upload-workflow.js';
 import { mountMedicalImageCard } from './medical-image-card.js';
 import {
@@ -5017,6 +5018,8 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
   const tab = window._qeegTab || 'patient';
   window._qeegTab = tab;
   const el = document.getElementById('content');
+  let _electrophysiologyInventory = { total: 0, adapters: [] };
+  let _electrophysiologySearch = null;
 
   // Rerenders should replace transient pollers, not accumulate them.
   _resetQEEGTransientWatchers();
@@ -5082,6 +5085,24 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
     }
   } else if (!patientId) {
     _patient = null; _medHistory = null; _analyses = [];
+  }
+
+  try {
+    _electrophysiologyInventory = await api.electrophysiologyListAdapters();
+  } catch (_err) {
+    _electrophysiologyInventory = { total: 0, adapters: [] };
+  }
+  try {
+    _electrophysiologySearch = await api.electrophysiologySearch({
+      modality: 'qEEG',
+      condition: (_currentAnalysis && (_currentAnalysis.flagged_conditions || [])[0]) || (_patient && _patient.primary_condition) || 'reference',
+      recording_condition: (_currentAnalysis && _currentAnalysis.eyes_condition) || 'unknown',
+      frequency_band: 'theta',
+      biomarker: 'theta/beta',
+      patient_id: patientId || null,
+    });
+  } catch (_err) {
+    _electrophysiologySearch = null;
   }
 
   // Register global handlers
@@ -6193,6 +6214,7 @@ export async function pgQEEGAnalysis(setTopbar, navigate) {
       title: 'Learning EEG Library',
       intro: 'Verified topic map for the qEEG analyzer and raw-data workbench. The app stores original summaries and links to the source site rather than copying the full educational content.'
     });
+    learningHtml += renderElectrophysiologyReferenceCard(_electrophysiologyInventory, _electrophysiologySearch);
     tabEl.innerHTML = learningHtml;
     return;
   }
