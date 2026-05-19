@@ -212,16 +212,24 @@ for _monai_attr in ("SwinUNETR", "UNETR", "SegResNet", "DynUNet"):
     if not hasattr(engine, _monai_attr):
         setattr(engine, _monai_attr, MagicMock())
 
+
+def _restore_module_shims() -> None:
+    for _module_name in ("sqlalchemy", "sqlalchemy.orm"):
+        _original_module = _ORIGINAL_MODULES[_module_name]
+        if _original_module is None:
+            sys.modules.pop(_module_name, None)
+        else:
+            sys.modules[_module_name] = _original_module
+
+
+_restore_module_shims()
+
 pytestmark = pytest.mark.asyncio
 
 
 def teardown_module(module):  # noqa: D401
     """Restore module shims after this test module finishes."""
-    for _module_name, _original_module in _ORIGINAL_MODULES.items():
-        if _original_module is None:
-            sys.modules.pop(_module_name, None)
-        else:
-            sys.modules[_module_name] = _original_module
+    _restore_module_shims()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

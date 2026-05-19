@@ -44,6 +44,9 @@ for sp in SOURCE_PATHS:
 
 os.environ.setdefault("DEEPSYNAPS_APP_ENV", "test")
 os.environ.setdefault("DEEPSYNAPS_SECRETS_KEY", "test-key-for-testing-only")
+_standalone_snapshot_root = Path(__file__).resolve().parent / ".test_artifacts" / "clinical-snapshots"
+_standalone_snapshot_root.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("DEEPSYNAPS_CLINICAL_SNAPSHOT_ROOT", str(_standalone_snapshot_root))
 
 import pytest
 from fastapi import FastAPI
@@ -80,14 +83,25 @@ _fake_limiter_module = types.ModuleType("app.limiter")
 _fake_limiter = MagicMock()
 _fake_limiter.limit = lambda rate_string: lambda func: func  # pass-through
 _fake_limiter_module.limiter = _fake_limiter
+_original_app_module = sys.modules.get("app")
+_original_app_limiter_module = sys.modules.get("app.limiter")
+_created_app_parent = False
 
 # Ensure parent module exists
 if "app" not in sys.modules:
     sys.modules["app"] = types.ModuleType("app")
-    sys.modules["app"].__path__ = []  # type: ignore[attr-defined]
+    sys.modules["app"].__path__ = [str(REPO_ROOT / "apps" / "api" / "app")]  # type: ignore[attr-defined]
+    _created_app_parent = True
 sys.modules["app.limiter"] = _fake_limiter_module
 
 import app.routers.clinical_text_router as _ctr  # noqa: E402
+
+if _original_app_limiter_module is None:
+    sys.modules.pop("app.limiter", None)
+else:
+    sys.modules["app.limiter"] = _original_app_limiter_module
+if _created_app_parent and _original_app_module is None:
+    sys.modules.pop("app", None)
 
 # ---------------------------------------------------------------------------
 # Constants
