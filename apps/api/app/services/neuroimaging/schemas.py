@@ -107,3 +107,34 @@ class DtiScalarSummary(BaseModel):
     mean_fa: float
     mean_md: float
     voxel_count: int
+    # Phase 3 simulation libraries (SimNIBS CLI, MONAI, BrainSpace).
+    simnibs: bool = False
+    monai: bool = False
+    brainspace: bool = False
+    versions: dict[str, str | None] = {}
+
+
+class SimnibsHealth(BaseModel):
+    available: bool
+    version: str | None = None
+
+
+class MonaiModelSummary(BaseModel):
+    """Lightweight summary of a constructed MONAI network."""
+
+    model_name: str
+    in_channels: int
+    out_channels: int
+    spatial_dims: int
+    param_count: int
+
+
+class GradientSummary(BaseModel):
+    """Summary of a BrainSpace gradient decomposition.
+
+    `explained_variance` is one ratio per component (length == n_components).
+    """
+
+    n_components: int
+    n_regions: int
+    explained_variance: list[float]

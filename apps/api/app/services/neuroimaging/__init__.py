@@ -1,4 +1,4 @@
-"""Phase 1 neuroimaging I/O wrappers.
+"""Phase 1+ neuroimaging I/O and analysis wrappers.
 
 Each optional library is guarded in its own try/except block so a single
 missing dependency does not suppress availability of the others.
@@ -57,7 +57,21 @@ from .schemas import (
     DwiSummary,
     DtiScalarSummary,
     EegModelSummary,
+    SimnibsHealth,
+    MonaiModelSummary,
+    GradientSummary,
 )
+
+# Phase 3: simulation / analysis (SimNIBS shell-out, MONAI, BrainSpace).
+# Each sub-module sets its own HAS_<LIB> flag; we re-export both the flags
+# and the public callables so router code can do a single import.
+from .simnibs_adapter import (
+    HAS_SIMNIBS,
+    check_simnibs_version,
+    head_model_summary,
+)
+from .monai_models import HAS_MONAI, build_unet, list_bundles
+from .brainspace_grad import HAS_BRAINSPACE, compute_gradients
 
 __all__ = [
     "HAS_NIBABEL",
@@ -99,4 +113,16 @@ __all__ = [
     "forward_pass",
     "HAS_BRAINDECODE",
     "HAS_TORCH",
+    # Phase 3 simulation re-exports.
+    "HAS_SIMNIBS",
+    "check_simnibs_version",
+    "head_model_summary",
+    "SimnibsHealth",
+    "HAS_MONAI",
+    "build_unet",
+    "list_bundles",
+    "MonaiModelSummary",
+    "HAS_BRAINSPACE",
+    "compute_gradients",
+    "GradientSummary",
 ]
