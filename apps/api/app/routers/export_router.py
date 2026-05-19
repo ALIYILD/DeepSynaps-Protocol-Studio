@@ -92,6 +92,8 @@ class ExportProtocolDocxRequest(BaseModel):
     evidence_threshold: str = Field(default="Systematic Review", max_length=_EXPORT_TAG_MAX)
     off_label: bool = False
     symptom_cluster: str = Field(default="General", max_length=_EXPORT_TAG_MAX)
+    standards_guideline_references: list[dict[str, str]] = Field(default_factory=list)
+    governance_caveat: str = Field(default="", max_length=500)
 
 
 class ExportHandbookDocxRequest(BaseModel):
@@ -99,11 +101,15 @@ class ExportHandbookDocxRequest(BaseModel):
     modality_name: str = Field(..., max_length=_EXPORT_NAME_MAX)
     device_name: str = Field(default="", max_length=_EXPORT_NAME_MAX)
     handbook_kind: Literal["clinician_handbook", "patient_guide", "technician_sop"] = "clinician_handbook"
+    standards_guideline_references: list[dict[str, str]] = Field(default_factory=list)
+    governance_caveat: str = Field(default="", max_length=500)
 
 
 class ExportPatientGuideDocxRequest(BaseModel):
     condition_name: str = Field(..., max_length=_EXPORT_NAME_MAX)
     modality_name: str = Field(..., max_length=_EXPORT_NAME_MAX)
+    standards_guideline_references: list[dict[str, str]] = Field(default_factory=list)
+    governance_caveat: str = Field(default="", max_length=500)
 
 
 class ExportNeuromodulationRequest(BaseModel):
@@ -126,6 +132,8 @@ class _ProtocolDocxAdapter:
     contraindications: list[str] = field(default_factory=list)
     safety_checks: list[str] = field(default_factory=list)
     session_structure: object = None
+    standards_guideline_references: list[dict[str, str]] = field(default_factory=list)
+    governance_caveat: str = ""
 
 
 _HANDBOOK_KIND_LABEL = {
@@ -210,6 +218,8 @@ def export_protocol_docx(
         approval_badge=draft.approval_status_badge,
         contraindications=[c for c in draft.contraindications if c],
         safety_checks=[c for c in draft.monitoring_plan if c],
+        standards_guideline_references=[dict(ref) for ref in payload.standards_guideline_references if isinstance(ref, dict)],
+        governance_caveat=payload.governance_caveat or "",
     )
 
     try:

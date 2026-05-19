@@ -600,6 +600,7 @@ export async function _renderEvidenceDbCard() {
 async function renderOverview(body, liveEvidence = null) {
   await _ensureResearchBundleData();
   const terminalSnapshot = await api.evidenceTerminalSnapshot({ graphLimit: 14, safetyLimit: 8 }).catch(() => null);
+  const societySources = await api.societyResourceSources().catch(() => null);
   const S = EVIDENCE_SUMMARY;
   const liveSummary = _researchBundleState.summary || null;
   const top10 = Array.isArray(liveEvidence?.topConditions) && liveEvidence.topConditions.length
@@ -672,6 +673,25 @@ async function renderOverview(body, liveEvidence = null) {
     srcHtml += `<span style="padding:3px 10px;font-size:11px;border-radius:12px;background:var(--surface-2);color:var(--text-secondary)">${esc(s)}</span>`;
   }
   srcHtml += '</div>';
+
+  let societyHtml = '<div class="ch-card" style="padding:16px;margin-bottom:16px"><div style="font-weight:600;margin-bottom:8px;font-size:14px">Neuroscience society resources</div>' +
+    '<p style="font-size:11px;color:var(--text-tertiary);margin:0 0 12px;line-height:1.45">' +
+    'Contextual and educational sources only. Conference abstracts and society pages are not primary peer-reviewed evidence.' +
+    '</p>';
+  const societyRows = Array.isArray(societySources?.sources) ? societySources.sources : [];
+  societyHtml += societyRows.length
+    ? societyRows.map((row) => `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+          <div>
+            <div style="font-size:12px;font-weight:600">${esc(row.display_name || row.key || 'Society source')}</div>
+            <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">${esc(row.source_kind || 'other')} · ${esc(row.access_type || 'free')} · ${esc(row.lifecycle_state || 'catalogued')}</div>
+          </div>
+          <a href="${esc(row.source_url || '#')}" target="_blank" rel="noopener" style="font-size:11px;color:var(--teal);text-decoration:none">open ↗</a>
+        </div>
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:6px;line-height:1.45">${esc(row.clinical_utility_summary || '')}</div>
+      </div>`).join('')
+    : '<div style="font-size:12px;color:var(--text-tertiary)">No society sources loaded.</div>';
+  societyHtml += '<div style="font-size:11px;color:var(--text-tertiary);margin-top:10px">Structured search unavailable in this build; links are catalogued for awareness only.</div></div>';
 
   /* Wearables ↔ biometrics evidence bridge (Studio wiring) */
   const wearBridge =
@@ -789,7 +809,7 @@ async function renderOverview(body, liveEvidence = null) {
     _resWorkspaceHeader(liveEvidence, { shortcuts: true }) +
     evidenceDbCardHtml +
     terminalDeck +
-    kpiHtml + srcHtml + wearBridge +
+    kpiHtml + srcHtml + societyHtml + wearBridge +
     nfDisclosureHtml +
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px">' +
     // merged from main: 90f0484e/bf505698 intent: live evidence-link, template, and safety panels

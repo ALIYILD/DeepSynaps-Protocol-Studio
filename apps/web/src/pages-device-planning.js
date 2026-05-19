@@ -4,6 +4,7 @@
 let devicesData = DEMO_DEVICES_FALLBACK;
 import { api } from './api.js';
 import { currentUser } from './auth.js';
+import { renderStandardsGuidelinesReferenceCard } from './standards-guidelines-reference-card.js';
 
 /**
  * pages-device-planning.js
@@ -251,6 +252,8 @@ export async function pgDevicePlanning(setTopbar, navigate) {
 
   let activeFilter = 'all';
   let selectedProtocol = protocols[0];
+  let standardsInventory = null;
+  let standardsSearch = null;
 
   const container = document.createElement('div');
   container.className = 'dp-container';
@@ -264,6 +267,9 @@ export async function pgDevicePlanning(setTopbar, navigate) {
     }).length;
     const pending = protocols.filter(p => p.status === 'reviewed' || p.status === 'draft').length;
     const safety = checkSafety(selectedProtocol);
+    const standardsPanel = standardsInventory
+      ? renderStandardsGuidelinesReferenceCard(standardsInventory, standardsSearch)
+      : '<div class="dp-safety-panel"><div class="dp-safety-title">Standards &amp; guidelines references</div><div class="dp-safety-note">Loading compliance-awareness references…</div></div>';
 
     container.innerHTML = styles + `
       <div class="dp-header">
@@ -275,6 +281,8 @@ export async function pgDevicePlanning(setTopbar, navigate) {
         <span class="icon">&#9888;</span>
         <span>Device parameters must stay within published safety limits — review evidence before application. tDCS current limit: 2 mA max.</span>
       </div>
+
+      ${standardsPanel}
 
       <div class="dp-kpi-row">
         <div class="dp-kpi-card">
@@ -404,6 +412,22 @@ export async function pgDevicePlanning(setTopbar, navigate) {
   }
 
   buildHTML();
+
+  Promise.all([
+    typeof api?.standardsGuidelinesSources === 'function' ? api.standardsGuidelinesSources() : Promise.resolve(null),
+    typeof api?.standardsGuidelinesSearch === 'function'
+      ? api.standardsGuidelinesSearch({
+          query: 'device governance review',
+          modality: 'TMS',
+          device_type: 'medical-device',
+          jurisdiction: 'international',
+        })
+      : Promise.resolve(null),
+  ]).then(([inventory, search]) => {
+    standardsInventory = inventory;
+    standardsSearch = search;
+    buildHTML();
+  }).catch(() => {});
 
   // Event delegation for filter buttons and row selection
   container.addEventListener('click', (e) => {

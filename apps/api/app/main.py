@@ -93,6 +93,7 @@ from app.routers.reminders_router import router as reminders_router
 from app.routers.irb_router import router as irb_router
 from app.routers.irb_manager_router import router as irb_manager_router
 from app.routers.evidence_router import router as evidence_router
+from app.routers.society_resources_router import router as society_resources_router
 from app.routers.literature_router import router as literature_router
 from app.routers.literature_watch_router import router as literature_watch_router
 from app.routers.library_router import router as library_router
@@ -105,6 +106,7 @@ from app.routers.voice_engine_router import router as voice_engine_router
 from app.routers.protocols_saved_router import router as protocols_saved_router
 from app.routers.protocols_generate_router import router as protocols_generate_router
 from app.routers.protocol_studio_router import router as protocol_studio_router
+from app.routers.standards_guidelines_router import router as standards_guidelines_router
 from app.routers.brainmap_router import router as brainmap_router
 from app.routers.neuromodulation_router import router as neuromodulation_router
 from app.routers.neuro_signs import router as neuro_signs_router
@@ -569,6 +571,7 @@ app.include_router(voice_engine_router, prefix="/api/v1")
 app.include_router(protocols_saved_router)
 app.include_router(protocols_generate_router)
 app.include_router(protocol_studio_router)
+app.include_router(standards_guidelines_router)
 app.include_router(brainmap_router)
 app.include_router(neuro_signs_router)
 app.include_router(leads_reception_router)
@@ -814,6 +817,7 @@ app.include_router(patient_portal_v2_router)
 app.include_router(handbook_v2_router)
 app.include_router(knowledge_router_v2)
 app.include_router(knowledge_adapters_live_router)
+app.include_router(society_resources_router)
 app.include_router(neuromodulation_router)
 app.include_router(pharmaceutical_router)
 app.include_router(evidence_router)

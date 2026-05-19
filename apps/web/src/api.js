@@ -2128,6 +2128,27 @@ export const api = {
   // Public counts + last_updated timestamp (no auth required).
   evidenceStatus: () => apiFetch('/api/v1/evidence/status'),
   evidenceSourceStatus: () => apiFetch('/api/v1/evidence/source-status'),
+  societyResourceSources: () => apiFetch('/api/v1/society-resources/sources'),
+  societyResourceLifecycle: () => apiFetch('/api/v1/society-resources/lifecycle'),
+  societyResourceSearch: (data = {}) => {
+    const params = new URLSearchParams();
+    const query = String(data.query || '').trim();
+    if (query) params.set('query', query);
+    for (const key of ['condition', 'modality', 'source', 'resource_type']) {
+      const value = data[key];
+      if (value != null && String(value).trim()) {
+        params.set(key, String(value).trim());
+      }
+    }
+    const qs = params.toString();
+    return apiFetch(`/api/v1/society-resources/search${qs ? '?' + qs : ''}`);
+  },
+  standardsGuidelinesSources: () => apiFetch('/api/v1/standards-guidelines/sources'),
+  standardsGuidelinesLifecycle: () => apiFetch('/api/v1/standards-guidelines/sources/_lifecycle'),
+  standardsGuidelinesSearch: (data = {}) => apiFetch('/api/v1/standards-guidelines/search', {
+    method: 'POST',
+    body: JSON.stringify(data || {}),
+  }),
 
   // ── Live Indications Spine (added 2026-05-08) ───────────────────────────
   // Read-only views over the curated evidence DB junction tables. Each

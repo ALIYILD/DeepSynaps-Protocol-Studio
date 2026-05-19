@@ -96,6 +96,45 @@ export async function searchEvidence(
   return parseJson<EvidenceSearchResponse>(res);
 }
 
+// ── Society Resources ───────────────────────────────────────────────────────
+
+/**
+ * Fetch neuroscience-society source inventory.
+ * These are contextual resource links, not primary evidence databases.
+ */
+export async function fetchSocietyResourceSources(): Promise<any> {
+  const res = await fetch(`/api/v1/society-resources/sources`, {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  return parseJson<any>(res);
+}
+
+/**
+ * Search society sources as contextual links only.
+ */
+export async function searchSocietyResources(
+  request: {
+    query?: string;
+    condition?: string;
+    modality?: string;
+    source?: string;
+    resource_type?: string;
+  }
+): Promise<any> {
+  const body = JSON.stringify(request || {});
+  const res = await fetch(`/api/v1/society-resources/search`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body,
+  });
+  return parseJson<any>(res);
+}
+
 // ── Protocol Catalog ─────────────────────────────────────────────────────────
 
 /**

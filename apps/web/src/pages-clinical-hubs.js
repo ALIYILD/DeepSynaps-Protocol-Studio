@@ -13,6 +13,7 @@ import {
   canManageSellerListings,
 } from './marketplace-hub-catalog.js';
 import { renderBrainMap10_20 } from './brain-map-svg.js';
+import { renderStandardsGuidelinesReferenceCard } from './standards-guidelines-reference-card.js';
 import {
   buildReportFallbackContent,
   buildSchedulingSessionPayload,
@@ -2672,6 +2673,8 @@ export async function pgProtocolStudio(setTopbar, navigate) {
   } catch {}
 
   let CONDITIONS = [], MODALITIES = [], DEVICES = [], TARGETS = [];
+  let STANDARDS_INVENTORY = null;
+  let STANDARDS_SEARCH = null;
   try {
     const c = await import('./registries/conditions.js');
     CONDITIONS = c.CONDITIONS || c.default || [];
@@ -2693,6 +2696,21 @@ export async function pgProtocolStudio(setTopbar, navigate) {
   try { if (typeof api?.listModalities === 'function') {
     const r = await api.listModalities(); if (r?.items?.length) MODALITIES = r.items;
   } } catch {}
+  try {
+    if (typeof api?.standardsGuidelinesSources === 'function') {
+      STANDARDS_INVENTORY = await api.standardsGuidelinesSources();
+    }
+  } catch {}
+  try {
+    if (typeof api?.standardsGuidelinesSearch === 'function') {
+      STANDARDS_SEARCH = await api.standardsGuidelinesSearch({
+        query: 'protocol governance review',
+        modality: 'TMS',
+        device_type: 'brain stimulation',
+        jurisdiction: 'international',
+      });
+    }
+  } catch {}
 
   if (!MODALITIES.length) {
     MODALITIES = [
@@ -3365,6 +3383,8 @@ export async function pgProtocolHub(setTopbar, navigate) {
   window._psFacade = window._psFacade || {
     evidenceHealth: null,
     evidenceSearch: null,
+    societyResources: null,
+    societyLifecycle: null,
     protocolCatalog: null,
     patientContext: null,
     loading: {},
@@ -3420,6 +3440,25 @@ export async function pgProtocolHub(setTopbar, navigate) {
     _setLoading('evidenceSearch', false);
   }
 
+  async function _fetchSocietyResources() {
+    _setLoading('societyResources', true); _setErr('societyResources', null);
+    _setLoading('societyLifecycle', true); _setErr('societyLifecycle', null);
+    try {
+      F.societyResources = await api.societyResourceSources();
+    } catch (e) {
+      F.societyResources = null;
+      _setErr('societyResources', e?.message || 'Society resources unavailable.');
+    }
+    try {
+      F.societyLifecycle = await api.societyResourceLifecycle();
+    } catch (e) {
+      F.societyLifecycle = null;
+      _setErr('societyLifecycle', e?.message || 'Society lifecycle unavailable.');
+    }
+    _setLoading('societyResources', false);
+    _setLoading('societyLifecycle', false);
+  }
+
   // ── Phase-1 facade UI handlers ────────────────────────────────────────────
   window._psRefreshEvidenceHealth = async () => {
     await _fetchEvidenceHealth();
@@ -3437,6 +3476,10 @@ export async function pgProtocolHub(setTopbar, navigate) {
     const q = document.getElementById('ps-ev-q')?.value || '';
     const modality = document.getElementById('ps-ev-q-modality')?.value || '';
     await _fetchEvidenceSearch({ q, modality });
+    try { window._psRenderCurrentTab?.(); } catch {}
+  };
+  window._psRefreshSocietyResources = async () => {
+    await _fetchSocietyResources();
     try { window._psRenderCurrentTab?.(); } catch {}
   };
   window._psOpenProtocol = async (protocolId) => {
@@ -3552,6 +3595,65 @@ export async function pgProtocolHub(setTopbar, navigate) {
           <span style="font-size:11px;color:var(--text-tertiary)">${loading ? 'Running search (no live internet calls)…' : 'No live literature calls are made by this endpoint.'}</span>
         </div>
         <div style="margin-top:12px">${rows}</div>
+      </section>`;
+  }
+
+  function _renderSocietyResourcesPanel() {
+    const sr = F.societyResources;
+    const lc = F.societyLifecycle;
+    const err = F.errors.societyResources || F.errors.societyLifecycle;
+    const loading = !!F.loading.societyResources || !!F.loading.societyLifecycle;
+    const sources = Array.isArray(sr?.sources) ? sr.sources : [];
+    const summary = lc?.summary || sr?.summary || null;
+    const byState = summary?.by_state || {};
+    const catalogued = Number(byState.catalogued ?? 0);
+    const registered = Number(byState.registered ?? 0);
+    const healthy = Number(byState.healthy ?? 0);
+    const degraded = Number(byState.degraded ?? 0);
+    const missing = Number(byState.missing ?? 0);
+    const stateLabel = summary?.total ? 'catalogued' : (err ? 'unavailable' : 'loading');
+    const cardRows = sources.length ? sources.map((s) => {
+      const kind = s.source_kind || 'other';
+      const isConference = kind === 'conference';
+      const isPatient = kind === 'patient_resource';
+      const isGuideline = kind === 'guideline';
+      const badge = isConference ? 'emerging/contextual' : isGuideline ? 'guideline-awareness' : isPatient ? 'patient-resource' : 'contextual';
+      const caution = isConference
+        ? 'Conference abstracts are emerging signals and may not be peer-reviewed full publications.'
+        : isPatient
+          ? 'Patient resources are not clinician guidelines unless the source explicitly says so.'
+          : 'Use as a contextual society resource and verify the original source before clinical use.';
+      return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+          <div style="font-weight:600;color:var(--text-primary);line-height:1.35">${esc(s.display_name || s.key)}</div>
+          <span class="ps-result-badge ${isGuideline ? 'ps-badge-a' : isConference ? 'ps-badge-c' : 'ps-badge-b'}">${esc(badge)}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${esc(s.source_kind || '')} · ${esc(s.access_type || '')} · ${esc(s.status || 'catalogued')}</div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.55;margin-top:6px">${esc(s.clinical_utility_summary || '')}</div>
+        <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5;margin-top:6px">${esc(caution)}</div>
+        <div style="margin-top:6px"><a href="${esc(s.source_url || '#')}" target="_blank" rel="noopener" style="color:var(--dv2-teal,var(--teal));text-decoration:none">Open source ↗</a></div>
+      </div>`;
+    }).join('') : `<div style="color:var(--text-tertiary);font-size:12px;padding:6px 0">${esc(err || 'Society sources not loaded yet.')}</div>`;
+    const lifecycleText = summary
+      ? `Lifecycle summary: ${esc(catalogued)} catalogued · ${esc(registered)} registered · ${esc(healthy)} healthy · ${esc(degraded)} degraded · ${esc(missing)} missing`
+      : 'Lifecycle summary unavailable.';
+    const disclaimer = sr?.decision_support_disclaimer || lc?.decision_support_disclaimer || 'Decision support only.';
+    const body = loading
+      ? '<div class="ps-empty"><span class="ps-spin"></span>Loading society resources…</div>'
+      : `<div style="font-size:12px;color:var(--text-secondary);line-height:1.55">${esc(lifecycleText)}</div>
+         <div style="margin-top:10px;font-size:12px;color:var(--text-secondary);line-height:1.55">${esc(disclaimer)}</div>
+         <div style="margin-top:12px">${cardRows}</div>`;
+    return `
+      <section class="ps-result-card" data-testid="protocol-society-resources-panel">
+        <div class="ps-result-header">
+          <span class="ps-result-title">Neuroscience society resources</span>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span class="ps-result-badge ${stateLabel === 'catalogued' ? 'ps-badge-c' : 'ps-badge-a'}">${esc(stateLabel)}</span>
+            <button type="button" class="ps-save-btn" style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border);font-size:11px;padding:4px 10px" onclick="window._psRefreshSocietyResources()">Refresh</button>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:10px">Contextual links only. No fake abstracts, no aggressive scraping, and no live structured search is exposed in this build.</div>
+        ${body}
       </section>`;
   }
 
@@ -3928,6 +4030,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
       '<div style="display:grid;grid-template-columns:1.1fr 1.4fr;gap:14px;align-items:start">' +
         '<div>' +
           _renderEvidenceHealthCard() +
+          _renderSocietyResourcesPanel() +
           _renderPatientContextPanel() +
         '</div>' +
         '<div>' +
@@ -3952,13 +4055,14 @@ export async function pgProtocolHub(setTopbar, navigate) {
     if (!host) return;
     host.innerHTML = _renderClinicalShell('<div class="ps-empty"><span class="ps-spin"></span>Loading evidence tools…</div>');
     await _fetchEvidenceHealth();
+    await _fetchSocietyResources();
     await _fetchProtocolCatalog({});
     await _fetchPatientContext();
     host.innerHTML = _renderClinicalShell(
       '<div class="ps-section-label">Evidence search &amp; catalog</div>' +
-      '<p class="ps-hero-sub" style="margin:0 0 12px;font-size:12px;color:var(--text-secondary)">Uses the local evidence corpus when the API host has it installed; otherwise search returns an honest unavailable state (no fabricated papers).</p>',
+      '<p class="ps-hero-sub" style="margin:0 0 12px;font-size:12px;color:var(--text-secondary)">Uses the local evidence corpus when the API host has it installed; society resources are shown as contextual links only and never as peer-reviewed evidence.</p>',
       { showEvidenceFacade: true },
-    );
+    ) + renderStandardsGuidelinesReferenceCard(STANDARDS_INVENTORY, STANDARDS_SEARCH);
   }
 
   window._psRenderRankOut = function () {
@@ -4495,7 +4599,8 @@ export async function pgProtocolHub(setTopbar, navigate) {
     const cardsAndWizard =
       '<div style="margin-bottom:6px;font-size:12px;color:var(--text-tertiary)">Choose a generator — outputs are <strong>drafts</strong> for clinician review, not prescriptions or device approvals.</div>' +
       '<div class="ps-gen-cards" role="group" aria-label="Protocol draft generators">' + cardA + cardB + cardC + '</div>' +
-      wizardPanel;
+      wizardPanel +
+      renderStandardsGuidelinesReferenceCard(STANDARDS_INVENTORY, STANDARDS_SEARCH);
     host.innerHTML = _renderClinicalShell(cardsAndWizard);
   }
 
@@ -4889,6 +4994,14 @@ export async function pgProtocolHub(setTopbar, navigate) {
         evidence_threshold: p.constraints?.evidence_threshold || p.evidence_threshold || 'Systematic Review',
         off_label: !!p.off_label,
         symptom_cluster: 'General',
+        standards_guideline_references: (STANDARDS_INVENTORY?.sources || []).map((x) => ({
+          source: x.title || x.source || x.id,
+          url: x.url,
+          source_kind: x.source_kind,
+          jurisdiction: x.jurisdiction,
+          lifecycle_state: x.lifecycle_state,
+        })),
+        governance_caveat: 'Decision support only. Not legal or regulatory advice.',
       });
       window._psDownloadBlob(blob, 'protocol_draft.docx');
       _psRecordStudioAudit('protocol_export_docx', 'protocol-docx from Protocol Studio');
@@ -4913,6 +5026,14 @@ export async function pgProtocolHub(setTopbar, navigate) {
         condition_name: p.condition,
         modality_name: p.modality || 'tDCS',
         device_name: p.device || '',
+        standards_guideline_references: (STANDARDS_INVENTORY?.sources || []).map((x) => ({
+          source: x.title || x.source || x.id,
+          url: x.url,
+          source_kind: x.source_kind,
+          jurisdiction: x.jurisdiction,
+          lifecycle_state: x.lifecycle_state,
+        })),
+        governance_caveat: 'Decision support only. Not legal or regulatory advice.',
       });
       window._psDownloadBlob(blob, 'handbook_draft.docx');
       _psRecordStudioAudit('protocol_export_handbook', 'handbook-docx from Protocol Studio');
@@ -4936,6 +5057,14 @@ export async function pgProtocolHub(setTopbar, navigate) {
       const blob = await api.exportPatientGuideDocx({
         condition_name: p.condition,
         modality_name: p.modality || 'tDCS',
+        standards_guideline_references: (STANDARDS_INVENTORY?.sources || []).map((x) => ({
+          source: x.title || x.source || x.id,
+          url: x.url,
+          source_kind: x.source_kind,
+          jurisdiction: x.jurisdiction,
+          lifecycle_state: x.lifecycle_state,
+        })),
+        governance_caveat: 'Decision support only. Not legal or regulatory advice.',
       });
       window._psDownloadBlob(blob, 'patient_guide_draft.docx');
       _psRecordStudioAudit('protocol_export_patient_guide', 'patient-guide-docx from Protocol Studio');
