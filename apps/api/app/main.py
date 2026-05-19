@@ -1,624 +1,1220 @@
-"""
-DeepSynaps Protocol Studio — Intelligent Synaps v4
-Complete FastAPI application with all components wired.
-
-This is the central wiring file that connects all 66 adapters,
-9 Intelligent Synaps components, 4 Analyzer Bridges, the
-Multimodal Synthesizer, Protocol Generator, and Evidence Store.
-"""
-
-from __future__ import annotations
-
-import logging
 import os
-import sys
-import uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, Optional
+from pathlib import Path
+from time import perf_counter
+from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
-# ─── Logging Configuration ───────────────────────────────────────────────────
+from app.limiter import limiter
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 
-LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
-LOG_FORMAT = os.environ.get(
-    "LOG_FORMAT",
-    "%(asctime)s | %(name)s | %(levelname)s | %(message)s",
+from deepsynaps_core_schema import (
+    BrainRegionListResponse,
+    CaseSummaryRequest,
+    CaseSummaryResponse,
+    DeviceListResponse,
+    ErrorResponse,
+    EvidenceListResponse,
+    HandbookGenerateRequest,
+    IntakePreviewRequest,
+    IntakePreviewResponse,
+    ProtocolDraftRequest,
+    ProtocolDraftResponse,
+    QEEGBiomarkerListResponse,
+    QEEGConditionMapListResponse,
+    ReviewActionRequest,
+    ReviewActionResponse,
 )
 
-logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL, logging.INFO),
-    format=LOG_FORMAT,
-    stream=sys.stdout,
+from app.auth import AuthenticatedActor, get_authenticated_actor
+from app.database import SessionLocal, get_db_session, init_database
+from app.errors import ApiServiceError
+from app.logging_setup import configure_logging, get_logger
+from app.repositories.clinical import get_latest_snapshot
+from app.routers.auth_router import router as auth_router
+from app.routers.assessments_router import router as assessments_router
+from app.routers.chat_router import router as chat_router
+from app.routers.registries_router import router as registries_router
+from app.routers.telegram_router import router as telegram_router
+from app.routers.export_router import router as export_router
+from app.routers.personalization_router import router as personalization_router
+from app.routers.patients_router import router as patients_router
+from app.routers.payments_router import router as payments_router
+from app.routers.agent_billing_router import router as agent_billing_router
+from app.routers.finance_router import router as finance_router
+from app.routers.sessions_router import router as sessions_router
+from app.routers.treatment_courses_router import router as treatment_courses_router
+from app.routers.treatment_courses_router import review_router as review_queue_router
+from app.routers.adverse_events_router import router as adverse_events_router
+from app.routers.population_analytics_router import router as population_analytics_router
+from app.routers.patient_analytics_router import router as patient_analytics_router
+from app.routers.data_console_router import router as data_console_router
+from app.routers.research_consent_router import router as research_consent_router
+from app.routers.outcomes_router import router as outcomes_router
+from app.routers.qeeg_records_router import router as qeeg_records_router
+from app.routers.phenotype_router import router as phenotype_router
+from app.routers.consent_router import router as consent_router
+from app.routers.patient_portal_router import router as patient_portal_router
+from app.routers.notifications_router import router as notifications_router
+from app.routers.wearable_router import router as wearable_router
+from app.routers.patient_wearables_router import router as patient_wearables_router
+from app.routers.wearables_workbench_router import router as wearables_workbench_router
+from app.routers.clinician_inbox_router import router as clinician_inbox_router
+from app.routers.care_team_coverage_router import router as care_team_coverage_router
+from app.routers.media_router import router as media_router
+from app.routers.home_devices_router import router as home_devices_router
+from app.routers.home_device_portal_router import router as home_device_portal_router
+from app.routers.marketplace_router import router as marketplace_router
+from app.routers.marketplace_seller_router import router as marketplace_seller_router
+from app.routers.virtual_care_router import router as virtual_care_router
+from app.routers.forms_router import router as forms_router
+from app.routers.medications_router import router as medications_router
+from app.routers.consent_management_router import router as consent_management_router
+from app.routers.home_program_tasks_router import router as home_program_tasks_router
+from app.routers.patient_home_program_tasks_router import (
+    router as patient_home_program_tasks_router,
 )
-logger = logging.getLogger("deepsynaps")
+from app.routers.home_task_templates_router import router as home_task_templates_router
+from app.routers.agent_skills_router import router as agent_skills_router
+from app.routers.annotations_router import router as annotations_router
+from app.routers.reminders_router import router as reminders_router
+from app.routers.irb_router import router as irb_router
+from app.routers.irb_manager_router import router as irb_manager_router
+from app.routers.evidence_router import router as evidence_router
+from app.routers.literature_router import router as literature_router
+from app.routers.literature_watch_router import router as literature_watch_router
+from app.routers.library_router import router as library_router
+from app.routers.reports_router import router as reports_router
+from app.routers.documents_router import router as documents_router
+from app.routers.documents_router import patient_docs_router
+from app.routers.recordings_router import router as recordings_router
+from app.routers.audio_analysis_router import router as audio_analysis_router
+from app.routers.voice_engine_router import router as voice_engine_router
+from app.routers.protocols_saved_router import router as protocols_saved_router
+from app.routers.protocols_generate_router import router as protocols_generate_router
+from app.routers.protocol_studio_router import router as protocol_studio_router
+from app.routers.brainmap_router import router as brainmap_router
+from app.routers.neuro_signs import router as neuro_signs_router
+from app.routers.leads_reception_router import router as leads_reception_router
+from app.routers.onboarding_router import router as onboarding_router
+from app.routers.symptom_journal_router import router as symptom_journal_router
+from app.routers.wellness_hub_router import router as wellness_hub_router
+from app.routers.patient_messages_router import router as patient_messages_router
+from app.routers.home_devices_patient_router import router as home_devices_patient_router
+from app.routers.adherence_events_router import router as adherence_events_router
+from app.routers.clinician_adherence_router import router as clinician_adherence_router
+from app.routers.clinician_wellness_router import router as clinician_wellness_router
+from app.routers.clinician_digest_router import router as clinician_digest_router
+from app.routers.auto_page_worker_router import router as auto_page_worker_router
+from app.routers.escalation_policy_router import router as escalation_policy_router
+from app.routers.patient_oncall_router import router as patient_oncall_router
+from app.routers.patient_digest_router import router as patient_digest_router
+from app.routers.knowledge_router_v2 import router as knowledge_router_v2
+from app.routers.knowledge_adapters_live_router import (
+    router as knowledge_adapters_live_router,
+)
+from app.routers.evidence_router import router as evidence_router
+from app.routers.health_dashboard import router as health_dashboard
+from app.lifespan_wiring import deepynaps_lifespan
+from app.routers.biomarker_router import router as biomarker_router
+from app.routers.intervention_intelligence_router import router as intervention_intelligence_router
+from app.routers.caregiver_consent_router import router as caregiver_consent_router
+from app.routers.caregiver_email_digest_router import router as caregiver_email_digest_router
+from app.routers.caregiver_delivery_concern_aggregator_router import (
+    router as caregiver_delivery_concern_aggregator_router,
+)
+from app.routers.caregiver_delivery_concern_resolution_router import (
+    router as caregiver_delivery_concern_resolution_router,
+)
+from app.routers.caregiver_delivery_concern_resolution_audit_hub_router import (
+    router as caregiver_delivery_concern_resolution_audit_hub_router,
+)
+from app.routers.caregiver_delivery_concern_resolution_outcome_tracker_router import (
+    router as caregiver_delivery_concern_resolution_outcome_tracker_router,
+)
+from app.routers.channel_auth_health_probe_router import (
+    router as channel_auth_health_probe_router,
+)
+from app.routers.channel_misconfiguration_detector_router import (
+    router as channel_misconfiguration_detector_router,
+)
+from app.routers.channel_auth_drift_resolution_router import (
+    router as channel_auth_drift_resolution_router,
+)
+from app.routers.channel_auth_drift_resolution_audit_hub_router import (
+    router as channel_auth_drift_resolution_audit_hub_router,
+)
+from app.routers.auth_drift_rotation_policy_advisor_router import (
+    router as auth_drift_rotation_policy_advisor_router,
+)
+from app.routers.clinical_trials_router import router as clinical_trials_router
+from app.routers.irb_amendment_workflow_router import (
+    router as irb_amendment_workflow_router,
+)
+from app.routers.coaching_digest_delivery_failure_drilldown_router import (
+    router as coaching_digest_delivery_failure_drilldown_router,
+)
+from app.routers.irb_amendment_reviewer_workload_router import (
+    router as irb_amendment_reviewer_workload_router,
+)
+from app.routers.irb_amendment_reviewer_workload_outcome_tracker_router import (
+    router as irb_amendment_reviewer_workload_outcome_tracker_router,
+)
+from app.routers.resolver_coaching_inbox_router import (
+    router as resolver_coaching_inbox_router,
+)
+from app.routers.resolver_coaching_digest_audit_hub_router import (
+    router as resolver_coaching_digest_audit_hub_router,
+)
+from app.routers.resolver_coaching_self_review_digest_router import (
+    router as resolver_coaching_self_review_digest_router,
+)
+from app.routers.reviewer_sla_calibration_threshold_tuning_router import (
+    router as reviewer_sla_calibration_threshold_tuning_router,
+)
+from app.routers.digital_phenotyping_router import router as digital_phenotyping_router
+from app.routers.labs_analyzer_router import router as labs_analyzer_router
+from app.routers.genetic_analyzer_router import router as genetic_analyzer_router
+from app.routers.medication_analyzer_router import router as medication_analyzer_router
+# Movement analyzer is gated behind DEEPSYNAPS_ENABLE_MOVEMENT_ANALYZER=1.
+# The router imports `MovementBiomarkerTrend` from `app.persistence.models`,
+# which does not exist in `__init__.py` yet (model + migration are a separate
+# backlog item). Skipping the import when the flag is off keeps the app
+# bootable; flipping the flag will reintroduce the import path once the
+# model lands.
+_MOVEMENT_ANALYZER_ENABLED = os.environ.get("DEEPSYNAPS_ENABLE_MOVEMENT_ANALYZER") == "1"
+if _MOVEMENT_ANALYZER_ENABLED:
+    from app.routers.movement_analyzer_router import router as movement_analyzer_router
+from app.routers.nutrition_analyzer_router import router as nutrition_analyzer_router
+from app.routers.qeeg_annotation_outcome_tracker_router import (
+    router as qeeg_annotation_outcome_tracker_router,
+)
+# Settings API routers (foundation scaffolded by backend subagent #1; endpoints
+# fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
+from app.routers.profile_router import router as profile_router
+from app.routers.clinic_router import router as clinic_router
+from app.routers.team_router import router as team_router
+from app.routers.preferences_router import router as preferences_router
+from app.routers.data_privacy_router import router as data_privacy_router
+from app.routers.risk_stratification_router import router as risk_stratification_router
+from app.routers.risk_analyzer_router import router as risk_analyzer_router
+from app.routers.qeeg_analysis_router import router as qeeg_analysis_router
+from app.routers.analyzer_ai_report_router import router as analyzer_ai_report_router
+from app.routers.qeeg_live_router import router as qeeg_live_router
+from app.routers.qeeg_copilot_router import router as qeeg_copilot_router
+from app.routers.qeeg_viz_router import router as qeeg_viz_router
+from app.routers.qeeg_capabilities_router import router as qeeg_capabilities_router
+from app.routers.mri_analysis_router import router as mri_analysis_router
+from app.routers.mri_capabilities_router import router as mri_capabilities_router
+from app.routers.neuro_signs import router as neuro_signs_router
+from app.routers.medical_images_router import router as medical_images_router
+from app.routers.fusion_router import router as fusion_router
+from app.routers.patient_summary_router import router as patient_summary_router
+from app.routers.patient_timeline_router import router as patient_timeline_router
+from app.routers.clinical_text_router import router as clinical_text_router
+from app.routers.agents_router import router as agents_router
+from app.routers.agent_admin_router import router as agent_admin_router
+from app.routers.admin_pgvector_router import router as admin_pgvector_router
+from app.routers.research_dataset_router import router as research_dataset_router
+from app.routers.monitor_router import router as monitor_router
+from app.routers.deeptwin_router import brain_twin_router, router as deeptwin_router
+from app.routers.deeptwin_neuroai_lab_router import router as deeptwin_neuroai_lab_router
+from app.routers.feature_store_router import router as feature_store_router
+from app.routers.citation_validator_router import router as citation_validator_router
+from app.routers.ai_health_router import router as ai_health_router
+from app.routers.agent_brain_router import router as agent_brain_router
+from app.routers.agent_config_router import router as agent_config_router
+from app.routers.command_center_router import router as command_center_router
+from app.routers.dashboard_router import router as dashboard_router
+from app.routers.schedules_router import router as schedules_router
+from app.routers.device_sync_router import router as device_sync_router
+from app.routers.bio_router import router as bio_router
+from app.routers.founder_dash_router import router as founder_dash_router
+from app.routers.hermes_router import router as hermes_router
+try:
+    from app.routers.qa_router import router as qa_router
+    _HAS_QA_ROUTER = True
+except ImportError as _qa_imp_err:
+    qa_router = None  # type: ignore[assignment]
+    _HAS_QA_ROUTER = False
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "QA router unavailable (deepsynaps_qa not installed): %s", _qa_imp_err
+    )
+from app.routers.qeeg_raw_router import router as qeeg_raw_router
+from app.routers.qeeg_ai_router import router as qeeg_ai_router
+from app.qeeg.routers.qeeg_analysis_catalog_router import (
+    router as qeeg_105_analysis_catalog_router,
+)
+from app.qeeg.routers.qeeg_analysis_run_router import (
+    router as qeeg_105_analysis_run_router,
+)
+from app.qeeg.routers.qeeg_analysis_results_router import (
+    router as qeeg_105_analysis_results_router,
+)
+from app.routers.studio_eeg_router import router as studio_eeg_router
+from app.routers.studio_erp_router import router as studio_erp_router
+from app.routers.video_assessment_router import router as video_assessment_router
+from app.routers.studio_source_router import router as studio_source_router
+from app.routers.studio_spikes_router import router as studio_spikes_router
+from app.routers.studio_report_router import router as studio_report_router
+from app.routers.studio_eeg_database_router import router as studio_eeg_database_router
+from app.routers.recording_eeg_events_router import router as recording_eeg_events_router
+from app.routers.montages_router import router as montages_router
+from app.routers.audit_trail_router import router as audit_trail_router
+from app.routers.biometrics_router import router as biometrics_router
+from app.routers.qeeg_report_annotations_router import (
+    router as qeeg_report_annotations_router,
+)
+from app.routers.quality_assurance_router import router as quality_assurance_router
+from app.routers.crm_router import router as crm_router
+from app.routers.rotation_policy_advisor_outcome_tracker_router import (
+    router as rotation_policy_advisor_outcome_tracker_router,
+)
+from app.routers.rotation_policy_advisor_threshold_adoption_outcome_tracker_router import (
+    router as rotation_policy_advisor_threshold_adoption_outcome_tracker_router,
+)
+from app.routers.rotation_policy_advisor_threshold_tuning_router import (
+    router as rotation_policy_advisor_threshold_tuning_router,
+)
+from app.routers.treatment_sessions_router import router as treatment_sessions_router
+from app.routers.rehab_router import router as rehab_router
+from app.routers.wellness_router import router as wellness_router
+from app.routers.complementary_router import router as complementary_router
+from app.routers.analyzer_v2_router import router as analyzer_v2_router
+from app.routers.intelligence_hub_router import router as intelligence_hub_router
+from app.routers.admin_governance_router import router as admin_governance_router
+from app.routers.patient_care_router import router as patient_care_router
+from app.routers.intervention_planning_router import router as intervention_planning_router
+from app.routers.ecosystem_router import router as ecosystem_router
+from app.routers.patient_portal_v2_router import router as patient_portal_v2_router
+from app.routers.handbook_v2_router import router as handbook_v2_router
+from app.middleware.demo_detection import register_demo_middleware
+from app.monitoring.middleware import MetricsMiddleware, register_metrics_endpoint
+from app.sentry_setup import init_sentry
+from app.settings import get_settings
+from app.services.brain_regions import list_brain_regions
+from app.services.brain_targets import (
+    get_brain_target,
+    list_brain_targets,
+)
+from app.services.agent_scheduler import shutdown_scheduler, start_scheduler
+from app.services.demo_clinic_seed import seed_demo_clinic
+from app.workers.auto_page_worker import (
+    shutdown_worker as shutdown_auto_page_worker,
+    start_worker_if_enabled as start_auto_page_worker,
+)
+from app.workers.caregiver_email_digest_worker import (
+    shutdown_worker as shutdown_caregiver_email_digest_worker,
+    start_worker_if_enabled as start_caregiver_email_digest_worker,
+)
+from app.qeeg.workers.qeeg_analysis_worker import (
+    shutdown_worker as shutdown_qeeg_105_worker,
+    start_worker_if_enabled as start_qeeg_105_worker,
+)
+from app.workers.resolver_coaching_self_review_digest_worker import (
+    shutdown_worker as shutdown_resolver_coaching_self_review_digest_worker,
+    start_worker_if_enabled as start_resolver_coaching_self_review_digest_worker,
+)
+from app.services.agent_skills_seed import seed_default_agent_skills
+from app.services.clinical_data import HandbookGenerateAPIResponse, seed_clinical_dataset
+from app.services.demo_clinic_seed import (
+    demo_seed_enabled,
+    seed_demo_clinic,
+    seed_demo_clinic_data,
+)
+from app.services.devices import list_devices
+from app.services.evidence import list_evidence
+from app.services.generation import generate_handbook, generate_protocol_draft
+from app.services.log_sanitizer import sanitize_path
+from app.services.preview import build_intake_preview
+from app.services.qeeg import list_qeeg_biomarkers, list_qeeg_condition_map
+from app.services.review import record_review_action
+from app.services.uploads import build_case_summary
 
-# ─── Component Import Helpers ────────────────────────────────────────────────
+settings = get_settings()
+configure_logging(settings)
+logger = get_logger(__name__)
+init_sentry(settings.sentry_dsn, settings.app_env)
 
-_component_status: dict[str, dict[str, Any]] = {}
+def _seed_demo_users_for_dev(db: Session) -> None:
+    """Idempotently seed demo Clinic + Users so demo tokens lift a real clinic_id.
 
+    This makes the cross-clinic ownership gate work out-of-the-box in
+    development, test, and smoke-test environments without requiring
+    manual fixture setup.
+    """
+    if settings.app_env not in ("development", "test"):
+        return
+    from app.persistence.models import Clinic, User
+    clinic_id = "clinic-demo-default"
+    if db.query(Clinic).filter_by(id=clinic_id).first() is None:
+        db.add(Clinic(id=clinic_id, name="Demo Clinic"))
+        db.flush()
+    demo_users = [
+        {
+            "id": "actor-clinician-demo",
+            "email": "demo_clinician@example.com",
+            "display_name": "Verified Clinician Demo",
+            "role": "clinician",
+            "package_id": "clinician_pro",
+        },
+        {
+            "id": "actor-admin-demo",
+            "email": "demo_admin@example.com",
+            "display_name": "Admin Demo User",
+            "role": "admin",
+            "package_id": "enterprise",
+        },
+    ]
+    for spec in demo_users:
+        existing = db.query(User).filter_by(id=spec["id"]).first()
+        if existing is None:
+            db.add(User(
+                id=spec["id"],
+                email=spec["email"],
+                display_name=spec["display_name"],
+                hashed_password="x",
+                role=spec["role"],
+                package_id=spec["package_id"],
+                clinic_id=clinic_id,
+            ))
+        elif existing.clinic_id is None:
+            existing.clinic_id = clinic_id
+    db.commit()
 
-def _safe_import(
-    module_path: str,
-    attr_name: str | None = None,
-) -> Any:
-    """Gracefully import a module or attribute; return None on failure."""
-    try:
-        module = __import__(module_path, fromlist=[attr_name] if attr_name else [])
-        if attr_name is None:
-            return module
-        return getattr(module, attr_name)
-    except Exception as exc:
-        logger.debug("Import failed for %s.%s: %s", module_path, attr_name or "*", exc)
-        return None
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  LIFESPAN MANAGER
-# ═══════════════════════════════════════════════════════════════════════════════
 
 @asynccontextmanager
-async def deepsynaps_lifespan(app: FastAPI):
-    """Initialize and gracefully cleanup all subsystems on startup/shutdown."""
-    logger.info("=" * 60)
-    logger.info("DeepSynaps Protocol Studio v4  —  Boot Sequence")
-    logger.info("=" * 60)
+async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
+    # Ensure media storage directory exists before anything else
+    os.makedirs(settings.media_storage_root, exist_ok=True)
 
-    # ── 1. Adapter Registry v3 ────────────────────────────────────────────
+    init_database()
+    session = SessionLocal()
     try:
-        from app.adapters.adapter_registry_v3 import AdapterRegistry
-
-        app.state.registry = AdapterRegistry()
-        await app.state.registry.initialize()
-        available = len(app.state.registry.list_available_adapters())
-        logger.info("Adapter Registry v3  : %s/66 adapters loaded", available)
-        _component_status["adapter_registry"] = {
-            "status": "ready",
-            "adapters_loaded": available,
-        }
-    except Exception as exc:
-        logger.warning("Adapter Registry init warning: %s", exc)
-        app.state.registry = None
-        _component_status["adapter_registry"] = {"status": "failed", "error": str(exc)}
-
-    # ── 2. Smart Cache ────────────────────────────────────────────────────
-    try:
-        from app.intelligent.smart_cache import SmartCache
-
-        app.state.cache = SmartCache()
-        logger.info("Smart Cache          : READY")
-        _component_status["smart_cache"] = {"status": "ready"}
-    except Exception as exc:
-        logger.warning("Smart Cache init warning: %s", exc)
-        app.state.cache = None
-        _component_status["smart_cache"] = {"status": "failed", "error": str(exc)}
-
-    # ── 3. Confidence Engine ──────────────────────────────────────────────
-    try:
-        from app.intelligent.confidence_engine import ConfidenceEngine
-
-        app.state.confidence_engine = ConfidenceEngine()
-        logger.info("Confidence Engine    : READY")
-        _component_status["confidence_engine"] = {"status": "ready"}
-    except Exception as exc:
-        logger.warning("Confidence Engine init warning: %s", exc)
-        app.state.confidence_engine = None
-        _component_status["confidence_engine"] = {"status": "failed", "error": str(exc)}
-
-    # ── 4. Governance Layer ───────────────────────────────────────────────
-    try:
-        from app.intelligent.governance_layer import GovernanceLayer
-
-        app.state.governance = GovernanceLayer()
-        logger.info("Governance Layer     : READY")
-        _component_status["governance_layer"] = {"status": "ready"}
-    except Exception as exc:
-        logger.warning("Governance Layer init warning: %s", exc)
-        app.state.governance = None
-        _component_status["governance_layer"] = {"status": "failed", "error": str(exc)}
-
-    # ── 5. Cross-Reference Mesh ───────────────────────────────────────────
-    try:
-        from app.intelligent.cross_reference_mesh import CrossReferenceMesh
-
-        app.state.cross_ref_mesh = CrossReferenceMesh()
-        logger.info("Cross-Reference Mesh : READY")
-        _component_status["cross_reference_mesh"] = {"status": "ready"}
-    except Exception as exc:
-        logger.warning("Cross-Reference Mesh init warning: %s", exc)
-        app.state.cross_ref_mesh = None
-        _component_status["cross_reference_mesh"] = {"status": "failed", "error": str(exc)}
-
-    # ── 6. Evidence Fusion ────────────────────────────────────────────────
-    try:
-        from app.intelligent.evidence_fusion import EvidenceFusion
-
-        app.state.evidence_fusion = EvidenceFusion()
-        logger.info("Evidence Fusion      : READY")
-        _component_status["evidence_fusion"] = {"status": "ready"}
-    except Exception as exc:
-        logger.warning("Evidence Fusion init warning: %s", exc)
-        app.state.evidence_fusion = None
-        _component_status["evidence_fusion"] = {"status": "failed", "error": str(exc)}
-
-    # ── 7. Query Planner ──────────────────────────────────────────────────
-    try:
-        from app.intelligent.query_planner import QueryPlanner
-
-        app.state.query_planner = QueryPlanner()
-        logger.info("Query Planner        : READY")
-        _component_status["query_planner"] = {"status": "ready"}
-    except Exception as exc:
-        logger.warning("Query Planner init warning: %s", exc)
-        app.state.query_planner = None
-        _component_status["query_planner"] = {"status": "failed", "error": str(exc)}
-
-    # ── 8. Response Synthesizer ───────────────────────────────────────────
-    try:
-        from app.intelligent.response_synthesizer import ResponseSynthesizer
-
-        app.state.response_synthesizer = ResponseSynthesizer()
-        logger.info("Response Synthesizer : READY")
-        _component_status["response_synthesizer"] = {"status": "ready"}
-    except Exception as exc:
-        logger.warning("Response Synthesizer init warning: %s", exc)
-        app.state.response_synthesizer = None
-        _component_status["response_synthesizer"] = {"status": "failed", "error": str(exc)}
-
-    # ── 9. Intelligent Orchestrator (depends on above) ────────────────────
-    try:
-        from app.intelligent.intelligent_orchestrator import IntelligentOrchestrator
-
-        app.state.orchestrator = IntelligentOrchestrator(
-            registry=app.state.registry,
-            synthesizer=app.state.response_synthesizer,
-            confidence_engine=app.state.confidence_engine,
-            cross_ref_mesh=app.state.cross_ref_mesh,
-            evidence_fusion=app.state.evidence_fusion,
-            query_planner=app.state.query_planner,
-            governance=app.state.governance,
-            cache=app.state.cache,
-        )
-        logger.info("Intelligent Orchestrator: READY")
-        _component_status["orchestrator"] = {"status": "ready"}
-    except Exception as exc:
-        logger.warning("Orchestrator init warning: %s", exc)
-        app.state.orchestrator = None
-        _component_status["orchestrator"] = {"status": "failed", "error": str(exc)}
-
-    # ── 10. Multimodal Synthesizer ────────────────────────────────────────
-    try:
-        from app.synthesis.multimodal_synthesizer import MultimodalSynthesizer
-
-        app.state.multimodal_synthesizer = MultimodalSynthesizer()
-        logger.info("Multimodal Synthesizer: READY")
-        _component_status["multimodal_synthesizer"] = {"status": "ready"}
-    except Exception as exc:
-        logger.warning("Multimodal Synthesizer init warning: %s", exc)
-        app.state.multimodal_synthesizer = None
-        _component_status["multimodal_synthesizer"] = {"status": "failed", "error": str(exc)}
-
-    # ── 11. Protocol Generator ────────────────────────────────────────────
-    try:
-        from app.protocol.protocol_generator import ProtocolGenerator
-
-        app.state.protocol_generator = ProtocolGenerator()
-        logger.info("Protocol Generator   : READY")
-        _component_status["protocol_generator"] = {"status": "ready"}
-    except Exception as exc:
-        logger.warning("Protocol Generator init warning: %s", exc)
-        app.state.protocol_generator = None
-        _component_status["protocol_generator"] = {"status": "failed", "error": str(exc)}
-
-    # ── 12. Evidence Store ────────────────────────────────────────────────
-    try:
-        from app.evidence.evidence_store import EvidenceStore
-
-        app.state.evidence_store = EvidenceStore()
-        logger.info("Evidence Store       : READY")
-        _component_status["evidence_store"] = {"status": "ready"}
-    except Exception as exc:
-        logger.warning("Evidence Store init warning: %s", exc)
-        app.state.evidence_store = None
-        _component_status["evidence_store"] = {"status": "failed", "error": str(exc)}
-
-    # ── 13. Analyzer Bridges (×4) ─────────────────────────────────────────
-    for bridge_name in [
-        "efficacy_analyzer",
-        "safety_analyzer",
-        "comparator_analyzer",
-        "biomarker_analyzer",
-    ]:
-        try:
-            cls = _safe_import(
-                f"app.analyzers.{bridge_name}",
-                "".join(word.capitalize() for word in bridge_name.split("_")),
+        snapshot = seed_clinical_dataset(session)
+        # Seed AI Practice Agent skill catalogue when the table is empty.
+        # Idempotent — covers schemas bootstrapped via Base.metadata.create_all
+        # (e.g. tests) where alembic seed didn't run.
+        seed_default_agent_skills(session)
+        # Seed demo Clinic + User rows so demo tokens resolve with a real
+        # clinic_id and cross-clinic gates work in dev/test/smoke runs.
+        _seed_demo_users_for_dev(session)
+        # PRODUCTION SAFETY: Demo data must NEVER be seeded in production.
+        # This is a defense-in-depth check beyond the environment gate in
+        # demo_seed_enabled(). If this code runs in production, it logs a
+        # critical error and skips all demo seeding.
+        if settings.app_env == "production":
+            logger.critical(
+                "PRODUCTION SAFETY: Demo seeding blocked in production environment. "
+                "If you need demo data for a demo, use the development environment."
             )
-            if cls is not None:
-                setattr(app.state, bridge_name, cls())
-                logger.info("%-20s : READY", bridge_name.replace("_", " ").title())
-                _component_status[bridge_name] = {"status": "ready"}
-            else:
-                raise ImportError(f"Class not found for {bridge_name}")
-        except Exception as exc:
-            logger.warning("%s init warning: %s", bridge_name, exc)
-            setattr(app.state, bridge_name, None)
-            _component_status[bridge_name] = {"status": "failed", "error": str(exc)}
-
-    logger.info("=" * 60)
-    ready_count = sum(1 for v in _component_status.values() if v["status"] == "ready")
-    logger.info(
-        "Boot complete — %s/%s components ready",
-        ready_count,
-        len(_component_status),
-    )
-    logger.info("=" * 60)
-
-    yield
-
-    # ── Cleanup ───────────────────────────────────────────────────────────
-    logger.info("DeepSynaps Protocol Studio — Shutting down...")
-    if app.state.registry is not None:
+            # Do NOT seed demo data in production under any circumstances
+            pass  # skip all demo seeding
+        elif settings.app_env in ("development", "test"):
+            # Development and test environments can seed demo data
+            # (gated by demo_seed_enabled which also checks the env var)
+            if demo_seed_enabled(settings.app_env) and "PYTEST_CURRENT_TEST" not in os.environ:
+                seed_demo_clinic_data(session)
+            if demo_seed_enabled(settings.app_env) and "PYTEST_CURRENT_TEST" not in os.environ:
+                # Also seed scheduling-focused synthetic data (rooms/devices/
+                # appointments) so the Scheduling Hub demo has real backing rows.
+                # Same gate; idempotent on its own (skips if any demo schedule
+                # sessions already exist for the demo clinicians this week).
+                seed_demo_clinic(session)
+        else:
+            # Staging or other non-production environments
+            logger.info("Demo seeding skipped for environment: %s", settings.app_env)
+        app_instance.state.clinical_snapshot_id = snapshot.snapshot_id
+        logger.info(
+            "application startup complete",
+            extra={"snapshot_id": snapshot.snapshot_id},
+        )
+    finally:
+        session.close()
+    # Phase 9 — boot the agent-ops cron (gated on
+    # DEEPSYNAPS_AGENT_CRON_ENABLED so tests / CI don't fire jobs).
+    start_scheduler()
+    # Auto-Page Worker (2026-05-01) — gated on
+    # DEEPSYNAPS_AUTO_PAGE_ENABLED so tests / CI don't fire pages.
+    # Per-clinic enable lives on escalation_chains.auto_page_enabled.
+    start_auto_page_worker()
+    # Caregiver Email Digest Worker (2026-05-01) — gated on
+    # DEEPSYNAPS_CAREGIVER_DIGEST_ENABLED so tests / CI don't fire
+    # dispatches. Per-caregiver enable lives on
+    # caregiver_digest_preferences.enabled.
+    start_caregiver_email_digest_worker()
+    # QEEG-105 Analysis Worker (Phase 0 scaffold) — gated on
+    # DEEPSYNAPS_QEEG_105_WORKER_ENABLED so tests / CI don't run background jobs.
+    start_qeeg_105_worker()
+    # Voice engine warm-up — pre-load Whisper weights at startup so /api/v1/voice/analyze
+    # doesn't pay 30-90s of cold-load latency inside the request handler. Gated on
+    # DEEPSYNAPS_VOICE_WARMUP=1 so tests / CI don't load torch+whisper. Failures are
+    # logged and swallowed; the rule-based fallback still works without warm models.
+    if os.environ.get("DEEPSYNAPS_VOICE_WARMUP") == "1":
         try:
-            await app.state.registry.shutdown()
-            logger.info("Adapter Registry     : shutdown complete")
-        except Exception as exc:
-            logger.error("Adapter Registry shutdown error: %s", exc)
+            import time as _voice_time
+            import sys as _voice_sys
+            from pathlib import Path as _VoicePath
+            _voice_engine_dir = _VoicePath(__file__).resolve().parents[3] / "packages" / "voice-engine"
+            if str(_voice_engine_dir) not in _voice_sys.path:
+                _voice_sys.path.insert(0, str(_voice_engine_dir))
+            import transcription as _voice_transcription  # noqa: PLC0415
+            _t0 = _voice_time.monotonic()
+            _voice_transcription.get_whisper_model()
+            logger.info(
+                "voice-engine warm-up complete",
+                extra={"elapsed_sec": round(_voice_time.monotonic() - _t0, 2)},
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("voice-engine warm-up failed (non-fatal): %s", exc)
+    try:
+        yield
+    finally:
+        shutdown_scheduler()
+        shutdown_auto_page_worker()
+        shutdown_caregiver_email_digest_worker()
+        shutdown_qeeg_105_worker()
 
-    if app.state.cache is not None:
-        try:
-            await app.state.cache.close()
-            logger.info("Smart Cache          : closed")
-        except Exception as exc:
-            logger.error("Smart Cache shutdown error: %s", exc)
 
-    if app.state.evidence_store is not None:
-        try:
-            await app.state.evidence_store.close()
-            logger.info("Evidence Store       : closed")
-        except Exception as exc:
-            logger.error("Evidence Store shutdown error: %s", exc)
+app = FastAPI(title=settings.api_title, version=settings.api_version, lifespan=lifespan)
+# ── Prometheus metrics endpoint (must be before auth to allow unauthenticated scraping)
+register_metrics_endpoint(app)
+app.include_router(auth_router)
+app.include_router(payments_router)
+app.include_router(agent_billing_router)
+app.include_router(finance_router)
+app.include_router(export_router)
+app.include_router(personalization_router)
+app.include_router(patients_router)
+app.include_router(sessions_router)
+app.include_router(assessments_router)
+from app.routers.assessments_v2_router import router as assessments_v2_router  # noqa: E402
+app.include_router(assessments_v2_router)
+app.include_router(telegram_router)
+app.include_router(chat_router)
+app.include_router(registries_router)
+app.include_router(treatment_courses_router)
+app.include_router(review_queue_router)
+app.include_router(adverse_events_router)
+app.include_router(population_analytics_router)
+app.include_router(patient_analytics_router)
+app.include_router(data_console_router)
+app.include_router(research_consent_router)
+app.include_router(outcomes_router)
+app.include_router(qeeg_records_router)
+app.include_router(phenotype_router)
+app.include_router(consent_router)
+app.include_router(patient_portal_router)
+app.include_router(notifications_router)
+app.include_router(wearable_router)
+app.include_router(media_router)
+app.include_router(home_devices_router)
+app.include_router(home_device_portal_router)
+app.include_router(marketplace_router)
+app.include_router(marketplace_seller_router)
+app.include_router(virtual_care_router)
+app.include_router(forms_router)
+app.include_router(medications_router)
+app.include_router(genetic_analyzer_router)
+app.include_router(medication_analyzer_router)
+app.include_router(labs_analyzer_router)
+app.include_router(digital_phenotyping_router)
+if _MOVEMENT_ANALYZER_ENABLED:
+    app.include_router(movement_analyzer_router)
+app.include_router(nutrition_analyzer_router)
+app.include_router(consent_management_router)
+# Patient Home Program Tasks (Homework) launch-audit (2026-05-01).
+# Mounted BEFORE the clinician-side ``home_program_tasks_router`` so the
+# patient-scope ``/patient/...`` sub-paths under
+# ``/api/v1/home-program-tasks`` are resolved first. The clinician-side
+# router still owns the bare ``/api/v1/home-program-tasks`` path
+# (list / create / single-id CRUD) for clinicians.
+app.include_router(patient_home_program_tasks_router)
+app.include_router(home_program_tasks_router)
+app.include_router(home_task_templates_router)
+app.include_router(agent_skills_router)
+app.include_router(annotations_router)
+app.include_router(reminders_router)
+app.include_router(irb_router)
+app.include_router(irb_manager_router)
+app.include_router(literature_router)
+app.include_router(literature_watch_router)
+app.include_router(evidence_router)
+app.include_router(library_router)
+app.include_router(reports_router, prefix="/api/v1/reports", tags=["reports"])
+app.include_router(documents_router)
+app.include_router(patient_docs_router)
+app.include_router(recordings_router)
+app.include_router(audio_analysis_router)
+app.include_router(voice_engine_router, prefix="/api/v1")
+app.include_router(protocols_saved_router)
+app.include_router(protocols_generate_router)
+app.include_router(protocol_studio_router)
+app.include_router(brainmap_router)
+app.include_router(neuro_signs_router)
+app.include_router(leads_reception_router)
+app.include_router(onboarding_router)
+app.include_router(symptom_journal_router)
+app.include_router(wellness_hub_router)
+app.include_router(patient_messages_router)
+# Patient Home Devices launch-audit (2026-05-01). Distinct from the
+# clinician-side ``home_devices_router`` (registered later under the
+# clinician group) — this one carries the patient-side
+# /devices CRUD + audit ingestion.
+app.include_router(home_devices_patient_router)
+# Patient Adherence Events launch-audit (2026-05-01). Sixth patient-facing
+# launch-audit surface — closes the home-therapy patient-side regulator
+# chain (register → log session → adherence event → side-effect →
+# escalate to AE Hub draft).
+app.include_router(adherence_events_router)
+# Patient Wearables launch-audit (2026-05-01). EIGHTH and final patient-
+# facing launch-audit surface — adds the audit chain, consent-revoked
+# write gate, IDOR regression and DEMO honesty layer on top of the
+# existing ``wearable_router`` clinician queue and patient_portal_router
+# wearable connect / sync helpers.
+app.include_router(patient_wearables_router)
+# Wearables Workbench launch-audit (2026-05-01). Bidirectional counterpart
+# to #352 — exposes the clinician triage queue over wearable_alert_flags
+# (acknowledge / escalate / resolve) with full audit, AE-draft creation
+# on escalate, IDOR cross-clinic gate, and DEMO-prefixed exports.
+app.include_router(wearables_workbench_router)
+# Clinician Inbox / Notifications Hub launch-audit (2026-05-01). Aggregates
+# HIGH-priority clinician-visible mirror audit rows from every patient-facing
+# launch audit (Patient Messages #347, Adherence Events #350, Home Program
+# Tasks #351, Patient Wearables #352, Wearables Workbench #353) into a
+# workflow-friendly triage inbox. Reads the audit_events table only — no
+# new schema; acknowledgements are stored as their own audit rows.
+app.include_router(clinician_inbox_router)
+app.include_router(care_team_coverage_router)
+# Clinician Adherence Hub launch-audit (2026-05-01). Bidirectional
+# counterpart to Adherence Events #350 — exposes a CROSS-PATIENT triage
+# queue over patient_adherence_events scoped to the clinic so a clinician
+# can clear today's backlog in bulk (acknowledge / escalate / resolve /
+# bulk-acknowledge) instead of opening one Inbox detail at a time.
+# Cross-clinic gated; admins see all. Closes the regulator chain on
+# home-therapy adherence: patient logs (#350) → clinician triages
+# (THIS) → SLA breach via Care Team Coverage (#357) → on-call paging.
+app.include_router(clinician_adherence_router)
+# Clinician Wellness Hub launch-audit (2026-05-01). Bidirectional
+# counterpart to Wellness Hub #345 — exposes a CROSS-PATIENT triage
+# queue over wellness_checkins scoped to the clinic so a clinician can
+# clear today's wellness backlog in bulk (acknowledge / escalate /
+# resolve / bulk-acknowledge) instead of opening one Inbox detail at a
+# time. Cross-clinic gated; admins see all. Closes the regulator chain
+# on early disengagement detection: patient logs (#345) → clinician
+# triages (THIS) → SLA breach via Care Team Coverage (#357) → on-call
+# paging.
+app.include_router(clinician_wellness_router)
+# Clinician Notifications Pulse / Daily Digest launch-audit (2026-05-01).
+# End-of-shift summary across the four clinician hubs (Inbox #354,
+# Wearables Workbench #353, Adherence Hub #361, Wellness Hub #365) plus
+# AE Hub #342 escalations. Top-of-loop telemetry the Care Team Coverage
+# SLA chain (#357) lacks: tells the on-call clinician at the end of
+# their shift "here's what happened, here's what's still open, here's
+# what got escalated". Read-only aggregator + email/colleague-share
+# audit rows; SMTP wire-up tracked in PR section F.
+app.include_router(clinician_digest_router)
+# Auto-Page Worker launch-audit (2026-05-01). Closes the real-time half
+# of the Care Team Coverage launch loop (#357). Background worker scans
+# SLA breaches every 60s and fires the same page-oncall handler the
+# manual button uses (in-process, not HTTP roundtrip). Per-clinic
+# enable via escalation_chains.auto_page_enabled; process-wide enable
+# via DEEPSYNAPS_AUTO_PAGE_ENABLED=1 env var.
+app.include_router(auto_page_worker_router)
+# Channel Misconfiguration Detector launch-audit (2026-05-01). Closes
+# section I rec from the Clinic Caregiver Channel Override (#387).
+# Nightly scan that walks every CaregiverDigestPreference row, evaluates
+# adapter_available per row, and emits HIGH-priority audit rows so the
+# Clinician Inbox aggregator surfaces channel misconfigs without the
+# admin having to manually open the "Caregiver channels" tab.
+app.include_router(channel_misconfiguration_detector_router)
+# Escalation Policy Editor (2026-05-01) — admin-only configurable
+# dispatch order + per-surface override matrix + per-user contact mapping.
+# Replaces the hard-coded DEFAULT_ADAPTER_ORDER and contact_handle path
+# flagged by the On-Call Delivery agent (#373) as the last operational
+# gap. OncallDeliveryService consults EscalationPolicy at construction
+# time and falls back to the static default when no policy exists, so
+# every existing deploy keeps working unchanged.
+app.include_router(escalation_policy_router)
+# Patient On-Call Visibility launch-audit (2026-05-01). Patient-facing
+# complement to the admin-side Escalation Policy editor (#374): patients
+# get a read-only "Care team contact" card on their Patient Profile
+# (pages-patient.js::pgPatientProfile) showing abstract availability
+# state (coverage hours, in-hours-now, urgent path) WITHOUT exposing
+# any PHI of the on-call clinician — no name, phone, Slack handle, or
+# PagerDuty user-id surfaces here. Closes the patient-side gap flagged
+# by the Escalation Policy agent now that admin-side dispatch order is
+# editable.
+app.include_router(patient_oncall_router)
+# Patient Digest launch-audit (2026-05-01). Patient-side mirror of the
+# Clinician Digest (#366). Daily/weekly self-summary the patient sees
+# on demand: sessions completed, adherence streak, wellness trends,
+# pending messages, recent reports — all scoped to actor.patient_id;
+# NO PHI of OTHER patients leaks into the response. The IDOR regression
+# test asserts that a clinician hitting the patient endpoints with a
+# forged patient_id query param still gets a 404.
+app.include_router(patient_digest_router)
+# Caregiver Consent Grants launch-audit (2026-05-01). Closes the
+# caregiver-share loop opened by Patient Digest #376. Patient grants
+# create durable rows in ``caregiver_consent_grants`` with a JSON
+# ``scope`` (digest / messages / reports / wearables); revoke stamps
+# ``revoked_at`` + ``revocation_reason`` and the grant becomes
+# immutable. Patient Digest's share-caregiver endpoint consults
+# ``has_active_grant`` and flips ``delivery_status='sent'`` honestly
+# when ``scope.digest=True`` — otherwise stays ``queued``. Cross-
+# patient access blocked at the router (404). Caregivers see grants
+# pointed at them via ``/grants/by-caregiver``.
+app.include_router(caregiver_consent_router)
+# Caregiver Delivery Concern Aggregator (2026-05-01). Clinic-scoped
+# status/tick endpoints + audit ingestion for delivery-concern clustering.
+app.include_router(caregiver_delivery_concern_aggregator_router)
+# Caregiver Delivery Concern Resolution (2026-05-02). Clinician review +
+# resolution flow for aggregator flags.
+app.include_router(caregiver_delivery_concern_resolution_router)
+# Caregiver Delivery Concern Resolution Audit Hub (2026-05-02). Read-only
+# cohort analytics over resolution audit rows.
+app.include_router(caregiver_delivery_concern_resolution_audit_hub_router)
+# Caregiver Delivery Concern Resolution Outcome Tracker (2026-05-02).
+# Lightweight outcome tracking over resolution reasons.
+app.include_router(caregiver_delivery_concern_resolution_outcome_tracker_router)
+app.include_router(channel_auth_health_probe_router)
+app.include_router(channel_misconfiguration_detector_router)
+# Channel Auth Drift Resolution (2026-05-02). Admin marks auth drift rows rotated;
+# clinician list/audit views; cross-clinic scoped.
+app.include_router(channel_auth_drift_resolution_router)
+# Channel Auth Drift Resolution Audit Hub (2026-05-02). Read-only cohort analytics.
+app.include_router(channel_auth_drift_resolution_audit_hub_router)
+app.include_router(auth_drift_rotation_policy_advisor_router)
+app.include_router(clinical_trials_router)
+# Caregiver Email Digest (2026-05-01) — closes the bidirectional
+# notification loop opened by Caregiver Notification Hub #379. Daily
+# roll-up of unread caregiver notifications via the on-call delivery
+# adapters in mock mode unless real env vars set. Caregivers opt in via
+# ``caregiver_digest_preferences``; the daily worker
+# (DEEPSYNAPS_CAREGIVER_DIGEST_ENABLED=1) honours a 24h per-caregiver
+# cooldown.
+app.include_router(caregiver_email_digest_router)
+# Audit Trail launch-audit (2026-04-30) — was previously included via
+# legacy main.py routes. The router carries its own filters, summary,
+# CSV / NDJSON exports, single-event detail, and audits its own reads.
+# A concurrent session reverted this include during PR #386's merge
+# storm; restoring it here so audit-trail surface tests pass and the
+# regulator transcript surface is reachable.
+app.include_router(audit_trail_router)
+# Settings API (scaffolded 024_settings_schema) — stubs; endpoints arrive in
+# follow-up subagents. Grouped together for discoverability.
+app.include_router(profile_router)
+app.include_router(clinic_router)
+app.include_router(team_router)
+app.include_router(preferences_router)
+app.include_router(data_privacy_router)
+app.include_router(risk_stratification_router)
+app.include_router(risk_analyzer_router)
+app.include_router(qeeg_analysis_router)
+app.include_router(analyzer_ai_report_router)
+app.include_router(qeeg_live_router)
+app.include_router(qeeg_copilot_router)
+app.include_router(qeeg_viz_router)
+app.include_router(qeeg_capabilities_router)
+app.include_router(qeeg_105_analysis_catalog_router)
+app.include_router(qeeg_105_analysis_run_router)
+app.include_router(qeeg_105_analysis_results_router)
+app.include_router(mri_analysis_router)
+app.include_router(mri_capabilities_router)
+app.include_router(neuro_signs_router)
+app.include_router(medical_images_router)
+app.include_router(fusion_router)
+app.include_router(monitor_router)
+app.include_router(deeptwin_router)
+app.include_router(deeptwin_neuroai_lab_router)
+app.include_router(brain_twin_router)
+app.include_router(patient_summary_router)
+app.include_router(patient_timeline_router)
+app.include_router(clinical_text_router)
+app.include_router(agents_router)
+app.include_router(agent_admin_router)
+app.include_router(admin_pgvector_router)
+app.include_router(research_dataset_router)
+app.include_router(feature_store_router)
+app.include_router(citation_validator_router)
+app.include_router(ai_health_router)
+app.include_router(agent_brain_router)
+app.include_router(agent_config_router)
+app.include_router(command_center_router)
+app.include_router(founder_dash_router)
+app.include_router(hermes_router)
+app.include_router(schedules_router)
+app.include_router(dashboard_router)
+app.include_router(device_sync_router)
+app.include_router(bio_router)
+if _HAS_QA_ROUTER and qa_router is not None:
+    app.include_router(qa_router)
+app.include_router(qeeg_raw_router)
+app.include_router(qeeg_ai_router)
+app.include_router(video_assessment_router)
+app.include_router(studio_eeg_router)
+app.include_router(studio_erp_router)
+app.include_router(studio_source_router)
+app.include_router(studio_spikes_router)
+app.include_router(studio_report_router)
+app.include_router(studio_eeg_database_router)
+app.include_router(recording_eeg_events_router)
+app.include_router(montages_router)
+app.include_router(irb_amendment_workflow_router)
+app.include_router(coaching_digest_delivery_failure_drilldown_router)
+app.include_router(irb_amendment_reviewer_workload_router)
+app.include_router(irb_amendment_reviewer_workload_outcome_tracker_router)
+app.include_router(resolver_coaching_inbox_router)
+app.include_router(resolver_coaching_digest_audit_hub_router)
+app.include_router(resolver_coaching_self_review_digest_router)
+app.include_router(reviewer_sla_calibration_threshold_tuning_router)
+app.include_router(qeeg_annotation_outcome_tracker_router)
+app.include_router(qeeg_report_annotations_router)
+app.include_router(quality_assurance_router)
+app.include_router(rotation_policy_advisor_outcome_tracker_router)
+app.include_router(rotation_policy_advisor_threshold_adoption_outcome_tracker_router)
+app.include_router(rotation_policy_advisor_threshold_tuning_router)
+app.include_router(treatment_sessions_router)
+app.include_router(audit_trail_router)
+app.include_router(biometrics_router)
+# DeepSynaps CRM — internal super-admin only. Cross-clinic platform operations.
+app.include_router(crm_router)
+# Intervention Platform Routers — Rehab, Wellness, Complementary
+# (2026-05-15) Three new intervention platforms for physical rehabilitation,
+# wellness coaching, and complementary therapy management.
+app.include_router(rehab_router)
+app.include_router(wellness_router)
+app.include_router(complementary_router)
+app.include_router(analyzer_v2_router)
+app.include_router(intelligence_hub_router)
+app.include_router(admin_governance_router)
+app.include_router(patient_care_router)
+app.include_router(intervention_planning_router)
+app.include_router(ecosystem_router)
+app.include_router(patient_portal_v2_router)
+app.include_router(handbook_v2_router)
+app.include_router(knowledge_router_v2)
+app.include_router(knowledge_adapters_live_router)
+app.include_router(evidence_router)
+app.include_router(health_dashboard)
+app.include_router(biomarker_router)
+app.include_router(intervention_intelligence_router)
 
-    logger.info("Goodbye.")
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  FASTAPI APPLICATION
-# ═══════════════════════════════════════════════════════════════════════════════
-
-app = FastAPI(
-    title="DeepSynaps Protocol Studio",
-    description=(
-        "Intelligent Synaps v4 — Clinical Neuromodulation Operating System.\n\n"
-        "Wires 66 specialty adapters, 9 intelligent Synaps components, "
-        "4 analyzer bridges, multimodal synthesis, protocol generation, "
-        "evidence storage, and real-time health monitoring."
-    ),
-    version="4.0.0",
-    lifespan=deepsynaps_lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
-)
-
-# ─── CORS ────────────────────────────────────────────────────────────────────
-
-# Production CORS origins should be read from environment
-_cors_origins = os.environ.get(
-    "CORS_ORIGINS",
-    "*",  # Default: allow all (override in production)
-).split(",")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_cors_origins,
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["X-Correlation-ID", "X-Request-Duration"],
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Accept"],
 )
 
-# ─── Request Correlation-ID Middleware ───────────────────────────────────────
+app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+
+class MaxBodySizeMiddleware(BaseHTTPMiddleware):
+    """Reject oversized requests before they hit the route handler.
+
+    The limit is read from ``settings.media_max_upload_bytes`` so that the
+    middleware ceiling and the media-router upload ceiling cannot drift
+    apart. Previously a hard-coded 10 MiB cap rejected uploads under the
+    50 MiB media limit with a 413 before they reached the router.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > settings.media_max_upload_bytes:
+            return JSONResponse({"error": "Request body too large"}, status_code=413)
+        return await call_next(request)
+
+
+app.add_middleware(MaxBodySizeMiddleware)
+
+# ── Prometheus metrics collection middleware ─────────────────────────────────
+# Collects request count, duration, and in-progress gauges for all HTTP
+# requests. Labels use route templates (not raw URLs) to prevent cardinality
+# explosion. All labels are PHI-safe — no patient identifiers.
+app.add_middleware(MetricsMiddleware)
+
+# ── Demo detection middleware ────────────────────────────────────────────────
+# Defense-in-depth: detects demo data in responses, blocks demo endpoints in
+# production, and unconditionally sets X-Demo-Mode header for downstream
+# consumers. Registered AFTER MetricsMiddleware so it sees the final response
+# without interfering with Prometheus latency measurements.
+register_demo_middleware(app)
+
+# Audit logging for demo/production boundary crossings.
+# Logs every demo data access, demo endpoint block, and seed attempt
+# for compliance review and incident investigation.
+from app.middleware.demo_audit import log_demo_audit
+
 
 @app.middleware("http")
-async def correlation_middleware(request: Request, call_next):
-    """Attach a unique correlation-id to every request for distributed tracing."""
-    request.state.correlation_id = request.headers.get(
-        "X-Correlation-ID", str(uuid.uuid4())
-    )
+async def security_headers_middleware(request: Request, call_next):
     response = await call_next(request)
-    response.headers["X-Correlation-ID"] = request.state.correlation_id
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    # Honour a stricter Referrer-Policy already set by the route handler.
+    # The SSE endpoint (`/api/v1/notifications/stream`) accepts the access
+    # token in a `?token=…` query param (EventSource cannot send an
+    # Authorization header) and explicitly sets `no-referrer` to prevent
+    # the full URL — token included — leaking via the `Referer` header on
+    # any same-origin navigation. Overwriting that with the global default
+    # (`strict-origin-when-cross-origin`) reopens the leak, since
+    # `strict-origin-when-cross-origin` still sends the FULL URL on
+    # same-origin requests. Use setdefault semantics so any route that
+    # sets its own policy keeps it.
+    if "Referrer-Policy" not in response.headers:
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data: https:; "
+        # Allow the Sentry browser SDK to POST events / session replays.
+        # Without these origins the in-browser SDK is silently blocked by CSP.
+        "connect-src 'self' https://*.sentry.io https://*.ingest.sentry.io; "
+        "frame-ancestors 'none';"
+    )
+    if settings.app_env == "production":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
 
-# ─── Request Timing Middleware ───────────────────────────────────────────────
+def _safe_log_path(request: Request) -> str:
+    """Return a PHI-safe path label for structured logs / Sentry.
+
+    Prefers the matched route template (`/api/v1/patients/{patient_id}/timeline`)
+    so identifiers never reach the log payload. Falls back to a sanitised raw
+    path when no route matched (404, malformed path, ASGI-level errors). See
+    apps/api/app/services/log_sanitizer.py for the redaction rules.
+    """
+    route = request.scope.get("route") if hasattr(request, "scope") else None
+    template = getattr(route, "path", None) if route is not None else None
+    if isinstance(template, str) and template:
+        return template
+    return sanitize_path(request.url.path)
+
 
 @app.middleware("http")
-async def timing_middleware(request: Request, call_next):
-    """Record request duration for performance monitoring."""
-    import time
+async def log_requests(request: Request, call_next):
+    request_id = request.headers.get("x-request-id", str(uuid4()))
+    start = perf_counter()
+    request.state.request_id = request_id
 
-    start = time.perf_counter()
-    response = await call_next(request)
-    elapsed = time.perf_counter() - start
-    response.headers["X-Request-Duration"] = f"{elapsed:.4f}s"
-    logger.debug(
-        "request=%s method=%s path=%s duration=%.4fs",
-        request.state.correlation_id,
-        request.method,
-        request.url.path,
-        elapsed,
-    )
-    return response
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = round((perf_counter() - start) * 1000, 2)
+        logger.exception(
+            "request failed",
+            extra={
+                "request_id": request_id,
+                "method": request.method,
+                "path": _safe_log_path(request),
+                "duration_ms": duration_ms,
+            },
+        )
+        raise
 
-
-# ─── Global Exception Handler ────────────────────────────────────────────────
-
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
-    """Handle FastAPI HTTPExceptions with correlation-id."""
-    logger.warning(
-        "HTTP %s — %s  (correlation=%s)",
-        exc.status_code,
-        exc.detail,
-        getattr(request.state, "correlation_id", "n/a"),
-    )
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "detail": exc.detail,
-            "correlation_id": getattr(request.state, "correlation_id", None),
+    duration_ms = round((perf_counter() - start) * 1000, 2)
+    response.headers["X-Request-ID"] = request_id
+    logger.info(
+        "request completed",
+        extra={
+            "request_id": request_id,
+            "method": request.method,
+            "path": _safe_log_path(request),
+            "status_code": response.status_code,
+            "duration_ms": duration_ms,
         },
     )
+    return response
+
+
+# ── SPA fallback middleware ──────────────────────────────────────────────────
+# Client-side routes (e.g. /patient-education) must serve index.html so the
+# React router can handle them. This middleware intercepts 404s from the
+# StaticFiles mount and rewrites them to index.html, preserving API 404s.
+_frontend_dist = Path(__file__).resolve().parents[3] / "apps" / "web" / "dist"
+
+@app.middleware("http")
+async def spa_fallback_middleware(request: Request, call_next):
+    # Clean URL `/data-console` → SPA deep-link to the data console page.
+    # The SPA boot reads `?page=<id>` (apps/web/src/app.js init()) and pops
+    # the login overlay or auto-enters demo mode for unauth visitors.
+    if request.url.path == "/data-console":
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(
+            url="/?page=data-console",
+            status_code=303,
+        )
+    
+    response = await call_next(request)
+    if response.status_code == 404:
+        path = request.url.path
+        # Don't rewrite API or static uploads
+        if not path.startswith("/api/") and not path.startswith("/static/"):
+            # Only rewrite if the file doesn't actually exist in dist
+            file_path = _frontend_dist / path.lstrip("/")
+            if not file_path.exists() or not file_path.is_file():
+                new_response = FileResponse(_frontend_dist / "index.html")
+                # Preserve security headers added by inner middleware
+                for header, value in response.headers.items():
+                    h = header.lower()
+                    if h not in ("content-length", "content-type", "etag", "last-modified", "accept-ranges"):
+                        new_response.headers[header] = value
+                return new_response
+    return response
+
+
+def _health_payload(session: Session) -> dict[str, object]:
+    session.execute(text("SELECT 1"))
+    snapshot = get_latest_snapshot(session)
+    return {
+        "status": "ok",
+        "db": "connected",
+        "environment": settings.app_env,
+        "version": settings.api_version,
+        "database": "ok",
+        "clinical_snapshot": {
+            "snapshot_id": snapshot.snapshot_id if snapshot is not None else None,
+            "total_records": snapshot.total_records if snapshot is not None else 0,
+        },
+    }
+
+
+@app.get("/health")
+def health(session: Session = Depends(get_db_session)) -> dict[str, object]:
+    return _health_payload(session)
+
+
+@app.get("/healthz")
+def healthz(session: Session = Depends(get_db_session)) -> dict[str, object]:
+    return _health_payload(session)
+
+
+@app.get("/api/v1/health")
+def health_v1(session: Session = Depends(get_db_session)) -> dict[str, object]:
+    """Versioned health check — returns {status, db, version} plus richer diagnostics."""
+    return _health_payload(session)
+
+
+def _sanitize_error_payload(value):
+    """Recursively coerce bytes (and other non-JSON-native) values in
+    ``ApiServiceError.details`` to safe stand-ins.
+
+    Issue #900: an AI-analysis path was raising ``ApiServiceError(...,
+    details={"<key>": <bytes>})`` (typically a raw file-buffer slice). The
+    handler then tried to serialise the bytes via ``JSONResponse`` and
+    failed with ``TypeError: Object of type bytes is not JSON serializable``,
+    which masked the underlying 403 / 404 the test was asserting on.
+    Sanitising at the handler boundary is the lowest-blast-radius fix and
+    keeps every router free to attach arbitrary debugging context without
+    crashing the response.
+    """
+    if isinstance(value, (bytes, bytearray)):
+        return f"<{len(value)} bytes>"
+    if isinstance(value, dict):
+        return {k: _sanitize_error_payload(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_sanitize_error_payload(v) for v in value]
+    return value
+
+
+@app.exception_handler(ApiServiceError)
+async def api_service_error_handler(
+    _request: Request,
+    exc: ApiServiceError,
+) -> JSONResponse:
+    payload = ErrorResponse(
+        code=exc.code,
+        message=exc.message,
+        warnings=exc.warnings,
+        details=_sanitize_error_payload(exc.details),
+    )
+    return JSONResponse(status_code=exc.status_code, content=payload.model_dump(exclude_none=True))
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error_handler(
+    _request: Request,
+    exc: RequestValidationError,
+) -> JSONResponse:
+    payload = ErrorResponse(
+        code="invalid_request",
+        message="One or more request fields are missing or invalid.",
+        warnings=[error["msg"] for error in exc.errors()],
+    )
+    return JSONResponse(status_code=422, content=payload.model_dump())
 
 
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    """Catch-all for unhandled exceptions."""
-    correlation_id = getattr(request.state, "correlation_id", None)
-    logger.error(
-        "Unhandled exception [correlation=%s]: %s",
-        correlation_id,
-        exc,
-        exc_info=True,
-    )
-    return JSONResponse(
-        status_code=500,
-        content={
-            "detail": "Internal server error",
-            "correlation_id": correlation_id,
-            "type": exc.__class__.__name__,
+async def unexpected_error_handler(
+    request: Request,
+    exc: Exception,
+) -> JSONResponse:
+    logger.exception(
+        "unhandled application error",
+        extra={
+            "request_id": getattr(request.state, "request_id", None),
+            "method": request.method,
+            "path": _safe_log_path(request),
         },
     )
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  HEALTH ENDPOINTS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-@app.get("/health", tags=["Health"], response_model=dict)
-async def health_check() -> dict[str, Any]:
-    """Lightweight liveness probe."""
-    return {
-        "status": "healthy",
-        "version": "4.0.0",
-        "codename": "Intelligent Synaps",
-    }
-
-
-@app.get("/health/ready", tags=["Health"], response_model=dict)
-async def health_ready() -> dict[str, Any]:
-    """Readiness probe — checks all subsystems."""
-    checks = {
-        "orchestrator": app.state.orchestrator is not None,
-        "registry": getattr(app.state, "registry", None) is not None,
-        "cache": getattr(app.state, "cache", None) is not None,
-        "governance": getattr(app.state, "governance", None) is not None,
-        "confidence_engine": getattr(app.state, "confidence_engine", None) is not None,
-        "cross_ref_mesh": getattr(app.state, "cross_ref_mesh", None) is not None,
-        "evidence_fusion": getattr(app.state, "evidence_fusion", None) is not None,
-        "query_planner": getattr(app.state, "query_planner", None) is not None,
-        "response_synthesizer": getattr(app.state, "response_synthesizer", None) is not None,
-        "multimodal_synthesizer": getattr(app.state, "multimodal_synthesizer", None) is not None,
-        "protocol_generator": getattr(app.state, "protocol_generator", None) is not None,
-        "evidence_store": getattr(app.state, "evidence_store", None) is not None,
-        "efficacy_analyzer": getattr(app.state, "efficacy_analyzer", None) is not None,
-        "safety_analyzer": getattr(app.state, "safety_analyzer", None) is not None,
-        "comparator_analyzer": getattr(app.state, "comparator_analyzer", None) is not None,
-        "biomarker_analyzer": getattr(app.state, "biomarker_analyzer", None) is not None,
-    }
-    all_ready = all(checks.values())
-    return {
-        "status": "ready" if all_ready else "degraded",
-        "version": "4.0.0",
-        "checks": checks,
-        "ready_count": sum(checks.values()),
-        "total_count": len(checks),
-    }
-
-
-@app.get("/health/detailed", tags=["Health"], response_model=dict)
-async def health_detailed() -> dict[str, Any]:
-    """Detailed health report with adapter inventory."""
-    adapters: list[dict[str, str]] = []
-    if app.state.registry is not None:
-        try:
-            for name in app.state.registry.list_available_adapters():
-                adapters.append({"name": name, "status": "available"})
-            for name in app.state.registry.list_failed_adapters():
-                adapters.append({"name": name, "status": "failed"})
-        except Exception as exc:
-            logger.warning("Could not enumerate adapters: %s", exc)
-
-    return {
-        "version": "4.0.0",
-        "adapters_total": 66,
-        "adapters_loaded": len([a for a in adapters if a["status"] == "available"]),
-        "adapters_failed": len([a for a in adapters if a["status"] == "failed"]),
-        "adapters": adapters,
-        "components": {
-            "orchestrator": app.state.orchestrator is not None,
-            "registry": getattr(app.state, "registry", None) is not None,
-            "cache": getattr(app.state, "cache", None) is not None,
-            "governance": getattr(app.state, "governance", None) is not None,
-            "confidence_engine": getattr(app.state, "confidence_engine", None) is not None,
-            "cross_reference_mesh": getattr(app.state, "cross_ref_mesh", None) is not None,
-            "evidence_fusion": getattr(app.state, "evidence_fusion", None) is not None,
-            "query_planner": getattr(app.state, "query_planner", None) is not None,
-            "response_synthesizer": getattr(app.state, "response_synthesizer", None) is not None,
-            "multimodal_synthesizer": getattr(app.state, "multimodal_synthesizer", None) is not None,
-            "protocol_generator": getattr(app.state, "protocol_generator", None) is not None,
-            "evidence_store": getattr(app.state, "evidence_store", None) is not None,
-            "efficacy_analyzer": getattr(app.state, "efficacy_analyzer", None) is not None,
-            "safety_analyzer": getattr(app.state, "safety_analyzer", None) is not None,
-            "comparator_analyzer": getattr(app.state, "comparator_analyzer", None) is not None,
-            "biomarker_analyzer": getattr(app.state, "biomarker_analyzer", None) is not None,
-        },
-        "component_status_detail": _component_status,
-    }
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  ROOT / META ENDPOINTS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-@app.get("/", tags=["Root"], response_model=dict, include_in_schema=False)
-async def root() -> dict[str, Any]:
-    """Welcome endpoint with system overview."""
-    return {
-        "name": "DeepSynaps Protocol Studio",
-        "version": "4.0.0",
-        "codename": "Intelligent Synaps",
-        "description": "Clinical Neuromodulation Operating System",
-        "documentation": "/docs",
-        "endpoints": {
-            "health": "/health",
-            "health_ready": "/health/ready",
-            "health_detailed": "/health/detailed",
-            "intelligent_synaps": "/intelligent-synaps",
-            "knowledge": "/knowledge",
-            "evidence": "/evidence",
-        },
-        "adapters": 66,
-        "components": [
-            "Intelligent Orchestrator",
-            "7D Confidence Engine",
-            "Cross-Reference Mesh",
-            "Evidence Fusion",
-            "Smart Cache",
-            "Query Planner",
-            "Response Synthesizer",
-            "Governance Layer",
-            "Multimodal Synthesizer",
-            "Protocol Generator",
-            "Evidence Store",
-            "Efficacy Analyzer",
-            "Safety Analyzer",
-            "Comparator Analyzer",
-            "Biomarker Analyzer",
-        ],
-    }
-
-
-@app.get("/version", tags=["Meta"], response_model=dict)
-async def version_info() -> dict[str, str]:
-    """Return precise version and environment info."""
-    return {
-        "version": "4.0.0",
-        "codename": "Intelligent Synaps",
-        "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
-        "platform": sys.platform,
-    }
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  ROUTER WIRING (graceful — routers that fail to import are logged, not fatal)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-_ROUTER_TABLE = [
-    # (module_path, router_attr, display_name, prefix, tags)
-    (
-        "app.intelligent.intelligent_router",
-        "router",
-        "Intelligent Synaps Router",
-        None,
-        ["Intelligent Synaps"],
-    ),
-    (
-        "app.routers.knowledge_router_v2",
-        "router",
-        "Knowledge Router v2",
-        None,
-        ["Knowledge"],
-    ),
-    (
-        "app.routers.evidence_router",
-        "router",
-        "Evidence Router",
-        None,
-        ["Evidence"],
-    ),
-    (
-        "app.routers.synthesis_router",
-        "router",
-        "Synthesis Router",
-        None,
-        ["Synthesis"],
-    ),
-    (
-        "app.routers.protocol_router",
-        "router",
-        "Protocol Router",
-        None,
-        ["Protocol"],
-    ),
-    (
-        "app.monitoring.health_dashboard",
-        "router",
-        "Health Dashboard",
-        None,
-        ["Monitoring"],
-    ),
-    (
-        "app.routers.adapter_admin_router",
-        "router",
-        "Adapter Admin Router",
-        "/admin",
-        ["Admin"],
-    ),
-]
-
-for _mod_path, _attr, _name, _prefix, _tags in _ROUTER_TABLE:
-    try:
-        _module = __import__(_mod_path, fromlist=[_attr])
-        _router = getattr(_module, _attr)
-        _kwargs: dict[str, Any] = {"tags": _tags}
-        if _prefix:
-            _kwargs["prefix"] = _prefix
-        app.include_router(_router, **_kwargs)
-        logger.info("Router loaded: %s", _name)
-    except Exception as exc:
-        logger.warning("Router skipped: %s — %s", _name, exc)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  DEV SERVER ENTRYPOINT
-# ═══════════════════════════════════════════════════════════════════════════════
-
-if __name__ == "__main__":
-    import uvicorn
-
-    port = int(os.environ.get("PORT", 8000))
-    host = os.environ.get("HOST", "0.0.0.0")
-    reload = os.environ.get("RELOAD", "false").lower() == "true"
-
-    logger.info("Starting uvicorn on %s:%s (reload=%s)", host, port, reload)
-    uvicorn.run(
-        "app.main:app",
-        host=host,
-        port=port,
-        reload=reload,
-        log_level=LOG_LEVEL.lower(),
+    payload = ErrorResponse(
+        code="internal_error",
+        message="The server could not complete the request.",
+        warnings=["Retry the request or review the API logs for the associated request id."],
     )
+    return JSONResponse(status_code=500, content=payload.model_dump())
+
+
+@app.post(
+    "/api/v1/intake/preview",
+    response_model=IntakePreviewResponse,
+    responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+)
+@limiter.limit("30/minute")
+def intake_preview(request: Request, payload: IntakePreviewRequest) -> IntakePreviewResponse:
+    return build_intake_preview(payload)
+
+
+@app.get("/api/v1/evidence", response_model=EvidenceListResponse)
+def evidence() -> EvidenceListResponse:
+    return list_evidence()
+
+
+@app.get("/api/v1/devices", response_model=DeviceListResponse)
+def devices() -> DeviceListResponse:
+    return list_devices()
+
+
+@app.get("/api/v1/brain-regions", response_model=BrainRegionListResponse)
+def brain_regions() -> BrainRegionListResponse:
+    return list_brain_regions()
+
+
+# Brain Map Planner — clinical target registry (deterministic, no AI).
+# Frontend `pgBrainMapPlanner` uses these to resolve canonical targets
+# (DLPFC-L, mPFC, M1, etc.) to anchor 10-20 electrodes + MNI coordinates +
+# evidence grade. See `app/services/brain_targets.py` for the full schema and
+# adding-a-target rules.
+@app.get("/api/v1/brain-targets")
+def brain_targets() -> dict:
+    return list_brain_targets()
+
+
+@app.get("/api/v1/brain-targets/{target_id}")
+def brain_target_detail(target_id: str) -> dict:
+    entry = get_brain_target(target_id)
+    if not entry:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail=f"Unknown brain target: {target_id}")
+    return entry
+
+
+@app.get("/api/v1/qeeg/biomarkers", response_model=QEEGBiomarkerListResponse)
+def qeeg_biomarkers() -> QEEGBiomarkerListResponse:
+    return list_qeeg_biomarkers()
+
+
+@app.get("/api/v1/qeeg/condition-map", response_model=QEEGConditionMapListResponse)
+def qeeg_condition_map() -> QEEGConditionMapListResponse:
+    return list_qeeg_condition_map()
+
+
+@app.post("/api/v1/uploads/case-summary", response_model=CaseSummaryResponse)
+def case_summary(
+    payload: CaseSummaryRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> CaseSummaryResponse:
+    return build_case_summary(payload, actor)
+
+
+@app.post(
+    "/api/v1/protocols/generate-draft",
+    response_model=ProtocolDraftResponse,
+    responses={
+        403: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+    },
+)
+@limiter.limit("10/minute")
+def protocol_draft(
+    request: Request,
+    payload: ProtocolDraftRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ProtocolDraftResponse:
+    return generate_protocol_draft(payload, actor)
+
+
+@app.post(
+    "/api/v1/handbooks/generate",
+    response_model=HandbookGenerateAPIResponse,
+    responses={403: {"model": ErrorResponse}},
+)
+@limiter.limit("10/minute")
+def handbook(
+    request: Request,
+    payload: HandbookGenerateRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> HandbookGenerateAPIResponse:
+    return generate_handbook(payload, actor)
+
+
+@app.post(
+    "/api/v1/review-actions",
+    response_model=ReviewActionResponse,
+    responses={403: {"model": ErrorResponse}},
+)
+def review_action(
+    payload: ReviewActionRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> ReviewActionResponse:
+    return record_review_action(payload, actor, session)
+
+
+# NOTE: GET /api/v1/audit-trail moved to apps/api/app/routers/audit_trail_router.py
+# (launch-audit 2026-04-30). The router exposes filters, summary, NDJSON / CSV
+# exports, single-event detail, and audits its own reads — all required for
+# regulator-credible review. The legacy admin-only endpoint that lived here is
+# subsumed by router.list_audit_trail (clinician minimum + admin sees-all).
+
+
+# ── Static asset mounts ──────────────────────────────────────────────────────
+# `/static` serves user-uploaded avatars + clinic logos (written by
+# profile_router + clinic_router). Must be mounted BEFORE the `/` frontend
+# catch-all so the static-file routes take precedence.
+_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+_DATA_DIR.mkdir(exist_ok=True)
+(_DATA_DIR / "avatars").mkdir(exist_ok=True)
+(_DATA_DIR / "clinics").mkdir(exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(_DATA_DIR)), name="static")
+
+# Serve React frontend — must be mounted after all API routes.
+# SPA fallback is handled by spa_fallback_middleware above.
+if _frontend_dist.exists():
+    app.mount("/", StaticFiles(directory=str(_frontend_dist), html=True), name="frontend") 
