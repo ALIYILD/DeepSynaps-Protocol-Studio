@@ -210,6 +210,13 @@ if _MOVEMENT_ANALYZER_ENABLED:
 _NEUROIMAGING_ENABLED = os.environ.get("DEEPSYNAPS_ENABLE_NEUROIMAGING") == "1"
 if _NEUROIMAGING_ENABLED:
     from app.routers.neuroimaging_router import router as neuroimaging_router
+# Category 4 — Neuroimaging Knowledge catalog + federation (always-on; cheap
+# catalog endpoints + defensive federation that never raises 5xx). Separate
+# module from the Phase 1 I/O routes above; both can coexist under the same
+# prefix because their path segments do not overlap.
+from app.routers.neuroimaging_knowledge_router import (
+    router as neuroimaging_knowledge_router,
+)
 from app.routers.nutrition_analyzer_router import router as nutrition_analyzer_router
 from app.routers.qeeg_annotation_outcome_tracker_router import (
     router as qeeg_annotation_outcome_tracker_router,
@@ -753,6 +760,7 @@ app.include_router(mri_analysis_router)
 app.include_router(mri_capabilities_router)
 if _NEUROIMAGING_ENABLED:
     app.include_router(neuroimaging_router)
+app.include_router(neuroimaging_knowledge_router)
 app.include_router(neuro_signs_router)
 app.include_router(medical_images_router)
 app.include_router(fusion_router)
