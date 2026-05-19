@@ -58,6 +58,7 @@ def get_registry_getter() -> Callable[[], Awaitable[Any]]:
 # ── Request / Response schemas ───────────────────────────────────────────────
 
 
+# core-schema-exempt: router-local request shape; never reused outside this module.
 class NormalizeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -76,6 +77,7 @@ class NormalizeRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=50)
 
 
+# core-schema-exempt: router-local request shape; never reused outside this module.
 class QueryExpansionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -88,6 +90,7 @@ class QueryExpansionRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=50)
 
 
+# core-schema-exempt: router-local request shape; never reused outside this module.
 class EligibilityContextRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -104,6 +107,7 @@ class EligibilityContextRequest(BaseModel):
     limit: int = Field(default=5, ge=1, le=20)
 
 
+# core-schema-exempt: router-local response shape; never reused outside this module.
 class CodingMatchModel(BaseModel):
     model_config = ConfigDict(extra="allow")
     source: str
@@ -118,6 +122,7 @@ class CodingMatchModel(BaseModel):
     provenance: Dict[str, Any] = Field(default_factory=dict)
 
 
+# core-schema-exempt: router-local response shape; never reused outside this module.
 class NormalizeResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
     input_term: str
@@ -132,6 +137,7 @@ class NormalizeResponse(BaseModel):
     generated_at: str
 
 
+# core-schema-exempt: router-local response shape; never reused outside this module.
 class QueryExpansionResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
     condition: str
@@ -147,6 +153,7 @@ class QueryExpansionResponse(BaseModel):
     generated_at: str
 
 
+# core-schema-exempt: router-local response shape; never reused outside this module.
 class EligibilityContextResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
     diagnosis_code: str
@@ -164,6 +171,7 @@ class EligibilityContextResponse(BaseModel):
     generated_at: str
 
 
+# core-schema-exempt: router-local response shape; never reused outside this module.
 class SourceStatusEntry(BaseModel):
     model_config = ConfigDict(extra="allow")
     key: str
@@ -176,6 +184,7 @@ class SourceStatusEntry(BaseModel):
     version: Optional[str] = None
 
 
+# core-schema-exempt: router-local response shape; never reused outside this module.
 class SourcesResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
     category: str
