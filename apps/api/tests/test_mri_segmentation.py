@@ -40,8 +40,6 @@ _mock_nib_Nifti1Image = MagicMock()
 _mock_nibabel.Nifti1Image = _mock_nib_Nifti1Image
 _mock_nibabel.nifti1 = MagicMock()
 _mock_nibabel.nifti1.Nifti1Image = _mock_nib_Nifti1Image
-sys.modules["nibabel"] = _mock_nibabel
-sys.modules["nibabel.nifti1"] = MagicMock()
 
 # Mock HD_BET
 _mock_hd_bet = MagicMock()
@@ -49,9 +47,6 @@ _mock_hd_bet.run = MagicMock()
 _mock_hd_bet.run.run_hd_bet = MagicMock()
 _mock_hd_bet.utils = MagicMock()
 _mock_hd_bet.utils.maybe_download_parameters = MagicMock()
-sys.modules["HD_BET"] = _mock_hd_bet
-sys.modules["HD_BET.run"] = _mock_hd_bet.run
-sys.modules["HD_BET.utils"] = _mock_hd_bet.utils
 
 # Mock nnunetv2
 _mock_nnunet = MagicMock()
@@ -61,11 +56,6 @@ _mock_nnunet.inference.predict_from_raw_data.nnUNetPredictor = MagicMock()
 _mock_nnunet.imageio = MagicMock()
 _mock_nnunet.imageio.simpleitk_reader_writer = MagicMock()
 _mock_nnunet.imageio.simpleitk_reader_writer.SimpleITKIO = MagicMock()
-sys.modules["nnunetv2"] = _mock_nnunet
-sys.modules["nnunetv2.inference"] = _mock_nnunet.inference
-sys.modules["nnunetv2.inference.predict_from_raw_data"] = _mock_nnunet.inference.predict_from_raw_data
-sys.modules["nnunetv2.imageio"] = _mock_nnunet.imageio
-sys.modules["nnunetv2.imageio.simpleitk_reader_writer"] = _mock_nnunet.imageio.simpleitk_reader_writer
 
 # Mock monai
 _mock_monai = MagicMock()
@@ -84,11 +74,6 @@ _mock_monai.transforms.EnsureChannelFirstd = MagicMock()
 _mock_monai.transforms.Orientationd = MagicMock()
 _mock_monai.transforms.Spacingd = MagicMock()
 _mock_monai.transforms.ScaleIntensityRanged = MagicMock()
-sys.modules["monai"] = _mock_monai
-sys.modules["monai.inferers"] = _mock_monai.inferers
-sys.modules["monai.networks"] = _mock_monai.networks
-sys.modules["monai.networks.nets"] = _mock_monai.networks.nets
-sys.modules["monai.transforms"] = _mock_monai.transforms
 
 # Mock torch
 _mock_torch = MagicMock()
@@ -106,20 +91,62 @@ _mock_torch.argmax = MagicMock()
 _mock_torch.nn = MagicMock()
 _mock_torch.nn.Module = MagicMock()
 _mock_torch.float32 = MagicMock()
-sys.modules["torch"] = _mock_torch
 
 # Mock scipy
 _mock_scipy = MagicMock()
 _mock_scipy.ndimage = MagicMock()
 _mock_scipy.ndimage.label = MagicMock(return_value=(np.ones((10, 10, 10)), 1))
 _mock_scipy.ndimage.find_objects = MagicMock()
-sys.modules["scipy"] = _mock_scipy
-sys.modules["scipy.ndimage"] = _mock_scipy.ndimage
 
 # Mock sqlalchemy
 _mock_sqlalchemy = MagicMock()
 _mock_sqlalchemy.orm = MagicMock()
 _mock_sqlalchemy.orm.Session = MagicMock()
+
+_ORIGINAL_MODULES = {
+    name: sys.modules.get(name)
+    for name in (
+        "nibabel",
+        "nibabel.nifti1",
+        "HD_BET",
+        "HD_BET.run",
+        "HD_BET.utils",
+        "nnunetv2",
+        "nnunetv2.inference",
+        "nnunetv2.inference.predict_from_raw_data",
+        "nnunetv2.imageio",
+        "nnunetv2.imageio.simpleitk_reader_writer",
+        "monai",
+        "monai.inferers",
+        "monai.networks",
+        "monai.networks.nets",
+        "monai.transforms",
+        "torch",
+        "scipy",
+        "scipy.ndimage",
+        "sqlalchemy",
+        "sqlalchemy.orm",
+    )
+}
+
+sys.modules["nibabel"] = _mock_nibabel
+sys.modules["nibabel.nifti1"] = _mock_nibabel.nifti1
+sys.modules["HD_BET"] = _mock_hd_bet
+sys.modules["HD_BET.run"] = _mock_hd_bet.run
+sys.modules["HD_BET.utils"] = _mock_hd_bet.utils
+sys.modules["nnunetv2"] = _mock_nnunet
+sys.modules["nnunetv2.inference"] = _mock_nnunet.inference
+sys.modules["nnunetv2.inference.predict_from_raw_data"] = _mock_nnunet.inference.predict_from_raw_data
+sys.modules["nnunetv2.imageio"] = _mock_nnunet.imageio
+sys.modules["nnunetv2.imageio.simpleitk_reader_writer"] = _mock_nnunet.imageio.simpleitk_reader_writer
+sys.modules["monai"] = _mock_monai
+sys.modules["monai.inferers"] = _mock_monai.inferers
+sys.modules["monai.networks"] = _mock_monai.networks
+sys.modules["monai.networks.nets"] = _mock_monai.networks.nets
+sys.modules["monai.transforms"] = _mock_monai.transforms
+sys.modules["torch"] = _mock_torch
+sys.modules["scipy"] = _mock_scipy
+sys.modules["scipy.ndimage"] = _mock_scipy.ndimage
 sys.modules["sqlalchemy"] = _mock_sqlalchemy
 sys.modules["sqlalchemy.orm"] = _mock_sqlalchemy.orm
 
@@ -186,6 +213,15 @@ for _monai_attr in ("SwinUNETR", "UNETR", "SegResNet", "DynUNet"):
         setattr(engine, _monai_attr, MagicMock())
 
 pytestmark = pytest.mark.asyncio
+
+
+def teardown_module(module):  # noqa: D401
+    """Restore module shims after this test module finishes."""
+    for _module_name, _original_module in _ORIGINAL_MODULES.items():
+        if _original_module is None:
+            sys.modules.pop(_module_name, None)
+        else:
+            sys.modules[_module_name] = _original_module
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
