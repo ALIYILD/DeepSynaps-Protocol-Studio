@@ -52,9 +52,12 @@ from app.services.knowledge.adapters.cochrane_adapter import CochraneAdapter
 from app.services.knowledge.adapters.europepmc_adapter import EuropePMCAdapter
 from app.services.knowledge.adapters.faers_adapter import FAERSAdapter
 from app.services.knowledge.adapters.gnomad_adapter import GnomadAdapter
+from app.services.knowledge.adapters.icd10_adapter import ICD10Adapter
 from app.services.knowledge.adapters.loinc_adapter import LOINCAdapter
+from app.services.knowledge.adapters.mesh_adapter import MeSHAdapter
 from app.services.knowledge.adapters.mni_atlas_adapter import MNIAtlasAdapter
 from app.services.knowledge.adapters.neurosynth_adapter import NeurosynthAdapter
+from app.services.knowledge.adapters.ols_adapter import OLSAdapter
 from app.services.knowledge.adapters.onsides_adapter import OnSIDESAdapter
 from app.services.knowledge.adapters.openalex_adapter import OpenAlexAdapter
 from app.services.knowledge.adapters.openfda_adapter import OpenFDAAdapter
@@ -64,6 +67,8 @@ from app.services.knowledge.adapters.pubmed_adapter import PubMedAdapter
 from app.services.knowledge.adapters.rxnorm_adapter import RxNormAdapter
 from app.services.knowledge.adapters.schaefer_adapter import SchaeferAdapter
 from app.services.knowledge.adapters.simnibs_adapter import SimNIBSAdapter
+from app.services.knowledge.adapters.snomedct_adapter import SNOMEDCTAdapter
+from app.services.knowledge.adapters.umls_adapter import UMLSAdapter
 from app.services.knowledge.base_adapter import DatabaseAdapter
 
 logger = logging.getLogger(__name__)
@@ -94,6 +99,15 @@ _ADAPTER_CATALOG: Dict[str, Tuple[Type[DatabaseAdapter], str, Dict[str, Any]]] =
     "europepmc":    (EuropePMCAdapter,      "P1", {}),
     "gnomad":       (GnomadAdapter,         "P1", {}),
     "openalex":     (OpenAlexAdapter,       "P1", {}),
+    # ── Category 8: Diagnosis Coding ─────────────────────────────────────────
+    # Terminology adapters used by /api/v1/diagnosis/* for normalization,
+    # literature-search expansion, and eligibility-context. UMLS is
+    # license-gated and remains DEGRADED until UMLS_API_KEY is set.
+    "icd10":        (ICD10Adapter,          "P0", {}),
+    "snomedct":     (SNOMEDCTAdapter,       "P0", {}),
+    "mesh":         (MeSHAdapter,           "P0", {}),
+    "ols":          (OLSAdapter,            "P0", {}),
+    "umls":         (UMLSAdapter,           "P1", {}),
 }
 
 
