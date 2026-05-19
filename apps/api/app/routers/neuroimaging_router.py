@@ -16,19 +16,26 @@ from app.errors import ApiServiceError
 from app.limiter import limiter
 from app.services.neuroimaging import (
     HAS_NIBABEL,
+    HAS_NEUROKIT,
     HAS_PYBIDS,
     HAS_PYNWB,
     nifti_header_summary,
     open_layout,
+    process_ecg,
+    process_eda,
+    process_rsp,
     read_nwb_summary,
     summarise_layout,
 )
 from app.services.neuroimaging.schemas import (
     BIDSFileRef,
+    EcgFeatures,
+    EdaFeatures,
     LayoutSummary,
     NeuroimagingHealth,
     NiftiSummary,
     NwbSummary,
+    RspFeatures,
 )
 
 router = APIRouter(prefix="/api/v1/neuroimaging", tags=["neuroimaging"])
@@ -91,6 +98,7 @@ def get_health(
         nibabel=HAS_NIBABEL,
         pybids=HAS_PYBIDS,
         pynwb=HAS_PYNWB,
+        neurokit2=HAS_NEUROKIT,
         versions={},
     )
 
@@ -217,3 +225,87 @@ async def inspect_nwb(
                 message="File does not appear to be a valid HDF5/NWB file (bad magic bytes)",
             )
         return read_nwb_summary(str(tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# Phase 2a — NeuroKit2 physiology endpoints
+# ---------------------------------------------------------------------------
+
+_MAX_SIGNAL_SAMPLES = 5_000_000  # ≈5 M samples
+
+
+class _PhysioRequest(BaseModel):
+    signal: list[float]
+    sampling_rate: int
+
+
+def _validate_physio_request(body: _PhysioRequest) -> None:
+    if body.sampling_rate < 1 or body.sampling_rate > 100_000:
+        raise ApiServiceError(
+            status_code=422,
+            code="invalid_sampling_rate",
+            message=f"sampling_rate must be in [1, 100000]; got {body.sampling_rate}.",
+        )
+    if len(body.signal) > _MAX_SIGNAL_SAMPLES:
+        raise ApiServiceError(
+            status_code=413,
+            code="signal_too_long",
+            message=f"Signal length {len(body.signal)} exceeds maximum of {_MAX_SIGNAL_SAMPLES} samples.",
+        )
+
+
+@router.post("/physio/ecg", response_model=EcgFeatures)
+@limiter.limit("10/minute")
+def physio_ecg(
+    request: Request,
+    body: _PhysioRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> EcgFeatures:
+    """Process an ECG signal and return features."""
+    if not HAS_NEUROKIT:
+        raise ApiServiceError(
+            status_code=503,
+            code="neuroimaging_library_unavailable",
+            message="neurokit2 is not installed",
+        )
+    require_minimum_role(actor, "clinician")
+    _validate_physio_request(body)
+    return process_ecg(body.signal, body.sampling_rate)
+
+
+@router.post("/physio/eda", response_model=EdaFeatures)
+@limiter.limit("10/minute")
+def physio_eda(
+    request: Request,
+    body: _PhysioRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> EdaFeatures:
+    """Process an EDA signal and return features."""
+    if not HAS_NEUROKIT:
+        raise ApiServiceError(
+            status_code=503,
+            code="neuroimaging_library_unavailable",
+            message="neurokit2 is not installed",
+        )
+    require_minimum_role(actor, "clinician")
+    _validate_physio_request(body)
+    return process_eda(body.signal, body.sampling_rate)
+
+
+@router.post("/physio/rsp", response_model=RspFeatures)
+@limiter.limit("10/minute")
+def physio_rsp(
+    request: Request,
+    body: _PhysioRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> RspFeatures:
+    """Process a respiratory signal and return features."""
+    if not HAS_NEUROKIT:
+        raise ApiServiceError(
+            status_code=503,
+            code="neuroimaging_library_unavailable",
+            message="neurokit2 is not installed",
+        )
+    require_minimum_role(actor, "clinician")
+    _validate_physio_request(body)
+    return process_rsp(body.signal, body.sampling_rate)
