@@ -52,8 +52,11 @@ test('No positive diagnosis or treatment-approval claims in source', () => {
 
 test('No causal overclaim language in source', () => {
   const s = src();
-  const banned = ['caused improvement', 'proves efficacy', 'predicts response',
-    'recommends treatment', 'treatment caused', 'will improve', 'guaranteed', 'proven outcome'];
+  // The phrase list intentionally includes forbidden marketing language as
+  // fixtures so the analyzer source is verified to NOT contain them. The
+  // governance-allow marker keeps this file out of the audit walker.
+  const banned = ['caused improvement', 'proves efficacy', 'predicts response', // governance-allow: fixture list asserts these are absent
+    'recommends treatment', 'treatment caused', 'will improve', 'guaranteed', 'proven outcome']; // governance-allow: same fixture list
   for (const phrase of banned) {
     assert.equal(
       s.toLowerCase().includes(phrase),

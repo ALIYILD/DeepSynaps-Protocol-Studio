@@ -377,7 +377,7 @@ export function pgHome() {
       <div class="pub-hero-inner">
         <div>
           <div class="pub-hero-overline">${t('pub.hero.overline')}</div>
-          <h1>Run your TMS &amp; neurofeedback clinic — <em>from first session to proven outcome.</em></h1>
+          <h1>Run your TMS &amp; neurofeedback clinic — <em>from first session to measurable outcome.</em></h1>
           <p class="pub-hero-sub">${t('pub.hero.sub')}</p>
           <div class="pub-hero-ctas">
             <button class="btn btn-primary btn-lg" onclick="window._pubShowAppModal()">Get the App</button>

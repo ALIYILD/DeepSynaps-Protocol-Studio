@@ -155,7 +155,7 @@ export const TRANSLATIONS = {
     'pub.nav.trial': 'Start Free Trial',
     'pub.hero.badge': 'Evidence-Based Neuromodulation Intelligence',
     'pub.hero.overline': 'Neuromodulation Clinic Software',
-    'pub.hero.headline': 'Run your TMS & neurofeedback clinic —<br>from first session to proven outcome',
+    'pub.hero.headline': 'Run your TMS & neurofeedback clinic —<br>from first session to measurable outcome',
     'pub.hero.sub': "Today's Queue. Quick Outcome Capture. Course Completion Reports. Built for TMS, Neurofeedback, and multi-modal practices.",
     'pub.hero.cta.trial': 'Start Free Trial',
     'pub.hero.cta.demo': 'See Live Demo',
