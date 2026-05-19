@@ -47,7 +47,6 @@ from .schemas import (
     BIDSFileRef,
     NwbSummary,
     NeuroimagingHealth,
-<<<<<<< HEAD
     EcgFeatures,
     EdaFeatures,
     RspFeatures,

@@ -9,16 +9,19 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.errors import ApiServiceError
 from app.limiter import limiter
 from app.services.neuroimaging import (
+    HAS_BRAINDECODE,
     HAS_NIBABEL,
     HAS_NEUROKIT,
     HAS_PYBIDS,
     HAS_PYNWB,
+    build_eegnet,
+    forward_pass,
     nifti_header_summary,
     open_layout,
     process_ecg,
@@ -31,6 +34,7 @@ from app.services.neuroimaging.schemas import (
     BIDSFileRef,
     EcgFeatures,
     EdaFeatures,
+    EegModelSummary,
     LayoutSummary,
     NeuroimagingHealth,
     NiftiSummary,
@@ -102,6 +106,8 @@ def get_health(
         nilearn=HAS_NILEARN,
         dipy=HAS_DIPY,
         versions={},
+        braindecode=HAS_BRAINDECODE,
+        torch=HAS_BRAINDECODE,
     )
 
 
@@ -536,3 +542,100 @@ async def dipy_dti_scalars(
             )
 
         return fit_dti(str(nii_path), str(bval_path), str(bvec_path))
+
+
+# ---------------------------------------------------------------------------
+# Phase 2c — Braindecode (optional [neuro-dl] extra) endpoints
+# ---------------------------------------------------------------------------
+class _BuildModelRequest(BaseModel):
+    model: str = "eegnet"
+    n_channels: int = Field(..., ge=1, le=256)
+    n_classes: int = Field(..., ge=2, le=100)
+    input_window_samples: int = Field(..., ge=16, le=100_000)
+
+
+class _ForwardRequest(BaseModel):
+    model_spec: dict
+    input_shape: list[int] = Field(..., min_length=3, max_length=3)
+
+    @model_validator(mode="after")
+    def _check_shape_bounds(self) -> "_ForwardRequest":
+        shape = self.input_shape
+        if len(shape) != 3:
+            raise ValueError("input_shape must have exactly 3 elements")
+        batch, channels, timepoints = shape
+        if batch > 16:
+            raise ValueError("batch must be <= 16")
+        if channels > 256:
+            raise ValueError("channels must be <= 256")
+        if timepoints > 100_000:
+            raise ValueError("timepoints must be <= 100_000")
+        return self
+
+
+@router.post("/eeg-dl/build-model", response_model=EegModelSummary)
+@limiter.limit("10/minute")
+async def eeg_dl_build_model(
+    request: Request,
+    body: _BuildModelRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> EegModelSummary:
+    """Build a braindecode EEG model and return layer/param summary."""
+    require_minimum_role(actor, "clinician")
+    if not HAS_BRAINDECODE:
+        raise ApiServiceError(
+            status_code=503,
+            code="neuroimaging_library_unavailable",
+            message="Braindecode is not installed",
+        )
+    return build_eegnet(
+        n_channels=body.n_channels,
+        n_classes=body.n_classes,
+        input_window_samples=body.input_window_samples,
+    )
+
+
+@router.post("/eeg-dl/forward")
+@limiter.limit("10/minute")
+async def eeg_dl_forward(
+    request: Request,
+    body: _ForwardRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict:
+    """Run a random forward pass through the specified braindecode model."""
+    require_minimum_role(actor, "clinician")
+    if not HAS_BRAINDECODE:
+        raise ApiServiceError(
+            status_code=503,
+            code="neuroimaging_library_unavailable",
+            message="Braindecode is not installed",
+        )
+
+    shape = body.input_shape
+    if len(shape) != 3:
+        raise ApiServiceError(
+            status_code=422,
+            code="invalid_input_shape",
+            message="input_shape must have exactly 3 elements",
+        )
+    batch, channels, timepoints = shape
+    if batch > 16:
+        raise ApiServiceError(
+            status_code=422,
+            code="invalid_input_shape",
+            message="batch must be <= 16",
+        )
+    if channels > 256:
+        raise ApiServiceError(
+            status_code=422,
+            code="invalid_input_shape",
+            message="channels must be <= 256",
+        )
+    if timepoints > 100_000:
+        raise ApiServiceError(
+            status_code=422,
+            code="invalid_input_shape",
+            message="timepoints must be <= 100_000",
+        )
+
+    return forward_pass(body.model_spec, input_shape=tuple(shape))
