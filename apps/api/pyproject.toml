@@ -61,6 +61,10 @@ dependencies = [
     "numpy>=1.26.0,<3.0.0",
     # qEEG advanced analyses — aperiodic/periodic spectral decomposition
     "specparam>=2.0.0rc0,<3.0.0",
+    # Phase 1 neuroimaging I/O (NiBabel / PyBIDS / PyNWB) — see docs/DeepSynaps_OpenSource_Neurotech_Architecture.md
+    "nibabel>=5.2.0,<6.0.0",
+    "pybids>=0.16.0,<1.0.0",
+    "pynwb>=2.8.0,<4.0.0",
     # Reports stream HTML→PDF render path (PR #144 night shift). Imported in
     # packages/render-engine/src/deepsynaps_render_engine/renderers.py via
     # try/except → raises PdfRendererUnavailable when missing, so the
