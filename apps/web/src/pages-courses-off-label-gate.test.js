@@ -34,6 +34,47 @@ test('handler POSTs the off-label acknowledgement consent', () => {
   assert.match(src, /signed: true/);
 });
 
+test('proactive helpers exist: record + lookup', () => {
+  assert.match(src, /_cdRecordOffLabelConsent/);
+  assert.match(src, /_cdHasValidOffLabelConsent/);
+});
+
+test('proactive lookup filters by consent_type, status, and signed', () => {
+  // The lookup must check all three predicates — a withdrawn or unsigned
+  // row must NOT count as a valid pre-existing acknowledgement.
+  const block = src.match(/_cdHasValidOffLabelConsent[\s\S]*?items\.some\([\s\S]*?\)/);
+  assert.ok(block, 'expected _cdHasValidOffLabelConsent to enumerate items');
+  assert.match(block[0], /consent_type === 'off_label_acknowledgement'/);
+  assert.match(block[0], /status === 'active'/);
+  assert.match(block[0], /signed === true/);
+});
+
+test('_activateCourseDetail proactively prompts when course.on_label === false', () => {
+  // The proactive block lives at the top of _activateCourseDetail
+  // (before the preflight call). It must (a) read on_label, (b) check
+  // for existing consent, (c) prompt when missing, (d) bail on cancel.
+  const block = src.match(
+    /window\._activateCourseDetail = async function\(courseId\) \{[\s\S]*?\/\/ Step 1 — preflight/,
+  );
+  assert.ok(block, 'expected proactive block before Step 1 preflight');
+  assert.match(block[0], /course\.on_label === false/);
+  assert.match(block[0], /_cdHasValidOffLabelConsent/);
+  assert.match(block[0], /_cdRecordOffLabelConsent/);
+  // Cancellation must early-return — never fall through to preflight.
+  assert.match(block[0], /if \(!ok\) return;/);
+});
+
+test('proactive course-fetch failure does NOT block activation (defence in depth)', () => {
+  // A failed api.getCourse here must not throw out of the function —
+  // the reactive 403 path is the safety net. Look for a try/catch
+  // surrounding the proactive block.
+  const block = src.match(
+    /\/\/ Step 0 — proactive off-label acknowledgement[\s\S]*?\/\/ Step 1 — preflight/,
+  );
+  assert.ok(block);
+  assert.match(block[0], /try \{[\s\S]*?\} catch \(_\) \{/);
+});
+
 test('clear-path activation routes 403 off_label_consent_missing through the gate', () => {
   // Capture the block following the clear-path activate try.
   const match = src.match(

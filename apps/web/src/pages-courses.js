@@ -1410,26 +1410,31 @@ export async function pgCourseDetail(setTopbar, navigate) {
   //
   // The backend off-label gate (PR #1093) refuses to activate a course whose
   // `on_label is False` until a signed `ConsentRecord(consent_type=
-  // 'off_label_acknowledgement')` exists for the patient × clinician. This
-  // helper catches the 403 from `api.activateCourse`, prompts the clinician,
-  // records the acknowledgement via `api.createConsent`, and retries the
-  // original activate call.
+  // 'off_label_acknowledgement')` exists for the patient × clinician.
   //
-  // The retry is parameterless: callers pass a closure that re-runs whichever
-  // `activateCourse` variant (clear path vs. safety-override) was in flight.
-  const _cdHandleOffLabelGate = async (courseId, retryActivate) => {
-    let course;
-    try {
-      course = await api.getCourse(courseId);
-    } catch (e) {
-      _cdFlash(e?.message || 'Could not load course for off-label acknowledgement.', 'error');
-      return;
-    }
-    const patientId = course?.patient_id;
-    const modalitySlug = course?.modality_slug || 'unknown';
+  // Two paths reach this gate today:
+  //
+  //   1. Proactive (preferred): at the top of `_activateCourseDetail` we
+  //      fetch the course, check `on_label`, and — if off-label without a
+  //      pre-existing valid acknowledgement — prompt the clinician up
+  //      front. No 403 round-trip on the happy path.
+  //
+  //   2. Reactive (defence-in-depth): if the proactive check is bypassed
+  //      somehow (race, course-fetch failure, etc.), `api.activateCourse`
+  //      still returns 403 with `code='off_label_consent_missing'`, and
+  //      `_cdHandleOffLabelGate` recovers the same way as before.
+  //
+  // Both paths share `_cdRecordOffLabelConsent` so the prompt + POST is
+  // defined once.
+
+  // Show the acknowledgement modal and POST the consent record. Returns
+  // `true` if a new consent was recorded, `false` if the clinician
+  // cancelled or the POST failed. Callers MUST treat `false` as
+  // "do not proceed with the activate call."
+  const _cdRecordOffLabelConsent = async (patientId, modalitySlug) => {
     if (!patientId) {
       _cdFlash('Course is missing patient_id — cannot record off-label acknowledgement.', 'error');
-      return;
+      return false;
     }
     const confirmed = confirm(
       'Off-label acknowledgement required\n\n' +
@@ -1441,19 +1446,60 @@ export async function pgCourseDetail(setTopbar, navigate) {
     );
     if (!confirmed) {
       _cdFlash('Activation cancelled — off-label acknowledgement not recorded.', 'error');
-      return;
+      return false;
     }
     try {
       await api.createConsent({
         patient_id: patientId,
         consent_type: 'off_label_acknowledgement',
-        modality_slug: modalitySlug,
+        modality_slug: modalitySlug || 'unknown',
         signed: true,
       });
     } catch (e) {
       _cdFlash(e?.message || 'Failed to record off-label acknowledgement.', 'error');
+      return false;
+    }
+    return true;
+  };
+
+  // Look up an existing active+signed off-label acknowledgement for the
+  // given patient. Returns `true` if one exists (caller skips the prompt),
+  // `false` if none / on lookup failure (caller falls through to the
+  // proactive prompt OR the reactive 403 path).
+  const _cdHasValidOffLabelConsent = async (patientId) => {
+    if (!patientId) return false;
+    try {
+      const res = await api.listConsents({ patient_id: patientId });
+      const items = (res && res.items) || [];
+      return items.some(c =>
+        c && c.consent_type === 'off_label_acknowledgement' &&
+        c.status === 'active' &&
+        c.signed === true,
+      );
+    } catch (_) {
+      // Lookup failure is non-fatal — fall through to prompting. The
+      // backend gate is still the authoritative truth.
+      return false;
+    }
+  };
+
+  // The reactive 403-recovery helper, unchanged in contract: catch the
+  // 403 from `api.activateCourse`, prompt, POST consent, then retry the
+  // original activate call. Now built on top of
+  // `_cdRecordOffLabelConsent` so the prompt + POST live in one place.
+  const _cdHandleOffLabelGate = async (courseId, retryActivate) => {
+    let course;
+    try {
+      course = await api.getCourse(courseId);
+    } catch (e) {
+      _cdFlash(e?.message || 'Could not load course for off-label acknowledgement.', 'error');
       return;
     }
+    const ok = await _cdRecordOffLabelConsent(
+      course?.patient_id,
+      course?.modality_slug || 'unknown',
+    );
+    if (!ok) return;
     try {
       await retryActivate();
     } catch (e) {
@@ -1464,6 +1510,31 @@ export async function pgCourseDetail(setTopbar, navigate) {
   };
 
   window._activateCourseDetail = async function(courseId) {
+    // Step 0 — proactive off-label acknowledgement.
+    //
+    // When `course.on_label === false` and the patient has no existing
+    // active+signed `off_label_acknowledgement` consent, prompt the
+    // clinician here so they don't hit the backend 403 round-trip. The
+    // reactive 403 path (`_cdHandleOffLabelGate`) stays in place as
+    // defence in depth.
+    try {
+      const course = await api.getCourse(courseId);
+      if (course && course.on_label === false && course.patient_id) {
+        const hasConsent = await _cdHasValidOffLabelConsent(course.patient_id);
+        if (!hasConsent) {
+          const ok = await _cdRecordOffLabelConsent(
+            course.patient_id,
+            course.modality_slug || 'unknown',
+          );
+          if (!ok) return;
+        }
+      }
+    } catch (_) {
+      // Course fetch failure is non-fatal here. The preflight call below
+      // will surface a real problem, and the reactive 403 path will catch
+      // a missed off-label gate.
+    }
+
     // Step 1 — preflight the patient's medical-history safety flags.
     let pre = null;
     try {
