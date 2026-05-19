@@ -823,6 +823,8 @@ app.include_router(society_resources_router)
 app.include_router(neuromodulation_router)
 app.include_router(pharmaceutical_router)
 app.include_router(evidence_router)
+from app.routers.diagnosis_coding_router import router as diagnosis_coding_router
+app.include_router(diagnosis_coding_router)
 app.include_router(health_dashboard)
 app.include_router(biomarker_router)
 app.include_router(intervention_intelligence_router)
