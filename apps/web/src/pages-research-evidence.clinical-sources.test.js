@@ -136,7 +136,7 @@ test('CLINICAL_SOURCES_UNAVAILABLE_NOTICE never claims live state', () => {
 });
 
 test('unavailable notice avoids forbidden marketing language', () => {
-  const forbidden = ['proven', 'guaranteed', 'recommended protocol', 'best treatment', 'safe and effective', 'no risk'];
+  const forbidden = ['proven', 'guaranteed', 'recommended protocol', 'best treatment', 'safe and effective', 'no risk']; // governance-allow: fixture list — audit asserts absence in active UI copy
   const haystack = CLINICAL_SOURCES_UNAVAILABLE_NOTICE.toLowerCase();
   for (const word of forbidden) {
     assert.equal(haystack.includes(word), false, `Found forbidden term: ${word}`);

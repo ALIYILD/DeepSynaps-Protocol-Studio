@@ -202,16 +202,11 @@ test('CURATED_REFERENCE_CARD_PILL_TITLE explains pill provenance', () => {
 });
 
 test('curated-reference copy avoids forbidden marketing language', () => {
-  // governance-allow: list intentionally contains forbidden phrases as
-  // the audit fixture this very test asserts against.
-  const forbidden = [
-    'proven',
-    'guaranteed',
-    'recommended protocol',
-    'best treatment',
-    'safe and effective',
-    'no risk',
-  ];
+  // Forbidden-phrase fixture for the audit invariant. Kept on a single
+  // line so the per-line ``governance-allow:`` marker covers every
+  // phrase. See apps/web/src/governance-language-audit.test.js for the
+  // walker that consumes the marker.
+  const forbidden = ['proven', 'guaranteed', 'recommended protocol', 'best treatment', 'safe and effective', 'no risk']; // governance-allow: fixture list — audit asserts absence in active UI copy
   const haystack = [
     CURATED_REFERENCE_PANEL_LABEL,
     CURATED_REFERENCE_PANEL_CAPTION,
