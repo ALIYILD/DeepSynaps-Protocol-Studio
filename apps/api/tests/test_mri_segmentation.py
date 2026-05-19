@@ -98,11 +98,6 @@ _mock_scipy.ndimage = MagicMock()
 _mock_scipy.ndimage.label = MagicMock(return_value=(np.ones((10, 10, 10)), 1))
 _mock_scipy.ndimage.find_objects = MagicMock()
 
-# Mock sqlalchemy
-_mock_sqlalchemy = MagicMock()
-_mock_sqlalchemy.orm = MagicMock()
-_mock_sqlalchemy.orm.Session = MagicMock()
-
 _ORIGINAL_MODULES = {
     name: sys.modules.get(name)
     for name in (
@@ -124,8 +119,6 @@ _ORIGINAL_MODULES = {
         "torch",
         "scipy",
         "scipy.ndimage",
-        "sqlalchemy",
-        "sqlalchemy.orm",
     )
 }
 
@@ -147,8 +140,6 @@ sys.modules["monai.transforms"] = _mock_monai.transforms
 sys.modules["torch"] = _mock_torch
 sys.modules["scipy"] = _mock_scipy
 sys.modules["scipy.ndimage"] = _mock_scipy.ndimage
-sys.modules["sqlalchemy"] = _mock_sqlalchemy
-sys.modules["sqlalchemy.orm"] = _mock_sqlalchemy.orm
 
 # Now import the module under test
 import app.services.mri_segmentation_engine as engine

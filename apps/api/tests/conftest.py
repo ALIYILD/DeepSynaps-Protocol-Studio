@@ -4,7 +4,8 @@ import sys
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import inspect, text
+from sqlalchemy.exc import OperationalError
 
 
 # Use a per-process DB file so parallel pytest invocations don't collide.
@@ -164,10 +165,17 @@ def isolated_database() -> None:
 def _clean_adverse_events() -> None:
     yield
     from app.database import SessionLocal
+    from app.database import engine
+
+    if "adverse_events" not in inspect(engine).get_table_names():
+        return
+
     db = SessionLocal()
     try:
         db.execute(text("DELETE FROM adverse_events"))
         db.commit()
+    except OperationalError:
+        db.rollback()
     finally:
         db.close()
 
