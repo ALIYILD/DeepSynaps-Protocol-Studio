@@ -40,11 +40,26 @@ from app.auth import (
     AuthenticatedActor,
     get_authenticated_actor,
     require_minimum_role,
+    require_patient_owner,
 )
 from app.database import get_db_session
 from app.repositories.audit import create_audit_event
+from app.repositories.patients import resolve_patient_clinic_id
 
 router = APIRouter(prefix="/api/v1/patient-care", tags=["patient-care"])
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
+    """Resolve the patient's clinic and delegate to ``require_patient_owner``.
+
+    No-op for unknown patient_ids — the existing handlers already operate
+    over static demo fixtures and we don't want to regress that surface.
+    The purpose of this gate is the cross-clinic IDOR safeguard required
+    by the patient tenancy audit.
+    """
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists and clinic_id is not None:
+        require_patient_owner(actor, clinic_id)
 
 
 # ── Audit helper ───────────────────────────────────────────────────────────────
@@ -115,6 +130,8 @@ def list_consents(
 ) -> dict[str, Any]:
     """List consent records scoped to clinic with status filtering."""
     require_minimum_role(actor, "clinician")
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
     _audit_log(
         db, actor,
         action="consents.list",
@@ -415,6 +432,8 @@ def list_home_programs(
 ) -> dict[str, Any]:
     """List home programs (exercise, cognitive training, mindfulness) scoped to clinic."""
     require_minimum_role(actor, "clinician")
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
     _audit_log(
         db, actor,
         action="home_programs.list",
@@ -578,6 +597,8 @@ def list_outcome_measures(
 ) -> dict[str, Any]:
     """List outcome measures scoped to clinic."""
     require_minimum_role(actor, "clinician")
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
     _audit_log(
         db, actor,
         action="outcomes.list",
@@ -674,6 +695,8 @@ def list_patient_goals(
 ) -> dict[str, Any]:
     """List patient goals scoped to clinic."""
     require_minimum_role(actor, "clinician")
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
     _audit_log(
         db, actor,
         action="goals.list",

@@ -34,11 +34,26 @@ from app.auth import (
     AuthenticatedActor,
     get_authenticated_actor,
     require_minimum_role,
+    require_patient_owner,
 )
 from app.database import get_db_session
 from app.repositories.audit import create_audit_event
+from app.repositories.patients import resolve_patient_clinic_id
 
 router = APIRouter(prefix="/api/v1/intelligence", tags=["intelligence"])
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
+    """Resolve the patient's clinic and delegate to ``require_patient_owner``.
+
+    No-op for unknown patient_ids — the existing handlers already accept
+    synthetic/demo ids in their static fixtures and we don't want to
+    regress that surface. The purpose of this gate is the cross-clinic
+    IDOR safeguard required by the patient tenancy audit.
+    """
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists and clinic_id is not None:
+        require_patient_owner(actor, clinic_id)
 
 
 # ── Audit helper ───────────────────────────────────────────────────────────────
@@ -103,6 +118,8 @@ def get_deeptwin_correlations(
 ) -> dict[str, Any]:
     """Retrieve DeepTwin-derived correlation matrix with causal hypotheses."""
     require_minimum_role(actor, "clinician")
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
     _audit_log(
         db, actor,
         action="deeptwin.correlations",
@@ -193,6 +210,8 @@ def get_forecast_predictions(
 ) -> dict[str, Any]:
     """Get trajectory predictions with confidence intervals."""
     require_minimum_role(actor, "clinician")
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
     _audit_log(
         db, actor,
         action="forecast.predictions",
@@ -432,6 +451,8 @@ def get_longitudinal_trajectories(
 ) -> dict[str, Any]:
     """Get longitudinal trajectories with trend detection and alerts."""
     require_minimum_role(actor, "clinician")
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
     _audit_log(
         db, actor,
         action="longitudinal.trajectories",
@@ -538,6 +559,8 @@ def get_multimodal_correlations(
 ) -> dict[str, Any]:
     """Get multimodal correlation matrix across specified modalities."""
     require_minimum_role(actor, "clinician")
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
     _audit_log(
         db, actor,
         action="multimodal.correlations",

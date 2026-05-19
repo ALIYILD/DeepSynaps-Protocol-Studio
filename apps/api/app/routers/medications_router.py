@@ -18,10 +18,16 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import MedicationInteractionLog, PatientMedication
+from app.repositories.patients import resolve_patient_clinic_id
 
 import logging as _logging
 _med_log = _logging.getLogger(__name__)
@@ -35,6 +41,19 @@ def _trigger_med_risk_recompute(patient_id: str, trigger: str, actor_id: str | N
         _med_log.debug("Risk recompute skipped after %s", trigger, exc_info=True)
 
 router = APIRouter(prefix="/api/v1/medications", tags=["Medication Safety"])
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
+    """Resolve the patient's clinic and delegate to ``require_patient_owner``.
+
+    No-op for unknown patient_ids so that this gate does not change the
+    error surface for new-patient flows; the handler's own existence checks
+    (404 paths) remain authoritative. The purpose here is the cross-clinic
+    IDOR safeguard required by the patient tenancy audit.
+    """
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists and clinic_id is not None:
+        require_patient_owner(actor, clinic_id)
 
 
 # ── Known interaction rules (V1 in-memory; replace with external API in V2) ────
@@ -397,6 +416,8 @@ def get_interaction_log(
     db: Session = Depends(get_db_session),
 ) -> InteractionLogListResponse:
     require_minimum_role(actor, "clinician")
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
     q = db.query(MedicationInteractionLog)
     if actor.role != "admin":
         q = q.filter(MedicationInteractionLog.clinician_id == actor.actor_id)
@@ -452,6 +473,7 @@ def get_patient_medications(
     db: Session = Depends(get_db_session),
 ) -> MedicationListResponse:
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
     q = db.query(PatientMedication).filter(PatientMedication.patient_id == patient_id)
     if actor.role != "admin":
         q = q.filter(PatientMedication.clinician_id == actor.actor_id)
@@ -470,6 +492,7 @@ def add_medication(
     db: Session = Depends(get_db_session),
 ) -> MedicationOut:
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
     med = PatientMedication(
         patient_id=patient_id,
         clinician_id=actor.actor_id,
@@ -501,6 +524,7 @@ def remove_medication(
     db: Session = Depends(get_db_session),
 ) -> None:
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
     med = db.query(PatientMedication).filter_by(id=med_id, patient_id=patient_id).first()
     if med is None:
         raise ApiServiceError(code="not_found", message="Medication not found.", status_code=404)

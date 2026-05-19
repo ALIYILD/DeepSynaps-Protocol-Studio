@@ -16,9 +16,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db_session
-from app.auth import get_authenticated_actor, AuthenticatedActor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.errors import ApiServiceError
 from app.repositories.audit import create_audit_event
+from app.repositories.patients import resolve_patient_clinic_id
 from app.services.access_control_service import (
     AccessDeniedError,
     log_phi_access,
@@ -62,6 +68,22 @@ def _can_degrade_patient_scope(actor: AuthenticatedActor) -> bool:
     return actor.role in {"admin", "clinic_admin"}
 
 
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
+    """Cross-clinic ownership gate.
+
+    Resolves the patient's owning clinic via ``resolve_patient_clinic_id``
+    and delegates to ``require_patient_owner``. Silently returns for
+    unknown patient ids so that synthetic/demo identifiers used by the
+    data-console schema preview do not hard-fail — the existing
+    ``require_patient_access`` / ``log_phi_access`` calls below remain
+    the authoritative PHI-access checks. The purpose of this gate is the
+    cross-clinic IDOR safeguard required by the patient tenancy audit.
+    """
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists and clinic_id is not None:
+        require_patient_owner(actor, clinic_id)
+
+
 @router.get(
     "/sources",
     response_model=DataSourcesResponse,
@@ -85,6 +107,7 @@ async def list_data_sources(
     """
     # If patient_id is provided, enforce per-patient access + PHI audit.
     if patient_id:
+        _gate_patient_access(actor, patient_id, session)
         try:
             require_patient_access(session, actor.actor_id, patient_id)
             log_phi_access(
@@ -149,6 +172,7 @@ async def get_patient_data_summary(
     if source_name not in SAFE_TABLES:
         raise HTTPException(status_code=400, detail=f"Unknown data source: {source_name}")
 
+    _gate_patient_access(actor, patient_id, session)
     try:
         require_patient_access(session, actor.actor_id, patient_id)
         log_phi_access(
@@ -206,6 +230,7 @@ async def get_patient_data_rows(
     effective_limit = limit if limit is not None else page_size
     effective_offset = offset if offset is not None else (page - 1) * page_size
 
+    _gate_patient_access(actor, patient_id, session)
     try:
         require_patient_access(session, actor.actor_id, patient_id)
         log_phi_access(
@@ -283,6 +308,7 @@ async def get_data_console_audit_log(
     session: Session = Depends(get_db_session),
 ) -> DataConsoleAuditLogResponse:
     """Get audit trail (clinic-scoped, audit-logged)."""
+    _gate_patient_access(actor, patient_id, session)
     try:
         require_patient_access(session, actor.actor_id, patient_id)
         log_phi_access(
