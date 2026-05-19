@@ -103,6 +103,7 @@ from app.auth import (
     AuthenticatedActor,
     get_authenticated_actor,
     require_minimum_role,
+    require_patient_owner,
 )
 from app.database import get_db_session
 from app.errors import ApiServiceError
@@ -115,6 +116,7 @@ from app.persistence.models import (
     WearableAlertFlag,
     WellnessCheckin,
 )
+from app.repositories.patients import resolve_patient_clinic_id
 from app.routers.clinician_inbox_router import (
     _ack_lookup,
     _extract_patient_id,
@@ -122,6 +124,21 @@ from app.routers.clinician_inbox_router import (
     _row_is_high_priority,
     _split_action,
 )
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str | None, db: Session) -> None:
+    """Cross-clinic ownership gate for an optional patient_id query param.
+
+    No-op when the caller did not specify a patient (the surface returns
+    the actor's clinic-scoped queue). When a specific patient_id is
+    supplied, resolves the patient's owning clinic and rejects callers
+    outside that clinic.
+    """
+    if not patient_id:
+        return
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 
 
 router = APIRouter(prefix="/api/v1/clinician-digest", tags=["Clinician Digest"])
@@ -911,6 +928,7 @@ def get_summary(
 ) -> DigestSummary:
     """End-of-shift summary across the four hubs + AE drafts."""
     _gate_role(actor)
+    _gate_patient_access(actor, patient_id, db)
     since_dt, until_dt = _resolve_window(since, until)
 
     # ``actor_id`` query param is reserved for admin-scoped lookups; if
@@ -1001,6 +1019,7 @@ def get_sections(
 ) -> DigestSectionsResponse:
     """Per-surface section cards with top 3 patients by activity."""
     _gate_role(actor)
+    _gate_patient_access(actor, patient_id, db)
     since_dt, until_dt = _resolve_window(since, until)
 
     items = _digest_event_items(
@@ -1092,6 +1111,7 @@ def list_events(
 ) -> DigestEventsResponse:
     """Line-level events within the window with drill-out URLs."""
     _gate_role(actor)
+    _gate_patient_access(actor, patient_id, db)
     since_dt, until_dt = _resolve_window(since, until)
     items = _digest_event_items(
         db,
@@ -1296,6 +1316,7 @@ def export_csv(
 ) -> Response:
     """CSV export of the digest events. DEMO-prefixed when any row is demo."""
     _gate_role(actor)
+    _gate_patient_access(actor, patient_id, db)
 
     payload = list_events(  # type: ignore[call-arg]
         since=since, until=until, surface=surface, severity=severity,
@@ -1359,6 +1380,7 @@ def export_ndjson(
 ) -> Response:
     """NDJSON export — one event per line."""
     _gate_role(actor)
+    _gate_patient_access(actor, patient_id, db)
 
     payload = list_events(  # type: ignore[call-arg]
         since=since, until=until, surface=surface, severity=severity,
