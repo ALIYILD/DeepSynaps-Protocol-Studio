@@ -9,6 +9,25 @@ Hard Rules:
 - Create SafetyFlag with flag_type=consent_missing
 - Never allow silent bypass for real patient_id
 - Log all attempts (allowed and denied)
+
+Consent state mapping
+---------------------
+The 2026-05-19 Clinician Workflow OS audit (PR #1073, must-have #5)
+specifies that PHI display / treatment recommendations require
+``consent_state ∈ {CONSENTED, AMENDED}``. The persistent
+``ConsentRecord.status`` column uses the lifecycle vocabulary
+``active`` / ``withdrawn`` / ``expired``. The mapping is:
+
+* ``status == "active"`` covers both ``CONSENTED`` (initial signature)
+  and ``AMENDED`` (re-signed with updated scope) — the model treats
+  them identically once a valid signed row exists.
+* ``status == "withdrawn"`` → ``REVOKED`` (gate fails).
+* ``status == "expired"`` → ``EXPIRED`` (gate fails).
+
+The set ``CONSENT_GRANTED_STATES`` is the authoritative list of
+``status`` values that satisfy the gate. Do not bypass it; if a new
+status is added to ``ConsentRecord`` it must be deliberately added
+here.
 """
 
 from datetime import datetime, timezone
@@ -19,6 +38,19 @@ from app.persistence.models import (
     SafetyFlag,
 )
 from app.auth import AuthenticatedActor
+
+
+# Authoritative set of ConsentRecord.status values that satisfy the
+# CWOS audit's ``consent_state ∈ {CONSENTED, AMENDED}`` requirement.
+# An empty/None status row does NOT count — the gate fails closed.
+CONSENT_GRANTED_STATES = frozenset({"active"})
+
+# Consent type used to record clinician acknowledgement of off-label
+# protocol use, per safety_evidence_policy.md ("all neuromodulation is
+# off-label except TPS-AD and CES-anxiety/depression/insomnia"). One
+# row per patient×clinician×modality is sufficient; modality_slug is
+# carried for audit context.
+OFF_LABEL_CONSENT_TYPE = "off_label_acknowledgement"
 
 
 class ConsentMissingError(Exception):
@@ -291,7 +323,109 @@ def require_document_generation_consent(
     )
     session.add(audit_event)
     session.commit()
-    
+
+    return consent
+
+
+def require_off_label_acknowledgement(
+    session: Session,
+    patient_id: str,
+    actor: AuthenticatedActor,
+    modality_slug: str = "unknown",
+) -> ConsentRecord:
+    """Enforce off-label-acknowledgement consent before launching an off-label
+    protocol or course.
+
+    Per docs/safety_evidence_policy.md, all neuromodulation administered via
+    DeepSynaps Studio is off-label except TPS (NEUROLITH®) for Alzheimer's
+    and CES (Alpha-Stim®) for anxiety/depression/insomnia. The CWOS audit
+    (PR #1073, must-have #5) requires a persisted acknowledgement before any
+    off-label protocol can move from draft → launched.
+
+    Args:
+        session: Database session
+        patient_id: Patient ID
+        actor: Authenticated actor (the prescribing clinician)
+        modality_slug: Modality the acknowledgement applies to (rtms,
+            tdcs, ces, tps, vns, dbs, etc.) — recorded on the audit row
+
+    Returns:
+        ConsentRecord if a valid off-label acknowledgement exists
+
+    Raises:
+        ConsentMissingError: If the acknowledgement is missing, withdrawn,
+            or expired. Caller routers should convert to HTTP 403.
+    """
+    consent = (
+        session.query(ConsentRecord)
+        .filter(
+            ConsentRecord.patient_id == patient_id,
+            ConsentRecord.clinician_id == actor.actor_id,
+            ConsentRecord.consent_type == OFF_LABEL_CONSENT_TYPE,
+            ConsentRecord.status.in_(CONSENT_GRANTED_STATES),
+        )
+        .first()
+    )
+
+    if not consent:
+        _log_consent_denial(
+            session,
+            patient_id=patient_id,
+            actor=actor,
+            action="off_label_launch_attempted",
+            resource_type=modality_slug,
+        )
+        raise ConsentMissingError(
+            f"off_label_acknowledgement consent missing for patient {patient_id}"
+        )
+
+    if consent.expires_at and consent.expires_at < datetime.now(timezone.utc):
+        _log_consent_denial(
+            session,
+            patient_id=patient_id,
+            actor=actor,
+            action="off_label_launch_attempted",
+            resource_type=modality_slug,
+            reason="consent_expired",
+        )
+        raise ConsentMissingError(
+            f"off_label_acknowledgement consent expired for patient {patient_id}"
+        )
+
+    # ConsentRecord.status filter above already excluded ``withdrawn`` and
+    # ``expired`` — we keep the explicit ``signed`` check below because the
+    # CWOS audit calls out that the acknowledgement must be a signed record,
+    # not just an active row. A row that exists with signed=False is an
+    # unfinished workflow and must not gate-open.
+    if not consent.signed:
+        _log_consent_denial(
+            session,
+            patient_id=patient_id,
+            actor=actor,
+            action="off_label_launch_attempted",
+            resource_type=modality_slug,
+            reason="consent_unsigned",
+        )
+        raise ConsentMissingError(
+            f"off_label_acknowledgement consent unsigned for patient {patient_id}"
+        )
+
+    audit_event = AuditEventRecord(
+        event_id=(
+            f"consent-allow-{patient_id}-{modality_slug}-"
+            f"{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+        ),
+        target_id=patient_id,
+        target_type=modality_slug,
+        action="off_label_launch_allowed",
+        role=actor.role,
+        actor_id=actor.actor_id,
+        note=f"allowed off-label acknowledgement for {modality_slug}",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    session.add(audit_event)
+    session.commit()
+
     return consent
 
 
