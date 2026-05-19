@@ -194,9 +194,11 @@ test('FEDERATED_SOURCE_STATE_PRESENTATION covers every emitted status', () => {
 });
 
 test('unavailable notice avoids forbidden marketing language', () => {
-  // governance-allow: list intentionally contains forbidden phrases as
-  // the audit fixture this very test asserts against.
-  const forbidden = ['proven', 'guaranteed', 'best treatment', 'safe and effective', 'no risk'];
+  // Forbidden-phrase fixture for the audit invariant; the per-line
+  // ``governance-allow:`` marker keeps this list out of the audit
+  // walker. The audit asserts these phrases never appear in active
+  // clinical-facing UI strings.
+  const forbidden = ['proven', 'guaranteed', 'best treatment', 'safe and effective', 'no risk']; // governance-allow: fixture list — audit asserts absence in active UI copy
   const haystack = FEDERATED_SEARCH_UNAVAILABLE_NOTICE.toLowerCase();
   for (const word of forbidden) {
     assert.equal(haystack.includes(word), false, `Found forbidden term: ${word}`);
