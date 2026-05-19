@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import time
 from abc import ABC
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -235,12 +236,12 @@ class TokenBucketRateLimiter:
         self.max_calls = max_calls
         self.period = period_seconds
         self.tokens: float = float(max_calls)
-        self.last_refill = asyncio.get_event_loop().time()
+        self.last_refill = time.monotonic()
         self._lock = asyncio.Lock()
 
     async def acquire(self) -> None:
         async with self._lock:
-            now = asyncio.get_event_loop().time()
+            now = time.monotonic()
             elapsed = now - self.last_refill
             self.tokens = min(self.max_calls, self.tokens + elapsed * (self.max_calls / self.period))
             self.last_refill = now

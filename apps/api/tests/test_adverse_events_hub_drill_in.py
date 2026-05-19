@@ -69,9 +69,15 @@ def _ensure_demo_clinician_in_clinic() -> None:
 @pytest.fixture
 def patient_id(client: TestClient, auth_headers: dict) -> str:
     _ensure_demo_clinician_in_clinic()
+    suffix = uuid.uuid4().hex[:8]
     resp = client.post(
         "/api/v1/patients",
-        json={"first_name": "AE", "last_name": "HubPatient", "dob": "1990-04-01", "gender": "F"},
+        json={
+            "first_name": f"AE-{suffix}",
+            "last_name": f"HubPatient-{suffix}",
+            "dob": "1990-04-01",
+            "gender": "F",
+        },
         headers=auth_headers["clinician"],
     )
     assert resp.status_code == 201
@@ -436,14 +442,16 @@ class TestListNewFilters:
         self, client: TestClient, auth_headers: dict, patient_id: str
     ) -> None:
         h = auth_headers["clinician"]
-        _create_ae(client, h, patient_id=patient_id, event_type="headache")
+        needle = f"aehub-{uuid.uuid4().hex[:8]}"
+        _create_ae(client, h, patient_id=patient_id, event_type=f"headache-{needle}")
         _create_ae(client, h, patient_id=patient_id, event_type="nausea")
         r = client.get(
-            "/api/v1/adverse-events?q=head", headers=h
+            f"/api/v1/adverse-events?patient_id={patient_id}&q={needle}",
+            headers=h,
         )
         items = r.json()["items"]
-        assert all("head" in (it["event_type"] or "").lower() for it in items)
-        assert any(it["event_type"] == "headache" for it in items)
+        assert len(items) == 1
+        assert items[0]["event_type"] == f"headache-{needle}"
 
     def test_invalid_trial_id_422(
         self, client: TestClient, auth_headers: dict, patient_id: str
