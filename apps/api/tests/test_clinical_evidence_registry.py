@@ -91,19 +91,23 @@ def _build_one(key: str) -> CataloguedOnlyAdapter | None:
     return instance
 
 
-@pytest.mark.parametrize(
-    "key",
-    [
-        "eudract",
-        "pubmed_central",
-        "crossref",
-        "nice",
-        "trip",
-        "epistemonikos",
-        "acp_journal_club",
-        "dynamed",
-    ],
-)
+# Cat-3 sources that remain catalogued-only after the live-adapter wire-up.
+# CrossRef + PubMed Central moved to live network adapters in
+# PRs #1074 / #1092 (catalog swap landed alongside this comment); they
+# are excluded from the catalogued-only contract tests and instead
+# covered by their dedicated test_crossref_live_adapter /
+# test_pubmed_central_live_adapter suites.
+_CATALOGUED_ONLY_CAT3_KEYS = [
+    "eudract",
+    "nice",
+    "trip",
+    "epistemonikos",
+    "acp_journal_club",
+    "dynamed",
+]
+
+
+@pytest.mark.parametrize("key", _CATALOGUED_ONLY_CAT3_KEYS)
 def test_catalogued_only_adapter_refuses_to_fetch(key: str) -> None:
     """Catalogued-only adapters must raise FetchError instead of fabricating."""
     adapter = _build_one(key)
@@ -112,19 +116,7 @@ def test_catalogued_only_adapter_refuses_to_fetch(key: str) -> None:
         asyncio.run(adapter.fetch("any query"))
 
 
-@pytest.mark.parametrize(
-    "key",
-    [
-        "eudract",
-        "pubmed_central",
-        "crossref",
-        "nice",
-        "trip",
-        "epistemonikos",
-        "acp_journal_club",
-        "dynamed",
-    ],
-)
+@pytest.mark.parametrize("key", _CATALOGUED_ONLY_CAT3_KEYS)
 def test_catalogued_only_health_check_reports_honest_state(key: str) -> None:
     """health_check must say connected=False and either catalogued/disabled."""
     adapter = _build_one(key)
