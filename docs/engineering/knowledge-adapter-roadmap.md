@@ -26,6 +26,7 @@ single place to update its row.
 | ✅ | Already in production at the prod path. Working, imported, tested |
 | 📋 | Briefed by Kimi research, ready to implement against the production ABC |
 | 🚧 | Needs additional research — Kimi file exists but has no `self.name` set, suggesting truncated chat output |
+| 🔄 | Newly catalogued from external source (operator-supplied), briefing pending |
 | ⏳ | Out of scope for current roadmap (licensed, restricted, web-scrape only) |
 
 ---
@@ -155,6 +156,91 @@ truncated mid-response. Each must be re-researched from primary sources
 | 49 | PEDro | `pedro_adapter.py` | No metadata in file |
 | 50 | UNII | `unii_adapter.py` | No metadata in file |
 
+## 10. Category 11 — Literature aggregators (added 2026-05-19)
+
+Operator-supplied entries from an external numbered catalog (`#87`–`#90`,
+"Category 11: LITERATURE"). Two of the four are already tracked elsewhere
+in this doc; the other two are net-new to the roadmap.
+
+| # | Database | Status | Access | API Endpoint | Clinical use | In-doc cross-ref |
+|---|---|---|---|---|---|---|
+| 87 | Semantic Scholar | 📋 | Free | `https://api.semanticscholar.org/graph/v1/` | AI-powered literature search; rank by citation velocity for rare-condition neuromodulation queries | **Already at Batch 2 row #7** — implementation pending |
+| 88 | OpenAlex | ✅ | Free API key + $1/day usage credit | `https://api.openalex.org/` | Open scholarly graph; citation analysis, author/affiliation networks for evidence triangulation | **Implemented 2026-05-19** — `apps/api/app/services/knowledge/adapters/openalex_adapter.py`; original brief in § 10.1 |
+| 89 | Dimensions | ⏳ | Subscription / by-application; no public REST | DSL endpoint (Dimensions Search Language v2.15.0) | Research analytics + funding data | **DEFERRED 2026-05-19** — license-blocked, not planned for active integration; see § 10.2 |
+| 90 | CORE | 📋 | Free | `https://api.core.ac.uk/v3/` | Open-access full-text aggregation; full-text retrieval for systematic reviews | **Already at Batch 6 row #36** — implementation pending |
+
+**Net-new additions to total addressable:** 2 (OpenAlex, Dimensions). Total now **52 catalogued** + 16 already in production = **68** distinct knowledge sources once the roadmap is complete.
+
+The two existing entries (Semantic Scholar #87, CORE #90) do not need
+duplicate work — they are already in earlier batches with full briefings
+in the corresponding BATCH reports.
+
+### § 10.1 OpenAlex (#88) — briefing 2026-05-19
+
+| Field | Value |
+|---|---|
+| Base URL | `https://api.openalex.org` |
+| Auth | **API key required.** Free key at `https://openalex.org/settings/api`. Sent as a query parameter. |
+| Pricing | Free tier = **$1/day usage credit** (usage-based, different ops cost different amounts). Higher limits and bulk snapshots require a paid plan (`https://openalex.org/pricing`). |
+| Rate limit | Not published as a fixed req/sec. Throttled via the daily credit pool. |
+| Entities (22) | Primary: `/works`, `/authors`, `/sources`, `/institutions`, `/topics`, `/keywords`, `/publishers`, `/funders`, `/awards`. Auxiliary: `/domains`, `/fields`, `/subfields`, `/sdgs`, `/countries`, `/continents`, `/languages`, `/work-types`, `/source-types`, `/institution-types`, `/licenses`, `/concepts` (legacy). |
+| External ID lookup | DOI, ORCID, ROR, PMID |
+| Pagination | `page` (offset-style, max 100/page) **or** `cursor` (recommended for >10 000 results) |
+| Response shape | `{ meta: {count, page, per_page, response_time_ms}, results: [...], group_by: ... }` |
+| Filtering | Rich filter DSL (e.g., `is_oa:true,cited_by_count:>50`); `select=…` for field projection; `group_by=…` for aggregation |
+| Data license | **CC0 1.0** — clean, permissive, suitable for re-distribution and derivative use |
+| Status change | Previous "polite pool with mailto" no-auth model **is gone** — every adapter implementation needs the API-key path. |
+
+**Implementation notes for the eventual adapter PR:**
+- Subclass `DatabaseAdapter` per the standard ABC. Config: `{api_key: str, base_url: str = "https://api.openalex.org"}`.
+- `fetch` should default to `/works?search=<term>&select=id,doi,title,publication_year,cited_by_count,open_access,authorships,concepts,abstract_inverted_index&per-page=25` and use cursor pagination.
+- `_evidence_level` should derive from work type + citation count (peer-reviewed vs preprint vs dataset).
+- `_confidence` can use `cited_by_count` and `is_oa` as input signals.
+- Cost-tracking: log per-request cost (returned in response headers when available) so the adapter can warn at, say, 80% of daily credit.
+
+### § 10.2 Dimensions (#89) — DEFERRED 2026-05-19 ⏳
+
+**Decision (operator, 2026-05-19):** Dimensions is moved from the active
+integration roadmap to **deferred / license-blocked**. No adapter will be
+built. The source must not be exposed in live workflows, the Research
+Evidence surface, Protocol Studio, federated search, or any
+patient-level evidence path unless and until a future commercial license
+is negotiated.
+
+**Why:** The Dimensions Analytics API's terms explicitly state it is *"not
+intended for bulk data or to power dashboards or other derivative products."*
+The DeepSynaps Knowledge Layer is, by design, a derivative product that
+surfaces ranked external evidence to clinicians via a dashboard-style UI —
+exactly the use case the license excludes.
+
+**What's preserved (catalogued metadata, in case a future license decision
+reopens the question):**
+
+| Field | Value |
+|---|---|
+| Base URL | Not a standard REST endpoint. Access via DSL (Dimensions Search Language) v2.15.0. |
+| Auth | **Institutional subscription** primary access. **Free tier exists** for "eligible scientometric research projects" via Digital Science. No public free REST endpoint. |
+| Pricing | Not publicly documented; subscription model |
+| Rate limit | Not publicly documented |
+| Queryable sources | Publications, Grants, Patents, Clinical Trials, Policy Documents, Datasets, Source Titles, Reports, Researchers, Organizations, Funder Groups, Research Org Groups |
+| Query language | Dimensions Search Language (DSL) — proprietary, not standard REST/GraphQL |
+| **License restriction** | **Explicit:** *"The Dimensions Analytics API is not intended for bulk data or to power dashboards or other derivative products."* The API is positioned for "complex analytical tasks". |
+
+**Use these instead** (operator-approved alternatives covering the same
+literature / funding-data territory):
+
+- OpenAlex (§ 10.1) — open scholarly graph + citation analytics
+- Semantic Scholar (Batch 2 row #7) — AI-powered literature search
+- CORE (Batch 6 row #36) — open-access full-text aggregation
+- CrossRef — DOI metadata + citations (not yet in roadmap; candidate for future addition)
+- PubMed (Batch 1 row #1) and Europe PMC (Batch 2 row #4) — biomedical literature
+- Internal DeepSynaps Evidence DB — the local ingestion pipeline
+
+**Re-opening this entry** requires a commercial license that explicitly
+permits derivative-product / dashboard use, plus legal review. Until then
+no adapter implementation should proceed; the invariant test
+`test_dimensions_not_in_production_catalog` enforces this at CI time.
+
 ---
 
 ## How to implement a row from this table
@@ -186,9 +272,12 @@ corresponding Kimi reference file may then be deleted (separate PR).
 
 ## Current scoreboard
 
-- ✅ Implemented in production: **16 / 50** (32%)
-- 📋 Briefed and ready to implement: **24 / 50** (48%)
-- 🚧 Need additional research: **10 / 50** (20%)
-- Total addressable: **50** databases described in Kimi material, plus the
-  16 already in production = **66** distinct knowledge sources for the
-  Knowledge Layer once complete.
+- ✅ Implemented in production: **16 / 52** (31%)
+- 📋 Briefed and ready to implement: **24 / 52** (46%)
+- 🚧 Need additional research (Kimi-truncated): **10 / 52** (19%)
+- 🔄 Newly catalogued, briefing pending: **0 / 52** (0%)
+- ⏳ Deferred / license-blocked: **1 / 52** (2%) — Dimensions (§ 10.2). Not planned for active integration; reopening requires commercial license + legal review.
+- Total addressable: **51** databases tracked here for active integration,
+  **1** deferred, plus the 16 already in production = **67** distinct
+  knowledge sources targetable for the Knowledge Layer (68 catalogued
+  in total, minus the deferred Dimensions row).

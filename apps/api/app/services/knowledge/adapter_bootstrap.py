@@ -51,6 +51,7 @@ from app.services.knowledge.adapters.loinc_adapter import LOINCAdapter
 from app.services.knowledge.adapters.mni_atlas_adapter import MNIAtlasAdapter
 from app.services.knowledge.adapters.neurosynth_adapter import NeurosynthAdapter
 from app.services.knowledge.adapters.onsides_adapter import OnSIDESAdapter
+from app.services.knowledge.adapters.openalex_adapter import OpenAlexAdapter
 from app.services.knowledge.adapters.openfda_adapter import OpenFDAAdapter
 from app.services.knowledge.adapters.pharmgkb_adapter import PharmGKBAdapter
 from app.services.knowledge.adapters.promis_adapter import PROMISAdapter
@@ -87,6 +88,7 @@ _ADAPTER_CATALOG: Dict[str, Tuple[Type[DatabaseAdapter], str, Dict[str, Any]]] =
     "cochrane":     (CochraneAdapter,       "P0", {}),
     "europepmc":    (EuropePMCAdapter,      "P1", {}),
     "gnomad":       (GnomadAdapter,         "P1", {}),
+    "openalex":     (OpenAlexAdapter,       "P1", {}),
 }
 
 

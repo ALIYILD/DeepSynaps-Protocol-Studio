@@ -319,14 +319,23 @@ def test_peek_with_fake_registry_reports_real_states(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_all_21_catalogued_adapters_appear_in_lifecycle_summary(monkeypatch):
-    """Every adapter key declared in _ADAPTER_CATALOG must have a state."""
+def test_all_catalogued_adapters_appear_in_lifecycle_summary(monkeypatch):
+    """Every adapter key declared in _ADAPTER_CATALOG must have a state.
+
+    The count is asserted at a >= floor rather than an exact value so
+    that adding a new adapter does not require updating this test in
+    lockstep — the regression that matters is "an adapter is in the
+    catalog but missing from the lifecycle summary", not "the catalog
+    grew".
+    """
     monkeypatch.setattr(adapter_bootstrap, "_registry", None, raising=False)
     monkeypatch.delenv(DISABLED_ADAPTERS_ENV, raising=False)
 
     catalog_keys = list(adapter_bootstrap.list_production_adapter_keys())
-    assert len(catalog_keys) == 21, (
-        "Catalog size changed — update this test and the lifecycle doc."
+    assert len(catalog_keys) >= 21, (
+        f"Catalog shrunk unexpectedly to {len(catalog_keys)} entries; "
+        "investigate which adapter was removed and whether that removal was "
+        "intended."
     )
     summary = peek_registry_lifecycle_summary()
     for key in catalog_keys:
@@ -353,3 +362,168 @@ def test_lifecycle_peek_does_not_instantiate_adapters(monkeypatch):
 
     summary = peek_registry_lifecycle_summary()
     assert summary["total"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# Deferred / license-blocked source invariants
+# ---------------------------------------------------------------------------
+#
+# Some sources are explicitly DEFERRED (status ⏳ in
+# docs/engineering/knowledge-adapter-roadmap.md) because their license
+# terms conflict with the DeepSynaps Knowledge Layer's
+# dashboard / derivative-product use case. These invariants exist so a
+# future contributor (or autonomous agent) cannot silently re-introduce
+# the source by adding it to the production catalog or by dropping an
+# adapter file into the canonical adapters directory.
+#
+# To re-enable a deferred source, the operator must:
+#   1. Acquire a commercial license that explicitly permits the
+#      derivative-product use case (or otherwise resolve the legal
+#      blocker recorded in the roadmap).
+#   2. Update the roadmap doc: status ⏳ → 📋 with explicit operator note.
+#   3. Remove the key from DEFERRED_KNOWLEDGE_ADAPTERS below.
+#   4. Add the adapter to apps/api/app/services/knowledge/adapter_bootstrap.py.
+#
+# Adding the adapter file or catalog entry WITHOUT step 3 will fail this
+# test, which is the intended guardrail.
+
+DEFERRED_KNOWLEDGE_ADAPTERS = frozenset(
+    {
+        # Roadmap row #89, § 10.2. License: "not intended for bulk data or
+        # to power dashboards or other derivative products" — direct conflict
+        # with the Knowledge Layer's use case. Deferred 2026-05-19.
+        "dimensions",
+    }
+)
+
+
+def test_deferred_adapters_not_in_production_catalog():
+    """Every deferred source must be absent from _ADAPTER_CATALOG.
+
+    Adding a deferred key to the catalog re-enables the source for
+    runtime instantiation and federated search, which is the exact
+    behaviour the deferral forbids.
+    """
+    catalog_keys = set(adapter_bootstrap.list_production_adapter_keys())
+    overlap = catalog_keys & DEFERRED_KNOWLEDGE_ADAPTERS
+    assert not overlap, (
+        f"Deferred knowledge adapter(s) leaked into the production catalog: "
+        f"{sorted(overlap)}. Remove from _ADAPTER_CATALOG in "
+        f"apps/api/app/services/knowledge/adapter_bootstrap.py, OR if the "
+        f"deferral has been formally lifted (operator decision + roadmap "
+        f"update + license review), remove the key from "
+        f"DEFERRED_KNOWLEDGE_ADAPTERS in this file."
+    )
+
+
+def test_deferred_adapters_have_no_adapter_file_on_disk():
+    """No `<key>_adapter.py` may exist for a deferred source.
+
+    The mere presence of an adapter file is risky: any future code that
+    iterates the adapters directory (registry bootstraps, import
+    discovery, doc generators) would surface the deferred source.
+    """
+    from pathlib import Path
+
+    adapters_dir = (
+        Path(__file__).resolve().parent.parent
+        / "app"
+        / "services"
+        / "knowledge"
+        / "adapters"
+    )
+    leaked: list = []
+    for key in DEFERRED_KNOWLEDGE_ADAPTERS:
+        candidate = adapters_dir / f"{key}_adapter.py"
+        if candidate.exists():
+            leaked.append(candidate.as_posix())
+    assert not leaked, (
+        f"Adapter file(s) for deferred source(s) found on disk: {leaked}. "
+        f"Delete the file. If the deferral has been formally lifted, also "
+        f"remove the key from DEFERRED_KNOWLEDGE_ADAPTERS in this test "
+        f"and from the ⏳ row in docs/engineering/knowledge-adapter-roadmap.md."
+    )
+
+
+def test_deferred_adapters_lifecycle_state_is_unknown(monkeypatch):
+    """A deferred source must not appear as healthy/registered/catalogued in
+    the live lifecycle summary — it should simply be absent.
+
+    Because the deferred key is NOT in _ADAPTER_CATALOG and NOT in
+    DEEPSYNAPS_DISABLED_KNOWLEDGE_ADAPTERS (the disable mechanism is for
+    operator-toggled adapters that DO have a catalog entry, not for
+    policy-deferred sources), the key should not appear in the summary
+    at all.
+    """
+    monkeypatch.setattr(adapter_bootstrap, "_registry", None, raising=False)
+    monkeypatch.delenv(DISABLED_ADAPTERS_ENV, raising=False)
+
+    summary = peek_registry_lifecycle_summary()
+    for key in DEFERRED_KNOWLEDGE_ADAPTERS:
+        assert key not in summary["adapters"], (
+            f"Deferred source {key!r} appeared in lifecycle summary; expected "
+            f"absent. Check that it has not been re-added to _ADAPTER_CATALOG."
+        )
+
+
+# ---------------------------------------------------------------------------
+# ABC-inheritance invariant for catalogued adapters
+# ---------------------------------------------------------------------------
+#
+# Before 2026-05-19, FAERS and OnSIDES adapters were declared as plain
+# classes (no `(DatabaseAdapter)` inheritance) despite being in the
+# production catalog. AdapterRegistry.register() rejects non-DatabaseAdapter
+# instances, so both keys were silently dropped from every built registry
+# while still appearing in the catalog — they showed up CATALOGUED on
+# /health forever. The audit subagent that surfaced this on 2026-05-19
+# also flagged it as RED-critical because the failure was silent.
+#
+# This invariant prevents the regression returning.
+
+
+def test_every_catalogued_adapter_class_inherits_databaseadapter():
+    """Each class registered in _ADAPTER_CATALOG must be a DatabaseAdapter
+    subclass at the class level — separate from instantiation, so this
+    catches the bug even if `__init__` has pre-existing issues."""
+    from app.services.knowledge.base_adapter import DatabaseAdapter
+
+    catalog = adapter_bootstrap._ADAPTER_CATALOG
+    offenders: list = []
+    for key, (cls, _tier, _cfg) in catalog.items():
+        if not issubclass(cls, DatabaseAdapter):
+            offenders.append((key, cls.__module__ + "." + cls.__name__))
+    assert not offenders, (
+        "Catalogued adapter class(es) do not inherit DatabaseAdapter — "
+        f"registry will silently drop them: {offenders}. Add "
+        "`(DatabaseAdapter)` to the class declaration and ensure the "
+        "ABC is imported."
+    )
+
+
+def test_every_catalogued_adapter_passes_isinstance_check_on_empty_config():
+    """Every catalogued class, instantiated with empty config, must satisfy
+    isinstance(_, DatabaseAdapter) — the exact predicate AdapterRegistry
+    uses at register() time. Adapters whose __init__ raises on empty config
+    are skipped (separate from the inheritance question)."""
+    from app.services.knowledge.base_adapter import DatabaseAdapter
+
+    catalog = adapter_bootstrap._ADAPTER_CATALOG
+    failures: list = []
+    for key, (cls, _tier, _cfg) in catalog.items():
+        try:
+            instance = cls({})
+        except Exception:
+            # Constructor-raises-on-empty-config is tracked separately
+            # (Priority 6 audit). Inheritance is the lane this test guards.
+            continue
+        if not isinstance(instance, DatabaseAdapter):
+            failures.append(
+                f"{key} -> {cls.__module__}.{cls.__name__} "
+                f"(instance type {type(instance).__module__}.{type(instance).__name__})"
+            )
+    assert not failures, (
+        "Catalogued adapter instance(s) failed isinstance(DatabaseAdapter) "
+        f"despite being constructed successfully: {failures}. The class "
+        "may have lost its inheritance or be defined under a parallel "
+        "DatabaseAdapter ABC."
+    )

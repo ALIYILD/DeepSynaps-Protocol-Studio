@@ -29,6 +29,12 @@ from typing import Any, Dict, Final, List, Optional, Set, Tuple
 
 import httpx
 
+# Canonical ABC. The local ConfidenceTier / EvidenceLevel / ProvenanceRecord /
+# LicenseMetadata dataclasses below predate this import and remain in place
+# for backward-compat with code that depended on them; only the ABC needs
+# to be inherited so `AdapterRegistry.register(...)` accepts the instance.
+from ..base_adapter import DatabaseAdapter as _DatabaseAdapter
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -257,7 +263,7 @@ class TokenBucketRateLimiter:
 # FAERS Adapter
 # ---------------------------------------------------------------------------
 
-class FAERSAdapter:
+class FAERSAdapter(_DatabaseAdapter):
     """Adapter for the FDA Adverse Event Reporting System (FAERS).
 
     Queries the openFDA /drug/event.json endpoint with full governance
