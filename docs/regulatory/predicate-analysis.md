@@ -11,14 +11,12 @@
 | Device name | [TBD: clinical lead] |
 | Intended use | [TBD: clinical lead] |
 | Indications for use | [TBD: clinical lead] |
-| Proposed product code | `IPF` or `OOA` (tDCS-adjacent) — see `../fda-product-codes.md`; final code [TBD: regulatory consultant final code] |
+| Proposed product code | `[TBD: regulatory consultant — IPF/OOA cited as tDCS-adjacent anchors in ../fda-product-codes.md, OBP for TMS-adjacent; final code per substantial equivalence analysis]` |
 | Device class | [TBD: regulatory consultant — Class II expected] |
 
 ---
 
-## 2. Primary predicate
-
-**Flow Neuroscience FL-100**
+## 2. Primary predicate — Flow Neuroscience FL-100 `[TBD: regulatory consultant confirm predicate device identity, manufacturer, and clearance pathway]`
 
 > [TBD: regulatory consultant confirm PMA vs 510(k) pathway and K-number; "Flow FL-100 PMA Dec 2025" came from upstream strategic review and must be verified against FDA establishment registration]
 
@@ -42,7 +40,7 @@
 
 ## 4. Comparison matrix
 
-| Attribute | Subject device | Primary predicate (Flow FL-100) | Same / Different | Impact on safety/effectiveness | Owner |
+| Attribute | Subject device | Primary predicate (Flow FL-100 — `[TBD: confirm]`) | Same / Different | Impact on safety/effectiveness | Owner |
 |-----------|---------------|--------------------------------|-----------------|-------------------------------|-------|
 | Intended use | [TBD: clinical lead] | [TBD: regulatory consultant] | [TBD] | [TBD] | clinical lead |
 | Indications (population) | [TBD: clinical lead] | [TBD: regulatory consultant] | [TBD] | [TBD] | clinical lead |
