@@ -93,15 +93,13 @@ def _build_one(key: str) -> CataloguedOnlyAdapter | None:
 
 # Cat-3 sources that remain catalogued-only after the live-adapter wire-ups.
 # Live network adapters now serve: CrossRef (#1074), PubMed Central (#1092),
-# and Epistemonikos (this PR). Those keys are excluded from the
+# Epistemonikos (#1118), and the Slice B-4 credential-aware trio — Trip
+# Database, ACP Journal Club, DynaMed. Those keys are excluded from the
 # catalogued-only contract tests and instead covered by their dedicated
 # test_<source>_live_adapter suites.
 _CATALOGUED_ONLY_CAT3_KEYS = [
     "eudract",
     "nice",
-    "trip",
-    "acp_journal_club",
-    "dynamed",
 ]
 
 

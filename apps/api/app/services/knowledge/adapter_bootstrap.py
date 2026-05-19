@@ -41,8 +41,8 @@ from app.services.knowledge.lifecycle import (
     record_stage,
 )
 from app.services.knowledge.adapters.abide_adapter import ABIDEAdapter
-from app.services.knowledge.adapters.acp_journal_club_adapter import (
-    ACPJournalClubAdapter,
+from app.services.knowledge.adapters.acp_journal_club_live_adapter import (
+    ACPJournalClubLiveAdapter,
 )
 from app.services.knowledge.adapters.adni_adapter import ADNIAdapter
 from app.services.knowledge.adapters.allen_brain_adapter import AllenBrainAdapter
@@ -55,7 +55,7 @@ from app.services.knowledge.adapters.cochrane_adapter import CochraneAdapter
 from app.services.knowledge.adapters.crossref_live_adapter import (
     CrossRefLiveAdapter,
 )
-from app.services.knowledge.adapters.dynamed_adapter import DynaMedAdapter
+from app.services.knowledge.adapters.dynamed_live_adapter import DynaMedLiveAdapter
 from app.services.knowledge.adapters.epistemonikos_live_adapter import (
     EpistemonikosLiveAdapter,
 )
@@ -83,8 +83,8 @@ from app.services.knowledge.adapters.rxnorm_adapter import RxNormAdapter
 from app.services.knowledge.adapters.schaefer_adapter import SchaeferAdapter
 from app.services.knowledge.adapters.simnibs_adapter import SimNIBSAdapter
 from app.services.knowledge.adapters.snomedct_adapter import SNOMEDCTAdapter
-from app.services.knowledge.adapters.trip_database_adapter import (
-    TripDatabaseAdapter,
+from app.services.knowledge.adapters.trip_database_live_adapter import (
+    TripDatabaseLiveAdapter,
 )
 from app.services.knowledge.adapters.umls_adapter import UMLSAdapter
 from app.services.knowledge.base_adapter import DatabaseAdapter
@@ -127,18 +127,19 @@ _ADAPTER_CATALOG: Dict[str, Tuple[Type[DatabaseAdapter], str, Dict[str, Any]]] =
     "ols":              (OLSAdapter,              "P0", {}),
     "umls":             (UMLSAdapter,             "P1", {}),
     # ── Category 3: Clinical Evidence ───────────────────────────────────────
-    # CrossRef + PubMed Central are LIVE network adapters (PRs #1074, #1092).
-    # NICE, Trip, Epistemonikos, EudraCT remain catalogued-only until their
-    # Slice B implementations land. Subscription sources (ACP, DynaMed)
-    # stay catalogued-only and report ``disabled`` without credentials.
-    "pubmed_central":   (PubMedCentralLiveAdapter, "P1", {}),
-    "nice":             (NICEAdapter,              "P1", {}),
-    "trip":             (TripDatabaseAdapter,      "P2", {}),
-    "epistemonikos":    (EpistemonikosLiveAdapter, "P2", {}),
-    "crossref":         (CrossRefLiveAdapter,      "P1", {}),
-    "eudract":          (EudraCTAdapter,           "P1", {}),
-    "acp_journal_club": (ACPJournalClubAdapter,    "P2", {}),
-    "dynamed":          (DynaMedAdapter,           "P2", {}),
+    # CrossRef + PubMed Central + Epistemonikos are LIVE network adapters
+    # (PRs #1074, #1092, #1118). Trip, ACP Journal Club, and DynaMed are
+    # credential-aware LIVE adapters (Slice B-4): they report ``disabled``
+    # without credentials and never fabricate. NICE and EudraCT remain
+    # catalogued-only until their Slice B implementations land.
+    "pubmed_central":   (PubMedCentralLiveAdapter,   "P1", {}),
+    "nice":             (NICEAdapter,                "P1", {}),
+    "trip":             (TripDatabaseLiveAdapter,    "P2", {}),
+    "epistemonikos":    (EpistemonikosLiveAdapter,   "P2", {}),
+    "crossref":         (CrossRefLiveAdapter,        "P1", {}),
+    "eudract":          (EudraCTAdapter,             "P1", {}),
+    "acp_journal_club": (ACPJournalClubLiveAdapter,  "P2", {}),
+    "dynamed":          (DynaMedLiveAdapter,         "P2", {}),
 }
 
 
