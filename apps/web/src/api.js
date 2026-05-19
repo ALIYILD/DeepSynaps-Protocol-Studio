@@ -2150,6 +2150,14 @@ export const api = {
   // Public counts + last_updated timestamp (no auth required).
   evidenceStatus: () => apiFetch('/api/v1/evidence/status'),
   evidenceSourceStatus: () => apiFetch('/api/v1/evidence/source-status'),
+  // Category-3 federated clinical-evidence search (Slice C, PR #1078).
+  // Callers MUST treat 404 as "endpoint not yet deployed in this build"
+  // and degrade gracefully — same pattern as evidenceClinicalSources().
+  evidenceFederatedSearch: (body = {}) =>
+    apiFetch('/api/v1/evidence/federated-search', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   societyResourceSources: () => apiFetch('/api/v1/society-resources/sources'),
   societyResourceLifecycle: () => apiFetch('/api/v1/society-resources/lifecycle'),
   societyResourceSearch: (data = {}) => {
