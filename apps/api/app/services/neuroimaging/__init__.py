@@ -42,11 +42,17 @@ from .neurokit_physio import HAS_NEUROKIT, process_ecg, process_eda, process_rsp
 from .nilearn_io import mask_nifti, extract_atlas_timeseries, compute_connectome
 from .dipy_dwi import load_dwi, fit_dti
 from .braindecode_models import build_eegnet, forward_pass, HAS_BRAINDECODE, HAS_TORCH
+from .neuroglancer_viewer import (
+    HAS_NEUROGLANCER,
+    build_viewer_url,
+    default_layer_template,
+)
 from .schemas import (
     NiftiSummary,
     LayoutSummary,
     BIDSFileRef,
     NwbSummary,
+    NeuroglancerViewerResponse,
     NeuroimagingHealth,
     EcgFeatures,
     EdaFeatures,

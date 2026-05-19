@@ -44,6 +44,7 @@ from app.services.neuroimaging.kg_neo4j import (
     HAS_NEO4J_DRIVER,
     health_check as neo4j_health_check,
 )
+from app.services.neuroimaging.neuroglancer_viewer import HAS_NEUROGLANCER
 from app.services.neuroimaging.schemas import (
     BIDSFileRef,
     EcgFeatures,
@@ -52,6 +53,7 @@ from app.services.neuroimaging.schemas import (
     GradientSummary,
     LayoutSummary,
     MonaiModelSummary,
+    NeuroglancerViewerResponse,
     NeuroimagingHealth,
     NiftiSummary,
     NwbSummary,
@@ -109,6 +111,52 @@ class _BIDSSummariseRequest(BaseModel):
     root_path: str
 
 
+class _NeuroglancerVizRequest(BaseModel):
+    source: str
+    layer_type: str = "image"
+
+
+@router.get("/viz/freesurfer/health")
+def viz_freesurfer_health():
+    raise ApiServiceError(
+        status_code=503,
+        code="freesurfer_service_not_available",
+        message="FreeSurfer side-car not deployed. See ops/freesurfer/README.md.",
+    )
+
+
+@router.post("/viz/neuroglancer", response_model=NeuroglancerViewerResponse)
+def viz_neuroglancer(
+    body: _NeuroglancerVizRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+):
+    require_minimum_role(actor, "clinician")
+    if not HAS_NEUROGLANCER:
+        raise ApiServiceError(
+            status_code=503,
+            code="neuroimaging_library_unavailable",
+            message="neuroglancer is not installed",
+        )
+    if not body.source.startswith(("precomputed://", "n5://", "zarr://")):
+        raise ApiServiceError(
+            status_code=422,
+            code="invalid_viz_source",
+            message="source must use precomputed://, n5://, or zarr:// scheme",
+        )
+    from app.services.neuroimaging.neuroglancer_viewer import (
+        build_viewer_url,
+        default_layer_template,
+    )
+    spec = default_layer_template(body.source)
+    spec["type"] = body.layer_type
+    viewer_url = build_viewer_url(spec)
+    return {
+        "viewer_url": viewer_url,
+        "source": body.source,
+        "layer_type": body.layer_type,
+    }
+
+
 @router.get("/health", response_model=NeuroimagingHealth)
 def get_health(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
@@ -129,6 +177,7 @@ def get_health(
         biocypher=HAS_BIOCYPHER,
         braindecode=HAS_BRAINDECODE,
         torch=HAS_BRAINDECODE,
+        neuroglancer=HAS_NEUROGLANCER,
         versions={},
     )
 
