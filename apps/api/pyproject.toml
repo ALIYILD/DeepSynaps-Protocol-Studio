@@ -71,6 +71,10 @@ dependencies = [
     "nilearn>=0.13.0,<0.15.0",
     "dipy>=1.12.0,<2.0.0",
     "scikit-learn>=1.5.0,<2.0.0",
+    # Phase 3 simulation: BrainSpace (BSD-3) for connectome gradient
+    # decomposition. MONAI is in the [neuro-dl] extra; SimNIBS is GPL-3.0 and
+    # is shelled out (NOT a Python dep) to keep the API MIT-clean.
+    "brainspace>=0.1.10,<0.2.0",
     # Reports stream HTML→PDF render path (PR #144 night shift). Imported in
     # packages/render-engine/src/deepsynaps_render_engine/renderers.py via
     # try/except → raises PdfRendererUnavailable when missing, so the
@@ -107,12 +111,13 @@ dependencies = [
 qeeg = [
     "deepsynaps-qeeg",
 ]
-# Deep-learning EEG models (Phase 2c). NOT pulled in by a plain
-# `pip install -e apps/api` — torch alone is ~750 MB unpacked.
-# Install with: pip install -e "apps/api[neuro-dl]"
+# Deep-learning EEG / medical-imaging models. NOT pulled in by a plain
+# `pip install -e apps/api` — torch alone is ~750 MB unpacked, MONAI adds
+# ~150 MB on top. Install with: pip install -e "apps/api[neuro-dl]"
 neuro-dl = [
     "torch>=2.2,<3.0",
     "braindecode>=1.5.0,<2.0.0",
+    "monai>=1.4,<2.0",
 ]
 
 [tool.setuptools]
