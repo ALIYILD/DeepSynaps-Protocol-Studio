@@ -36,6 +36,14 @@ from app.services.neuroimaging import (
     read_nwb_summary,
     summarise_layout,
 )
+from app.services.neuroimaging.kg_biocypher import (
+    HAS_BIOCYPHER,
+    build_schema_summary as biocypher_build_schema_summary,
+)
+from app.services.neuroimaging.kg_neo4j import (
+    HAS_NEO4J_DRIVER,
+    health_check as neo4j_health_check,
+)
 from app.services.neuroimaging.schemas import (
     BIDSFileRef,
     EcgFeatures,
@@ -117,10 +125,41 @@ def get_health(
         simnibs=HAS_SIMNIBS,
         monai=HAS_MONAI,
         brainspace=HAS_BRAINSPACE,
-        versions={},
+        neo4j=HAS_NEO4J_DRIVER,
+        biocypher=HAS_BIOCYPHER,
         braindecode=HAS_BRAINDECODE,
         torch=HAS_BRAINDECODE,
+        versions={},
     )
+
+
+@router.get("/kg/neo4j/health")
+def get_kg_neo4j_health(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+):
+    """Phase 5 — probe Neo4j reachability lazily; never opens connection at startup."""
+    require_minimum_role(actor, "clinician")
+    if not HAS_NEO4J_DRIVER:
+        raise ApiServiceError(
+            status_code=503,
+            code="neuroimaging_library_unavailable",
+            message="neo4j driver is not installed",
+        )
+    return neo4j_health_check()
+
+
+class _BiocypherSchemaRequest(BaseModel):
+    yaml_path: str
+
+
+@router.post("/kg/biocypher/schema")
+def post_kg_biocypher_schema(
+    body: _BiocypherSchemaRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+):
+    """Phase 5 — summarise a BioCypher YAML schema."""
+    require_minimum_role(actor, "clinician")
+    return biocypher_build_schema_summary(body.yaml_path)
 
 
 @router.post("/nifti/inspect", response_model=NiftiSummary)

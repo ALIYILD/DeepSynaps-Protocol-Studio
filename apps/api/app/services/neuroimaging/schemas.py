@@ -58,6 +58,9 @@ class NeuroimagingHealth(BaseModel):
     simnibs: bool = False
     monai: bool = False
     brainspace: bool = False
+    # Phase 5 — driver-installed flags
+    neo4j: bool = False
+    biocypher: bool = False
     versions: dict[str, str | None] = {}
 
 
