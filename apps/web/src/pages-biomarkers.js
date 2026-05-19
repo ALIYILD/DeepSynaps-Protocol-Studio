@@ -4,6 +4,7 @@
  * Neuroinflammation, Hormones, Immune, Nutritional, Research, and Patient Workspace.
  */
 import { api } from './api.js';
+import { renderTerminologyExpansionPanel } from './diagnosis-coding-expansion.js';
 import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { isDemoSession } from './demo-session.js';
 import { ANALYZER_DEMO_FIXTURES, DEMO_FIXTURE_BANNER_HTML } from './demo-fixtures-analyzers.js';
@@ -561,6 +562,7 @@ function _renderReferenceTab() {
           <div id="nb-search-summary" style="font-size:12px;color:var(--text-tertiary);margin-bottom:14px">
             Showing all ${totalMarkers} biomarkers across ${NEURO_BIOMARKER_REFERENCE.length} categories.
           </div>
+          <div id="bm-terminology-expansion" style="margin-bottom:14px"></div>
           <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px">
             ${NEURO_BIOMARKER_REFERENCE.map(group => `
               <div class="nb-summary-card" data-search="${group.title.toLowerCase()}" style="padding:14px;border-radius:14px;background:rgba(255,255,255,0.025);border:1px solid var(--border);cursor:pointer" onclick="window._bmRefSearch('${group.title.split(' ')[0].toLowerCase()}')">
@@ -593,8 +595,39 @@ function _bindReferenceTab() {
     _openBiomarkerModal(marker, group);
   };
 
+  // Category 8 terminology expansion: debounce + only fire for queries with
+  // enough characters to be meaningful. Pure side-channel — never blocks
+  // the local filter below. The panel renders its own degraded/error states.
+  let _bmTerminologyTimer = null;
+  function _bmTriggerTerminologyExpansion(query) {
+    if (_bmTerminologyTimer) {
+      clearTimeout(_bmTerminologyTimer);
+      _bmTerminologyTimer = null;
+    }
+    const container = document.getElementById('bm-terminology-expansion');
+    if (!container) return;
+    const term = (query || '').trim();
+    if (term.length < 3) {
+      container.innerHTML = '';
+      delete container.dataset.state;
+      return;
+    }
+    _bmTerminologyTimer = setTimeout(() => {
+      try {
+        renderTerminologyExpansionPanel(api, container, {
+          condition: term,
+          targetWorkflow: 'biomarkers',
+          limit: 5,
+        });
+      } catch {
+        /* defensive — panel emits its own error state. */
+      }
+    }, 400);
+  }
+
   window._bmRefSearch = function(query) {
     const q = (query || '').toLowerCase().trim();
+    _bmTriggerTerminologyExpansion(query);
     let visibleMarkers = 0;
     let visibleGroups = 0;
 
