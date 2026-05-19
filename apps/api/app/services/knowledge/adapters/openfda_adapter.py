@@ -153,7 +153,9 @@ class OpenFDAAdapter(DatabaseAdapter):
 
     @property
     def source_version(self) -> str:
-        return self._version
+        # openFDA rolls forward; the meta.last_updated header per endpoint
+        # is the closest thing to a version. Default to "current".
+        return "current"
 
     # -- cache key generation -------------------------------------------------
 

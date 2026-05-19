@@ -135,7 +135,8 @@ class PharmGKBAdapter(DatabaseAdapter):
 
     @property
     def source_version(self) -> str:
-        return self._version
+        # PharmGKB updates continuously; no stable version identifier.
+        return "current"
 
     # -- cache key generation -------------------------------------------------
 

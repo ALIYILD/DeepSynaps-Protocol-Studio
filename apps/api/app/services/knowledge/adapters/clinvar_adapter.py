@@ -149,7 +149,8 @@ class ClinVarAdapter(DatabaseAdapter):
 
     @property
     def source_version(self) -> str:
-        return self._version
+        # NCBI ClinVar weekly refresh; API has no version endpoint.
+        return "current"
 
     # -- cache key generation -------------------------------------------------
 
