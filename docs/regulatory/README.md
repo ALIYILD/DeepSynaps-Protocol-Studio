@@ -4,6 +4,7 @@
 
 ## Scope
 
+- [SaMD scoping](./samd-scoping.md) — **Upstream** of the other docs. Lays out the FDA SaMD framework, the IMDRF four-tier risk matrix, and DeepSynaps's positioning under each. Decision-support artifact for CWOS audit must-have #4. Read this first if the SaMD classification has not been made yet.
 - [Q-Submission draft](./q-submission-draft.md) — FDA Pre-Submission meeting request template for the Protocol Studio software device
 - [IEC 62304 lifecycle](./iec-62304-lifecycle.md) — Software lifecycle process template mapped to IEC 62304:2006/A1:2015 clause numbering
 - [Predicate analysis](./predicate-analysis.md) — 510(k) substantial equivalence predicate analysis template
