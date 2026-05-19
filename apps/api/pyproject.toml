@@ -82,6 +82,8 @@ dependencies = [
     # is exercised. See app/services/neuroimaging/kg_neo4j.py for details.
     "neo4j>=5.20,<6.0",
     "biocypher>=0.9.0,<1.0.0",
+    # Phase 4 real-time acquisition (BrainFlow client) — see docs/DeepSynaps_OpenSource_Neurotech_Architecture.md
+    "brainflow>=5.0,<7.0",
     # Reports stream HTML→PDF render path (PR #144 night shift). Imported in
     # packages/render-engine/src/deepsynaps_render_engine/renderers.py via
     # try/except → raises PdfRendererUnavailable when missing, so the

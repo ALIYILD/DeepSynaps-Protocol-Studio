@@ -47,6 +47,8 @@ from .neuroglancer_viewer import (
     build_viewer_url,
     default_layer_template,
 )
+from .brainflow_acquisition import HAS_BRAINFLOW, list_supported_boards, board_session_meta
+from .neurosimo_stub import HAS_NEUROSIMO
 from .schemas import (
     NiftiSummary,
     LayoutSummary,
@@ -131,4 +133,8 @@ __all__ = [
     "HAS_BRAINSPACE",
     "compute_gradients",
     "GradientSummary",
+    "HAS_BRAINFLOW",
+    "HAS_NEUROSIMO",
+    "list_supported_boards",
+    "board_session_meta",
 ]
