@@ -1,0 +1,63 @@
+# Patient tenancy-gate CI invariant.
+#
+# Runs the AST audit from PR #1080 (scripts/audit_patient_tenancy_gates.py)
+# in ratchet mode. Any PR that introduces a NEW patient-scoped route
+# without invoking one of the recognised tenancy primitives
+# (require_patient_owner, _gate_patient_access, etc.) fails CI.
+#
+# Baseline ratchet
+# ----------------
+# The TENANCY_GATE_MAX_UNGATED value below is the floor — the current
+# number of known-ungated patient-scoped routes. The audit will fail if
+# the count exceeds this number. PRs that REMEDIATE ungated routes
+# should lower the number to match the new floor.
+#
+# Static snapshot of the current floor lives at
+#   docs/engineering/tenancy-gate-audit-2026-05-19.md
+# Re-run the audit script to refresh: produces the table of all ungated
+# routes plus the breakdown by gate type.
+#
+# Policy: docs/clinician-workflow-os/CWOS_AUDIT_2026-05-19.md (must-have #2)
+# Audit:  scripts/audit_patient_tenancy_gates.py
+name: tenancy-gate-check
+
+on:
+  pull_request:
+    paths:
+      - "apps/api/app/routers/**"
+      - "apps/api/app/auth.py"
+      - "scripts/audit_patient_tenancy_gates.py"
+      - ".github/workflows/tenancy-gate-check.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/api/app/routers/**"
+      - "apps/api/app/auth.py"
+      - "scripts/audit_patient_tenancy_gates.py"
+      - ".github/workflows/tenancy-gate-check.yml"
+
+permissions:
+  contents: read
+
+env:
+  # Ratchet floor. Lower this number — and update the static audit doc —
+  # in any PR that remediates an ungated patient-scoped route. Never raise.
+  TENANCY_GATE_MAX_UNGATED: "79"
+
+jobs:
+  scan:
+    name: scan routers for ungated patient-scoped routes
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Stdlib-only — no pip install required.
+      - name: Run tenancy-gate audit (ratchet mode)
+        run: |
+          python3 scripts/audit_patient_tenancy_gates.py \
+            --max-ungated "${TENANCY_GATE_MAX_UNGATED}"
