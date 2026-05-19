@@ -32,6 +32,12 @@ def test_umls_metadata_signals_license_required() -> None:
     assert umls["credentials_env"] == "UMLS_API_KEY"
 
 
+def test_snomedct_metadata_signals_license_required() -> None:
+    snomed = _LEGACY_METADATA["snomedct"]
+    assert snomed["license_required"] is True
+    assert snomed["credentials_env"] == "SNOMEDCT_SNOWSTORM_URL"
+
+
 def test_adapter_catalog_has_all_five_keys() -> None:
     catalog_keys = adapter_bootstrap.list_production_adapter_keys()
     for key in DIAGNOSIS_CODING_SOURCES:

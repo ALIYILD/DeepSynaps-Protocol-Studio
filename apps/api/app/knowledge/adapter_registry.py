@@ -206,11 +206,14 @@ _LEGACY_METADATA: Dict[str, Dict[str, Any]] = {
         "access": "license_affiliate",
         "data_types": ["clinical_concept", "terminology"],
         "description": (
-            "SNOMED CT clinical concepts via NIH Clinical Tables. "
-            "Use governed by SNOMED Affiliate License."
+            "SNOMED CT clinical concepts via a licensed Snowstorm endpoint. "
+            "Degraded until configured — there is no free unauthenticated "
+            "public SNOMED CT browse API."
         ),
         "license_url": "https://www.snomed.org/get-snomed",
-        "endpoint": "https://clinicaltables.nlm.nih.gov/api/snomed/v3/search",
+        "endpoint": "Snowstorm (caller-provided, license-gated)",
+        "license_required": True,
+        "credentials_env": "SNOMEDCT_SNOWSTORM_URL",
         "clinical_utility": (
             "Clinical terminology for condition specification, problem lists, "
             "and cross-system mapping."
