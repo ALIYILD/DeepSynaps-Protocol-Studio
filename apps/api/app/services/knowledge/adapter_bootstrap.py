@@ -57,6 +57,7 @@ from app.services.knowledge.adapters.pubmed_adapter import PubMedAdapter
 from app.services.knowledge.adapters.rxnorm_adapter import RxNormAdapter
 from app.services.knowledge.adapters.schaefer_adapter import SchaeferAdapter
 from app.services.knowledge.adapters.simnibs_adapter import SimNIBSAdapter
+from app.services.knowledge.adapters.openalex_adapter import OpenAlexAdapter
 from app.services.knowledge.base_adapter import DatabaseAdapter
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,7 @@ _ADAPTER_CATALOG: Dict[str, Tuple[Type[DatabaseAdapter], str, Dict[str, Any]]] =
     "cochrane":     (CochraneAdapter,       "P0", {}),
     "europepmc":    (EuropePMCAdapter,      "P1", {}),
     "gnomad":       (GnomadAdapter,         "P1", {}),
+    "openalex":     (OpenAlexAdapter,       "P0", {}),
 }
 
 
