@@ -775,6 +775,46 @@ def test_bootstrap_records_failure_provenance_with_traceback():
         )
 
 
+def test_every_catalogued_adapter_reaches_non_failure_terminal_stage():
+    """All 22 catalogued adapters must reach REGISTERED (or HEALTHY, set
+    lazily on first health check) — none should end the bootstrap in a
+    FAILED_* stage. The six `_version`-broken adapters
+    (rxnorm/pharmgkb/clinvar/loinc/openfda/neurosynth) were surfaced by
+    Phase 1 (#1056) and fixed in this PR; this invariant prevents the
+    regression of any adapter dropping silently."""
+    from app.services.knowledge.adapter_bootstrap import (
+        build_production_registry,
+        list_disabled_adapter_keys,
+        list_production_adapter_keys,
+    )
+    from app.services.knowledge.lifecycle import (
+        FAILURE_STAGES,
+        get_ledger,
+    )
+
+    build_production_registry()
+    ledger = get_ledger()
+    disabled = set(list_disabled_adapter_keys())
+    failed: list = []
+    for key in list_production_adapter_keys():
+        if key in disabled:
+            continue
+        latest = ledger.latest_for_key(key)
+        assert latest is not None, (
+            f"adapter {key!r} has no ledger record at all — bootstrap "
+            f"did not visit it"
+        )
+        if latest.stage in FAILURE_STAGES:
+            failed.append(
+                (key, latest.stage.value, latest.error_message)
+            )
+    assert not failed, (
+        f"Catalogued adapters landed in failure terminal stage during "
+        f"bootstrap (this regression is exactly what the fix is meant "
+        f"to prevent): {failed}"
+    )
+
+
 def test_compute_registry_lifecycle_prefers_ledger_failure_over_catalog():
     """An adapter that recorded a terminal failure stage shows up as
     UNAVAILABLE on /health, not silently as CATALOGUED. This is the

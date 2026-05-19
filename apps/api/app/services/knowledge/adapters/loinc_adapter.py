@@ -143,7 +143,9 @@ class LOINCAdapter(DatabaseAdapter):
 
     @property
     def source_version(self) -> str:
-        return self._version
+        # LOINC has versioned releases (2.76, 2.77, ...) but the public
+        # Snowstorm endpoint doesn't expose the version cheaply.
+        return "current"
 
     # -- cache key generation -------------------------------------------------
 
