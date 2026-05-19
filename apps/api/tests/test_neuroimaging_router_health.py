@@ -54,6 +54,15 @@ def test_health_returns_200_with_clinician(monkeypatch):
     assert "nibabel" in body
     assert "pybids" in body
     assert "pynwb" in body
+    # Phase 3 additions: SimNIBS (CLI probe), MONAI ([neuro-dl] extra),
+    # BrainSpace (base dep). All three keys should be present even when
+    # the libs are absent (in which case the values are False).
+    assert "simnibs" in body
+    assert "monai" in body
+    assert "brainspace" in body
+    assert isinstance(body["simnibs"], bool)
+    assert isinstance(body["monai"], bool)
+    assert isinstance(body["brainspace"], bool)
     assert body.get("versions") == {}
 
 
@@ -82,9 +91,14 @@ def test_health_includes_neurokit2_true_when_installed(monkeypatch):
 
 def test_flag_on_mounts_phase2b_routes(monkeypatch):
     """Phase 2b routes (nilearn/mask, dipy/dti-scalars) present when flag is on."""
+def test_flag_on_mounts_phase3_routes(monkeypatch):
+    """With flag on, the three Phase 3 endpoints are mounted."""
     monkeypatch.setenv("DEEPSYNAPS_ENABLE_NEUROIMAGING", "1")
     import app.main as main_mod
     mod = importlib.reload(main_mod)
     paths = [r.path for r in mod.app.routes if "neuroimaging" in r.path]
     assert any("nilearn" in p for p in paths), f"nilearn routes missing: {paths}"
     assert any("dipy" in p for p in paths), f"dipy routes missing: {paths}"
+    assert "/api/v1/neuroimaging/simnibs/health" in paths
+    assert "/api/v1/neuroimaging/monai/build-unet" in paths
+    assert "/api/v1/neuroimaging/brainspace/gradients" in paths

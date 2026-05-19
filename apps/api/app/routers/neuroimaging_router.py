@@ -16,12 +16,18 @@ from app.errors import ApiServiceError
 from app.limiter import limiter
 from app.services.neuroimaging import (
     HAS_BRAINDECODE,
+    HAS_BRAINSPACE,
+    HAS_MONAI,
     HAS_NIBABEL,
     HAS_NEUROKIT,
     HAS_PYBIDS,
     HAS_PYNWB,
     build_eegnet,
     forward_pass,
+    HAS_SIMNIBS,
+    build_unet,
+    check_simnibs_version,
+    compute_gradients,
     nifti_header_summary,
     open_layout,
     process_ecg,
@@ -35,11 +41,14 @@ from app.services.neuroimaging.schemas import (
     EcgFeatures,
     EdaFeatures,
     EegModelSummary,
+    GradientSummary,
     LayoutSummary,
+    MonaiModelSummary,
     NeuroimagingHealth,
     NiftiSummary,
     NwbSummary,
     RspFeatures,
+    SimnibsHealth,
 )
 
 router = APIRouter(prefix="/api/v1/neuroimaging", tags=["neuroimaging"])
@@ -105,6 +114,9 @@ def get_health(
         neurokit2=HAS_NEUROKIT,
         nilearn=HAS_NILEARN,
         dipy=HAS_DIPY,
+        simnibs=HAS_SIMNIBS,
+        monai=HAS_MONAI,
+        brainspace=HAS_BRAINSPACE,
         versions={},
         braindecode=HAS_BRAINDECODE,
         torch=HAS_BRAINDECODE,
@@ -639,3 +651,149 @@ async def eeg_dl_forward(
         )
 
     return forward_pass(body.model_spec, input_shape=tuple(shape))
+
+# ── Phase 3 simulation: SimNIBS / MONAI / BrainSpace ───────────────────────
+
+
+# Per-axis cap for MONAI build-unet — SimNIBS / MONAI documentation
+# recommends keeping per-axis channels modest on CPU paths. We refuse
+# >128 to bound the construction time and memory.
+_MAX_UNET_AXIS = 128
+
+# Per-axis cap for BrainSpace connectome ingest. Total cells max = 1e6
+# so a 1000x1000 matrix is the upper bound — beyond that we 413.
+_MAX_CONNECTOME_CELLS = 1_000_000
+
+
+class _MonaiBuildUnetRequest(BaseModel):
+    in_channels: int
+    out_channels: int
+    spatial_dims: int = 3
+
+
+class _BrainspaceGradientsRequest(BaseModel):
+    matrix: list[list[float]]
+    n_components: int = 3
+
+
+@router.get("/simnibs/health", response_model=SimnibsHealth)
+def get_simnibs_health(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> SimnibsHealth:
+    """Probe the SimNIBS CLI binary on PATH and report version.
+
+    Safe to call even when the GPL-3.0 binary is absent — returns
+    available=False / version=None in that case.
+    """
+    require_minimum_role(actor, "clinician")
+    return check_simnibs_version()
+
+
+@router.post("/monai/build-unet", response_model=MonaiModelSummary)
+@limiter.limit("10/minute")
+async def monai_build_unet(
+    request: Request,
+    body: _MonaiBuildUnetRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> MonaiModelSummary:
+    """Construct a small MONAI UNet and return a parameter summary.
+
+    Constraints: in_channels and out_channels in [1, 128]; spatial_dims
+    in {2, 3}. No training or persistence happens.
+    """
+    if not HAS_MONAI:
+        raise ApiServiceError(
+            status_code=503,
+            code="neuroimaging_library_unavailable",
+            message="MONAI is not installed (install with the [neuro-dl] extra)",
+        )
+    require_minimum_role(actor, "clinician")
+
+    if body.spatial_dims not in (2, 3):
+        raise ApiServiceError(
+            status_code=422,
+            code="invalid_spatial_dims",
+            message="spatial_dims must be 2 or 3",
+        )
+    if not (1 <= body.in_channels <= _MAX_UNET_AXIS):
+        raise ApiServiceError(
+            status_code=422,
+            code="invalid_in_channels",
+            message=f"in_channels must be in [1, {_MAX_UNET_AXIS}]",
+        )
+    if not (1 <= body.out_channels <= _MAX_UNET_AXIS):
+        raise ApiServiceError(
+            status_code=422,
+            code="invalid_out_channels",
+            message=f"out_channels must be in [1, {_MAX_UNET_AXIS}]",
+        )
+
+    return build_unet(
+        in_channels=body.in_channels,
+        out_channels=body.out_channels,
+        spatial_dims=body.spatial_dims,
+    )
+
+
+@router.post("/brainspace/gradients", response_model=GradientSummary)
+@limiter.limit("10/minute")
+async def brainspace_gradients(
+    request: Request,
+    body: _BrainspaceGradientsRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> GradientSummary:
+    """Decompose a connectome into principal gradients via BrainSpace.
+
+    Constraints: square matrix, no jagged rows, total cells <= 1e6,
+    n_components in [1, 50].
+    """
+    if not HAS_BRAINSPACE:
+        raise ApiServiceError(
+            status_code=503,
+            code="neuroimaging_library_unavailable",
+            message="brainspace is not installed",
+        )
+    require_minimum_role(actor, "clinician")
+
+    matrix = body.matrix
+    if not matrix or not isinstance(matrix, list):
+        raise ApiServiceError(
+            status_code=422,
+            code="invalid_matrix",
+            message="matrix must be a non-empty 2-D list",
+        )
+    n_rows = len(matrix)
+    row_lengths = {len(row) for row in matrix}
+    if len(row_lengths) != 1:
+        raise ApiServiceError(
+            status_code=422,
+            code="jagged_matrix",
+            message="all rows of matrix must have the same length",
+        )
+    n_cols = row_lengths.pop()
+    if n_rows != n_cols:
+        raise ApiServiceError(
+            status_code=422,
+            code="non_square_matrix",
+            message="matrix must be square (n_rows == n_cols)",
+        )
+    if n_rows * n_cols > _MAX_CONNECTOME_CELLS:
+        raise ApiServiceError(
+            status_code=413,
+            code="matrix_too_large",
+            message=f"matrix exceeds the {_MAX_CONNECTOME_CELLS} cell cap",
+        )
+    if not (1 <= body.n_components <= 50):
+        raise ApiServiceError(
+            status_code=422,
+            code="invalid_n_components",
+            message="n_components must be in [1, 50]",
+        )
+    if n_rows <= body.n_components:
+        raise ApiServiceError(
+            status_code=422,
+            code="matrix_too_small_for_components",
+            message="matrix dimension must exceed n_components",
+        )
+
+    return compute_gradients(matrix, n_components=body.n_components)
