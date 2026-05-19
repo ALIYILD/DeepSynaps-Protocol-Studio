@@ -317,6 +317,7 @@ from app.routers.handbook_v2_router import router as handbook_v2_router
 from app.routers.ai_tier1_llm_router import router as ai_tier1_llm_router
 from app.routers.ai_tier2_qeeg_router import router as ai_tier2_qeeg_router
 from app.routers.ai_tier2_mri_router import router as ai_tier2_mri_router
+from app.routers.ai_tier2_sgacc_router import router as ai_tier2_sgacc_router
 from app.middleware.demo_detection import register_demo_middleware
 from app.monitoring.middleware import MetricsMiddleware, register_metrics_endpoint
 from app.sentry_setup import init_sentry
@@ -842,6 +843,7 @@ app.include_router(intervention_intelligence_router)
 app.include_router(ai_tier1_llm_router)
 app.include_router(ai_tier2_qeeg_router)
 app.include_router(ai_tier2_mri_router)
+app.include_router(ai_tier2_sgacc_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
