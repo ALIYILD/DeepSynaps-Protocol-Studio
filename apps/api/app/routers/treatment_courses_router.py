@@ -241,7 +241,11 @@ def _review_queue_out_from_record(
 def _run_governance(params: dict, actor: AuthenticatedActor) -> list[str]:
     """Apply governance rules and return warning strings."""
     from deepsynaps_safety_engine import apply_governance_rules
-    on_label: bool = params.get("on_label", True)
+    # Conservative default per docs/safety_evidence_policy.md: when the
+    # protocol-derived params dict lacks an on_label key (the registry
+    # builder always sets it, but defensive callers can omit), the
+    # protocol is treated as off-label so the governance warnings fire.
+    on_label: bool = params.get("on_label", False)
     evidence_grade: str = params.get("evidence_grade", "EV-B")
     warnings = apply_governance_rules(on_label, evidence_grade, actor.role)
     return warnings
@@ -362,7 +366,8 @@ def create_course(
         "governance_warnings": gov_warnings,
         "protocol_name": params.get("protocol_name", ""),
         "evidence_grade": params.get("evidence_grade", ""),
-        "on_label": params.get("on_label", True),
+        # Conservative default per docs/safety_evidence_policy.md.
+        "on_label": params.get("on_label", False),
     }
 
     if body.personalization_explainability is not None:
@@ -385,7 +390,12 @@ def create_course(
         device_slug=body.device_slug,
         phenotype_id=body.phenotype_id,
         evidence_grade=params.get("evidence_grade", ""),
-        on_label=params.get("on_label", True),
+        # Conservative default per docs/safety_evidence_policy.md — pairs
+        # with the conservative-default fix shipped on the web surface in
+        # PR #1085 and ensures the off-label launch gate (PR #1093) is
+        # reachable when a course is created from a protocol with a blank
+        # On_Label_vs_Off_Label registry column.
+        on_label=params.get("on_label", False),
         planned_sessions_total=params.get("total_sessions", 20),
         planned_sessions_per_week=params.get("sessions_per_week", 5),
         planned_session_duration_minutes=params.get("session_duration_minutes", 40),

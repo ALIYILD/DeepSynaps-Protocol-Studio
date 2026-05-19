@@ -291,3 +291,44 @@ def test_activate_off_label_course_passes_with_signed_acknowledgement(client: Te
     assert r.json().get("code") != "off_label_consent_missing", (
         f"Off-label gate unexpectedly fired with valid acknowledgement: {r.text}"
     )
+
+
+# ── Conservative on_label default in _run_governance ─────────────────────────
+
+
+def test_run_governance_treats_missing_on_label_as_off_label() -> None:
+    """When a partial params dict reaches ``_run_governance`` without an
+    ``on_label`` key the helper MUST default to ``False`` per
+    ``docs/safety_evidence_policy.md`` so the off-label warnings + gates
+    fire. The registry builder always sets the key, but the router's
+    defensive default still has to match policy.
+    """
+    from app.routers.treatment_courses_router import _run_governance
+
+    class _Actor:
+        actor_id = "actor-clinician-demo"
+        role = "clinician"
+        clinic_id = None
+
+    on_label_warnings = _run_governance(
+        {"on_label": True, "evidence_grade": "EV-B"},
+        _Actor(),  # type: ignore[arg-type]
+    )
+    off_label_warnings = _run_governance(
+        {"on_label": False, "evidence_grade": "EV-B"},
+        _Actor(),  # type: ignore[arg-type]
+    )
+    default_warnings = _run_governance(
+        {"evidence_grade": "EV-B"},  # no on_label key
+        _Actor(),  # type: ignore[arg-type]
+    )
+
+    # Sanity: on-label and off-label produce different governance outputs.
+    assert on_label_warnings != off_label_warnings, (
+        "Governance engine must distinguish on-label from off-label inputs."
+    )
+    # The actual conservative-default contract: missing key behaves like off-label.
+    assert default_warnings == off_label_warnings, (
+        "Missing on_label key MUST default to off-label (False), not on-label."
+        f" Got default={default_warnings!r} vs off-label={off_label_warnings!r}."
+    )
