@@ -213,6 +213,7 @@ def build_protocol_recommendation(req: RecommendRequestDict) -> dict[str, Any]:
     safety_flags: list[str] = [
         "Adverse-event sources provide signal detection only. Spontaneous reports do not prove causality or clinical clearance.",
         "Review medication context, seizure-threshold factors, and source availability before TMS/tDCS/DBS/VNS/neurofeedback planning.",
+        "Specialized genomics can provide possible disease-specific genetic context only; it is not predictive of treatment response or determinative for protocol selection.",
     ]
 
     for row in rows:
@@ -261,6 +262,10 @@ def build_protocol_recommendation(req: RecommendRequestDict) -> dict[str, Any]:
         fit += (
             " Adverse-event source review remains required; spontaneous-report associations are source-limited "
             "and do not clear a patient for stimulation."
+        )
+        fit += (
+            " Genetic associations, if available, are research-grade context only and require clinician or "
+            "genetic specialist review."
         )
         return {
             "protocol_id": sid,

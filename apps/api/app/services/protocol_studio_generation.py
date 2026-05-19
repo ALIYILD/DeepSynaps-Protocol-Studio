@@ -47,6 +47,10 @@ _ADVERSE_EVENT_REVIEW_WARNING = (
     "Adverse-event source review is required before neuromodulation use. "
     "Spontaneous reports do not prove causality or clinical clearance."
 )
+_SPECIALIZED_GENOMICS_REVIEW_WARNING = (
+    "Specialized genomic findings, if provided, are possible disease-specific context only. "
+    "They are not predictive of treatment response and require clinician or genetic specialist review."
+)
 
 
 class GenerateRequest(TypedDict, total=False):
@@ -416,6 +420,7 @@ def generate_deterministic_protocol_studio_draft(
         "Draft built deterministically from the protocol registry plus local evidence search; clinician review required.",
     )
     rationale.append(_ADVERSE_EVENT_REVIEW_WARNING)
+    rationale.append(_SPECIALIZED_GENOMICS_REVIEW_WARNING)
     rationale.append(ADVERSE_EVENT_DECISION_SUPPORT_DISCLAIMER)
     ev_summary = str(row.get("evidence_summary") or "").strip()
     if ev_summary:
