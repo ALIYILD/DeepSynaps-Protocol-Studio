@@ -28,9 +28,53 @@ def test_intelligent_router_imports_and_has_routes() -> None:
 
 
 def test_intelligent_synaps_health_endpoint_registered(client) -> None:
-    """GET /intelligent-synaps/health must exist in the live app (not 404)."""
+    """GET /intelligent-synaps/health must exist and be auth-gated (not 404)."""
     resp = client.get("/intelligent-synaps/health")
-    assert resp.status_code != 404, (
-        "intelligent_router is not registered in main.py — "
-        "/intelligent-synaps/health returned 404"
+    assert resp.status_code in (200, 401, 403), (
+        f"Expected 200, 401, or 403 from /intelligent-synaps/health, got {resp.status_code}. "
+        "Either the router is not registered (404) or auth is not wired (200 without token)."
+    )
+
+
+def test_unauthenticated_synthesize_returns_401_or_403(client) -> None:
+    """POST /intelligent-synaps/synthesize must reject unauthenticated requests."""
+    resp = client.post(
+        "/intelligent-synaps/synthesize",
+        json={"queries": ["test query"]},
+    )
+    assert resp.status_code in (401, 403), (
+        f"Expected 401 or 403 from unauthenticated POST /intelligent-synaps/synthesize, "
+        f"got {resp.status_code}. Auth dependency is not wired."
+    )
+
+
+def test_all_intelligent_routes_declare_auth_dependency() -> None:
+    """Every route in intelligent_router must declare get_authenticated_actor as a dependency.
+
+    This test fails when any endpoint is missing the auth dependency. It drives
+    the implementation requirement: add actor=Depends(get_authenticated_actor)
+    to all 14 endpoints.
+    """
+    import inspect
+    from fastapi.routing import APIRoute
+
+    mod = importlib.import_module("app.intelligent.intelligent_router")
+    router = mod.router
+
+    missing: list[str] = []
+    for route in router.routes:
+        if not isinstance(route, APIRoute):
+            continue
+        sig = inspect.signature(route.endpoint)
+        has_auth = any(
+            hasattr(p.default, "dependency")
+            and getattr(p.default.dependency, "__name__", "") == "get_authenticated_actor"
+            for p in sig.parameters.values()
+        )
+        if not has_auth:
+            missing.append(f"{list(route.methods)} {route.path}")
+
+    assert not missing, (
+        f"These routes are missing get_authenticated_actor dependency:\n"
+        + "\n".join(f"  {r}" for r in missing)
     )

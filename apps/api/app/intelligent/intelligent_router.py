@@ -42,7 +42,7 @@ from pydantic import BaseModel, Field
 
 # FastAPI imports
 try:
-    from fastapi import APIRouter, HTTPException, Request, status
+    from fastapi import APIRouter, Depends, HTTPException, Request, status
     from fastapi.responses import JSONResponse
     HAS_FASTAPI = True
 except ImportError:
@@ -63,6 +63,7 @@ except ImportError:
         def __init__(self, *args: Any, **kwargs: Any) -> None: pass
 
 # Local imports
+from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.intelligent.confidence_engine import ConfidenceEngine, ConfidenceScore
 from app.intelligent.cross_reference_mesh import CrossReferenceMesh
 from app.intelligent.evidence_fusion import EvidenceFusion, EvidencePiece, FusedEvidence
@@ -216,7 +217,10 @@ def create_router() -> APIRouter:
         summary="General knowledge query",
         description="Execute a natural language query across all relevant adapters with full synthesis.",
     )
-    async def query(request: QueryRequest) -> Dict[str, Any]:
+    async def query(
+        request: QueryRequest,
+        actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    ) -> Dict[str, Any]:
         """Main query endpoint — full pipeline execution."""
         cid = request.correlation_id or generate_cid()
         start_time = time.time()
@@ -256,7 +260,10 @@ def create_router() -> APIRouter:
         summary="Smart search",
         description="Fast search returning structured results without full synthesis.",
     )
-    async def search(request: SearchRequest) -> Dict[str, Any]:
+    async def search(
+        request: SearchRequest,
+        actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    ) -> Dict[str, Any]:
         """Smart search — fast structured results."""
         cid = request.correlation_id or generate_cid()
         start_time = time.time()
@@ -289,7 +296,10 @@ def create_router() -> APIRouter:
         summary="Multi-source synthesis",
         description="Synthesize results from multiple queries into a unified response.",
     )
-    async def synthesize(request: SynthesizeRequest) -> Dict[str, Any]:
+    async def synthesize(
+        request: SynthesizeRequest,
+        actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    ) -> Dict[str, Any]:
         """Multi-source synthesis endpoint."""
         cid = request.correlation_id or generate_cid()
         start_time = time.time()
@@ -349,7 +359,10 @@ def create_router() -> APIRouter:
         summary="Generate neuromodulation protocol",
         description="Generate a personalised neuromodulation protocol using all intelligence components.",
     )
-    async def generate_protocol(request: ProtocolRequest) -> Dict[str, Any]:
+    async def generate_protocol(
+        request: ProtocolRequest,
+        actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    ) -> Dict[str, Any]:
         """Protocol generation endpoint."""
         cid = request.correlation_id or generate_cid()
         start_time = time.time()
@@ -384,7 +397,10 @@ def create_router() -> APIRouter:
         summary="Safety screening",
         description="Full safety screening for a proposed protocol.",
     )
-    async def safety_check(request: SafetyCheckRequest) -> Dict[str, Any]:
+    async def safety_check(
+        request: SafetyCheckRequest,
+        actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    ) -> Dict[str, Any]:
         """Safety screening endpoint."""
         cid = request.correlation_id or generate_cid()
         start_time = time.time()
@@ -418,7 +434,10 @@ def create_router() -> APIRouter:
         summary="Get confidence details",
         description="Retrieve detailed confidence scoring for a previous result.",
     )
-    async def get_confidence(result_id: str) -> Dict[str, Any]:
+    async def get_confidence(
+        result_id: str,
+        actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    ) -> Dict[str, Any]:
         """Get confidence details for a result."""
         # In production, this would retrieve from a result store
         return {
@@ -434,7 +453,10 @@ def create_router() -> APIRouter:
         summary="Cross-database entity lookup",
         description="Look up an entity across all connected databases.",
     )
-    async def cross_reference(request: CrossReferenceRequest) -> Dict[str, Any]:
+    async def cross_reference(
+        request: CrossReferenceRequest,
+        actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    ) -> Dict[str, Any]:
         """Cross-reference an entity across databases."""
         cid = request.correlation_id or generate_cid()
         start_time = time.time()
@@ -478,7 +500,9 @@ def create_router() -> APIRouter:
         description="Aggregate evidence for a specific entity.",
     )
     async def get_evidence(
-        entity_type: str, entity_id: str
+        entity_type: str,
+        entity_id: str,
+        actor: AuthenticatedActor = Depends(get_authenticated_actor),
     ) -> Dict[str, Any]:
         """Get aggregated evidence for an entity."""
         try:
@@ -513,7 +537,9 @@ def create_router() -> APIRouter:
         summary="System health",
         description="Check the health status of Intelligent Synaps and all components.",
     )
-    async def health() -> Dict[str, Any]:
+    async def health(
+        actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    ) -> Dict[str, Any]:
         """System health check endpoint."""
         orch = get_orchestrator()
 
@@ -561,7 +587,9 @@ def create_router() -> APIRouter:
         summary="List adapters",
         description="List all available adapters and their status.",
     )
-    async def list_adapters() -> Dict[str, Any]:
+    async def list_adapters(
+        actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    ) -> Dict[str, Any]:
         """List all available adapters."""
         orch = get_orchestrator()
         adapter_names = orch.registry.list_adapters()
@@ -588,7 +616,9 @@ def create_router() -> APIRouter:
         description="Send a query directly to a specific adapter.",
     )
     async def adapter_query(
-        name: str, request: DirectAdapterRequest
+        name: str,
+        request: DirectAdapterRequest,
+        actor: AuthenticatedActor = Depends(get_authenticated_actor),
     ) -> Dict[str, Any]:
         """Query a specific adapter directly."""
         cid = request.correlation_id or generate_cid()
@@ -625,7 +655,10 @@ def create_router() -> APIRouter:
         summary="Adapter health",
         description="Check health status of a specific adapter.",
     )
-    async def adapter_health(name: str) -> Dict[str, Any]:
+    async def adapter_health(
+        name: str,
+        actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    ) -> Dict[str, Any]:
         """Check adapter health."""
         orch = get_orchestrator()
 
@@ -657,7 +690,9 @@ def create_router() -> APIRouter:
         summary="System metrics",
         description="Get system performance metrics.",
     )
-    async def get_metrics() -> Dict[str, Any]:
+    async def get_metrics(
+        actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    ) -> Dict[str, Any]:
         """Get system metrics."""
         orch = get_orchestrator()
         return orch.metrics.get_summary()
@@ -669,7 +704,10 @@ def create_router() -> APIRouter:
         summary="Create session",
         description="Create a new user session.",
     )
-    async def create_session(request: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def create_session(
+        actor: AuthenticatedActor = Depends(get_authenticated_actor),
+        request: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """Create a new session."""
         orch = get_orchestrator()
         patient_context = request.get("patient_context") if request else None
