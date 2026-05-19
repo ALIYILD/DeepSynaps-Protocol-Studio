@@ -535,14 +535,45 @@ async def eligibility_context(
             "determined by this service."
         )
 
+    # Curated indication-rule lookup. Imported here to avoid a top-of-file
+    # import cycle and to keep the loader lazy when tests reload the
+    # YAML fixture.
+    from app.services.diagnosis_coding.indication_rules import (
+        evidence_references_for,
+        match_rules,
+    )
+
+    matched_rules = match_rules(
+        diagnosis_code=diagnosis_code,
+        modality=modality,
+        jurisdiction=jurisdiction,
+    )
+    possible_indication_context: List[Dict[str, Any]] = [
+        {
+            "rule_id": rule.get("id", ""),
+            "modality": rule.get("modality", ""),
+            "jurisdiction": rule.get("jurisdiction", ""),
+            "regulatory_status": rule.get("regulatory_status", ""),
+            "indication_context": rule.get("indication_context", ""),
+        }
+        for rule in matched_rules
+    ]
+    required_evidence_references = evidence_references_for(matched_rules)
+
+    if not matched_rules:
+        warnings.append(
+            "No curated indication rule matched this diagnosis_code / modality / "
+            "jurisdiction combination; this service has no opinion on indication context."
+        )
+
     return {
         "diagnosis_code": diagnosis_code,
         "modality": modality,
         "jurisdiction": jurisdiction,
         "payer": payer,
         "coding_match": coding_match,
-        "possible_indication_context": [],
-        "required_evidence_references": [],
+        "possible_indication_context": possible_indication_context,
+        "required_evidence_references": required_evidence_references,
         "missing_sources": missing_sources,
         "status": "context_only",
         "coverage_determined": False,

@@ -72,6 +72,53 @@ def _serialize(obj: Any) -> str:
 
 
 @pytest.mark.asyncio
+async def test_eligibility_context_populates_rule_match_for_rtms_mdd_us() -> None:
+    registry = FakeRegistry(
+        {
+            "icd10": FakeAdapter(
+                key="icd10",
+                records=[{"code": "F33.2", "display": "Major depressive disorder, severe"}],
+            )
+        }
+    )
+    result = await eligibility_context(
+        registry_getter=_getter(registry),
+        diagnosis_code="F33.2",
+        modality="rTMS",
+        jurisdiction="US",
+    )
+    rule_ids = [r["rule_id"] for r in result["possible_indication_context"]]
+    assert "rtms-mdd-fda" in rule_ids
+    refs = result["required_evidence_references"]
+    assert any(r.get("identifier") == "K183469" for r in refs)
+    flat = _serialize(result)
+    for forbidden in FORBIDDEN_PHRASES:
+        assert forbidden.lower() not in flat
+
+
+@pytest.mark.asyncio
+async def test_eligibility_context_unsupported_jurisdiction_warns() -> None:
+    registry = FakeRegistry(
+        {
+            "icd10": FakeAdapter(
+                key="icd10",
+                records=[{"code": "F33.2", "display": "Major depressive disorder, severe"}],
+            )
+        }
+    )
+    result = await eligibility_context(
+        registry_getter=_getter(registry),
+        diagnosis_code="F33.2",
+        modality="rTMS",
+        jurisdiction="JP",
+    )
+    rule_ids = [r["rule_id"] for r in result["possible_indication_context"]]
+    assert "rtms-mdd-fda" not in rule_ids
+    assert "rtms-mdd-nice" not in rule_ids
+    assert any("No curated indication rule matched" in w for w in result["warnings"])
+
+
+@pytest.mark.asyncio
 async def test_eligibility_context_never_claims_coverage() -> None:
     registry = FakeRegistry(
         {
