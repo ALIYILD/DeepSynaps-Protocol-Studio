@@ -41,6 +41,9 @@ from app.services.knowledge.lifecycle import (
     record_stage,
 )
 from app.services.knowledge.adapters.abide_adapter import ABIDEAdapter
+from app.services.knowledge.adapters.acp_journal_club_adapter import (
+    ACPJournalClubAdapter,
+)
 from app.services.knowledge.adapters.adni_adapter import ADNIAdapter
 from app.services.knowledge.adapters.allen_brain_adapter import AllenBrainAdapter
 from app.services.knowledge.adapters.chbmp_adapter import CHBMPAdapter
@@ -49,6 +52,12 @@ from app.services.knowledge.adapters.clinicaltrials_adapter import (
 )
 from app.services.knowledge.adapters.clinvar_adapter import ClinVarAdapter
 from app.services.knowledge.adapters.cochrane_adapter import CochraneAdapter
+from app.services.knowledge.adapters.crossref_adapter import CrossRefAdapter
+from app.services.knowledge.adapters.dynamed_adapter import DynaMedAdapter
+from app.services.knowledge.adapters.epistemonikos_adapter import (
+    EpistemonikosAdapter,
+)
+from app.services.knowledge.adapters.eudract_adapter import EudraCTAdapter
 from app.services.knowledge.adapters.europepmc_adapter import EuropePMCAdapter
 from app.services.knowledge.adapters.faers_adapter import FAERSAdapter
 from app.services.knowledge.adapters.gnomad_adapter import GnomadAdapter
@@ -57,6 +66,7 @@ from app.services.knowledge.adapters.loinc_adapter import LOINCAdapter
 from app.services.knowledge.adapters.mesh_adapter import MeSHAdapter
 from app.services.knowledge.adapters.mni_atlas_adapter import MNIAtlasAdapter
 from app.services.knowledge.adapters.neurosynth_adapter import NeurosynthAdapter
+from app.services.knowledge.adapters.nice_adapter import NICEAdapter
 from app.services.knowledge.adapters.ols_adapter import OLSAdapter
 from app.services.knowledge.adapters.onsides_adapter import OnSIDESAdapter
 from app.services.knowledge.adapters.openalex_adapter import OpenAlexAdapter
@@ -64,10 +74,16 @@ from app.services.knowledge.adapters.openfda_adapter import OpenFDAAdapter
 from app.services.knowledge.adapters.pharmgkb_adapter import PharmGKBAdapter
 from app.services.knowledge.adapters.promis_adapter import PROMISAdapter
 from app.services.knowledge.adapters.pubmed_adapter import PubMedAdapter
+from app.services.knowledge.adapters.pubmed_central_adapter import (
+    PubMedCentralAdapter,
+)
 from app.services.knowledge.adapters.rxnorm_adapter import RxNormAdapter
 from app.services.knowledge.adapters.schaefer_adapter import SchaeferAdapter
 from app.services.knowledge.adapters.simnibs_adapter import SimNIBSAdapter
 from app.services.knowledge.adapters.snomedct_adapter import SNOMEDCTAdapter
+from app.services.knowledge.adapters.trip_database_adapter import (
+    TripDatabaseAdapter,
+)
 from app.services.knowledge.adapters.umls_adapter import UMLSAdapter
 from app.services.knowledge.base_adapter import DatabaseAdapter
 
@@ -77,37 +93,49 @@ logger = logging.getLogger(__name__)
 # Declarative catalog. Each entry: registry-key → (class, tier, config).
 # Keep keys URL-safe and stable; clients depend on them.
 _ADAPTER_CATALOG: Dict[str, Tuple[Type[DatabaseAdapter], str, Dict[str, Any]]] = {
-    "rxnorm":       (RxNormAdapter,         "P0", {}),
-    "pharmgkb":     (PharmGKBAdapter,       "P0", {}),
-    "clinvar":      (ClinVarAdapter,        "P0", {}),
-    "loinc":        (LOINCAdapter,          "P0", {}),
-    "openfda":      (OpenFDAAdapter,        "P0", {}),
-    "chbmp":        (CHBMPAdapter,          "P0", {}),
-    "mni_atlas":    (MNIAtlasAdapter,       "P0", {}),
-    "promis":       (PROMISAdapter,         "P0", {}),
-    "simnibs":      (SimNIBSAdapter,        "P0", {}),
-    "faers":        (FAERSAdapter,          "P1", {}),
-    "onsides":      (OnSIDESAdapter,        "P1", {}),
-    "allen_brain":  (AllenBrainAdapter,     "P1", {}),
-    "schaefer":     (SchaeferAdapter,       "P1", {}),
-    "neurosynth":   (NeurosynthAdapter,     "P1", {}),
-    "adni":         (ADNIAdapter,           "P1", {}),
-    "abide":        (ABIDEAdapter,          "P1", {}),
-    "pubmed":       (PubMedAdapter,         "P0", {}),
-    "ctgov":        (ClinicalTrialsAdapter, "P0", {}),
-    "cochrane":     (CochraneAdapter,       "P0", {}),
-    "europepmc":    (EuropePMCAdapter,      "P1", {}),
-    "gnomad":       (GnomadAdapter,         "P1", {}),
-    "openalex":     (OpenAlexAdapter,       "P1", {}),
+    "rxnorm":           (RxNormAdapter,           "P0", {}),
+    "pharmgkb":         (PharmGKBAdapter,         "P0", {}),
+    "clinvar":          (ClinVarAdapter,          "P0", {}),
+    "loinc":            (LOINCAdapter,            "P0", {}),
+    "openfda":          (OpenFDAAdapter,          "P0", {}),
+    "chbmp":            (CHBMPAdapter,            "P0", {}),
+    "mni_atlas":        (MNIAtlasAdapter,         "P0", {}),
+    "promis":           (PROMISAdapter,           "P0", {}),
+    "simnibs":          (SimNIBSAdapter,          "P0", {}),
+    "faers":            (FAERSAdapter,            "P1", {}),
+    "onsides":          (OnSIDESAdapter,          "P1", {}),
+    "allen_brain":      (AllenBrainAdapter,       "P1", {}),
+    "schaefer":         (SchaeferAdapter,         "P1", {}),
+    "neurosynth":       (NeurosynthAdapter,       "P1", {}),
+    "adni":             (ADNIAdapter,             "P1", {}),
+    "abide":            (ABIDEAdapter,            "P1", {}),
+    "pubmed":           (PubMedAdapter,           "P0", {}),
+    "ctgov":            (ClinicalTrialsAdapter,   "P0", {}),
+    "cochrane":         (CochraneAdapter,         "P0", {}),
+    "europepmc":        (EuropePMCAdapter,        "P1", {}),
+    "gnomad":           (GnomadAdapter,           "P1", {}),
+    "openalex":         (OpenAlexAdapter,         "P1", {}),
     # ── Category 8: Diagnosis Coding ─────────────────────────────────────────
     # Terminology adapters used by /api/v1/diagnosis/* for normalization,
     # literature-search expansion, and eligibility-context. UMLS is
     # license-gated and remains DEGRADED until UMLS_API_KEY is set.
-    "icd10":        (ICD10Adapter,          "P0", {}),
-    "snomedct":     (SNOMEDCTAdapter,       "P0", {}),
-    "mesh":         (MeSHAdapter,           "P0", {}),
-    "ols":          (OLSAdapter,            "P0", {}),
-    "umls":         (UMLSAdapter,           "P1", {}),
+    "icd10":            (ICD10Adapter,            "P0", {}),
+    "snomedct":         (SNOMEDCTAdapter,         "P0", {}),
+    "mesh":             (MeSHAdapter,             "P0", {}),
+    "ols":              (OLSAdapter,              "P0", {}),
+    "umls":             (UMLSAdapter,             "P1", {}),
+    # ── Category 3: Clinical Evidence (Slice A — catalogued only) ────────────
+    # Live network adapters land in Slice B (PRs #1074 CrossRef, #1092 PMC).
+    # These entries make every Cat-3 source visible to the registry so the
+    # HTTP layer can report honest lifecycle state.
+    "pubmed_central":   (PubMedCentralAdapter,    "P1", {}),
+    "nice":             (NICEAdapter,             "P1", {}),
+    "trip":             (TripDatabaseAdapter,     "P2", {}),
+    "epistemonikos":    (EpistemonikosAdapter,    "P2", {}),
+    "crossref":         (CrossRefAdapter,         "P1", {}),
+    "eudract":          (EudraCTAdapter,          "P1", {}),
+    "acp_journal_club": (ACPJournalClubAdapter,   "P2", {}),
+    "dynamed":          (DynaMedAdapter,          "P2", {}),
 }
 
 
