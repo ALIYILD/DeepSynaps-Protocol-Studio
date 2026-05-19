@@ -34,6 +34,7 @@ import logging
 from typing import Any, Dict, Optional, Tuple, Type
 
 from app.services.knowledge.adapter_registry import AdapterRegistry
+from app.services.knowledge.lifecycle import read_disabled_adapter_keys
 from app.services.knowledge.adapters.abide_adapter import ABIDEAdapter
 from app.services.knowledge.adapters.adni_adapter import ADNIAdapter
 from app.services.knowledge.adapters.allen_brain_adapter import AllenBrainAdapter
@@ -94,6 +95,15 @@ def list_production_adapter_keys() -> Tuple[str, ...]:
     return tuple(_ADAPTER_CATALOG.keys())
 
 
+def list_disabled_adapter_keys() -> Tuple[str, ...]:
+    """Adapter keys explicitly disabled via ``DEEPSYNAPS_DISABLED_KNOWLEDGE_ADAPTERS``.
+
+    Lives in :mod:`app.services.knowledge.lifecycle` so it stays close to the
+    state derivation that consumes it; re-exported here for convenience.
+    """
+    return tuple(sorted(read_disabled_adapter_keys()))
+
+
 def build_production_registry(
     *,
     overrides: Optional[Dict[str, Dict[str, Any]]] = None,
@@ -112,8 +122,16 @@ def build_production_registry(
         return ``None`` from ``registry.get(key)``.
     """
     overrides = overrides or {}
+    disabled = read_disabled_adapter_keys()
     registry = AdapterRegistry()
     for key, (cls, tier, default_config) in _ADAPTER_CATALOG.items():
+        if key in disabled:
+            logger.info(
+                "Skipping knowledge adapter %r — disabled via %s.",
+                key,
+                "DEEPSYNAPS_DISABLED_KNOWLEDGE_ADAPTERS",
+            )
+            continue
         config = {**default_config, **overrides.get(key, {})}
         try:
             adapter = cls(config)
