@@ -27,6 +27,15 @@ function _backendToStudio(row) {
   const ol = String(row.on_label_vs_off_label || '').toLowerCase();
   if (ol.startsWith('on'))  governance.push('on-label');
   if (ol.startsWith('off')) governance.push('off-label');
+  // Conservative default per docs/safety_evidence_policy.md: "All
+  // neuromodulation administered via DeepSynaps Studio is off-label
+  // except TPS (NEUROLITH®) for Alzheimer's and CES (Alpha-Stim®) for
+  // anxiety / depression / insomnia". A blank or unrecognised
+  // regulatory-status string MUST default to off-label so the launch
+  // gate at runProtocolGate() fires and the off-label badge renders.
+  if (!governance.includes('on-label') && !governance.includes('off-label')) {
+    governance.push('off-label');
+  }
   if (String(row.review_status || '').toLowerCase().includes('review')) governance.push('reviewed');
   return {
     id: row.id,

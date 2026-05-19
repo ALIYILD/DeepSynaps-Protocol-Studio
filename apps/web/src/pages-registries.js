@@ -95,6 +95,7 @@ function _mergeProtocolsFromApi(apiItems) {
     duration: row.session_duration || '',
     ev: (row.evidence_grade || '').replace(/^EV-/i, '').toUpperCase() || 'C',
     onLabel: /on.?label/i.test(row.on_label_vs_off_label || ''),
+    labelRaw: row.on_label_vs_off_label || '',
     notes: row.notes || row.evidence_summary || '',
   }));
 }
@@ -139,6 +140,22 @@ function evBadge(ev) {
 function labelBadge(onLabel) {
   if (!onLabel || !onLabel.length) return '';
   return `<span style="display:inline-block;padding:1px 7px;border-radius:10px;font-size:0.68rem;font-weight:700;background:#3b82f620;color:#60a5fa;border:1px solid #3b82f640">${onLabel.map(esc).join(' · ')}</span>`;
+}
+
+// Per docs/safety_evidence_policy.md, every protocol row must surface its
+// regulatory-label status — on-label OR off-label — so clinicians never
+// see a blank where they would otherwise infer "on-label by default".
+// Conservative default: a blank `on_label_vs_off_label` field is shown as
+// off-label, matching the backend's `_normalize_off_label` conservative
+// default and the safety policy ("all neuromodulation is off-label
+// except TPS (NEUROLITH®) for Alzheimer's and CES (Alpha-Stim®) for
+// anxiety/depression/insomnia").
+function protocolLabelBadge(p) {
+  const tooltip = esc(p.labelRaw || (p.onLabel ? 'On-label' : 'Off-label (conservative default per safety policy)'));
+  if (p.onLabel) {
+    return `<span title="${tooltip}" style="padding:1px 7px;border-radius:10px;font-size:0.68rem;font-weight:700;background:#22c55e20;color:#4ade80;border:1px solid #22c55e40">On-Label</span>`;
+  }
+  return `<span title="${tooltip}" style="padding:1px 7px;border-radius:10px;font-size:0.68rem;font-weight:700;background:rgba(255,181,71,0.12);color:#f59e0b;border:1px solid rgba(255,181,71,0.3)">Off-Label</span>`;
 }
 
 function catChip(cat, active) {
@@ -397,7 +414,7 @@ export async function pgProtocolRegistryPage(setTopbar) {
           ${_pPaperLine}
           ${p.notes ? `<div style="margin-top:6px;color:var(--text-secondary);font-size:0.8rem">${esc(p.notes)}</div>` : ''}
           <div style="margin-top:8px;font-size:0.72rem;color:var(--text-tertiary)">Click for cross-registry context · references</div>`,
-          p.onLabel ? `<span style="padding:1px 7px;border-radius:10px;font-size:0.68rem;font-weight:700;background:#22c55e20;color:#4ade80;border:1px solid #22c55e40">On-Label</span>` : ''
+          protocolLabelBadge(p)
         );}).join('')
       : emptyState('No protocols match.');
 
