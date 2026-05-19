@@ -1,0 +1,26 @@
+name: Perf Gate (informational)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Daily at 06:00 UTC
+    - cron: '0 6 * * *'
+
+jobs:
+  perf-gate:
+    name: p95 latency probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run perf gate
+        run: bash scripts/perf-gate.sh https://deepsynaps-studio.fly.dev
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-results
+          path: perf-results.json
+          retention-days: 30
