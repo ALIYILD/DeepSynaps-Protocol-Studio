@@ -595,6 +595,134 @@ export async function _renderEvidenceDbCard() {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
+   Category-3 Clinical Evidence sources panel
+   ──────────────────────────────────────────────────────────────────────────────
+   Renders the unified 12-external + 1-internal source lifecycle from
+   `GET /api/v1/evidence/clinical-sources` (backend ships in PR #1049).
+
+   Honest-degraded contract:
+
+   - 200 → render rows + decision-support disclaimer verbatim.
+   - 404 (endpoint not in this build yet) → render a single "source-status
+     panel not available on this build" notice. No fabricated data.
+   - Other error / network failure → same neutral notice + a quiet error
+     marker so QA can spot it.
+
+   Forbidden language guard: callers must not interpret an unhealthy
+   subscription source as "missing data" — show it as `disabled` so the
+   clinician knows the source EXISTS but is gated.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* Color/label per lifecycle state. Stable contract — keep in sync with
+   `LifecycleState` in apps/api/app/services/knowledge/lifecycle.py. */
+export const CLINICAL_SOURCE_STATE_PRESENTATION = Object.freeze({
+  healthy:     { label: 'Live',         tone: '#22c55e' },
+  registered:  { label: 'Registered',   tone: '#0ea5e9' },
+  catalogued:  { label: 'Catalogued',   tone: '#a78bfa' },
+  degraded:    { label: 'Degraded',     tone: '#f59e0b' },
+  disabled:    { label: 'Disabled',     tone: '#94a3b8' },
+  unavailable: { label: 'Unavailable',  tone: '#ef4444' },
+  unknown:     { label: 'Unknown',      tone: '#94a3b8' },
+});
+
+/* Wording shown when the endpoint is not yet deployed in the active build.
+   Exported so tests can lock in the honest copy. */
+export const CLINICAL_SOURCES_UNAVAILABLE_NOTICE =
+  'Source-status panel not available on this build. Clinical evidence ' +
+  'sources are still queryable through the surfaces below; only the ' +
+  'unified lifecycle view is missing.';
+
+function _renderClinicalSourceRow(row) {
+  const presentation =
+    CLINICAL_SOURCE_STATE_PRESENTATION[String(row.lifecycle_state || 'unknown').toLowerCase()] ||
+    CLINICAL_SOURCE_STATE_PRESENTATION.unknown;
+  const subscriptionBadge = row.requires_subscription
+    ? '<span style="font-size:9.5px;padding:2px 7px;border-radius:999px;background:rgba(148,163,184,0.18);color:var(--text-tertiary);border:1px solid var(--border);letter-spacing:.04em;text-transform:uppercase">Subscription</span>'
+    : '';
+  const internalBadge = row.is_internal
+    ? '<span style="font-size:9.5px;padding:2px 7px;border-radius:999px;background:rgba(45,212,191,0.16);color:var(--teal);border:1px solid rgba(45,212,191,0.3);letter-spacing:.04em;text-transform:uppercase">Internal</span>'
+    : '';
+  const endpointHtml = row.endpoint
+    ? `<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:4px;font-family:var(--font-mono, monospace);word-break:break-all">${esc(row.endpoint)}</div>`
+    : '';
+  const notesHtml = row.notes
+    ? `<div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5;margin-top:6px">${esc(row.notes)}</div>`
+    : '';
+  return (
+    '<div style="padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,0.02);display:flex;flex-direction:column;gap:4px">' +
+    '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+    `<div style="font-size:13px;font-weight:700;color:var(--text-primary)">${esc(row.display_name)}</div>` +
+    `<span style="font-size:10px;padding:2px 8px;border-radius:999px;background:${presentation.tone}22;color:${presentation.tone};font-weight:700;letter-spacing:.05em;text-transform:uppercase">${esc(presentation.label)}</span>` +
+    internalBadge +
+    subscriptionBadge +
+    '</div>' +
+    endpointHtml +
+    notesHtml +
+    '</div>'
+  );
+}
+
+/* Pure renderer — takes a payload (or null/error) and returns HTML.
+   Exported for unit testing without a network mock. */
+export function renderClinicalSourcesPanel(payload, options = {}) {
+  const { endpointAvailable = true } = options;
+  const wrapperOpen =
+    '<section class="ch-card" data-testid="clinical-sources-panel" ' +
+    'style="margin-bottom:16px;padding:16px 18px">' +
+    '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap">' +
+    '<div>' +
+    '<div style="font-size:14px;font-weight:700;color:var(--text-primary)">Category 3 — Clinical Evidence Sources</div>' +
+    '<div style="font-size:11.5px;color:var(--text-tertiary);margin-top:4px">Lifecycle of the indexed DeepSynaps corpus and the 12 external evidence databases.</div>' +
+    '</div>' +
+    '</div>';
+  const wrapperClose = '</section>';
+
+  if (!endpointAvailable || !payload || !payload.internal_source || !Array.isArray(payload.external_sources)) {
+    return (
+      wrapperOpen +
+      '<div style="padding:14px;border:1px dashed var(--border);border-radius:10px;background:rgba(255,255,255,0.02);font-size:12px;color:var(--text-secondary);line-height:1.6" data-testid="clinical-sources-unavailable">' +
+      esc(CLINICAL_SOURCES_UNAVAILABLE_NOTICE) +
+      '</div>' +
+      wrapperClose
+    );
+  }
+
+  const internalHtml = _renderClinicalSourceRow(payload.internal_source);
+  const externalHtml = payload.external_sources.map(_renderClinicalSourceRow).join('');
+  const disclaimerHtml = payload.decision_support_disclaimer
+    ? `<div style="margin-top:14px;padding:10px 12px;border-radius:10px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.18);font-size:11.5px;color:var(--text-secondary);line-height:1.6" data-testid="clinical-sources-disclaimer">${esc(payload.decision_support_disclaimer)}</div>`
+    : '';
+
+  return (
+    wrapperOpen +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px">' +
+    internalHtml +
+    externalHtml +
+    '</div>' +
+    disclaimerHtml +
+    wrapperClose
+  );
+}
+
+/* Async loader — fetches and degrades to the unavailable notice on any error
+   (including 404 when the endpoint has not yet shipped in the active build).
+   Always resolves to an HTML string so the caller can concatenate without
+   try/catch. */
+export async function _loadAndRenderClinicalSourcesPanel() {
+  let payload = null;
+  let endpointAvailable = true;
+  try {
+    payload = await api.evidenceClinicalSources();
+  } catch (err) {
+    // Treat any error (404, 401, 500, network) as "not available on this
+    // build" — never fabricate.
+    endpointAvailable = false;
+    payload = null;
+  }
+  return renderClinicalSourcesPanel(payload, { endpointAvailable });
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
    TAB 1 — Overview
    ══════════════════════════════════════════════════════════════════════════════ */
 async function renderOverview(body, liveEvidence = null) {
@@ -788,6 +916,11 @@ async function renderOverview(body, liveEvidence = null) {
   /* Evidence Database one-click card — live counts from
      /api/v1/evidence/indications/summary; navigates to Indications tab. */
   const evidenceDbCardHtml = await _renderEvidenceDbCard();
+
+  /* Category-3 clinical-evidence source lifecycle panel. Degrades to an
+     honest "not available on this build" notice if /clinical-sources is
+     missing (e.g. backend hasn't shipped PR #1049 yet). */
+  const clinicalSourcesPanelHtml = await _loadAndRenderClinicalSourcesPanel();
   const terminalDeck = terminalSnapshot
     ? _reRenderTerminalMetricCards(terminalSnapshot) + _reRenderTerminalExplorer(terminalSnapshot)
     : '<div class="ch-card" style="padding:14px;margin-bottom:16px;border-left:3px solid var(--rose)"><div style="font-size:13px;font-weight:600;color:var(--rose);margin-bottom:6px">Neuromodulation Evidence Terminal unavailable</div><div style="font-size:12px;color:var(--text-secondary);line-height:1.55">The live terminal snapshot could not be loaded. Bundled orientation panels remain available below, but they are not authoritative search output.</div></div>';
@@ -808,6 +941,7 @@ async function renderOverview(body, liveEvidence = null) {
   body.innerHTML =
     _resWorkspaceHeader(liveEvidence, { shortcuts: true }) +
     evidenceDbCardHtml +
+    clinicalSourcesPanelHtml +
     terminalDeck +
     kpiHtml + srcHtml + societyHtml + wearBridge +
     nfDisclosureHtml +
