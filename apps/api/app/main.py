@@ -193,6 +193,7 @@ from app.routers.electrophysiology_router import router as electrophysiology_rou
 from app.routers.labs_analyzer_router import router as labs_analyzer_router
 from app.routers.genetic_analyzer_router import router as genetic_analyzer_router
 from app.routers.genetics_router import router as genetics_router
+from app.routers.specialized_genomics_router import router as specialized_genomics_router
 from app.routers.medication_analyzer_router import router as medication_analyzer_router
 # Movement analyzer is gated behind DEEPSYNAPS_ENABLE_MOVEMENT_ANALYZER=1.
 # The router imports `MovementBiomarkerTrend` from `app.persistence.models`,
@@ -536,6 +537,7 @@ app.include_router(forms_router)
 app.include_router(medications_router)
 app.include_router(genetic_analyzer_router)
 app.include_router(genetics_router)
+app.include_router(specialized_genomics_router)
 app.include_router(electrophysiology_router)
 app.include_router(medication_analyzer_router)
 app.include_router(labs_analyzer_router)
