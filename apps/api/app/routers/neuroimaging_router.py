@@ -99,6 +99,8 @@ def get_health(
         pybids=HAS_PYBIDS,
         pynwb=HAS_PYNWB,
         neurokit2=HAS_NEUROKIT,
+        nilearn=HAS_NILEARN,
+        dipy=HAS_DIPY,
         versions={},
     )
 
@@ -309,3 +311,228 @@ def physio_rsp(
     require_minimum_role(actor, "clinician")
     _validate_physio_request(body)
     return process_rsp(body.signal, body.sampling_rate)
+
+
+# ---------------------------------------------------------------------------
+# Phase 2b — Nilearn + DIPY endpoints
+# ---------------------------------------------------------------------------
+
+from app.services.neuroimaging import (  # noqa: E402 — appended import block
+    HAS_NILEARN,
+    HAS_DIPY,
+    mask_nifti,
+    extract_atlas_timeseries,
+    compute_connectome,
+    fit_dti,
+)
+from app.services.neuroimaging.schemas import (  # noqa: E402
+    MaskerSummary,
+    AtlasTimeseriesSummary,
+    ConnectomeSummary,
+    DtiScalarSummary,
+)
+
+_MAX_BVAL_BYTES = 1 * 1024 * 1024   # 1 MiB
+_MAX_BVEC_BYTES = 1 * 1024 * 1024   # 1 MiB
+_BVAL_EXTS = frozenset({".bval", ".bvals"})
+_BVEC_EXTS = frozenset({".bvec", ".bvecs"})
+_KNOWN_CONNECTOME_KINDS = frozenset(
+    {"correlation", "partial correlation", "tangent", "covariance", "precision"}
+)
+
+
+class _NilearenAtlasRequest(BaseModel):
+    img_path: str
+    atlas_path: str
+
+
+class _ConnectomeRequest(BaseModel):
+    timeseries: list[list[float]]
+    kind: str = "correlation"
+
+
+def _resolve_allowed_path(raw_path: str) -> Path:
+    """Resolve *raw_path* against the BIDS allow-list. Raises ApiServiceError on traversal."""
+    try:
+        resolved = Path(raw_path).resolve(strict=False)
+    except (OSError, ValueError):
+        raise ApiServiceError(
+            status_code=403,
+            code="path_not_allowed",
+            message="Path could not be resolved.",
+        )
+    allow_list = _bids_allow_list()
+    if not any(
+        resolved == prefix or str(resolved).startswith(str(prefix) + "/")
+        for prefix in allow_list
+    ):
+        raise ApiServiceError(
+            status_code=403,
+            code="path_not_allowed",
+            message="The provided path is not in the server allow-list.",
+        )
+    return resolved
+
+
+@router.post("/nilearn/mask", response_model=MaskerSummary)
+@limiter.limit("10/minute")
+async def nilearn_mask(
+    request: Request,
+    file: UploadFile,
+    mask_strategy: str = "whole-brain",
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> MaskerSummary:
+    """Upload a NIfTI file and return NiftiMasker summary."""
+    if not HAS_NILEARN:
+        raise ApiServiceError(
+            status_code=503,
+            code="neuroimaging_library_unavailable",
+            message="nilearn is not installed",
+        )
+    require_minimum_role(actor, "clinician")
+
+    name = file.filename or "upload.nii"
+    suffix = "".join(Path(name).suffixes[-2:]) or Path(name).suffix
+    if suffix not in _NIFTI_EXTS:
+        raise ApiServiceError(
+            status_code=415,
+            code="unsupported_media_type",
+            message=f"Unsupported extension '{suffix}'. Accepted: {', '.join(sorted(_NIFTI_EXTS))}",
+        )
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir) / ("upload" + suffix)
+        await _stream_upload_to_file(file, tmp_path, _MAX_UPLOAD_BYTES)
+        with open(tmp_path, "rb") as fh:
+            header_bytes = fh.read(8)
+        if suffix == ".nii.gz":
+            if header_bytes[:2] != _GZIP_MAGIC:
+                raise ApiServiceError(
+                    status_code=415,
+                    code="invalid_file_signature",
+                    message="File does not appear to be a valid gzip-compressed NIfTI (.nii.gz)",
+                )
+        return mask_nifti(str(tmp_path), mask_strategy=mask_strategy)
+
+
+@router.post("/nilearn/atlas-timeseries", response_model=AtlasTimeseriesSummary)
+@limiter.limit("10/minute")
+async def nilearn_atlas_timeseries(
+    request: Request,
+    body: _NilearenAtlasRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> AtlasTimeseriesSummary:
+    """Extract atlas timeseries from server-side NIfTI + atlas files."""
+    if not HAS_NILEARN:
+        raise ApiServiceError(
+            status_code=503,
+            code="neuroimaging_library_unavailable",
+            message="nilearn is not installed",
+        )
+    require_minimum_role(actor, "clinician")
+
+    img_resolved = _resolve_allowed_path(body.img_path)
+    atlas_resolved = _resolve_allowed_path(body.atlas_path)
+    return extract_atlas_timeseries(str(img_resolved), str(atlas_resolved))
+
+
+@router.post("/nilearn/connectome", response_model=ConnectomeSummary)
+@limiter.limit("10/minute")
+async def nilearn_connectome(
+    request: Request,
+    body: _ConnectomeRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ConnectomeSummary:
+    """Compute a connectivity matrix from a client-supplied timeseries."""
+    if not HAS_NILEARN:
+        raise ApiServiceError(
+            status_code=503,
+            code="neuroimaging_library_unavailable",
+            message="nilearn is not installed",
+        )
+    require_minimum_role(actor, "clinician")
+
+    if body.kind not in _KNOWN_CONNECTOME_KINDS:
+        raise ApiServiceError(
+            status_code=422,
+            code="invalid_connectome_kind",
+            message=f"Unknown kind '{body.kind}'. Valid: {sorted(_KNOWN_CONNECTOME_KINDS)}",
+        )
+
+    ts = body.timeseries
+    n_tp = len(ts)
+    n_reg = len(ts[0]) if ts else 0
+    if n_tp * n_reg > 1_000_000:
+        raise ApiServiceError(
+            status_code=413,
+            code="timeseries_too_large",
+            message=f"n_timepoints * n_regions = {n_tp * n_reg} exceeds limit of 1,000,000",
+        )
+
+    return compute_connectome(ts, kind=body.kind)
+
+
+@router.post("/dipy/dti-scalars", response_model=DtiScalarSummary)
+@limiter.limit("10/minute")
+async def dipy_dti_scalars(
+    request: Request,
+    nifti_file: UploadFile,
+    bval_file: UploadFile,
+    bvec_file: UploadFile,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> DtiScalarSummary:
+    """Upload DWI NIfTI + bval + bvec files and return DTI scalar summary."""
+    if not HAS_DIPY:
+        raise ApiServiceError(
+            status_code=503,
+            code="neuroimaging_library_unavailable",
+            message="dipy is not installed",
+        )
+    require_minimum_role(actor, "clinician")
+
+    nifti_name = nifti_file.filename or "dwi.nii"
+    nifti_suffix = "".join(Path(nifti_name).suffixes[-2:]) or Path(nifti_name).suffix
+    if nifti_suffix not in _NIFTI_EXTS:
+        raise ApiServiceError(
+            status_code=415,
+            code="unsupported_media_type",
+            message=f"NIfTI extension '{nifti_suffix}' not accepted. Use .nii or .nii.gz",
+        )
+
+    bval_name = bval_file.filename or "dwi.bval"
+    bval_suffix = Path(bval_name).suffix.lower()
+    if bval_suffix not in _BVAL_EXTS:
+        raise ApiServiceError(
+            status_code=415,
+            code="unsupported_media_type",
+            message=f"bval extension '{bval_suffix}' not accepted. Use .bval or .bvals",
+        )
+
+    bvec_name = bvec_file.filename or "dwi.bvec"
+    bvec_suffix = Path(bvec_name).suffix.lower()
+    if bvec_suffix not in _BVEC_EXTS:
+        raise ApiServiceError(
+            status_code=415,
+            code="unsupported_media_type",
+            message=f"bvec extension '{bvec_suffix}' not accepted. Use .bvec or .bvecs",
+        )
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp = Path(tmp_dir)
+        nii_path = tmp / ("dwi" + nifti_suffix)
+        bval_path = tmp / "dwi.bval"
+        bvec_path = tmp / "dwi.bvec"
+        await _stream_upload_to_file(nifti_file, nii_path, _MAX_UPLOAD_BYTES)
+        await _stream_upload_to_file(bval_file, bval_path, _MAX_BVAL_BYTES)
+        await _stream_upload_to_file(bvec_file, bvec_path, _MAX_BVEC_BYTES)
+
+        with open(nii_path, "rb") as fh:
+            magic = fh.read(2)
+        if nifti_suffix == ".nii.gz" and magic != _GZIP_MAGIC:
+            raise ApiServiceError(
+                status_code=415,
+                code="invalid_file_signature",
+                message="NIfTI file does not appear to be gzip-compressed",
+            )
+
+        return fit_dti(str(nii_path), str(bval_path), str(bvec_path))

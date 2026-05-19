@@ -72,3 +72,15 @@ def test_health_includes_neurokit2_true_when_installed(monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body.get("neurokit2") is True
+    assert body.get("nilearn") is True
+    assert body.get("dipy") is True
+
+
+def test_flag_on_mounts_phase2b_routes(monkeypatch):
+    """Phase 2b routes (nilearn/mask, dipy/dti-scalars) present when flag is on."""
+    monkeypatch.setenv("DEEPSYNAPS_ENABLE_NEUROIMAGING", "1")
+    import app.main as main_mod
+    mod = importlib.reload(main_mod)
+    paths = [r.path for r in mod.app.routes if "neuroimaging" in r.path]
+    assert any("nilearn" in p for p in paths), f"nilearn routes missing: {paths}"
+    assert any("dipy" in p for p in paths), f"dipy routes missing: {paths}"
