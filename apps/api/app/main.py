@@ -241,6 +241,7 @@ from app.routers.deeptwin_neuroai_lab_router import router as deeptwin_neuroai_l
 from app.routers.feature_store_router import router as feature_store_router
 from app.routers.citation_validator_router import router as citation_validator_router
 from app.routers.ai_health_router import router as ai_health_router
+from app.routers.ai_fabric_router import router as ai_fabric_router
 from app.routers.agent_brain_router import router as agent_brain_router
 from app.routers.agent_config_router import router as agent_config_router
 from app.routers.command_center_router import router as command_center_router
@@ -762,6 +763,7 @@ app.include_router(research_dataset_router)
 app.include_router(feature_store_router)
 app.include_router(citation_validator_router)
 app.include_router(ai_health_router)
+app.include_router(ai_fabric_router)
 app.include_router(agent_brain_router)
 app.include_router(agent_config_router)
 app.include_router(command_center_router)

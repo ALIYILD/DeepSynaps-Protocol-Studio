@@ -4173,6 +4173,18 @@ export const api = {
   // ── Health ──────────────────────────────────────────────────────────────
   health: () => apiFetch('/health'),
   aiHealth: () => apiFetch('/api/v1/health/ai'),
+  aiFabricModels: () => apiFetch('/api/v1/ai-fabric/models'),
+  aiFabricModel: (modelId) => apiFetch(`/api/v1/ai-fabric/models/${encodeURIComponent(modelId)}`),
+  aiFabricCapabilities: () => apiFetch('/api/v1/ai-fabric/capabilities'),
+  aiFabricHealth: () => apiFetch('/api/v1/ai-fabric/health'),
+  aiFabricSummary: () => apiFetch('/api/v1/ai-fabric/registry/summary'),
+  aiFabricProviders: () => apiFetch('/api/v1/ai-fabric/providers'),
+  aiFabricTiers: () => apiFetch('/api/v1/ai-fabric/tiers'),
+  aiFabricDryRun: (body) =>
+    apiFetch('/api/v1/ai-fabric/dry-run', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
 
   // ── Presence (real-time collaboration) ──────────────────────────────────
   pingPresence: (page_id) =>

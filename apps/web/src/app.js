@@ -222,6 +222,8 @@ let _modResearch = null;
 async function loadResearch()     { return (_modResearch ??= await import('./pages-research.js')); }
 let _modResearchEvidence = null;
 async function loadResearchEvidence() { return (_modResearchEvidence ??= await import('./pages-research-evidence.js')); }
+let _modAIFabric = null;
+async function loadAIFabric() { return (_modAIFabric ??= await import('./pages-ai-fabric.js')); }
 let _modBrainMap = null;
 async function loadBrainMap()     { return (_modBrainMap ??= await import('./pages-brainmap.js')); }
 let _modQEEGAnalysis = null;
@@ -571,10 +573,10 @@ let currentPage = 'dashboard';
 
 // ── Role-based nav visibility ─────────────────────────────────────────────────
 const ROLE_NAV_HIDE = {
-  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'finance-v2', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'risk-analyzer', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report', 'data-console', 'research-datasets'],
-  reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'finance-v2', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'data-console', 'research-datasets'],
-  patient:    ['finance-v2', 'data-console', 'research-datasets'],
-  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-v2', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'treatment-sessions-analyzer', 'audittrail', 'billing', 'finance-v2', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report', 'tickets', 'data-console', 'research-datasets'],
+  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'finance-v2', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'risk-analyzer', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report', 'data-console', 'research-datasets', 'ai-fabric'],
+  reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'finance-v2', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'data-console', 'research-datasets', 'ai-fabric'],
+  patient:    ['finance-v2', 'data-console', 'research-datasets', 'ai-fabric'],
+  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-v2', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'risk-analyzer', 'treatment-sessions-analyzer', 'audittrail', 'billing', 'finance-v2', 'population-analytics', 'brain-map-planner', 'brainmap-v2', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report', 'tickets', 'data-console', 'research-datasets', 'ai-fabric'],
   // Clinician is NOT an admin — research datasets are admin-only (Slice C).
   clinician:  ['population-analytics', 'research-datasets'],
 };
@@ -657,6 +659,7 @@ const NAV = [
   { section: 'Brain & Imaging', sectionId: 'analyzers-imaging', collapsed: true },
   { id: 'deeptwin',      label: 'DeepTwin',  icon: 'BT', ai: true },
   { id: 'brain-twin',    label: 'BrainTwin', icon: '🧬', ai: true },
+  { id: 'ai-fabric',     label: 'AI Fabric', icon: '🧱', ai: true },
   { id: 'mri-analysis',  label: 'MRI',       icon: '🧠', ai: true },
   { id: 'qeeg-launcher', label: 'qEEG',      icon: '📊', ai: true },
 
@@ -751,6 +754,7 @@ NAV_ICONS['settings-v2']     = NAV_ICONS['settings'];
 NAV_ICONS['tickets']         = `<svg viewBox="0 0 24 24"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></svg>`;
 NAV_ICONS['system-health']   = `<svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/><circle cx="12" cy="12" r="2" fill="currentColor" opacity=".4"/></svg>`;
 NAV_ICONS['research-evidence'] = `<svg viewBox="0 0 24 24"><path d="M10 2v6a2 2 0 0 1-2 2H2"/><path d="M14 2v6a2 2 0 0 0 2 2h6"/><path d="M12 18v4"/><path d="M8 22h8"/><circle cx="12" cy="14" r="4"/></svg>`;
+NAV_ICONS['ai-fabric'] = `<svg viewBox="0 0 24 24"><path d="M12 2 4 6v12l8 4 8-4V6z"/><path d="M12 2v20"/><path d="m4 6 8 4 8-4"/><path d="m4 18 8-4 8 4"/></svg>`;
 NAV_ICONS['mri-analysis'] = `<svg viewBox="0 0 24 24"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.07-3 2.5 2.5 0 0 1 .49-4.78 2.5 2.5 0 0 1 1.5-4.58A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 1.07-3 2.5 2.5 0 0 0-.49-4.78 2.5 2.5 0 0 0-1.5-4.58A2.5 2.5 0 0 0 14.5 2Z"/><circle cx="12" cy="12" r="2" fill="currentColor" opacity=".5"/></svg>`;
 NAV_ICONS['voice-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11c0 4 3.5 7 7 7s7-3 7-7"/><path d="M12 21v2"/></svg>`;
 NAV_ICONS['text-analyzer'] = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>`;
@@ -1185,6 +1189,7 @@ const PAGE_TITLES = {
   'literature': 'Evidence Library',
   'irb-manager': 'IRB Manager',
   'research-evidence': 'Research Evidence',
+  'ai-fabric': 'AI Fabric',
   'system-health': 'System Health',
   'settings-v2': 'Settings',
   'tickets': 'Tickets',
@@ -2051,6 +2056,7 @@ async function renderPage() {
       }
       break;
     }
+    case 'ai-fabric':          { const m = await loadAIFabric(); await m.pgAIFabric(setTopbar, navigate); break; }
     case 'mri-analysis':       { const m = await loadMRIAnalysis(); await m.pgMRIAnalysis(setTopbar, navigate); break; }
     case 'video-assessments':  { const m = await loadVideoAssessments(); await m.pgVideoAssessments(setTopbar, navigate); break; }
     case 'voice-analyzer':     { const m = await loadVoiceAnalyzer(); await m.pgVoiceAnalyzer(setTopbar, navigate); break; }
@@ -3560,6 +3566,7 @@ window.addEventListener('popstate', (e) => {
 
   NAV_COMMANDS.push(
     { type: 'nav', icon: '📊', title: 'qEEG Launcher', page: 'qeeg-launcher' },
+    { type: 'nav', icon: '🧱', title: 'AI Fabric', page: 'ai-fabric' },
     { type: 'nav', icon: '🧠', title: 'MRI Analyzer', page: 'mri-analysis' },
     { type: 'nav', icon: '🎥', title: 'Video Assessments', page: 'video-assessments' },
     { type: 'nav', icon: '🎥', title: 'Video Analyzer', page: 'video-assessments' },
