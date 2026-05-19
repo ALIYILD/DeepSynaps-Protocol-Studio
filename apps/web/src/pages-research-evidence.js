@@ -16,6 +16,7 @@ import {
 } from './evidence-dataset.js';
 import { getEvidenceUiStats } from './evidence-ui-live.js';
 import { renderLiveEvidencePanel } from './live-evidence.js';
+import { loadAndRenderFederatedSearch } from './research-evidence-federated-search.js';
 import { loadResearchBundleWorkspace } from './research-bundle-workspace.js';
 import { renderClinicalDisclaimer, renderModuleClinicalDisclaimer } from './clinical-disclaimer.js';
 import {
@@ -3243,6 +3244,28 @@ async function renderEvidenceSearch(body) {
       }
       window._reDetailData = null;
       window._reRenderSearchPanels?.();
+      // Federated clinical-evidence search (Slice C, PR #1078; UI module
+      // PR #1084). Renders a separate honest panel below the existing
+      // results. The module degrades to "federated search not available
+      // on this build" if /federated-search is missing on the active
+      // backend, so this call is safe regardless of API deployment state.
+      try {
+        const fedHtml = await loadAndRenderFederatedSearch({
+          query: rawQ,
+          limit: 25,
+          per_source_limit: 10,
+        });
+        let fedContainer = document.getElementById('re-ev-federated-results');
+        if (!fedContainer) {
+          fedContainer = document.createElement('div');
+          fedContainer.id = 're-ev-federated-results';
+          out.appendChild(fedContainer);
+        }
+        fedContainer.innerHTML = fedHtml;
+      } catch {
+        /* defensive — the module already swallows transport errors and
+           emits the honest "not available on this build" notice. */
+      }
     } catch (e) {
       out.innerHTML = _reEvidenceSearchErrorHtml('Evidence search', e);
     }
