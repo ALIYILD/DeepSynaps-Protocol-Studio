@@ -11,9 +11,22 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Request, UploadFile
 from pydantic import BaseModel, Field, model_validator
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
+from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.limiter import limiter
+from app.repositories.patients import resolve_patient_clinic_id
+from app.services.consent_enforcement import (
+    ConsentMissingError,
+    require_ai_analysis_consent,
+)
+from sqlalchemy.orm import Session
+from fastapi import Body
 from app.services.neuroimaging import (
     HAS_BRAINDECODE,
     HAS_BRAINSPACE,
@@ -60,6 +73,20 @@ from app.services.neuroimaging.schemas import (
 )
 
 router = APIRouter(prefix="/api/v1/neuroimaging", tags=["neuroimaging"])
+
+# Category 4 PR-4 — patient-linked neuroimaging knowledge search.
+#
+# Lives on a SEPARATE router instance from ``router`` so it can be mounted
+# unconditionally in ``main.py`` (the legacy ``router`` is gated behind the
+# ``DEEPSYNAPS_ENABLE_NEUROIMAGING`` feature flag because it loads heavy
+# optional dependencies; the patient-linked search has none of those).
+#
+# Same URL prefix (``/api/v1/neuroimaging``) so consumers see a single
+# coherent neuroimaging API surface regardless of which APIRouter the
+# endpoint physically belongs to.
+patient_search_router = APIRouter(
+    prefix="/api/v1/neuroimaging", tags=["neuroimaging"]
+)
 
 _MAX_UPLOAD_BYTES = 500 * 1024 * 1024  # 500 MiB
 
@@ -836,3 +863,200 @@ async def brainspace_gradients(
         )
 
     return compute_gradients(matrix, n_components=body.n_components)
+
+
+# ─── Patient-linked neuroimaging knowledge search ────────────────────────────
+#
+# Category 4 PR-4. This endpoint accepts a patient_id and runs the same
+# federated catalog search the anonymous PR-3 ``POST /search`` runs, with
+# three additional gates applied IN ORDER before any upstream call:
+#
+#   1. role gate (clinician/admin/owner) via ``require_minimum_role``
+#   2. cross-clinic IDOR gate via ``_gate_patient_access_neuro`` (the
+#      module-local helper below — same shape as biomarker_router etc.).
+#   3. AI-analysis consent gate via ``require_ai_analysis_consent``.
+#
+# The endpoint then delegates to the SAME ``federate()`` PR-3 wires under
+# ``/search``. No duplicate federation logic. If the PR-3 federation
+# runtime is not present in this deployment (e.g. running against a tree
+# where ``app.services.knowledge.neuroimaging_federation`` has not yet
+# been wired), the endpoint returns a structured 503 with
+# ``code="federation_runtime_unavailable"`` — it does NOT crash and does
+# NOT silently degrade to a stub.
+#
+# Response is the PR-3 shape PLUS ``patient_id`` echoed in provenance
+# and ``consent_status`` carrying the consent record id used.
+
+
+def _gate_patient_access_neuro(
+    actor: AuthenticatedActor, patient_id: str, db: Session
+) -> None:
+    """Cross-clinic IDOR guard. See ``deepsynaps-qeeg-pdf-export-tenant-gate.md``.
+
+    Pattern mirrors biomarker_router._gate_patient_access. Kept module-local
+    so this PR is purely additive — no shared helper extraction.
+    """
+    require_minimum_role(actor, "clinician")
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if not exists:
+        raise ApiServiceError(
+            code="not_found",
+            message="Patient not found.",
+            status_code=404,
+        )
+    require_patient_owner(actor, clinic_id)
+
+
+class _PatientNeuroSearchRequest(BaseModel):
+    """Patient-linked neuroimaging knowledge search body.
+
+    Same fields as PR-3 ``NeuroimagingSearchRequest`` PLUS the required
+    ``patient_id``. Every catalog field is optional — an empty body
+    (apart from ``patient_id``) returns all enabled-source results.
+    """
+
+    patient_id: str = Field(..., min_length=1, description="Owning-clinic patient id")
+    condition: str | None = Field(None)
+    modality: str | None = Field(None)
+    region: str | None = Field(None)
+    coordinate: list[float] | None = Field(None)
+    atlas: str | None = Field(None)
+    population: str | None = Field(None)
+    sources: list[str] | None = Field(None)
+    limit: int = Field(20, ge=1, le=100)
+
+
+@patient_search_router.post("/search-for-patient")
+async def search_neuroimaging_for_patient(
+    payload: _PatientNeuroSearchRequest = Body(...),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Patient-scoped neuroimaging knowledge federation.
+
+    Catalog federation is identical to the anonymous PR-3 endpoint. The
+    patient linkage is purely about *authorisation* (cross-clinic gate +
+    consent) and *audit* (patient id echoed in provenance). No PHI is
+    forwarded to upstream catalogs — the query payload contains only
+    public clinical metadata (condition, modality, region, atlas,
+    population) sourced from clinician input.
+
+    Gates run in the exact order required by the audit pattern:
+      1. role gate
+      2. cross-clinic ownership gate
+      3. AI-analysis consent gate
+    Each failure produces a structured ``ApiServiceError`` (403/404/422)
+    BEFORE any upstream catalog call is attempted.
+
+    The ``federate`` import is lazy so the router can still boot in
+    deployments where PR-3's federation runtime has not landed; in that
+    case the endpoint returns 503 with ``federation_runtime_unavailable``.
+    """
+    # 1) role + 2) cross-clinic ownership (raises 403 or 404).
+    _gate_patient_access_neuro(actor, payload.patient_id, db)
+
+    # 3) consent gate — must run BEFORE the federation call so a missing
+    # consent record is the 403 the caller sees, not some federation result.
+    try:
+        consent = require_ai_analysis_consent(
+            db, payload.patient_id, actor, ai_modality="neuroimaging"
+        )
+    except ConsentMissingError as exc:
+        raise ApiServiceError(
+            code="consent_missing",
+            message=str(exc),
+            status_code=403,
+            warnings=[
+                "ai_analysis consent is required for patient-linked neuroimaging search.",
+            ],
+        ) from exc
+
+    # Lazy-import PR-3 federation runtime. If absent, return a structured
+    # 503 — the endpoint is wired but the federation backend is not yet
+    # available in this build.
+    try:
+        from app.services.knowledge.neuroimaging_federation import (  # type: ignore[import-not-found]
+            NeuroimagingSearchQuery,
+            federate,
+        )
+        from app.services.knowledge.neuroimaging_inventory import (  # type: ignore[import-not-found]
+            DECISION_SUPPORT_DISCLAIMER,
+            NEUROIMAGING_SOURCES,
+            list_enabled_sources,
+        )
+    except ImportError as exc:
+        raise ApiServiceError(
+            code="federation_runtime_unavailable",
+            message=(
+                "Neuroimaging federation runtime is not wired in this build. "
+                "Patient-linked search requires the PR-3 federation runtime."
+            ),
+            status_code=503,
+            warnings=[str(exc)],
+        ) from exc
+
+    # Build the federation query (catalog metadata only — no patient id leaks
+    # into the upstream call shape).
+    query = NeuroimagingSearchQuery(
+        condition=payload.condition,
+        modality=payload.modality,
+        region=payload.region,
+        coordinate=payload.coordinate,
+        atlas=payload.atlas,
+        population=payload.population,
+        sources=payload.sources,
+        limit=payload.limit,
+    )
+
+    enabled = list_enabled_sources()
+    requested_ids = set(payload.sources or [])
+    unknown: set[str] = set()
+    if requested_ids:
+        all_ids = {src["id"] for src in NEUROIMAGING_SOURCES}
+        unknown = requested_ids - all_ids
+        enabled = [src for src in enabled if src["id"] in requested_ids]
+
+    outcome = await federate(query, enabled)
+
+    src_lookup = {src["id"]: src for src in enabled}
+    results: list[dict] = []
+    for r in outcome["results"]:
+        src = src_lookup.get(r.source, {})
+        results.append(
+            {
+                "source_id": r.source,
+                "source_name": src.get("name", r.source),
+                "record": r.model_dump(),
+                "provenance": {
+                    "source_id": r.source,
+                    "source_url": src.get("source_url", ""),
+                    "lifecycle_state": src.get("lifecycle_state", "healthy"),
+                    **(r.provenance or {}),
+                },
+            }
+        )
+
+    warnings = list(outcome["warnings"])
+    for unk in sorted(unknown):
+        warnings.append(f"unknown source id ignored: {unk}")
+
+    provenance = {
+        "queried_sources": [src["id"] for src in enabled],
+        "total_results": len(results),
+        "patient_id": payload.patient_id,
+        "decision_support_disclaimer": DECISION_SUPPORT_DISCLAIMER,
+    }
+
+    return {
+        "patient_id": payload.patient_id,
+        "consent_status": {
+            "consent_id": getattr(consent, "id", None),
+            "consent_type": "ai_analysis",
+            "ai_modality": "neuroimaging",
+        },
+        "source_status": outcome["source_status"],
+        "results": results,
+        "warnings": warnings,
+        "provenance": provenance,
+        "decision_support_disclaimer": DECISION_SUPPORT_DISCLAIMER,
+    }

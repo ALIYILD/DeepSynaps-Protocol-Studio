@@ -210,6 +210,21 @@ if _MOVEMENT_ANALYZER_ENABLED:
 _NEUROIMAGING_ENABLED = os.environ.get("DEEPSYNAPS_ENABLE_NEUROIMAGING") == "1"
 if _NEUROIMAGING_ENABLED:
     from app.routers.neuroimaging_router import router as neuroimaging_router
+# Category 4 PR-4 — patient-linked neuroimaging knowledge search lives on a
+# separate APIRouter inside neuroimaging_router.py with no heavy optional
+# dependencies, so it's safe to mount unconditionally (independent of the
+# DEEPSYNAPS_ENABLE_NEUROIMAGING feature flag).
+try:
+    from app.routers.neuroimaging_router import (
+        patient_search_router as neuroimaging_patient_search_router,
+    )
+    _NEUROIMAGING_PATIENT_SEARCH_READY = True
+except Exception:  # noqa: BLE001 — defensive; importing the module pulls
+    # service imports that may fail in slim deployments. The patient-linked
+    # search endpoint then degrades to "not mounted" rather than blocking
+    # app boot.
+    neuroimaging_patient_search_router = None  # type: ignore[assignment]
+    _NEUROIMAGING_PATIENT_SEARCH_READY = False
 from app.routers.nutrition_analyzer_router import router as nutrition_analyzer_router
 from app.routers.qeeg_annotation_outcome_tracker_router import (
     router as qeeg_annotation_outcome_tracker_router,
@@ -753,6 +768,9 @@ app.include_router(mri_analysis_router)
 app.include_router(mri_capabilities_router)
 if _NEUROIMAGING_ENABLED:
     app.include_router(neuroimaging_router)
+# Category 4 PR-4 — always-on patient-linked neuroimaging search router.
+if _NEUROIMAGING_PATIENT_SEARCH_READY and neuroimaging_patient_search_router is not None:
+    app.include_router(neuroimaging_patient_search_router)
 app.include_router(neuro_signs_router)
 app.include_router(medical_images_router)
 app.include_router(fusion_router)
