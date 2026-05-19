@@ -32,12 +32,11 @@ def _today_str() -> str:
 
 
 def _seed_patient(db, *, pid: str = "patient-ad-001"):
-    from app.persistence.models import Patient
+    from app.persistence.models import AdverseEvent, Patient, PatientAdherenceEvent, ConsentRecord
 
-    if db.query(Patient).filter_by(id=pid).first():
-        return pid
-    db.add(
-        Patient(
+    patient = db.query(Patient).filter_by(email="patient@deepsynaps.com").first()
+    if patient is None:
+        patient = Patient(
             id=pid,
             clinician_id="actor-clinician-demo",
             first_name="Adherence",
@@ -53,9 +52,28 @@ def _seed_patient(db, *, pid: str = "patient-ad-001"):
             status="active",
             notes="[DEMO] adherence test",
         )
-    )
+        db.add(patient)
+        db.flush()
+    else:
+        patient.id = pid
+        patient.clinician_id = "actor-clinician-demo"
+        patient.first_name = "Adherence"
+        patient.last_name = "Patient"
+        patient.dob = "1991-03-11"
+        patient.phone = None
+        patient.gender = "prefer_not_to_say"
+        patient.primary_condition = "Demo"
+        patient.primary_modality = "Demo"
+        patient.consent_signed = True
+        patient.consent_date = "2026-01-01"
+        patient.status = "active"
+        patient.notes = "[DEMO] adherence test"
+
+    db.query(PatientAdherenceEvent).filter_by(patient_id=patient.id).delete()
+    db.query(AdverseEvent).filter_by(patient_id=patient.id).delete()
+    db.query(ConsentRecord).filter_by(patient_id=patient.id).delete()
     db.commit()
-    return pid
+    return patient.id
 
 
 def _seed_adherence_event(
