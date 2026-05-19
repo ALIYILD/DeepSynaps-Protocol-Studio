@@ -679,7 +679,29 @@ describe('protocol studio endpoints', () => {
   });
 });
 
-// ── 18. Medical history endpoint family ──────────────────────────────────────
+// ── 18. Neuromodulation endpoint family ──────────────────────────────────────
+describe('neuromodulation endpoints', () => {
+  it('api.neuromodulationListSources GETs /api/v1/neuromodulation/sources', async () => {
+    const stub = stubFetch({ total: 6, sources: [] });
+    try {
+      await api.neuromodulationListSources();
+      const c = stub.getCaptured();
+      assert.ok(c.url.includes('/api/v1/neuromodulation/sources'));
+    } finally { stub.restore(); }
+  });
+
+  it('api.neuromodulationPlanningContext POSTs to /api/v1/neuromodulation/planning-context', async () => {
+    const stub = stubFetch({ source_statuses: {} });
+    try {
+      await api.neuromodulationPlanningContext({ modality: 'tDCS', condition: 'mdd' });
+      const c = stub.getCaptured();
+      assert.ok(c.url.includes('/api/v1/neuromodulation/planning-context'));
+      assert.strictEqual(c.method, 'POST');
+    } finally { stub.restore(); }
+  });
+});
+
+// ── 19. Medical history endpoint family ──────────────────────────────────────
 describe('medical history endpoints', () => {
   it('api.patchPatientMedicalHistorySections PATCHes correct path', async () => {
     const stub = stubFetch({ ok: true });
@@ -702,7 +724,7 @@ describe('medical history endpoints', () => {
   });
 });
 
-// ── 19. Clinical text NLP endpoint family ────────────────────────────────────
+// ── 20. Clinical text NLP endpoint family ────────────────────────────────────
 describe('clinical text NLP endpoints', () => {
   it('api.clinicalTextHealth GETs /api/v1/clinical-text/health', async () => {
     const stub = stubFetch({ status: 'ok' });
@@ -726,7 +748,7 @@ describe('clinical text NLP endpoints', () => {
   });
 });
 
-// ── 20. Agent Brain endpoint family ──────────────────────────────────────────
+// ── 21. Agent Brain endpoint family ──────────────────────────────────────────
 describe('agent brain endpoints', () => {
   it('api.getAgentBrainStatus GETs /api/v1/agent-brain/status', async () => {
     const stub = stubFetch({ service: 'clinical_agent_brain', providers: [] });
