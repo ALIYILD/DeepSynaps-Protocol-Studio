@@ -65,6 +65,8 @@ dependencies = [
     "nibabel>=5.2.0,<6.0.0",
     "pybids>=0.16.0,<1.0.0",
     "pynwb>=2.8.0,<4.0.0",
+    # Phase 2a NeuroKit2 (peripheral physiology) — see docs/DeepSynaps_OpenSource_Neurotech_Architecture.md
+    "neurokit2>=0.2.10,<0.3.0",
     # Reports stream HTML→PDF render path (PR #144 night shift). Imported in
     # packages/render-engine/src/deepsynaps_render_engine/renderers.py via
     # try/except → raises PdfRendererUnavailable when missing, so the

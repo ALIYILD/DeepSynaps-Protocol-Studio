@@ -26,18 +26,23 @@ except ImportError:
 from .nibabel_io import load_nifti, nifti_header_summary
 from .pybids_query import open_layout, summarise_layout, query_files
 from .pynwb_io import write_minimal_nwb, read_nwb_summary
+from .neurokit_physio import HAS_NEUROKIT, process_ecg, process_eda, process_rsp
 from .schemas import (
     NiftiSummary,
     LayoutSummary,
     BIDSFileRef,
     NwbSummary,
     NeuroimagingHealth,
+    EcgFeatures,
+    EdaFeatures,
+    RspFeatures,
 )
 
 __all__ = [
     "HAS_NIBABEL",
     "HAS_PYBIDS",
     "HAS_PYNWB",
+    "HAS_NEUROKIT",
     "load_nifti",
     "nifti_header_summary",
     "open_layout",
@@ -45,9 +50,15 @@ __all__ = [
     "query_files",
     "write_minimal_nwb",
     "read_nwb_summary",
+    "process_ecg",
+    "process_eda",
+    "process_rsp",
     "NiftiSummary",
     "LayoutSummary",
     "BIDSFileRef",
     "NwbSummary",
     "NeuroimagingHealth",
+    "EcgFeatures",
+    "EdaFeatures",
+    "RspFeatures",
 ]
