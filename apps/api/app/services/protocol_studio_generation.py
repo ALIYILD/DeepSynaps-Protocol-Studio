@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor
 from app.persistence.models import DeepTwinAnalysisRun, MriAnalysis, PrescribedProtocol, QEEGAnalysis
 from app.services import evidence_rag
+from app.services.knowledge.adverse_event_inventory import ADVERSE_EVENT_DECISION_SUPPORT_DISCLAIMER
 from app.services.registries import get_protocol as registry_get_protocol
 from app.services.registries import list_protocols as registry_list_protocols
 
@@ -42,6 +43,10 @@ def _normalize_off_label(text: str | None) -> bool:
 _OFF_LABEL_WARNING = (
     "Off-label protocol: clinician decision-support only. Requires explicit clinician review and acknowledgement before use."
 )
+_ADVERSE_EVENT_REVIEW_WARNING = (
+    "Adverse-event source review is required before neuromodulation use. "
+    "Spontaneous reports do not prove causality or clinical clearance."
+)
 
 
 class GenerateRequest(TypedDict, total=False):
@@ -53,6 +58,7 @@ class GenerateRequest(TypedDict, total=False):
     protocol_id: str | None
     include_off_label: bool
     constraints: dict[str, Any]
+    neuromodulation_context: dict[str, Any]
 
 
 class EvidenceLink(TypedDict):
@@ -409,6 +415,8 @@ def generate_deterministic_protocol_studio_draft(
     rationale.append(
         "Draft built deterministically from the protocol registry plus local evidence search; clinician review required.",
     )
+    rationale.append(_ADVERSE_EVENT_REVIEW_WARNING)
+    rationale.append(ADVERSE_EVENT_DECISION_SUPPORT_DISCLAIMER)
     ev_summary = str(row.get("evidence_summary") or "").strip()
     if ev_summary:
         rationale.append(ev_summary[:400])
