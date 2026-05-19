@@ -49,6 +49,77 @@ export const BIOMARKERS_LINKED_MODULES = Object.freeze([
  */
 export const CURATED_REFERENCE_LITERATURE_ANCHORS = 6753;
 
+/**
+ * Build a free-text live-evidence search query from a curated biomarker.
+ *
+ * The curated reference catalog (this page) and the live evidence corpus
+ * (/api/v1/evidence/papers via the Research Evidence "search" tab) are
+ * separate data layers. Clinicians need a one-click pivot from one to
+ * the other — the curated card is the *prompt* for a live search, not
+ * a substitute.
+ *
+ * Strategy:
+ *   1. Strip parenthetical abbreviations from the marker name so the
+ *      query reads naturally to a literature index.
+ *   2. Append the first 1-2 linked conditions when present — without
+ *      these, "Frontal Alpha Asymmetry" alone matches a much wider
+ *      literature than the clinician usually wants.
+ *
+ * Pure function — exported so the Biomarkers tests can lock in the
+ * query shape without driving the DOM or `window._nav`.
+ */
+export function buildBiomarkerEvidenceSearchQuery(marker) {
+  if (!marker || typeof marker !== 'object') return '';
+  const rawName = String(marker.name || '').trim();
+  // "Frontal Alpha Asymmetry (FAA)" -> "Frontal Alpha Asymmetry"
+  const cleanName = rawName.replace(/\s*\([^)]*\)\s*$/, '').trim();
+  if (!cleanName) return '';
+  const conditions = Array.isArray(marker.conditions)
+    ? marker.conditions.filter((c) => typeof c === 'string' && c.trim()).slice(0, 2)
+    : [];
+  if (conditions.length === 0) return cleanName;
+  return `${cleanName} ${conditions.join(' ')}`.trim();
+}
+
+/**
+ * Imperative side-effect helper: pivot to Research Evidence's live search
+ * tab with the biomarker's query pre-filled. Returns false when the
+ * marker yields no usable query so the caller can render a disabled
+ * button instead of dispatching nav to nowhere.
+ *
+ * Kept separate from `buildBiomarkerEvidenceSearchQuery` so that
+ * function stays pure / unit-testable.
+ */
+export function pivotToLiveEvidenceSearch(marker) {
+  const query = buildBiomarkerEvidenceSearchQuery(marker);
+  if (!query) return false;
+  if (typeof window === 'undefined') return false;
+  // Stable hooks already consumed by pages-research-evidence.js line 2279:
+  //   const defaultSearch = String(window._reEvidencePrefill || window._reSearch?.search || '').trim();
+  window._reEvidencePrefill = query;
+  window._reSearch = window._reSearch || {};
+  window._reSearch.search = query;
+  window._resEvidenceTab = 'search';
+  if (typeof window._nav === 'function') {
+    window._nav('research-evidence');
+  }
+  return true;
+}
+
+// Expose the pivot helper as a window-scoped function so inline onclick
+// handlers in the modal can fire it. Idempotent — overwriting is safe.
+if (typeof window !== 'undefined') {
+  window._bmPivotToLiveEvidence = function (markerJson) {
+    let marker = null;
+    try {
+      marker = typeof markerJson === 'string' ? JSON.parse(markerJson) : markerJson;
+    } catch {
+      return false;
+    }
+    return pivotToLiveEvidenceSearch(marker);
+  };
+}
+
 function esc(s) {
   return String(s ?? '')
     .replace(/&/g, '&amp;')
@@ -370,6 +441,12 @@ function _openBiomarkerModal(marker, group) {
             <div style="font-size:18px;font-weight:700;color:var(--text-primary)">${marker.evidence}</div>
           </div>
           <div style="font-size:11px;color:${group.tone}">Peer-reviewed literature</div>
+        </div>
+        <div style="margin-top:12px;display:flex;justify-content:flex-end">
+          <button type="button" class="btn btn-ghost btn-sm" data-testid="nb-pivot-live-evidence"
+            onclick="window._bmPivotToLiveEvidence(${esc(JSON.stringify({ name: marker.name, conditions: marker.conditions || [] }))})">
+            Search live evidence for ${esc(marker.name)} &rarr;
+          </button>
         </div>
       </div>
     </div>
