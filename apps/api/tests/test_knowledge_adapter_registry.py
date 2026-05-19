@@ -319,14 +319,23 @@ def test_peek_with_fake_registry_reports_real_states(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_all_21_catalogued_adapters_appear_in_lifecycle_summary(monkeypatch):
-    """Every adapter key declared in _ADAPTER_CATALOG must have a state."""
+def test_all_catalogued_adapters_appear_in_lifecycle_summary(monkeypatch):
+    """Every adapter key declared in _ADAPTER_CATALOG must have a state.
+
+    The count is asserted at a >= floor rather than an exact value so
+    that adding a new adapter does not require updating this test in
+    lockstep — the regression that matters is "an adapter is in the
+    catalog but missing from the lifecycle summary", not "the catalog
+    grew".
+    """
     monkeypatch.setattr(adapter_bootstrap, "_registry", None, raising=False)
     monkeypatch.delenv(DISABLED_ADAPTERS_ENV, raising=False)
 
     catalog_keys = list(adapter_bootstrap.list_production_adapter_keys())
-    assert len(catalog_keys) == 21, (
-        "Catalog size changed — update this test and the lifecycle doc."
+    assert len(catalog_keys) >= 21, (
+        f"Catalog shrunk unexpectedly to {len(catalog_keys)} entries; "
+        "investigate which adapter was removed and whether that removal was "
+        "intended."
     )
     summary = peek_registry_lifecycle_summary()
     for key in catalog_keys:
