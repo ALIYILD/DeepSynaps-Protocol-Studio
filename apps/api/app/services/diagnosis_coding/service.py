@@ -113,7 +113,8 @@ async def _safe_query(
     try:
         if not getattr(adapter, "is_connected", False):
             connected = await adapter.connect()
-            if not connected and source_label.lower() == "umls":
+            label_lower = source_label.lower()
+            if not connected and label_lower == "umls":
                 source_status[source_label] = {
                     "status": "degraded",
                     "available": False,
@@ -125,6 +126,20 @@ async def _safe_query(
                 }
                 warnings.append(
                     "UMLS terminology is unavailable (license/API key not configured)."
+                )
+                return []
+            if not connected and label_lower == "snomedct":
+                source_status[source_label] = {
+                    "status": "degraded",
+                    "available": False,
+                    "reason": "missing_license",
+                    "message": (
+                        "SNOMED CT adapter requires a licensed Snowstorm endpoint. "
+                        "Set SNOMEDCT_SNOWSTORM_URL to enable."
+                    ),
+                }
+                warnings.append(
+                    "SNOMED CT terminology is unavailable (no licensed Snowstorm endpoint configured)."
                 )
                 return []
             if not connected:
@@ -193,9 +208,13 @@ async def diagnosis_source_status(
     """
     registry = await registry_getter()
     sources: List[Dict[str, Any]] = []
+    # Sources that require credentials/license to be healthy. Without
+    # credentials they REGISTER but report `degraded` so the API surface
+    # makes the gap explicit.
+    LICENSE_GATED = {"umls", "snomedct"}
     for key in DIAGNOSIS_CODING_SOURCES:
         adapter = registry.get(key) if hasattr(registry, "get") else None
-        license_required = key == "umls"
+        license_required = key in LICENSE_GATED
         if adapter is None:
             sources.append(
                 {
@@ -209,7 +228,7 @@ async def diagnosis_source_status(
             )
             continue
         has_creds = getattr(adapter, "has_credentials", True)
-        if key == "umls" and not has_creds:
+        if license_required and not has_creds:
             status_str = "degraded"
             available = False
             reason = "missing_license"

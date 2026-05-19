@@ -14,7 +14,10 @@ import pytest
 from app.services.knowledge.adapters.icd10_adapter import ICD10Adapter
 from app.services.knowledge.adapters.mesh_adapter import MeSHAdapter
 from app.services.knowledge.adapters.ols_adapter import OLSAdapter
-from app.services.knowledge.adapters.snomedct_adapter import SNOMEDCTAdapter
+from app.services.knowledge.adapters.snomedct_adapter import (
+    ENDPOINT_ENV as SNOMEDCT_ENDPOINT_ENV,
+    SNOMEDCTAdapter,
+)
 from app.services.knowledge.adapters.umls_adapter import UMLSAdapter
 
 
@@ -42,19 +45,50 @@ def test_icd10_parse_empty_payload() -> None:
 
 
 def test_snomedct_identity_and_license() -> None:
-    adapter = SNOMEDCTAdapter()
+    adapter = SNOMEDCTAdapter(config={"base_url": None})
     assert adapter.source_name == "SNOMED CT"
     lic = adapter.get_license()
     assert "Affiliate" in lic.license_type
     assert lic.allows_commercial is False
     assert lic.requires_attribution is True
+    assert any("Snowstorm" in r or "unauthenticated" in r for r in lic.restrictions)
 
 
-def test_snomedct_parse_clinical_tables_shape() -> None:
-    payload = [1, ["370143000"], None, [["370143000", "Major depressive disorder, single episode, severe"]]]
-    parsed = SNOMEDCTAdapter._parse_clinical_tables(payload)
+def test_snomedct_parse_snowstorm_shape() -> None:
+    payload = {
+        "items": [
+            {
+                "conceptId": "370143000",
+                "active": True,
+                "fsn": {"term": "Major depressive disorder, single episode, severe (disorder)"},
+                "pt": {"term": "Major depressive disorder, single episode, severe"},
+            }
+        ]
+    }
+    parsed = SNOMEDCTAdapter._parse_snowstorm(payload)
     assert len(parsed) == 1
     assert parsed[0]["_raw_code"] == "370143000"
+    assert "severe" in parsed[0]["_raw_display"].lower()
+
+
+def test_snomedct_degraded_without_snowstorm_url() -> None:
+    with mock.patch.dict(os.environ, {}, clear=False):
+        os.environ.pop(SNOMEDCT_ENDPOINT_ENV, None)
+        os.environ.pop("SNOMEDCT_BRANCH", None)
+        os.environ.pop("SNOMEDCT_AUTH_TOKEN", None)
+        adapter = SNOMEDCTAdapter(config={"base_url": None})
+        assert adapter.has_credentials is False
+        import asyncio
+
+        result = asyncio.get_event_loop().run_until_complete(adapter.health_check())
+        assert result["status"] == "degraded"
+        assert result["license_required"] is True
+        assert result["missing_env"] == SNOMEDCT_ENDPOINT_ENV
+
+
+def test_snomedct_healthy_with_configured_url() -> None:
+    adapter = SNOMEDCTAdapter(config={"base_url": "https://example-snowstorm.invalid"})
+    assert adapter.has_credentials is True
 
 
 def test_mesh_identity_and_license() -> None:
@@ -122,7 +156,12 @@ def test_umls_license_metadata_signals_uts() -> None:
 
 @pytest.mark.parametrize(
     "adapter",
-    [ICD10Adapter(), SNOMEDCTAdapter(), MeSHAdapter(), OLSAdapter()],
+    [
+        ICD10Adapter(),
+        SNOMEDCTAdapter(config={"base_url": "https://example-snowstorm.invalid"}),
+        MeSHAdapter(),
+        OLSAdapter(),
+    ],
 )
 def test_adapter_provenance_for_unknown_record(adapter) -> None:  # type: ignore[no-untyped-def]
     prov = adapter.get_provenance({"code": "ABC"})
