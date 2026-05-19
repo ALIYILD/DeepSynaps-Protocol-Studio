@@ -203,9 +203,6 @@ for _monai_attr in ("SwinUNETR", "UNETR", "SegResNet", "DynUNet"):
     if not hasattr(engine, _monai_attr):
         setattr(engine, _monai_attr, MagicMock())
 
-pytestmark = pytest.mark.asyncio
-
-
 def teardown_module(module):  # noqa: D401
     """Restore module shims after this test module finishes."""
     for _module_name, _original_module in _ORIGINAL_MODULES.items():
@@ -323,10 +320,10 @@ def reset_mocks():
 # 1. HD-BET Brain Extraction Tests
 # ═══════════════════════════════════════════════════════════════════════════════
 
-
 class TestHdBetBrainExtraction:
     """Tests for HD-BET brain extraction functionality."""
 
+    @pytest.mark.asyncio
     async def test_run_hd_bet_success(self, mock_nifti_file, mock_output_dir, mock_nibabel_image):
         """Test that run_hd_bet returns expected structure on success.
 
@@ -359,6 +356,7 @@ class TestHdBetBrainExtraction:
         assert result["evidence_grade"] == "A"
         assert result["provenance"] == "measured"
 
+    @pytest.mark.asyncio
     async def test_run_hd_bet_quality_score(self, mock_nifti_file, mock_output_dir, mock_nibabel_image):
         """Test that quality_score is between 0 and 1.
 
@@ -380,6 +378,7 @@ class TestHdBetBrainExtraction:
             f"Quality score {result['quality_score']} not in [0, 1]"
         )
 
+    @pytest.mark.asyncio
     async def test_run_hd_bet_volumes_present(self, mock_nifti_file, mock_output_dir, mock_nibabel_image):
         """Test that brain and CSF volumes are returned in volumes_ml.
 
@@ -403,6 +402,7 @@ class TestHdBetBrainExtraction:
         assert volumes["brain"] is not None
         assert isinstance(volumes["brain"], float)
 
+    @pytest.mark.asyncio
     async def test_run_hd_bet_ventricle_detected(self, mock_nifti_file, mock_output_dir, mock_nibabel_image):
         """Test that ventricle_detected boolean is present in result.
 
@@ -423,6 +423,7 @@ class TestHdBetBrainExtraction:
         assert "ventricle_detected" in result
         assert result["ventricle_detected"] in (True, False)
 
+    @pytest.mark.asyncio
     async def test_run_hd_bet_fallback_cli(self, mock_nifti_file, mock_output_dir):
         """Test CLI fallback when HD-BET Python API is unavailable.
 
@@ -457,6 +458,7 @@ class TestHdBetBrainExtraction:
         assert "disclaimer" in result
         assert STANDARD_MRI_DISCLAIMER in result["disclaimer"]
 
+    @pytest.mark.asyncio
     async def test_run_hd_bet_gpu_not_available(self, mock_nifti_file, mock_output_dir, mock_nibabel_image):
         """Test that GPU request falls back to CPU when GPU unavailable.
 
@@ -486,6 +488,7 @@ class TestHdBetBrainExtraction:
         assert result["evidence_grade"] == "A"
         assert "disclaimer" in result
 
+    @pytest.mark.asyncio
     async def test_run_hd_bet_missing_nibabel(self, mock_nifti_file, mock_output_dir):
         """Test that RuntimeError is raised when NiBabel is not available.
 
@@ -512,7 +515,7 @@ class TestHdBetBrainExtraction:
 # 2. nnU-Net Segmentation Tests
 # ═══════════════════════════════════════════════════════════════════════════════
 
-
+@pytest.mark.asyncio
 class TestNnunetSegmentation:
     """Tests for nnU-Net multi-region segmentation functionality."""
 
@@ -677,7 +680,7 @@ class TestNnunetSegmentation:
 # 3. MONAI Segmentation Tests
 # ═══════════════════════════════════════════════════════════════════════════════
 
-
+@pytest.mark.asyncio
 class TestMonaiSegmentation:
     """Tests for MONAI-based segmentation pathways."""
 
@@ -1109,7 +1112,7 @@ class TestRegionVolumes:
 # 6. Full Pipeline Tests
 # ═══════════════════════════════════════════════════════════════════════════════
 
-
+@pytest.mark.asyncio
 class TestFullPipeline:
     """Tests for the full segmentation pipeline orchestrator."""
 
@@ -1319,7 +1322,7 @@ class TestFullPipeline:
 # 7. FastAPI Service Tests
 # ═══════════════════════════════════════════════════════════════════════════════
 
-
+@pytest.mark.asyncio
 class TestFastApiService:
     """Tests for FastAPI service functions."""
 
