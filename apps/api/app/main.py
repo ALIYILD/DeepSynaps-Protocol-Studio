@@ -204,6 +204,12 @@ from app.routers.medication_analyzer_router import router as medication_analyzer
 _MOVEMENT_ANALYZER_ENABLED = os.environ.get("DEEPSYNAPS_ENABLE_MOVEMENT_ANALYZER") == "1"
 if _MOVEMENT_ANALYZER_ENABLED:
     from app.routers.movement_analyzer_router import router as movement_analyzer_router
+# Phase 1 dark-launch flag for neuroimaging I/O routes (NiBabel / PyBIDS / PyNWB).
+# Defaults off so environments without these optional deps boot cleanly.
+# Flip to "1" once the optional deps are confirmed present in the target image.
+_NEUROIMAGING_ENABLED = os.environ.get("DEEPSYNAPS_ENABLE_NEUROIMAGING") == "1"
+if _NEUROIMAGING_ENABLED:
+    from app.routers.neuroimaging_router import router as neuroimaging_router
 from app.routers.nutrition_analyzer_router import router as nutrition_analyzer_router
 from app.routers.qeeg_annotation_outcome_tracker_router import (
     router as qeeg_annotation_outcome_tracker_router,
@@ -745,6 +751,8 @@ app.include_router(qeeg_105_analysis_run_router)
 app.include_router(qeeg_105_analysis_results_router)
 app.include_router(mri_analysis_router)
 app.include_router(mri_capabilities_router)
+if _NEUROIMAGING_ENABLED:
+    app.include_router(neuroimaging_router)
 app.include_router(neuro_signs_router)
 app.include_router(medical_images_router)
 app.include_router(fusion_router)
