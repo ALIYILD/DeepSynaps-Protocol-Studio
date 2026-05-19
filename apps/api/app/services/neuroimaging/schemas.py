@@ -42,6 +42,8 @@ class NeuroimagingHealth(BaseModel):
     pybids: bool
     pynwb: bool
     neurokit2: bool = False
+    nilearn: bool = False
+    dipy: bool = False
     versions: dict[str, str | None] = {}
 
 
@@ -62,3 +64,35 @@ class RspFeatures(BaseModel):
     mean_rate_bpm: float
     rrv_sdbb_ms: float
     signal_length: int
+
+
+class MaskerSummary(BaseModel):
+    n_timepoints: int
+    n_voxels: int
+    shape: list[int]
+
+
+class AtlasTimeseriesSummary(BaseModel):
+    n_timepoints: int
+    n_regions: int
+    atlas_path: str
+
+
+class ConnectomeSummary(BaseModel):
+    n_regions: int
+    kind: str
+    matrix: list[list[float]] | None
+    truncated: bool
+
+
+class DwiSummary(BaseModel):
+    shape: list[int]
+    n_volumes: int
+    n_directions: int
+    b0_count: int
+
+
+class DtiScalarSummary(BaseModel):
+    mean_fa: float
+    mean_md: float
+    voxel_count: int
