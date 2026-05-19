@@ -165,7 +165,7 @@ in this doc; the other two are net-new to the roadmap.
 | # | Database | Status | Access | API Endpoint | Clinical use | In-doc cross-ref |
 |---|---|---|---|---|---|---|
 | 87 | Semantic Scholar | 📋 | Free | `https://api.semanticscholar.org/graph/v1/` | AI-powered literature search; rank by citation velocity for rare-condition neuromodulation queries | **Already at Batch 2 row #7** — implementation pending |
-| 88 | OpenAlex | 📋 | Free API key + $1/day usage credit | `https://api.openalex.org/` | Open scholarly graph; citation analysis, author/affiliation networks for evidence triangulation | Briefed 2026-05-19 — see § 10.1 below |
+| 88 | OpenAlex | ✅ | Free API key + $1/day usage credit | `https://api.openalex.org/` | Open scholarly graph; citation analysis, author/affiliation networks for evidence triangulation | **Implemented 2026-05-19** — `apps/api/app/services/knowledge/adapters/openalex_adapter.py`; original brief in § 10.1 |
 | 89 | Dimensions | ⏳ | Subscription / by-application; no public REST | DSL endpoint (Dimensions Search Language v2.15.0) | Research analytics + funding data | **DEFERRED 2026-05-19** — license-blocked, not planned for active integration; see § 10.2 |
 | 90 | CORE | 📋 | Free | `https://api.core.ac.uk/v3/` | Open-access full-text aggregation; full-text retrieval for systematic reviews | **Already at Batch 6 row #36** — implementation pending |
 
