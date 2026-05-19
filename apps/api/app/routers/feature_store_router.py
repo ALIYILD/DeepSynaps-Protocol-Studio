@@ -4,10 +4,25 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
+from app.database import get_db_session
+from app.repositories.patients import resolve_patient_clinic_id
 from app.services.feature_store_client import build_feature_store_client
 from app.settings import get_settings
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
+    """Cross-clinic ownership gate for patient-scoped feature-store reads."""
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 
 
 router = APIRouter(prefix="/api/v1/feature-store", tags=["feature-store"])
@@ -27,6 +42,7 @@ def fetch_patient_features_endpoint(
     feature_set: str = Query(default="full", min_length=1),
     tenant_id: Optional[str] = Query(default=None, min_length=1),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
 ) -> FeatureStoreFetchResponse:
     """
     HTTP façade over Layer 2 fetch_patient_features.
@@ -38,6 +54,7 @@ def fetch_patient_features_endpoint(
     """
 
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
     settings = get_settings()
     scoped_tenant_id = tenant_id or settings.feature_store_default_tenant_id
 

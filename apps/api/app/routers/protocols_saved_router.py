@@ -9,10 +9,24 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import PrescribedProtocol
+from app.repositories.patients import resolve_patient_clinic_id
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
+    """Cross-clinic ownership gate for patient-scoped prescribed-protocol queries."""
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
+
 
 router = APIRouter(prefix="/api/v1/protocols/saved", tags=["protocols"])
 
@@ -136,6 +150,8 @@ def list_saved_protocols(
 ) -> SavedProtocolListResponse:
     """List saved (prescribed) protocols for the authenticated clinician."""
     require_minimum_role(actor, "clinician")
+    if patient_id:
+        _gate_patient_access(actor, patient_id, session)
     stmt = select(PrescribedProtocol).where(
         PrescribedProtocol.clinician_id == actor.actor_id
     )

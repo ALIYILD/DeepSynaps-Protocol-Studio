@@ -33,9 +33,18 @@ from app.auth import (
     AuthenticatedActor,
     get_authenticated_actor,
     require_minimum_role,
+    require_patient_owner,
 )
 from app.database import get_db_session
 from app.repositories.audit import create_audit_event
+from app.repositories.patients import resolve_patient_clinic_id
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
+    """Cross-clinic ownership gate for patient-scoped analyzer queries."""
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 from app.services.analyzer_v2_service import (
     get_cognitive_demo_data,
     get_fnirs_demo_data,
@@ -489,6 +498,7 @@ def get_cross_analyzer_correlations(
 ) -> dict[str, Any]:
     """Return cross-analyzer correlation matrix for a patient across modalities."""
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
     _audit_log(
         db, actor,
         action="analyzer.correlation.multi",

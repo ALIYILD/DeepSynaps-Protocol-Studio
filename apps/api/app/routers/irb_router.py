@@ -21,10 +21,24 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import IRBAdverseEvent, IRBAmendment, IRBStudy
+from app.repositories.patients import resolve_patient_clinic_id
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
+    """Cross-clinic ownership gate for patient-scoped IRB queries."""
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
+
 
 router = APIRouter(prefix="/api/v1/irb", tags=["IRB Studies"])
 
@@ -352,6 +366,8 @@ def list_irb_adverse_events(
     db: Session = Depends(get_db_session),
 ) -> IRBAEListResponse:
     require_minimum_role(actor, "clinician")
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
     q = db.query(IRBAdverseEvent)
     if actor.role != "admin":
         q = q.filter(IRBAdverseEvent.clinician_id == actor.actor_id)

@@ -54,8 +54,10 @@ from app.auth import (
     AuthenticatedActor,
     get_authenticated_actor,
     require_minimum_role,
+    require_patient_owner,
 )
 from app.database import get_db_session
+from app.repositories.patients import resolve_patient_clinic_id
 from app.services.qeeg_report_annotations import (
     BODY_MAX_LEN,
     REPORT_ID_MAX_LEN,
@@ -71,6 +73,19 @@ from app.services.qeeg_report_annotations import (
 
 
 _log = logging.getLogger(__name__)
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
+    """Router-layer cross-clinic ownership gate (defence-in-depth).
+
+    The service layer already calls its own ``_gate_patient_access`` for
+    every annotation mutation/read, but having the router call this gate
+    too keeps the audit signal visible at the route boundary.
+    """
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
+
 
 router = APIRouter(
     prefix="/api/v1/qeeg-report-annotations",
@@ -277,6 +292,7 @@ def list_annotations_endpoint(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> AnnotationListOut:
+    _gate_patient_access(actor, patient_id, db)
     rows, total = list_annotations(
         db,
         actor,
@@ -307,6 +323,7 @@ def summary_endpoint(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> SummaryOut:
+    _gate_patient_access(actor, patient_id, db)
     summary = summary_for_report(
         db, actor, patient_id=patient_id, report_id=report_id
     )

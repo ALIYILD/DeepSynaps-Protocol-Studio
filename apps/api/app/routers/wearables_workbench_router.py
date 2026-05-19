@@ -64,7 +64,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor
+from app.auth import AuthenticatedActor, get_authenticated_actor, require_patient_owner
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import (
@@ -74,6 +74,14 @@ from app.persistence.models import (
     WearableAlertFlag,
     WearableObservation,
 )
+from app.repositories.patients import resolve_patient_clinic_id
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
+    """Cross-clinic ownership gate for patient-scoped wearable queries."""
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 
 
 router = APIRouter(
@@ -560,6 +568,8 @@ def list_flags(
 ) -> WorkbenchListResponse:
     """List clinic-scoped wearable alert flags for clinician triage."""
     _require_clinician_or_admin(actor)
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
     q = _scope_query(actor)(db)
     q = _apply_flag_filters(
         q,
@@ -700,6 +710,8 @@ def export_csv(
 ) -> Response:
     """CSV export of the clinic-scoped triage queue."""
     _require_clinician_or_admin(actor)
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
     rows = _apply_flag_filters(
         _scope_query(actor)(db),
         status=status,
@@ -775,6 +787,8 @@ def export_ndjson(
 ) -> Response:
     """NDJSON export — one flag per line, including triage transcript."""
     _require_clinician_or_admin(actor)
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
     rows = _apply_flag_filters(
         _scope_query(actor)(db),
         status=status,

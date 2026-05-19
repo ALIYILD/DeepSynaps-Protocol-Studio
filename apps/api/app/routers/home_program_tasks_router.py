@@ -12,7 +12,12 @@ from fastapi import APIRouter, Body, Depends, Query, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.repositories.home_program_tasks import (
@@ -20,6 +25,14 @@ from app.repositories.home_program_tasks import (
     insert_clinician_home_program_task,
     list_patient_completions_for_clinician,
 )
+from app.repositories.patients import resolve_patient_clinic_id
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
+    """Cross-clinic ownership gate for patient-scoped home-program queries."""
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 from app.services.home_program_task_audit import (
     ACTION_CREATE_REPLAY,
     ACTION_FORCE_OVERWRITE,
@@ -127,6 +140,8 @@ def list_home_program_tasks(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> HomeProgramTaskListResponse:
     require_minimum_role(actor, "clinician")
+    if patient_id:
+        _gate_patient_access(actor, patient_id, session)
     rows = list_tasks_for_clinician(session, clinician_id=actor.actor_id, patient_id=patient_id)
     items = [_row_to_response_dict(r) for r in rows]
     return HomeProgramTaskListResponse(items=items, total=len(items))
@@ -139,6 +154,8 @@ def list_task_completions(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> list[ClinicianTaskCompletionOut]:
     require_minimum_role(actor, "clinician")
+    if patient_id:
+        _gate_patient_access(actor, patient_id, session)
     rows = list_patient_completions_for_clinician(
         session, clinician_id=actor.actor_id, patient_id=patient_id
     )

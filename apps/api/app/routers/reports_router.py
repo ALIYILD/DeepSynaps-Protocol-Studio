@@ -18,11 +18,30 @@ from app.limiter import limiter
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.auth import (
+    AuthenticatedActor,
+    get_authenticated_actor,
+    require_minimum_role,
+    require_patient_owner,
+)
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import Patient, PatientMediaUpload
+from app.repositories.patients import resolve_patient_clinic_id
 from app.settings import get_settings
+
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
+    """Canonical cross-clinic ownership gate.
+
+    Resolves the patient's owning clinic via ``resolve_patient_clinic_id`` and
+    delegates to ``require_patient_owner``. Use this for every patient-scoped
+    endpoint; the local ``_assert_report_patient_access`` is kept for legacy
+    callers that rely on the soft 404 semantics.
+    """
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
 
 # ── Structured report payload (versioned schema) ──────────────────────────────
 # These imports use the render-engine package; PDF rendering may raise
@@ -207,6 +226,7 @@ async def upload_report(
     fallback for offline persistence).
     """
     require_minimum_role(actor, "clinician")
+    _gate_patient_access(actor, patient_id, db)
     _assert_report_patient_access(db, actor, patient_id)
 
     upload_id = str(uuid.uuid4())
@@ -423,6 +443,7 @@ def list_reports(
     """
     require_minimum_role(actor, "clinician")
     if patient_id:
+        _gate_patient_access(actor, patient_id, db)
         _assert_report_patient_access(db, actor, patient_id)
 
     base = db.query(PatientMediaUpload).filter(PatientMediaUpload.media_type == "text")
@@ -892,6 +913,7 @@ def reports_summary(
     """
     require_minimum_role(actor, "clinician")
     if patient_id:
+        _gate_patient_access(actor, patient_id, db)
         _assert_report_patient_access(db, actor, patient_id)
 
     base = db.query(PatientMediaUpload).filter(PatientMediaUpload.media_type == "text")
@@ -1264,7 +1286,7 @@ def record_reports_audit_event(
 # or HTML. WeasyPrint absence → 503.
 
 from app.persistence.models import QEEGAIReport  # noqa: E402
-from app.routers.qeeg_analysis_router import _gate_patient_access  # noqa: E402
+# _gate_patient_access is defined at module top.
 from app.services.qeeg_pdf_export import (  # noqa: E402
     QEEGPdfRendererUnavailable,
     render_qeeg_html,

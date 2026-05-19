@@ -27,6 +27,14 @@ from app.errors import ApiServiceError
 from app.persistence.models import OutcomeEvent, OutcomeSeries, TreatmentCourse
 from app.repositories.patients import resolve_patient_clinic_id
 
+
+def _gate_patient_access(actor: AuthenticatedActor, patient_id: str, db: Session) -> None:
+    """Cross-clinic ownership gate for patient-scoped outcome queries."""
+    exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
+    if exists:
+        require_patient_owner(actor, clinic_id)
+
+
 router = APIRouter(prefix="/api/v1/outcomes", tags=["Outcomes"])
 
 # Common assessment templates whose lower score = improvement
@@ -331,6 +339,8 @@ def list_outcomes(
     db: Session = Depends(get_db_session),
 ) -> OutcomeListResponse:
     require_minimum_role(actor, "clinician")
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
 
     q = db.query(OutcomeSeries)
     if actor.role != "admin":
@@ -412,6 +422,8 @@ def list_outcome_events(
     db: Session = Depends(get_db_session),
 ) -> OutcomeEventListResponse:
     require_minimum_role(actor, "clinician")
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
 
     q = db.query(OutcomeEvent)
     if actor.role != "admin":

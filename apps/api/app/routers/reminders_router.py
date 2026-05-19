@@ -289,6 +289,8 @@ def list_outbox(
     db: Session = Depends(get_db_session),
 ) -> OutboxListResponse:
     require_minimum_role(actor, "clinician")
+    if patient_id:
+        _gate_patient_access(actor, patient_id, db)
     q = db.query(ReminderOutboxMessage)
     if actor.role != "admin":
         q = q.filter(ReminderOutboxMessage.clinician_id == actor.actor_id)
