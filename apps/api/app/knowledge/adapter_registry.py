@@ -181,6 +181,92 @@ _LEGACY_METADATA: Dict[str, Dict[str, Any]] = {
         "data_types": ["genetic_variant"],
         "description": "Population genetic variant frequency reference.",
     },
+    # ── Category 8: Diagnosis Coding ──────────────────────────────────────
+    "icd10": {
+        "display_name": "ICD-10-CM",
+        "category": "diagnosis_coding",
+        "phase": 3,
+        "access": "open",
+        "data_types": ["diagnosis_code", "terminology"],
+        "description": (
+            "ICD-10-CM diagnosis codes via NIH Clinical Tables. "
+            "Decision-support only; codes do not assert diagnosis or coverage."
+        ),
+        "license_url": "https://www.cdc.gov/nchs/icd/icd-10-cm.htm",
+        "endpoint": "https://clinicaltables.nlm.nih.gov/api/icd10cm/v3/search",
+        "clinical_utility": (
+            "Diagnosis coding for billing context and eligibility lookups; "
+            "requires clinician/coder review."
+        ),
+    },
+    "snomedct": {
+        "display_name": "SNOMED CT",
+        "category": "diagnosis_coding",
+        "phase": 3,
+        "access": "license_affiliate",
+        "data_types": ["clinical_concept", "terminology"],
+        "description": (
+            "SNOMED CT clinical concepts via NIH Clinical Tables. "
+            "Use governed by SNOMED Affiliate License."
+        ),
+        "license_url": "https://www.snomed.org/get-snomed",
+        "endpoint": "https://clinicaltables.nlm.nih.gov/api/snomed/v3/search",
+        "clinical_utility": (
+            "Clinical terminology for condition specification, problem lists, "
+            "and cross-system mapping."
+        ),
+    },
+    "mesh": {
+        "display_name": "MeSH",
+        "category": "diagnosis_coding",
+        "phase": 3,
+        "access": "open",
+        "data_types": ["mesh_descriptor", "terminology"],
+        "description": (
+            "Medical Subject Headings lookup for literature search expansion."
+        ),
+        "license_url": "https://www.nlm.nih.gov/mesh/meshhome.html",
+        "endpoint": "https://id.nlm.nih.gov/mesh/lookup/term",
+        "clinical_utility": (
+            "Expands clinical terms into MeSH descriptors for PubMed and "
+            "Europe PMC evidence search."
+        ),
+    },
+    "umls": {
+        "display_name": "UMLS",
+        "category": "diagnosis_coding",
+        "phase": 3,
+        "access": "license_uts",
+        "data_types": ["concept_mapping", "terminology"],
+        "description": (
+            "Unified Medical Language System (Metathesaurus). "
+            "Requires UTS account and API key — degraded until configured."
+        ),
+        "license_url": "https://uts.nlm.nih.gov/uts/signup-login",
+        "endpoint": "https://uts-ws.nlm.nih.gov/rest/",
+        "license_required": True,
+        "credentials_env": "UMLS_API_KEY",
+        "clinical_utility": (
+            "Unified terminology mapping across ICD-10, SNOMED, MeSH, "
+            "LOINC, and others via UMLS CUI."
+        ),
+    },
+    "ols": {
+        "display_name": "OLS (EBI)",
+        "category": "diagnosis_coding",
+        "phase": 3,
+        "access": "open",
+        "data_types": ["ontology_term", "terminology"],
+        "description": (
+            "EBI Ontology Lookup Service for HPO, DOID, MONDO, EFO, etc."
+        ),
+        "license_url": "https://www.ebi.ac.uk/ols4",
+        "endpoint": "https://www.ebi.ac.uk/ols4/api/",
+        "clinical_utility": (
+            "Cross-ontology lookup for phenotype and disease terms; "
+            "supports semantic interoperability."
+        ),
+    },
 }
 
 _LEGACY_KEY_ALIASES: Dict[str, str] = {
