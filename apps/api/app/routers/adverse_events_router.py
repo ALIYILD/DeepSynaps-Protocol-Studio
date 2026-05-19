@@ -50,7 +50,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Body, Depends, Query, Request, Response
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
@@ -71,6 +71,13 @@ from app.persistence.models import (
     TreatmentCourse,
 )
 from app.repositories.patients import resolve_patient_clinic_id
+from app.services.consent_enforcement import ConsentMissingError, require_ai_analysis_consent
+from app.services.knowledge.adverse_event_inventory import (
+    ADVERSE_EVENT_DECISION_SUPPORT_DISCLAIMER,
+    build_adverse_event_inventory,
+    build_adverse_event_lifecycle_summary,
+    perform_medication_safety_check,
+)
 
 
 _ae_log = _logging.getLogger(__name__)
@@ -82,6 +89,31 @@ def _gate_patient_access(actor: AuthenticatedActor, patient_id: str | None, db: 
     exists, clinic_id = resolve_patient_clinic_id(db, patient_id)
     if exists:
         require_patient_owner(actor, clinic_id)
+
+
+def _require_adverse_event_patient_consent(
+    *,
+    db: Session,
+    actor: AuthenticatedActor,
+    patient_id: str,
+) -> None:
+    try:
+        require_ai_analysis_consent(db, patient_id, actor, ai_modality="medication_safety")
+        return
+    except ConsentMissingError:
+        pass
+
+    from app.persistence.models import Patient as _Patient
+
+    patient = db.query(_Patient).filter(_Patient.id == patient_id).first()
+    if patient and bool(getattr(patient, "consent_signed", False)):
+        return
+
+    raise ApiServiceError(
+        code="consent_missing",
+        message="ai_analysis consent required for patient-linked medication safety review.",
+        status_code=403,
+    )
 
 
 def _trigger_ae_risk_recompute(patient_id: str, actor_id: str | None, db_sess: Session) -> None:
@@ -253,11 +285,31 @@ class AdverseEventCreate(BaseModel):
     session_id: Optional[str] = None
     event_type: str
     severity: Literal["mild", "moderate", "severe", "serious"]
+    description: Optional[str] = None
+    onset_timing: Optional[str] = None
+    resolution: Optional[str] = None
+    action_taken: Optional[str] = None
+    reported_at: Optional[str] = None
+    body_system: Optional[str] = None
+    expectedness: Optional[str] = None
+    relatedness: Optional[str] = None
+    sae_criteria: Optional[str] = None
+    meddra_pt: Optional[str] = None
+    meddra_soc: Optional[str] = None
+    is_demo: Optional[bool] = False
 
     @field_validator("severity", mode="before")
     @classmethod
     def _normalize_severity(cls, v: object) -> object:
         return v.strip().lower() if isinstance(v, str) else v
+
+
+class MedicationSafetyCheckRequest(BaseModel):
+    medication_name: str = Field(..., min_length=1)
+    dose: Optional[str] = None
+    condition: Optional[str] = None
+    neuromodulation_modality: Optional[Literal["TMS", "tDCS", "DBS", "VNS", "neurofeedback"]] = None
+    patient_id: Optional[str] = None
 
     description: Optional[str] = None
     onset_timing: Optional[str] = None
@@ -1733,3 +1785,60 @@ def reopen_adverse_event(
         note=f"ae_reopened={event.id} reason={reason[:200]}",
     )
     return AdverseEventOut.from_record(event)
+
+
+@router.get("/sources")
+def list_adverse_event_sources(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict[str, Any]:
+    require_minimum_role(actor, "clinician")
+    rows = build_adverse_event_inventory()
+    return {
+        "total": len(rows),
+        "sources": rows,
+        "decision_support_disclaimer": ADVERSE_EVENT_DECISION_SUPPORT_DISCLAIMER,
+    }
+
+
+@router.get("/sources/_lifecycle")
+def adverse_event_source_lifecycle(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict[str, Any]:
+    require_minimum_role(actor, "clinician")
+    summary = build_adverse_event_lifecycle_summary()
+    summary["decision_support_disclaimer"] = ADVERSE_EVENT_DECISION_SUPPORT_DISCLAIMER
+    return summary
+
+
+@router.post("/medication-safety-check")
+async def adverse_event_medication_safety_check(
+    body: MedicationSafetyCheckRequest = Body(...),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    require_minimum_role(actor, "clinician")
+    if body.patient_id:
+        _gate_patient_access(actor, body.patient_id, db)
+        _require_adverse_event_patient_consent(
+            db=db,
+            actor=actor,
+            patient_id=body.patient_id,
+        )
+    result = await perform_medication_safety_check(
+        medication_name=body.medication_name,
+        dose=body.dose,
+        condition=body.condition,
+        neuromodulation_modality=body.neuromodulation_modality,
+        patient_id=body.patient_id,
+    )
+    _hub_audit(
+        db,
+        actor,
+        event="medication_safety_check",
+        target_id=(body.patient_id or body.medication_name)[:128],
+        note=(
+            f"patient_linked={int(bool(body.patient_id))}; modality={body.neuromodulation_modality or 'none'}; "
+            f"partial={int(bool(result.get('partial')))}"
+        ),
+    )
+    return result

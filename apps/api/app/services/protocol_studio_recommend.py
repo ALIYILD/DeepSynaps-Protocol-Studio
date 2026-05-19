@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, TypedDict
 
+from app.services.knowledge.adverse_event_inventory import ADVERSE_EVENT_DECISION_SUPPORT_DISCLAIMER
 from app.services.registries import list_protocols as registry_list_protocols
 
 
@@ -209,7 +210,10 @@ def build_protocol_recommendation(req: RecommendRequestDict) -> dict[str, Any]:
     if not condition:
         missing_data.append("condition")
 
-    safety_flags: list[str] = []
+    safety_flags: list[str] = [
+        "Adverse-event sources provide signal detection only. Spontaneous reports do not prove causality or clinical clearance.",
+        "Review medication context, seizure-threshold factors, and source availability before TMS/tDCS/DBS/VNS/neurofeedback planning.",
+    ]
 
     for row in rows:
         sid = str(row.get("id") or "").strip()
@@ -254,6 +258,10 @@ def build_protocol_recommendation(req: RecommendRequestDict) -> dict[str, Any]:
         )
         if patient_id:
             fit += " Patient context id supplied — verify fit against chart, imaging, and clinic policy."
+        fit += (
+            " Adverse-event source review remains required; spontaneous-report associations are source-limited "
+            "and do not clear a patient for stimulation."
+        )
         return {
             "protocol_id": sid,
             "title": str(row.get("name") or sid),
@@ -305,6 +313,7 @@ def build_protocol_recommendation(req: RecommendRequestDict) -> dict[str, Any]:
         "safety_flags": safety_flags,
         "ranking_note": (
             "Protocol rankings are decision-support summaries based on available registry/evidence data. "
-            "They are not treatment orders and do not replace clinical judgement."
+            "They are not treatment orders and do not replace clinical judgement. "
+            + ADVERSE_EVENT_DECISION_SUPPORT_DISCLAIMER
         ),
     }

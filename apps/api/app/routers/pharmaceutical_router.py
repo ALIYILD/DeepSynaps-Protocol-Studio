@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, status
 from pydantic import BaseModel, Field
 
+from app.services.knowledge.adverse_event_inventory import perform_medication_safety_check
 from app.services.knowledge.pharmaceutical_registry import (
     build_pharmaceutical_inventory,
     get_pharmaceutical_registry,
@@ -257,10 +258,24 @@ async def medication_safety_check(
     registry=Depends(get_pharmaceutical_registry),
 ) -> PharmaceuticalBundleResponse:
     base = await query_pharmaceutical_adapters(body, registry)
+    adverse_event_bundle = await perform_medication_safety_check(
+        medication_name=body.medication_name,
+        query_live_sources=False,
+    )
+    ae_flags = [
+        {
+            "source": "faers",
+            "field": "faers_signals",
+            "evidence_flag": "possible safety signal",
+            "details": adverse_event_bundle.get("faers_signals", []),
+        }
+        for _ in [0]
+        if adverse_event_bundle.get("faers_signals")
+    ]
     return PharmaceuticalBundleResponse(
         **base.model_dump(),
         clinician_review_required=True,
-        possible_safety_considerations=_safety_flags(base.adapters),
+        possible_safety_considerations=_safety_flags(base.adapters) + ae_flags,
     )
 
 
