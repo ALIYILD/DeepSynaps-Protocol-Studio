@@ -27,7 +27,20 @@ if TYPE_CHECKING:  # pragma: no cover — type-only import
 
 
 class LifecycleState(str, Enum):
-    """Normalized adapter lifecycle states (stable HTTP contract)."""
+    """Normalized adapter lifecycle states (stable HTTP contract).
+
+    Extended values (additive, do not remove):
+
+    - ``SOFTWARE_RESOURCE`` — the source is distributed as a software package /
+      library (e.g. NeuroMaps), not a queryable HTTP API. Catalogued for
+      documentation; not federated by the live search endpoint.
+    - ``REQUIRES_APPLICATION`` — restricted-access dataset that requires an
+      external application / DUA / institutional approval (e.g. HCP, UK Biobank,
+      OASIS, ABCD, EBRAINS, cNeuroMod). Catalogued but gated; ``enabled=False``
+      and never auto-federated.
+    - ``DEPRECATED`` — the source has been retired or migrated to a successor
+      (e.g. OpenfMRI → OpenNeuro). Kept for provenance; ``enabled=False``.
+    """
 
     CATALOGUED = "catalogued"
     REGISTERED = "registered"
@@ -36,6 +49,9 @@ class LifecycleState(str, Enum):
     DISABLED = "disabled"
     UNAVAILABLE = "unavailable"
     UNKNOWN = "unknown"
+    SOFTWARE_RESOURCE = "software_resource"
+    REQUIRES_APPLICATION = "requires_application"
+    DEPRECATED = "deprecated"
 
 
 _OK_STATUS_VALUES = frozenset({"ok", "healthy", "up", "ready", "green", "operational"})

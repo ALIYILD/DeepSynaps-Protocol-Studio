@@ -106,6 +106,7 @@ from app.routers.protocols_saved_router import router as protocols_saved_router
 from app.routers.protocols_generate_router import router as protocols_generate_router
 from app.routers.protocol_studio_router import router as protocol_studio_router
 from app.routers.brainmap_router import router as brainmap_router
+from app.routers.neuroimaging_router import router as neuroimaging_router
 from app.routers.neuro_signs import router as neuro_signs_router
 from app.routers.leads_reception_router import router as leads_reception_router
 from app.routers.onboarding_router import router as onboarding_router
@@ -564,6 +565,7 @@ app.include_router(protocols_saved_router)
 app.include_router(protocols_generate_router)
 app.include_router(protocol_studio_router)
 app.include_router(brainmap_router)
+app.include_router(neuroimaging_router)
 app.include_router(neuro_signs_router)
 app.include_router(leads_reception_router)
 app.include_router(onboarding_router)
