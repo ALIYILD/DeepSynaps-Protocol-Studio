@@ -41,4 +41,4 @@ class NeuroimagingHealth(BaseModel):
     nibabel: bool
     pybids: bool
     pynwb: bool
-    versions: dict[str, str | None]
+    versions: dict[str, str | None] = {}
