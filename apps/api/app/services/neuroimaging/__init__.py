@@ -47,6 +47,7 @@ from .schemas import (
     BIDSFileRef,
     NwbSummary,
     NeuroimagingHealth,
+<<<<<<< HEAD
     EcgFeatures,
     EdaFeatures,
     RspFeatures,
@@ -55,6 +56,7 @@ from .schemas import (
     ConnectomeSummary,
     DwiSummary,
     DtiScalarSummary,
+    EegModelSummary,
 )
 
 __all__ = [
@@ -92,4 +94,9 @@ __all__ = [
     "ConnectomeSummary",
     "DwiSummary",
     "DtiScalarSummary",
+    "EegModelSummary",
+    "build_eegnet",
+    "forward_pass",
+    "HAS_BRAINDECODE",
+    "HAS_TORCH",
 ]
