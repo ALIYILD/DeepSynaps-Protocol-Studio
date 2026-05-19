@@ -52,7 +52,9 @@ from app.services.knowledge.adapters.clinicaltrials_adapter import (
 )
 from app.services.knowledge.adapters.clinvar_adapter import ClinVarAdapter
 from app.services.knowledge.adapters.cochrane_adapter import CochraneAdapter
-from app.services.knowledge.adapters.crossref_adapter import CrossRefAdapter
+from app.services.knowledge.adapters.crossref_live_adapter import (
+    CrossRefLiveAdapter,
+)
 from app.services.knowledge.adapters.dynamed_adapter import DynaMedAdapter
 from app.services.knowledge.adapters.epistemonikos_adapter import (
     EpistemonikosAdapter,
@@ -74,8 +76,8 @@ from app.services.knowledge.adapters.openfda_adapter import OpenFDAAdapter
 from app.services.knowledge.adapters.pharmgkb_adapter import PharmGKBAdapter
 from app.services.knowledge.adapters.promis_adapter import PROMISAdapter
 from app.services.knowledge.adapters.pubmed_adapter import PubMedAdapter
-from app.services.knowledge.adapters.pubmed_central_adapter import (
-    PubMedCentralAdapter,
+from app.services.knowledge.adapters.pubmed_central_live_adapter import (
+    PubMedCentralLiveAdapter,
 )
 from app.services.knowledge.adapters.rxnorm_adapter import RxNormAdapter
 from app.services.knowledge.adapters.schaefer_adapter import SchaeferAdapter
@@ -124,18 +126,19 @@ _ADAPTER_CATALOG: Dict[str, Tuple[Type[DatabaseAdapter], str, Dict[str, Any]]] =
     "mesh":             (MeSHAdapter,             "P0", {}),
     "ols":              (OLSAdapter,              "P0", {}),
     "umls":             (UMLSAdapter,             "P1", {}),
-    # ── Category 3: Clinical Evidence (Slice A — catalogued only) ────────────
-    # Live network adapters land in Slice B (PRs #1074 CrossRef, #1092 PMC).
-    # These entries make every Cat-3 source visible to the registry so the
-    # HTTP layer can report honest lifecycle state.
-    "pubmed_central":   (PubMedCentralAdapter,    "P1", {}),
-    "nice":             (NICEAdapter,             "P1", {}),
-    "trip":             (TripDatabaseAdapter,     "P2", {}),
-    "epistemonikos":    (EpistemonikosAdapter,    "P2", {}),
-    "crossref":         (CrossRefAdapter,         "P1", {}),
-    "eudract":          (EudraCTAdapter,          "P1", {}),
-    "acp_journal_club": (ACPJournalClubAdapter,   "P2", {}),
-    "dynamed":          (DynaMedAdapter,          "P2", {}),
+    # ── Category 3: Clinical Evidence ───────────────────────────────────────
+    # CrossRef + PubMed Central are LIVE network adapters (PRs #1074, #1092).
+    # NICE, Trip, Epistemonikos, EudraCT remain catalogued-only until their
+    # Slice B implementations land. Subscription sources (ACP, DynaMed)
+    # stay catalogued-only and report ``disabled`` without credentials.
+    "pubmed_central":   (PubMedCentralLiveAdapter, "P1", {}),
+    "nice":             (NICEAdapter,              "P1", {}),
+    "trip":             (TripDatabaseAdapter,      "P2", {}),
+    "epistemonikos":    (EpistemonikosAdapter,     "P2", {}),
+    "crossref":         (CrossRefLiveAdapter,      "P1", {}),
+    "eudract":          (EudraCTAdapter,           "P1", {}),
+    "acp_journal_club": (ACPJournalClubAdapter,    "P2", {}),
+    "dynamed":          (DynaMedAdapter,           "P2", {}),
 }
 
 
