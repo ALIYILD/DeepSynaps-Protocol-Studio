@@ -321,6 +321,7 @@ from app.routers.ai_tier2_sgacc_router import router as ai_tier2_sgacc_router
 from app.routers.ai_tier1_medrag_router import router as ai_tier1_medrag_router
 from app.routers.ai_tier1_pubmedbert_router import router as ai_tier1_pubmedbert_router
 from app.routers.ai_tier2_brain_jepa_router import router as ai_tier2_brain_jepa_router
+from app.routers.ai_tier2_cbramod_router import router as ai_tier2_cbramod_router
 from app.middleware.demo_detection import register_demo_middleware
 from app.monitoring.middleware import MetricsMiddleware, register_metrics_endpoint
 from app.sentry_setup import init_sentry
@@ -850,6 +851,7 @@ app.include_router(ai_tier2_sgacc_router)
 app.include_router(ai_tier1_medrag_router)
 app.include_router(ai_tier1_pubmedbert_router)
 app.include_router(ai_tier2_brain_jepa_router)
+app.include_router(ai_tier2_cbramod_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
