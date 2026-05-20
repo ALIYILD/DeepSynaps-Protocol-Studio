@@ -324,6 +324,7 @@ from app.routers.ai_tier2_brain_jepa_router import router as ai_tier2_brain_jepa
 from app.routers.ai_tier2_cbramod_router import router as ai_tier2_cbramod_router
 from app.routers.ai_tier2_lightgbm_dbs_router import router as ai_tier2_lightgbm_dbs_router
 from app.routers.ai_tier2_medfuse_router import router as ai_tier2_medfuse_router
+from app.routers.ai_tier2_tms_response_router import router as ai_tier2_tms_response_router
 from app.middleware.demo_detection import register_demo_middleware
 from app.monitoring.middleware import MetricsMiddleware, register_metrics_endpoint
 from app.sentry_setup import init_sentry
@@ -856,6 +857,7 @@ app.include_router(ai_tier2_brain_jepa_router)
 app.include_router(ai_tier2_cbramod_router)
 app.include_router(ai_tier2_lightgbm_dbs_router)
 app.include_router(ai_tier2_medfuse_router)
+app.include_router(ai_tier2_tms_response_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
