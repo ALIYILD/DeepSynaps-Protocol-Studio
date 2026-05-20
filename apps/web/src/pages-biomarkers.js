@@ -3,7 +3,7 @@
  * patient-linked biomarker workspace. Nine tabs: QEEG, MRI, Blood & Labs,
  * Neuroinflammation, Hormones, Immune, Nutritional, Research, and Patient Workspace.
  */
-import { api } from './api.js';
+import { api, apiFetch } from './api.js';
 import { renderTerminologyExpansionPanel } from './diagnosis-coding-expansion.js';
 import { ensureAgentBrainStatus } from './agent-brain-status.js';
 import { isDemoSession } from './demo-session.js';
@@ -18,6 +18,11 @@ import {
   NUTRITIONAL_METABOLIC_BIOMARKERS, RESEARCH_ONLY_BIOMARKERS,
   getBiomarkersByCategory, searchBiomarkers
 } from './lab-biomarker-data.js';
+// Category 4 PR-5 — biomarker → neuroimaging catalog cross-wire.
+import {
+  renderBiomarkerNeuroimagingPanel,
+  createBiomarkerNeuroimagingController,
+} from './biomarker-neuroimaging-evidence.js';
 
 function _ensureMRIStyles() {
   if (!document.getElementById('mri-neuromarkers-styles')) {
@@ -424,6 +429,14 @@ function _openBiomarkerModal(marker, group) {
           </div>
           <div style="font-size:11px;color:var(--text-tertiary);line-height:1.45;max-width:240px;text-align:right">${CURATED_REFERENCE_PANEL_CAPTION}</div>
         </div>
+        <div id="nb-neuroimaging-evidence-host">
+          ${renderBiomarkerNeuroimagingPanel({
+            marker,
+            group,
+            patientId: (typeof window !== 'undefined' && window._selectedPatientId) || null,
+            status: 'idle',
+          })}
+        </div>
         <div style="margin-top:12px;display:flex;justify-content:flex-end">
           <button type="button" class="btn btn-ghost btn-sm" data-testid="nb-pivot-live-evidence"
             onclick="window._bmPivotToLiveEvidence(${esc(JSON.stringify({ name: marker.name, conditions: marker.conditions || [] }))})">
@@ -446,6 +459,18 @@ function _openBiomarkerModal(marker, group) {
   document.addEventListener('keydown', _escHandler);
   document.body.style.overflow = 'hidden';
   document.body.appendChild(overlayEl);
+
+  // Mount the Category 4 neuroimaging cross-wire controller into the modal.
+  // This re-renders the host on each search transition (idle → loading →
+  // success | error) and wires window._bmNeuroSearch to the rendered button.
+  try {
+    const neuroHost = overlayEl.querySelector('#nb-neuroimaging-evidence-host');
+    if (neuroHost) {
+      const patientId = (typeof window !== 'undefined' && window._selectedPatientId) || null;
+      const ctrl = createBiomarkerNeuroimagingController({ marker, group, patientId });
+      ctrl.mount(neuroHost);
+    }
+  } catch { /* never block modal render on neuroimaging wiring */ }
 }
 
 function _renderRefMarkerCard(marker, group, idx) {
@@ -549,6 +574,11 @@ function _renderReferenceTab() {
                 <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:6px">Use</div>
                 <div style="font-size:13px;font-weight:600;color:var(--text-primary);line-height:1.45">Reference and interpretation support</div>
               </div>
+              <div id="bm-neuroimaging-coverage-tile" data-testid="bm-neuroimaging-coverage-tile" style="padding:14px;border-radius:14px;background:rgba(20,184,166,0.06);border:1px solid rgba(20,184,166,0.22);grid-column:1 / -1">
+                <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#5eead4;margin-bottom:6px">Neuroimaging coverage</div>
+                <div style="font-size:12px;color:var(--text-secondary);line-height:1.45" data-testid="bm-neuroimaging-coverage-body">Loading catalog lifecycle…</div>
+                <div style="font-size:10px;color:var(--text-tertiary);margin-top:6px;line-height:1.35">Population-level neuroimaging context — open any marker and click "Find related imaging".</div>
+              </div>
             </div>
           </div>
         </div>
@@ -594,6 +624,38 @@ function _bindReferenceTab() {
     if (!marker) return;
     _openBiomarkerModal(marker, group);
   };
+
+  // Category 4 PR-5 — populate the neuroimaging coverage tile asynchronously.
+  // Purely informational; never blocks render and never carries patient data.
+  (async function _loadNeuroimagingCoverageTile() {
+    const body = document.querySelector('[data-testid="bm-neuroimaging-coverage-body"]');
+    if (!body) return;
+    let lifecycle = null;
+    try {
+      lifecycle = await apiFetch('/api/v1/neuroimaging/_lifecycle');
+    } catch {
+      if (body.isConnected) {
+        body.textContent = 'Catalog lifecycle unavailable — neuroimaging adapters offline.';
+      }
+      return;
+    }
+    if (!lifecycle || !body.isConnected) return;
+    const counts = lifecycle.counts || lifecycle || {};
+    const live = Number(counts.live ?? counts.healthy ?? 0);
+    const exp = Number(counts.experimental ?? 0);
+    const restricted = Number(counts.restricted ?? counts.deprecated ?? 0);
+    const total = live + exp + restricted;
+    if (!total) {
+      body.textContent = 'No catalog adapters reporting yet.';
+      return;
+    }
+    body.innerHTML =
+      `<span style="font-size:18px;font-weight:700;color:var(--text-primary)">${total}</span>` +
+      `<span style="font-size:11px;color:var(--text-tertiary);margin-left:6px">sources</span>` +
+      ` &middot; <span data-testid="bm-neuro-coverage-live">${live} live</span>` +
+      ` &middot; <span data-testid="bm-neuro-coverage-experimental">${exp} experimental</span>` +
+      ` &middot; <span data-testid="bm-neuro-coverage-restricted">${restricted} restricted</span>`;
+  })();
 
   // Category 8 terminology expansion: debounce + only fire for queries with
   // enough characters to be meaningful. Pure side-channel — never blocks
