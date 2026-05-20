@@ -41,6 +41,16 @@
   --green:      #4ade80;
   --red:        #ff6b6b;
 
+  /* Sidebar section tints — clinical question taxonomy. Drives the colored dot
+     on each section header, the icon hue tint, and the active-item accent. */
+  --nav-section-clinical:    #38bdf8;
+  --nav-section-patients:    #818cf8;
+  --nav-section-protocol:    #fbbf24;
+  --nav-section-analyzers:   #a78bfa;
+  --nav-section-knowledge:   #2dd4bf;
+  --nav-section-marketplace: #34d399;
+  --nav-section-admin:       #94a3b8;
+
   --bg-base:       var(--navy-900);
   --bg-sidebar:    var(--navy-950);
   --bg-card:       rgba(14,22,40,0.8);
@@ -287,11 +297,20 @@ pre, code { max-width: 100%; }
 }
 #login-overlay.visible { display: flex; }
 
-/* ── Sidebar ── */
+/* ──────────────────────────────────────────────────────────────────────────
+   Sidebar — clinical-modernist refresh (2026-05-20)
+   • Section tints drive a colored dot per header + active-item accent.
+   • Active item uses an inset capsule with gradient + ring (no left bar).
+   • Subtle radial mesh in the sidebar bg adds depth without noise.
+   • Staggered reveal on initial render (uses --i index from JS, fallback :nth).
+   ────────────────────────────────────────────────────────────────────────── */
 #sidebar {
   width: var(--sidebar-w);
   flex-shrink: 0;
   background: var(--bg-sidebar);
+  background-image:
+    radial-gradient(ellipse 70% 40% at 0% 0%, rgba(74,158,255,0.06) 0%, transparent 65%),
+    radial-gradient(ellipse 80% 50% at 100% 100%, rgba(0,212,188,0.05) 0%, transparent 60%);
   border-right: 1px solid var(--border);
   display: none;
   flex-direction: column;
@@ -299,19 +318,39 @@ pre, code { max-width: 100%; }
   position: fixed;
   left: 0; top: 0;
   z-index: 100;
-  background-color: var(--bg-sidebar);
 }
 #sidebar.visible { display: flex; }
+/* hairline gradient on the right edge — replaces the flat border feel */
+#sidebar::after {
+  content: '';
+  position: absolute;
+  right: -1px; top: 0; bottom: 0;
+  width: 1px;
+  background: linear-gradient(180deg,
+    transparent 0%,
+    rgba(0,212,188,0.18) 18%,
+    rgba(74,158,255,0.14) 60%,
+    transparent 100%);
+  pointer-events: none;
+}
 
 .logo-wrap {
-  padding: 22px 18px 16px;
+  padding: 20px 16px 14px;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   gap: 11px;
+  position: relative;
+}
+.logo-wrap::after {
+  content: '';
+  position: absolute;
+  left: 16px; right: 16px; bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0,212,188,0.35), transparent);
 }
 .logo-icon {
-  width: 42px; height: 42px;
+  width: 40px; height: 40px;
   background-color: #0c1230;
   background-image: url('/deepsynaps-logo.svg');
   background-position: center;
@@ -319,7 +358,16 @@ pre, code { max-width: 100%; }
   background-repeat: no-repeat;
   border-radius: 50%;
   flex-shrink: 0;
-  box-shadow: 0 0 14px rgba(74,124,247,0.35);
+  box-shadow:
+    0 0 0 1px rgba(0,212,188,0.22),
+    0 0 18px rgba(74,124,247,0.32);
+  transition: transform 0.4s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.3s ease;
+}
+.logo-wrap:hover .logo-icon {
+  transform: rotate(-6deg) scale(1.05);
+  box-shadow:
+    0 0 0 1px rgba(0,212,188,0.45),
+    0 0 24px rgba(0,212,188,0.4);
 }
 .logo-icon--lg { width: 44px; height: 44px; }
 .logo-name {
@@ -331,101 +379,329 @@ pre, code { max-width: 100%; }
   line-height: 1.1;
 }
 .logo-sub {
-  font-size: var(--text-xs);
+  font-size: 9.5px;
   color: var(--text-tertiary);
-  letter-spacing: 1px;
+  letter-spacing: 1.6px;
   text-transform: uppercase;
-  margin-top: 2px;
+  margin-top: 3px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.logo-sub::before {
+  content: '';
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--teal);
+  box-shadow: 0 0 6px var(--teal-glow);
+  animation: navDotPulse 2.4s ease-in-out infinite;
 }
 
-nav { flex: 1; overflow-y: auto; padding: 10px 0; }
+@keyframes navDotPulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.3); }
+}
 
-.nav-section {
-  padding: 12px 18px 4px;
-  font-size: var(--text-xs);
+nav { flex: 1; overflow-y: auto; padding: 10px 0 14px; }
+/* scrollbar polish (webkit) */
+nav::-webkit-scrollbar { width: 6px; }
+nav::-webkit-scrollbar-track { background: transparent; }
+nav::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.06);
+  border-radius: 3px;
+}
+nav::-webkit-scrollbar-thumb:hover { background: rgba(0,212,188,0.25); }
+
+/* Section header — colored dot prefix + gradient hairline divider */
+.nav-section,
+.nav-section-header {
+  padding: 14px 16px 6px;
+  font-size: 10px;
   color: var(--text-tertiary);
-  letter-spacing: 1.2px;
+  letter-spacing: 1.6px;
   text-transform: uppercase;
-  font-weight: 500;
+  font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-right: 14px;
-}.nav-section-chevron {
-  font-size: var(--text-xs);
-  opacity: 0.45;
-  transition: transform 0.18s ease;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.2s ease;
+  position: relative;
+}
+.nav-section-header--static { cursor: default; }
+.nav-section-header:hover { color: var(--text-secondary); }
+.nav-section-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+.nav-section-label::before {
+  content: '';
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--section-tint, var(--text-tertiary));
+  box-shadow: 0 0 6px color-mix(in srgb, var(--section-tint, transparent) 60%, transparent);
+  flex-shrink: 0;
+}
+.nav-section-chevron {
+  font-size: 14px;
+  opacity: 0.4;
+  transition: transform 0.25s cubic-bezier(0.4,0,0.2,1), opacity 0.2s ease;
   display: inline-block;
+  transform: rotate(90deg);
+  line-height: 1;
+}
+.nav-section-header:hover .nav-section-chevron { opacity: 0.75; }
+.nav-section-group--collapsed .nav-section-chevron { transform: rotate(0deg); }
+.nav-section-group--collapsed .nav-section-items {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+.nav-section-items {
+  max-height: 2000px;
+  overflow: hidden;
+  opacity: 1;
+  transition: max-height 0.35s ease, opacity 0.2s ease;
+  padding: 2px 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
+/* Per-section tints — drive the dot, icon hue, and active accent */
+.nav-section-group[data-section="clinical"]              { --section-tint: var(--nav-section-clinical); }
+.nav-section-group[data-section="patients-section"]      { --section-tint: var(--nav-section-patients); }
+.nav-section-group[data-section="protocol"]              { --section-tint: var(--nav-section-protocol); }
+.nav-section-group[data-section^="analyzers"]            { --section-tint: var(--nav-section-analyzers); }
+.nav-section-group[data-section="knowledge-section"]     { --section-tint: var(--nav-section-knowledge); }
+.nav-section-group[data-section="marketplace-section"]   { --section-tint: var(--nav-section-marketplace); }
+.nav-section-group[data-section="admin"]                 { --section-tint: var(--nav-section-admin); }
+
+/* Nav item — refined capsule, no left bar, sliding hover */
 .nav-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 18px;
+  padding: 7px 10px;
+  margin: 0;
   cursor: pointer;
   color: var(--text-secondary);
   font-size: 12.5px;
-  font-weight: 400;
+  font-weight: 450;
   position: relative;
-  transition: color var(--transition), background var(--transition);
-  border-radius: 0;
+  border-radius: 8px;
+  transition:
+    color 0.18s ease,
+    background 0.18s ease,
+    transform 0.22s cubic-bezier(0.34,1.56,0.64,1),
+    box-shadow 0.22s ease;
   user-select: none;
+  letter-spacing: 0.1px;
+  /* staggered reveal driven by position within section */
+  animation: navItemReveal 0.45s cubic-bezier(0.16,1,0.3,1) both;
 }
-.nav-item:hover { color: var(--text-primary); background: var(--bg-surface-2); }
-.nav-item.active { color: var(--teal); background: var(--teal-ghost); font-weight: 500; }
+.nav-section-items .nav-item:nth-child(1)  { animation-delay:  20ms; }
+.nav-section-items .nav-item:nth-child(2)  { animation-delay:  45ms; }
+.nav-section-items .nav-item:nth-child(3)  { animation-delay:  70ms; }
+.nav-section-items .nav-item:nth-child(4)  { animation-delay:  95ms; }
+.nav-section-items .nav-item:nth-child(5)  { animation-delay: 120ms; }
+.nav-section-items .nav-item:nth-child(6)  { animation-delay: 145ms; }
+.nav-section-items .nav-item:nth-child(7)  { animation-delay: 170ms; }
+.nav-section-items .nav-item:nth-child(n+8){ animation-delay: 195ms; }
+@keyframes navItemReveal {
+  0%   { opacity: 0; transform: translateX(-8px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+.nav-item:hover {
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.04);
+  transform: translateX(2px);
+}
+.nav-item:hover .nav-icon { opacity: 1; color: var(--section-tint, var(--text-secondary)); }
+
+.nav-item.active {
+  color: var(--text-primary);
+  font-weight: 600;
+  background:
+    linear-gradient(90deg,
+      color-mix(in srgb, var(--section-tint, var(--teal)) 16%, transparent) 0%,
+      color-mix(in srgb, var(--section-tint, var(--teal)) 6%,  transparent) 60%,
+      transparent 100%);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--section-tint, var(--teal)) 22%, transparent),
+    0 1px 0 rgba(0,0,0,0.2),
+    0 6px 18px -10px color-mix(in srgb, var(--section-tint, var(--teal)) 60%, transparent);
+}
+.nav-item.active .nav-icon { opacity: 1; color: var(--section-tint, var(--teal)); }
+
+/* Left tick — slim, tinted, only on active. Replaces the old 3px bar. */
 .nav-item.active::before {
   content: '';
   position: absolute;
-  left: 0; top: 4px; bottom: 4px;
-  width: 3px;
-  background: var(--teal);
+  left: -8px; top: 50%;
+  transform: translateY(-50%);
+  width: 3px; height: 18px;
   border-radius: 0 3px 3px 0;
-  box-shadow: 0 0 10px var(--teal-glow);
+  background: var(--section-tint, var(--teal));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--section-tint, var(--teal)) 50%, transparent);
 }
-.nav-icon { font-size: 14px; width: 17px; text-align: center; flex-shrink: 0; opacity: 0.7; }
-.nav-item.active .nav-icon { opacity: 1; }
+
+.nav-icon {
+  font-size: 14px;
+  width: 17px;
+  height: 17px;
+  text-align: center;
+  flex-shrink: 0;
+  opacity: 0.65;
+  transition: opacity 0.18s ease, color 0.18s ease, transform 0.22s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+}
+.nav-icon svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.nav-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 .nav-badge {
   margin-left: auto;
   background: rgba(255,107,107,0.15);
   color: var(--red);
   border: 1px solid rgba(255,107,107,0.25);
-  font-size: var(--text-xs);
-  padding: 1px 6px;
-  border-radius: 8px;
-  font-weight: 500;
-}
-.nav-badge-ai {
-  margin-left: auto;
-  background: rgba(0,212,188,0.1);
-  color: var(--teal);
-  border: 1px solid var(--border-teal);
-  font-size: var(--text-xs);
+  font-size: 9.5px;
   padding: 1px 6px;
   border-radius: 8px;
   font-weight: 600;
+  letter-spacing: 0.2px;
+}
+.nav-badge-ai {
+  margin-left: auto;
+  background: linear-gradient(135deg, rgba(0,212,188,0.18), rgba(74,158,255,0.12));
+  color: var(--teal);
+  border: 1px solid var(--border-teal);
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.7px;
 }
 .nav-badge-res {
   margin-left: 4px;
   background: rgba(155,127,255,0.10);
   color: var(--violet, #9b7fff);
   border: 1px solid rgba(155,127,255,0.28);
-  font-size: var(--text-xs);
+  font-size: 9px;
   padding: 1px 6px;
   border-radius: 8px;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.7px;
 }
+.nav-badge-demo {
+  margin-left: auto;
+  background: rgba(155,127,255,0.12);
+  color: var(--violet);
+  border: 1px solid rgba(155,127,255,0.3);
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+}
+
+/* Start Session button — refined gradient outline with hover lift */
+.nav-start-btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 12px;
+  background: linear-gradient(135deg, rgba(0,212,188,0.16), rgba(74,158,255,0.10));
+  border: 1px solid var(--border-teal);
+  border-radius: 10px;
+  color: var(--teal);
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.25s ease,
+    transform 0.2s cubic-bezier(0.34,1.56,0.64,1);
+  margin-bottom: 8px;
+}
+.nav-start-btn:hover {
+  background: linear-gradient(135deg, rgba(0,212,188,0.28), rgba(74,158,255,0.18));
+  border-color: rgba(0,212,188,0.55);
+  box-shadow: 0 0 0 1px rgba(0,212,188,0.2), 0 6px 22px -6px rgba(0,212,188,0.5);
+  transform: translateY(-1px);
+}
+.nav-start-btn:active { transform: translateY(0); }
+.nav-start-btn svg { transition: transform 0.2s ease; }
+.nav-start-btn:hover svg { transform: translateX(2px); }
+
+/* Patient quick-search — refined focus */
+.nav-pt-search-input {
+  width: 100%;
+  padding: 8px 10px 8px 28px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.2s ease;
+}
+.nav-pt-search-input::placeholder { color: var(--text-tertiary); font-size: 11.5px; }
+.nav-pt-search-input:focus {
+  border-color: var(--border-teal);
+  background: rgba(0,212,188,0.04);
+  box-shadow: 0 0 0 3px rgba(0,212,188,0.08);
+}
+
+/* Patient Dashboard demo item — distinct softer treatment */
+.nav-section-group--patient-view {
+  margin-top: 8px;
+  padding: 8px 8px 0;
+  border-top: 1px dashed rgba(255,255,255,0.05);
+}
+.nav-item--patient-view {
+  background: rgba(155,127,255,0.04);
+  border: 1px dashed rgba(155,127,255,0.18);
+}
+.nav-item--patient-view:hover {
+  background: rgba(155,127,255,0.1);
+  border-color: rgba(155,127,255,0.35);
+}
+
+/* User bar — refined avatar ring + role pill */
 .user-bar {
-  padding: 14px 16px;
+  padding: 12px 14px;
   border-top: 1px solid var(--border);
   display: flex;
   align-items: center;
   gap: 10px;
-  background: rgba(0,0,0,0.2);
+  background:
+    linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.35) 100%);
+  position: relative;
+}
+.user-bar::before {
+  content: '';
+  position: absolute;
+  left: 14px; right: 14px; top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0,212,188,0.25), transparent);
 }
 .avatar {
   width: 32px; height: 32px;
@@ -433,13 +709,41 @@ nav { flex: 1; overflow-y: auto; padding: 10px 0; }
   background: linear-gradient(135deg, var(--teal-dim), var(--blue-dim));
   color: #fff;
   font-size: 11.5px;
-  font-weight: 600;
+  font-weight: 700;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 0 10px var(--teal-glow);
+  box-shadow:
+    0 0 0 2px rgba(0,212,188,0.18),
+    0 0 14px var(--teal-glow);
+  position: relative;
 }
-.user-name { font-size: 12.5px; font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.user-role { font-size: var(--text-xs); color: var(--text-tertiary); }
+.avatar::after {
+  content: '';
+  position: absolute;
+  right: -1px; bottom: -1px;
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--green);
+  border: 2px solid var(--navy-950);
+  box-shadow: 0 0 6px rgba(74,222,128,0.6);
+}
+.user-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.1px;
+}
+.user-role {
+  font-size: 9.5px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
+  margin-top: 1px;
+}
 
 /* ── App shell ── */
 #app-shell {
